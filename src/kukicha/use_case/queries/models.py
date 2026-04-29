@@ -1,0 +1,295 @@
+from __future__ import annotations
+
+from collections.abc import Iterable
+from dataclasses import dataclass
+
+
+class LibraryQueryError(Exception):
+    """Base error for library query lookups."""
+
+
+class AlbumNotFoundError(LibraryQueryError, KeyError):
+    def __init__(self, album_id: str) -> None:
+        super().__init__(f"album not found: {album_id}")
+        self.album_id = album_id
+
+
+class PlaylistNotFoundError(LibraryQueryError, KeyError):
+    def __init__(self, playlist_id: int) -> None:
+        super().__init__(f"playlist not found: {playlist_id}")
+        self.playlist_id = playlist_id
+
+
+class PlaylistItemNotFoundError(LibraryQueryError, KeyError):
+    def __init__(self, playlist_item_id: int) -> None:
+        super().__init__(f"playlist item not found: {playlist_item_id}")
+        self.playlist_item_id = playlist_item_id
+
+
+class TrackNotFoundError(LibraryQueryError, KeyError):
+    def __init__(self, track_id: int) -> None:
+        super().__init__(f"track not found: {track_id}")
+        self.track_id = track_id
+
+
+ALBUM_LIST_SORT_RECENTLY_ADDED = "recently_added"
+ALBUM_LIST_SORT_ARTIST = "artist"
+ALBUM_LIST_SORT_VALUES = frozenset(
+    (
+        ALBUM_LIST_SORT_RECENTLY_ADDED,
+        ALBUM_LIST_SORT_ARTIST,
+    )
+)
+
+
+@dataclass(frozen=True, slots=True)
+class GenreStyleFilter:
+    genre: str
+    styles: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "genre", self.genre.strip())
+        object.__setattr__(self, "styles", normalized_unique_tuple(self.styles))
+
+
+@dataclass(frozen=True, slots=True)
+class AlbumListQuery:
+    artists: tuple[str, ...] = ()
+    album: str | None = None
+    root_positions: tuple[int, ...] = ()
+    genres: tuple[str, ...] = ()
+    styles: tuple[str, ...] = ()
+    genre_filters: tuple[GenreStyleFilter, ...] = ()
+    has_cover: bool | None = None
+    is_compilation: bool | None = None
+    is_work: bool | None = None
+    is_playlist: bool | None = None
+    page: int = 1
+    per_page: int = 200
+    search: str | None = None
+    sort: str = ALBUM_LIST_SORT_RECENTLY_ADDED
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "search", normalized_search(self.search))
+        object.__setattr__(self, "artists", normalized_tuple(self.artists))
+        object.__setattr__(self, "root_positions", normalized_int_tuple(self.root_positions))
+        object.__setattr__(self, "genres", normalized_tuple(self.genres))
+        object.__setattr__(self, "styles", normalized_tuple(self.styles))
+        object.__setattr__(
+            self,
+            "genre_filters",
+            normalized_genre_style_filters(self.genre_filters),
+        )
+        object.__setattr__(self, "page", max(1, int(self.page)))
+        object.__setattr__(self, "per_page", min(200, max(1, int(self.per_page))))
+        object.__setattr__(self, "sort", normalized_album_list_sort(self.sort))
+
+
+@dataclass(frozen=True, slots=True)
+class PlaylistTrack:
+    path: str
+    track_id: int | None = None
+    album_id: str | None = None
+    root_position: int | None = None
+    file_type: str | None = None
+    scan_error: str | None = None
+    artist: str | None = None
+    album_artist: str | None = None
+    composer: str | None = None
+    album: str | None = None
+    title: str | None = None
+    work: str | None = None
+    grouping: str | None = None
+    movement_name: str | None = None
+    track_number: str | None = None
+    disc_number: str | None = None
+    date: str | None = None
+    genres: tuple[str, ...] = ()
+    styles: tuple[str, ...] = ()
+    has_cover: bool = False
+    is_compilation: bool = False
+    duration_seconds: float | None = None
+    bitrate: int | None = None
+    has_playlist_membership: bool = False
+
+    @property
+    def is_work(self) -> bool:
+        return bool(self.work or self.grouping)
+
+
+@dataclass(frozen=True, slots=True)
+class AlbumSummary:
+    album_id: str
+    artist: str
+    album: str
+    year: int | None
+    track_count: int
+    file_created_at: str | None = None
+    genres: tuple[str, ...] = ()
+    styles: tuple[str, ...] = ()
+    has_cover: bool = False
+    is_compilation: bool = False
+    is_work: bool = False
+    art_track_id: int | None = None
+    track_ids: tuple[int, ...] = ()
+    is_playlist: bool = False
+    playlist_id: int | None = None
+    path: str = ""
+    cover_svg: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class AlbumDetails(AlbumSummary):
+    paths: tuple[str, ...] = ()
+    tracks: tuple[PlaylistTrack, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class PlaylistItem:
+    playlist_item_id: int
+    playlist_id: int
+    position: int
+    path: str
+    playlist_name: str = ""
+    track_id: int | None = None
+    track: PlaylistTrack | None = None
+    title: str | None = None
+    duration_seconds: float | None = None
+    genre: str | None = None
+    cover_url: str | None = None
+    playlist_cover_svg: str = ""
+
+    @property
+    def playback_id(self) -> int:
+        return -self.playlist_item_id
+
+    @property
+    def is_external(self) -> bool:
+        return self.track_id is None
+
+
+@dataclass(frozen=True, slots=True)
+class PlaylistDetails:
+    playlist_id: int
+    path: str
+    name: str
+    root_position: int | None
+    cover_svg: str = ""
+    items: tuple[PlaylistItem, ...] = ()
+
+    @property
+    def track_count(self) -> int:
+        return len(self.items)
+
+
+@dataclass(frozen=True, slots=True)
+class AlbumPage:
+    items: tuple[AlbumSummary, ...]
+    page: int
+    per_page: int
+    has_next: bool = False
+
+    @property
+    def has_previous(self) -> bool:
+        return self.page > 1
+
+
+@dataclass(frozen=True, slots=True)
+class GenreFilterGroup:
+    genre: str
+    styles: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class LibraryRootFilterOption:
+    position: int
+    path: str
+    label: str
+
+
+@dataclass(frozen=True, slots=True)
+class LibraryFilterOptions:
+    roots: tuple[LibraryRootFilterOption, ...] = ()
+    artists: tuple[str, ...] = ()
+    genre_groups: tuple[GenreFilterGroup, ...] = ()
+    loose_styles: tuple[str, ...] = ()
+
+
+def normalized_tuple(values: Iterable[str | None]) -> tuple[str, ...]:
+    return tuple(value.strip() for value in values if value and value.strip())
+
+
+def normalized_unique_tuple(values: Iterable[str | None]) -> tuple[str, ...]:
+    normalized: dict[str, str] = {}
+    for value in values:
+        if not value:
+            continue
+        text = value.strip()
+        if text:
+            normalized.setdefault(normalize_match(text), text)
+    return tuple(normalized.values())
+
+
+def normalized_genre_style_filters(
+    filters: Iterable[GenreStyleFilter],
+) -> tuple[GenreStyleFilter, ...]:
+    grouped: dict[str, GenreStyleFilter] = {}
+    for item in filters:
+        genre = item.genre.strip()
+        if not genre:
+            continue
+        styles = normalized_unique_tuple(item.styles)
+        key = normalize_match(genre)
+        existing = grouped.get(key)
+        if existing is None:
+            grouped[key] = GenreStyleFilter(
+                genre=genre,
+                styles=styles,
+            )
+            continue
+        merged_styles = (
+            ()
+            if not existing.styles or not styles
+            else (*existing.styles, *styles)
+        )
+        grouped[key] = GenreStyleFilter(
+            genre=existing.genre,
+            styles=merged_styles,
+        )
+    return tuple(
+        GenreStyleFilter(
+            genre=item.genre,
+            styles=normalized_unique_tuple(item.styles),
+        )
+        for item in grouped.values()
+    )
+
+
+def normalized_search(value: str | None) -> str | None:
+    if value is None:
+        return None
+    normalized = value.strip()
+    return normalized or None
+
+
+def normalized_int_tuple(values: Iterable[object]) -> tuple[int, ...]:
+    normalized: dict[int, int] = {}
+    for value in values:
+        try:
+            parsed = int(value)
+        except (TypeError, ValueError):
+            continue
+        if parsed < 0:
+            continue
+        normalized.setdefault(parsed, parsed)
+    return tuple(normalized)
+
+
+def normalized_album_list_sort(value: str | None) -> str:
+    if value in ALBUM_LIST_SORT_VALUES:
+        return value
+    return ALBUM_LIST_SORT_RECENTLY_ADDED
+
+
+def normalize_match(value: str) -> str:
+    return " ".join(value.casefold().strip().split())

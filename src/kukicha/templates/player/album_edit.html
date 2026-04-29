@@ -1,0 +1,127 @@
+<div class="view-page album-view" data-page="album-edit">
+  <div class="album-view-nav">
+    <a class="back-link" href="{{ album_back_url }}" data-history-back data-nav>&larr; back</a>
+    <a class="back-link" href="/" data-nav>&uarr; index</a>
+  </div>
+
+  <header class="album-header">
+    {% set art_url = album|album_art_url %}
+    <div class="album-identity">
+      {% if art_url %}
+        <img class="album-hero-cover" src="{{ art_url }}" alt="" loading="lazy">
+      {% else %}
+        <span class="album-hero-cover album-hero-cover-placeholder" aria-hidden="true"></span>
+      {% endif %}
+      <div class="album-detail-copy">
+        <h2 title="{{ album.album }}">{{ album.album|display_album_title }}</h2>
+        <ul class="meta-list album-artist-meta">
+          {% for part in album_artist_parts %}
+            <li>{{ part }}</li>
+          {% endfor %}
+        </ul>
+        {% if album_genre_year_parts %}
+          <ul class="meta-list album-genre-meta">
+            {% for part in album_genre_year_parts %}
+              <li>{{ part }}</li>
+            {% endfor %}
+          </ul>
+        {% endif %}
+        {% if album_style_parts %}
+          <ul class="meta-list album-style-meta">
+            {% for part in album_style_parts %}
+              <li>{{ part }}</li>
+            {% endfor %}
+          </ul>
+        {% endif %}
+      </div>
+    </div>
+  </header>
+
+  <section class="album-edit-panel settings-panel">
+    <div class="settings-panel-header">
+      <h3>MusicBrainz IDs</h3>
+      <div class="settings-panel-meta">Updates the stored MusicBrainz identifiers for this album without rewriting the audio files.</div>
+    </div>
+    <form class="album-edit-form" action="{{ album_musicbrainz_action_url }}" method="post" data-album-musicbrainz-form>
+      <label class="album-edit-field">
+        <span class="album-edit-label">MusicBrainz release ID</span>
+        <input
+          class="settings-input"
+          type="text"
+          value="{{ album_musicbrainz_release_mbid }}"
+          data-musicbrainz-release-mbid-input
+          placeholder="UUID or MusicBrainz release URL"
+        >
+      </label>
+      <label class="album-edit-field">
+        <span class="album-edit-label">MusicBrainz release group ID</span>
+        <input
+          class="settings-input"
+          type="text"
+          value="{{ album_musicbrainz_release_group_mbid }}"
+          data-musicbrainz-release-group-mbid-input
+          placeholder="UUID or MusicBrainz release-group URL"
+        >
+      </label>
+      <div class="album-edit-actions">
+        <button class="primary" type="submit" data-save-album-musicbrainz>Save MusicBrainz IDs</button>
+      </div>
+      <div class="settings-status" data-album-musicbrainz-status aria-live="polite"></div>
+    </form>
+  </section>
+
+  <section class="album-edit-panel settings-panel">
+    <div class="settings-panel-header">
+      <h3>Update Audio Tags</h3>
+      <div class="settings-panel-meta">Writes genre, album title, album artist, and artist tags to the files, then updates the library in the background. Applies to all visible tracks.</div>
+    </div>
+    <form class="album-edit-form" action="{{ album_tag_edit_action_url }}" method="post" data-album-tag-form>
+      <label class="album-edit-field">
+        <span class="album-edit-label">Genre</span>
+        <input class="settings-input" type="text" value="{{ album_tag_edit_genre }}" data-album-genre-input>
+      </label>
+      <label class="album-edit-field">
+        <span class="album-edit-label">Album artist</span>
+        <input class="settings-input" type="text" value="{{ album_tag_edit_album_artist }}" data-album-artist-input>
+      </label>
+      <div class="album-edit-track-list">
+        {% for track in tracks %}
+          <div class="album-edit-track-row" data-track-tag-row data-track-id="{{ track.track_id }}">
+            <div class="album-edit-track-copy">
+              <span class="album-edit-track-title">
+                {% if track.track_number %}{{ track.track_number }}. {% endif %}{{ track.display_title }}
+              </span>
+              <span class="album-edit-track-path">{{ track.path }}</span>
+            </div>
+            <div class="album-edit-track-inputs">
+              <label class="album-edit-track-field">
+                <span class="album-edit-track-input-label">Album</span>
+                <input
+                  class="settings-input"
+                  type="text"
+                  value="{{ track.album }}"
+                  data-track-album-input
+                  aria-label="Album title for {{ track.display_title }}"
+                >
+              </label>
+              <label class="album-edit-track-field">
+                <span class="album-edit-track-input-label">Artist</span>
+                <input
+                  class="settings-input"
+                  type="text"
+                  value="{{ track.artist }}"
+                  data-track-artist-input
+                  aria-label="Artist for {{ track.display_title }}"
+                >
+              </label>
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+      <div class="album-edit-actions">
+        <button class="primary" type="submit" data-save-album-tag>Edit Audio Tags</button>
+      </div>
+      <div class="settings-status" data-album-tag-status aria-live="polite"></div>
+    </form>
+  </section>
+</div>

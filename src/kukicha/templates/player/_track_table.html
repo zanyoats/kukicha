@@ -1,0 +1,137 @@
+{% from "player/_icons.html" import playlist_icon, queue_add_icon %}
+
+{% macro cover_cell(track) -%}
+  <td class="cover-cell">
+    <img class="cover{% if track.uses_playlist_cover %} playlist-cover-image{% endif %}" src="{{ track.art_url }}" alt="" loading="lazy">
+  </td>
+{%- endmacro %}
+
+{% macro track_artist_cell(track) -%}
+  {% if show_track_artist %}
+    <td class="track-artist">{{ track.artist or track.album_artist }}</td>
+  {% endif %}
+{%- endmacro %}
+
+{% macro queue_cells(row) -%}
+  {% set track = row.track %}
+  {{ cover_cell(track) }}
+  {{ track_artist_cell(track) }}
+  <td class="track-number">{{ track.track_number }}</td>
+  <td>{{ track.queue_title }}</td>
+  <td class="track-duration">{{ track.duration }}</td>
+  <td class="queue-status">{{ row.queue_status }}</td>
+{%- endmacro %}
+
+{% macro track_cells(track) -%}
+  {{ cover_cell(track) }}
+  {{ track_artist_cell(track) }}
+  <td class="track-number">{{ track.track_number }}</td>
+  <td>{{ track.table_title }}</td>
+  <td class="track-duration">{{ track.duration }}</td>
+  <td class="track-actions-cell">
+    <div class="track-actions">
+      <button type="button" data-play-track="{{ track.track_id }}">Play</button>
+      <button class="queue-icon-button" type="button" data-queue-track data-queue-append
+        aria-label="Add {{ track.display_title }} by {{ track.artist or track.album_artist or 'unknown artist' }} to the queue"
+        title="Add to queue"
+        {% if not queue_state.track_ids %}disabled{% endif %}>{{ queue_add_icon() }}</button>
+      {% if track.library_track_id %}
+        <details class="filter-menu playlist-track-menu{% if track.has_playlist_membership %} has-playlist-membership{% endif %}" data-dropdown-menu data-playlist-menu data-library-track-id="{{ track.library_track_id }}">
+          <summary class="playlist-icon-button" aria-label="Add to Playlists" title="Add to Playlists">
+            <span class="visually-hidden">Add to Playlists</span>
+            {{ playlist_icon(filled=track.has_playlist_membership) }}
+          </summary>
+          <div class="filter-options playlist-track-options" data-playlist-options>
+            {% if track.playlist_options is not none %}
+              {% if track.playlist_options %}
+                {% for playlist in track.playlist_options %}
+                  <label class="filter-option"{% if playlist.path %} title="{{ playlist.path }}"{% endif %}>
+                    <input type="checkbox" data-playlist-toggle data-track-id="{{ track.library_track_id }}" data-playlist-id="{{ playlist.playlist_id }}" {% if playlist.checked %}checked{% endif %}>
+                    <span>{{ playlist.name or ("Playlist " ~ playlist.playlist_id) }}</span>
+                  </label>
+                {% endfor %}
+              {% else %}
+                <div class="empty-small">No playlists found.</div>
+              {% endif %}
+            {% else %}
+              <div class="empty-small">No playlists found.</div>
+            {% endif %}
+          </div>
+        </details>
+      {% else %}
+        <button class="playlist-icon-button" type="button" aria-label="Add to Playlists" title="Add to Playlists" disabled>
+          <span class="visually-hidden">Add to Playlists</span>
+          {{ playlist_icon() }}
+        </button>
+      {% endif %}
+    </div>
+  </td>
+{%- endmacro %}
+
+{% set show_track_artist = show_track_artist|default(false) %}
+{% set column_count = 6 if show_track_artist else 5 %}
+
+<div class="table-wrap">
+  <table>
+    <thead>
+      <tr>
+        <th>Cover</th>
+        {% if show_track_artist %}<th>Artist</th>{% endif %}
+        <th>Track</th>
+        <th>Title</th>
+        <th>Duration</th>
+        {% if not is_queue %}<th class="track-actions-head"></th>{% endif %}
+        {% if is_queue %}<th>Queue</th>{% endif %}
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in table_rows %}
+        {% if row.group_label %}
+          <tr class="grouping-row">
+            <td colspan="{{ column_count }}">{{ row.group_label }}</td>
+          </tr>
+        {% endif %}
+        {% if is_queue %}
+          {% set track = row.track %}
+          <tr
+            data-track-id="{{ track.track_id }}"
+            data-library-track-id="{{ track.library_track_id if track.library_track_id is not none else '' }}"
+            data-album-id="{{ track.album_id }}"
+            data-queue-position="{{ row.queue_position }}"
+            data-audio-url="{{ track.audio_url }}"
+            data-art-url="{{ track.art_url }}"
+            data-title="{{ track.display_title }}"
+            data-album-artist="{{ track.album_artist }}"
+            data-album="{{ track.display_album }}"
+            data-duration-seconds="{{ track.duration_seconds if track.duration_seconds is not none else '' }}"
+            data-file-type="{{ track.file_type }}"
+            data-audio-mime-type="{{ track.audio_mime_type }}"
+            data-audio-codec="{{ track.audio_codec }}"
+            data-unsupported="{{ track.audio_unsupported_reason }}"
+          >
+            {{ queue_cells(row) }}
+          </tr>
+        {% else %}
+          {% set track = row.track %}
+          <tr
+            data-track-id="{{ track.track_id }}"
+            data-library-track-id="{{ track.library_track_id if track.library_track_id is not none else '' }}"
+            data-album-id="{{ track.album_id }}"
+            data-audio-url="{{ track.audio_url }}"
+            data-art-url="{{ track.art_url }}"
+            data-title="{{ track.display_title }}"
+            data-album-artist="{{ track.album_artist }}"
+            data-album="{{ track.display_album }}"
+            data-duration-seconds="{{ track.duration_seconds if track.duration_seconds is not none else '' }}"
+            data-file-type="{{ track.file_type }}"
+            data-audio-mime-type="{{ track.audio_mime_type }}"
+            data-audio-codec="{{ track.audio_codec }}"
+            data-unsupported="{{ track.audio_unsupported_reason }}"
+          >
+            {{ track_cells(track) }}
+          </tr>
+        {% endif %}
+      {% endfor %}
+    </tbody>
+  </table>
+</div>

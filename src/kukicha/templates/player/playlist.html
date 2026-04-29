@@ -1,0 +1,35 @@
+<div class="view-page album-view playlist-view" data-page="playlist">
+  <div class="album-view-nav">
+    <a class="back-link" href="{{ playlist_back_url }}" data-history-back data-nav>&larr; back</a>
+    <a class="back-link" href="/" data-nav>&uarr; index</a>
+  </div>
+
+  <header class="album-header">
+    <div class="album-identity">
+      <img class="album-hero-cover playlist-cover-image" src="{{ playlist_cover_data_url }}" alt="" loading="lazy">
+      <div class="album-detail-copy">
+        <h2 title="{{ playlist.name }}">{{ playlist.name }}</h2>
+        <ul class="meta-list album-genre-meta">
+          <li>Playlist</li>
+          {% if playlist_path_text %}
+            <li title="{{ playlist_path_text }}">{{ playlist_path_text }}</li>
+          {% endif %}
+        </ul>
+      </div>
+    </div>
+  </header>
+
+  {% set is_queue = false %}
+  <div class="album-track-sections">
+    <section class="album-track-section">
+      {% include "player/_track_table.html" %}
+      <div class="album-table-toolbar">
+        <ul class="meta-list album-track-meta">
+          {% for part in playlist_track_meta %}
+            <li>{{ part }}</li>
+          {% endfor %}
+        </ul>
+      </div>
+    </section>
+  </div>
+</div>

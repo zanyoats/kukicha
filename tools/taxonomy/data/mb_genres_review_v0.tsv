@@ -1,0 +1,2134 @@
+source	term	canonical	canonical_kind	status	action
+mb_genres_v0	2 tone			new_style	ignore
+mb_genres_v0	2-step			new_style	ignore
+mb_genres_v0	3-step			new_style	ignore
+mb_genres_v0	aak			new_style	ignore
+mb_genres_v0	abhang			new_style	ignore
+mb_genres_v0	aboio			new_style	ignore
+mb_genres_v0	abstract hip hop			new_style	add/Hip Hop
+mb_genres_v0	acholitronix			new_style	ignore
+mb_genres_v0	acid breaks			new_style	add/Electronic
+mb_genres_v0	acid house	Acid House	style	exact	none
+mb_genres_v0	acid jazz	Acid Jazz	style	exact	none
+mb_genres_v0	acid rock	Acid Rock	style	exact	none
+mb_genres_v0	acid techno			new_style	add/Electronic
+mb_genres_v0	acid trance			new_style	add/Electronic
+mb_genres_v0	acidcore			new_style	ignore
+mb_genres_v0	acousmatic			new_style	add/Electronic
+mb_genres_v0	acoustic blues			new_style	add/Blues
+mb_genres_v0	acoustic chicago blues			new_style	add/Blues
+mb_genres_v0	acoustic rock			new_style	add/Rock
+mb_genres_v0	acoustic texas blues			new_style	add/Blues
+mb_genres_v0	adhunik geet			new_style	ignore
+mb_genres_v0	afoxê			new_style	ignore
+mb_genres_v0	african blues			new_style	add/Blues
+mb_genres_v0	afro house			new_style	add/Electronic
+mb_genres_v0	afro rock			new_style	add/Rock
+mb_genres_v0	afro trap			new_style	ignore
+mb_genres_v0	afro-cuban jazz	Afro-Cuban Jazz	style	exact	none
+mb_genres_v0	afro-funk			new_style	add/Funk / Soul
+mb_genres_v0	afro-jazz			new_style	add/Jazz
+mb_genres_v0	afro-zouk			new_style	ignore
+mb_genres_v0	afrobeat	Afrobeat	style	exact	none
+mb_genres_v0	afrobeats			new_style	ignore
+mb_genres_v0	afropiano			new_style	ignore
+mb_genres_v0	afroswing			new_style	ignore
+mb_genres_v0	agbadza			new_style	ignore
+mb_genres_v0	agbekor			new_style	ignore
+mb_genres_v0	aggrotech			new_style	ignore
+mb_genres_v0	agronejo			new_style	ignore
+mb_genres_v0	ahwash			new_style	ignore
+mb_genres_v0	aita			new_style	ignore
+mb_genres_v0	akishibu-kei			new_style	ignore
+mb_genres_v0	al jeel			new_style	ignore
+mb_genres_v0	aleke			new_style	ignore
+mb_genres_v0	algerian chaabi			new_style	ignore
+mb_genres_v0	algorave			new_style	add/Electronic
+mb_genres_v0	alloukou			new_style	ignore
+mb_genres_v0	alpenrock			new_style	ignore
+mb_genres_v0	alté			new_style	ignore
+mb_genres_v0	alternative country			new_style	add/Folk, World, & Country
+mb_genres_v0	alternative dance			new_style	ignore
+mb_genres_v0	alternative folk			new_style	add/Folk, World, & Country
+mb_genres_v0	alternative hip hop			new_style	add/Hip Hop
+mb_genres_v0	alternative metal	Alternative Metal	style	exact	none
+mb_genres_v0	alternative pop			new_style	add/Pop
+mb_genres_v0	alternative punk			new_style	add/Rock
+mb_genres_v0	alternative r&b			new_style	add/Funk / Soul
+mb_genres_v0	alternative rock	Alternative Rock	style	exact	none
+mb_genres_v0	amapiano	Amapiano	style	exact	none
+mb_genres_v0	ambasse bey			new_style	ignore
+mb_genres_v0	ambient	Ambient	style	exact	none
+mb_genres_v0	ambient americana			new_style	add/Folk, World, & Country
+mb_genres_v0	ambient dub			new_style	ignore
+mb_genres_v0	ambient house	Ambient House	style	exact	none
+mb_genres_v0	ambient noise wall			new_style	ignore
+mb_genres_v0	ambient plugg			new_style	add/Hip Hop
+mb_genres_v0	ambient pop			new_style	add/Pop
+mb_genres_v0	ambient techno			new_style	add/Electronic
+mb_genres_v0	ambient trance			new_style	add/Electronic
+mb_genres_v0	ambrosian chant			new_style	add/Classical
+mb_genres_v0	american gamelan			new_style	ignore
+mb_genres_v0	american primitive guitar			new_style	ignore
+mb_genres_v0	americana			new_style	add/Folk, World, & Country
+mb_genres_v0	amigacore			new_style	ignore
+mb_genres_v0	anarcho-punk	Anarcho-Punk	style	exact	none
+mb_genres_v0	anatolian rock	Anatolian Rock	style	exact	none
+mb_genres_v0	andalusian classical	Andalusian Classical	style	exact	none
+mb_genres_v0	andean new age			new_style	ignore
+mb_genres_v0	anglican chant			new_style	ignore
+mb_genres_v0	animal sounds			new_style	add/Non-Music
+mb_genres_v0	anti-folk	Antifolk	style	exact	none
+mb_genres_v0	aor	AOR	style	exact	none
+mb_genres_v0	apala			new_style	ignore
+mb_genres_v0	appalachian folk			new_style	add/Folk, World, & Country
+mb_genres_v0	aquacrunk			new_style	ignore
+mb_genres_v0	arabesk			new_style	ignore
+mb_genres_v0	arabesk rap			new_style	add/Hip Hop
+mb_genres_v0	arena rock	Arena Rock	style	exact	none
+mb_genres_v0	arrocha			new_style	ignore
+mb_genres_v0	arrocha funk			new_style	ignore
+mb_genres_v0	arrocha sertanejo			new_style	ignore
+mb_genres_v0	arrochadeira			new_style	ignore
+mb_genres_v0	ars antiqua			new_style	add/Classical
+mb_genres_v0	ars nova			new_style	add/Classical
+mb_genres_v0	ars subtilior			new_style	add/Classical
+mb_genres_v0	art pop			new_style	add/Pop
+mb_genres_v0	art punk			new_style	add/Rock
+mb_genres_v0	art rock	Art Rock	style	exact	none
+mb_genres_v0	art song	Art Song	style	exact	none
+mb_genres_v0	artcore			new_style	ignore
+mb_genres_v0	ashkenazi cantorial music			new_style	ignore
+mb_genres_v0	asian rock			new_style	add/Rock
+mb_genres_v0	asmr			new_style	add/Non-Music
+mb_genres_v0	assiko			new_style	ignore
+mb_genres_v0	atmospheric black metal	Atmospheric Black Metal	style	exact	none
+mb_genres_v0	atmospheric drum and bass			new_style	add/Electronic
+mb_genres_v0	atmospheric sludge metal			new_style	add/Rock
+mb_genres_v0	audio documentary			new_style	add/Non-Music
+mb_genres_v0	audio drama			new_style	add/Non-Music
+mb_genres_v0	autonomic			new_style	ignore
+mb_genres_v0	avant-folk			new_style	add/Folk, World, & Country
+mb_genres_v0	avant-garde	Avantgarde	style	exact	none
+mb_genres_v0	avant-garde jazz	Avant-garde Jazz	style	exact	none
+mb_genres_v0	avant-garde metal			new_style	add/Rock
+mb_genres_v0	avant-garde pop			new_style	add/Pop
+mb_genres_v0	avant-prog			new_style	ignore
+mb_genres_v0	avanzada			new_style	ignore
+mb_genres_v0	avtorskaya pesnya			new_style	ignore
+mb_genres_v0	axé	Axé	style	exact	none
+mb_genres_v0	bacardi			new_style	ignore
+mb_genres_v0	bachata	Bachata	style	exact	none
+mb_genres_v0	bachatón			new_style	add/Latin
+mb_genres_v0	bagad			new_style	ignore
+mb_genres_v0	bagatelle			new_style	ignore
+mb_genres_v0	baguala			new_style	ignore
+mb_genres_v0	baião	Baião	style	exact	none
+mb_genres_v0	baila	Baila	style	exact	none
+mb_genres_v0	baisha xiyue			new_style	ignore
+mb_genres_v0	baithak gana			new_style	ignore
+mb_genres_v0	bakersfield sound	Bakersfield Sound	style	exact	none
+mb_genres_v0	balani show			new_style	ignore
+mb_genres_v0	balearic beat			new_style	ignore
+mb_genres_v0	balearic trance			new_style	add/Electronic
+mb_genres_v0	balinese gamelan			new_style	ignore
+mb_genres_v0	balitaw			new_style	ignore
+mb_genres_v0	ballad	Ballad	style	exact	none
+mb_genres_v0	ballad opera			new_style	add/Classical
+mb_genres_v0	ballet	Ballet	style	exact	none
+mb_genres_v0	ballet de cour			new_style	add/Classical
+mb_genres_v0	ballroom house			new_style	add/Electronic
+mb_genres_v0	baltimore club	Baltimore Club	style	exact	none
+mb_genres_v0	bambuco	Bambuco	style	exact	none
+mb_genres_v0	banda sinaloense			new_style	ignore
+mb_genres_v0	bandari			new_style	ignore
+mb_genres_v0	bandinha			new_style	ignore
+mb_genres_v0	banga			new_style	ignore
+mb_genres_v0	bantengan			new_style	ignore
+mb_genres_v0	baqashot			new_style	ignore
+mb_genres_v0	barber beats			new_style	ignore
+mb_genres_v0	barbershop	Barbershop	style	exact	none
+mb_genres_v0	bard rock			new_style	add/Rock
+mb_genres_v0	bardcore			new_style	ignore
+mb_genres_v0	baroque	Baroque	style	exact	none
+mb_genres_v0	baroque pop	Baroque Pop	style	exact	none
+mb_genres_v0	baroque suite			new_style	add/Classical
+mb_genres_v0	bashment soca			new_style	ignore
+mb_genres_v0	bass house			new_style	add/Electronic
+mb_genres_v0	bassline	Bassline	style	exact	none
+mb_genres_v0	batida			new_style	ignore
+mb_genres_v0	batidão romântico			new_style	ignore
+mb_genres_v0	batonebi songs			new_style	ignore
+mb_genres_v0	battle rap			new_style	add/Hip Hop
+mb_genres_v0	battle record			new_style	ignore
+mb_genres_v0	batucada	Batucada	style	exact	none
+mb_genres_v0	batuque			new_style	ignore
+mb_genres_v0	baul gaan			new_style	ignore
+mb_genres_v0	beach music			new_style	ignore
+mb_genres_v0	beat bolha			new_style	ignore
+mb_genres_v0	beat bruxaria			new_style	ignore
+mb_genres_v0	beat fino			new_style	ignore
+mb_genres_v0	beat music			new_style	ignore
+mb_genres_v0	beat poetry			new_style	ignore
+mb_genres_v0	beat rock			new_style	add/Rock
+mb_genres_v0	beatboxing			new_style	ignore
+mb_genres_v0	beatdown hardcore			new_style	ignore
+mb_genres_v0	bebop			new_style	add/Jazz
+mb_genres_v0	bedroom pop			new_style	add/Pop
+mb_genres_v0	beijing opera			new_style	ignore
+mb_genres_v0	bélé			new_style	ignore
+mb_genres_v0	belgian techno			new_style	add/Electronic
+mb_genres_v0	bend-skin			new_style	ignore
+mb_genres_v0	beneventan chant			new_style	add/Classical
+mb_genres_v0	benga			new_style	ignore
+mb_genres_v0	beni			new_style	ignore
+mb_genres_v0	benna			new_style	ignore
+mb_genres_v0	beompae			new_style	ignore
+mb_genres_v0	bérite club			new_style	ignore
+mb_genres_v0	berlin school	Berlin-School	style	exact	none
+mb_genres_v0	bhajan			new_style	ignore
+mb_genres_v0	bhangra	Bhangra	style	exact	none
+mb_genres_v0	bhavageethe			new_style	ignore
+mb_genres_v0	bhojpuri pop			new_style	add/Pop
+mb_genres_v0	big band	Big Band	style	exact	none
+mb_genres_v0	big beat	Big Beat	style	exact	none
+mb_genres_v0	big room house			new_style	add/Electronic
+mb_genres_v0	big room trance			new_style	add/Electronic
+mb_genres_v0	biguine			new_style	ignore
+mb_genres_v0	bikutsi			new_style	ignore
+mb_genres_v0	binaural beats			new_style	ignore
+mb_genres_v0	biraha			new_style	ignore
+mb_genres_v0	birdsong			new_style	add/Non-Music
+mb_genres_v0	birmingham sound			new_style	ignore
+mb_genres_v0	bit music			new_style	add/Electronic
+mb_genres_v0	bitpop	Bitpop	style	exact	none
+mb_genres_v0	black 'n' roll			new_style	ignore
+mb_genres_v0	black ambient			new_style	ignore
+mb_genres_v0	black metal	Black Metal	style	exact	none
+mb_genres_v0	black midi			new_style	ignore
+mb_genres_v0	black noise			new_style	ignore
+mb_genres_v0	blackened crust			new_style	add/Rock
+mb_genres_v0	blackened death metal			new_style	add/Rock
+mb_genres_v0	blackgaze	Blackgaze	style	exact	none
+mb_genres_v0	bleep techno			new_style	add/Electronic
+mb_genres_v0	blue-eyed soul			new_style	add/Funk / Soul
+mb_genres_v0	bluegrass	Bluegrass	style	exact	none
+mb_genres_v0	bluegrass gospel			new_style	ignore
+mb_genres_v0	blues	Blues	genre	exact	none
+mb_genres_v0	blues rock	Blues Rock	style	exact	none
+mb_genres_v0	bocet			new_style	ignore
+mb_genres_v0	boduberu			new_style	ignore
+mb_genres_v0	boedra			new_style	ignore
+mb_genres_v0	bogino duu			new_style	ignore
+mb_genres_v0	bolero	Bolero	style	exact	none
+mb_genres_v0	bolero español			new_style	add/Latin
+mb_genres_v0	bolero son			new_style	add/Latin
+mb_genres_v0	bolero-beat			new_style	add/Latin
+mb_genres_v0	bomba	Bomba	style	exact	none
+mb_genres_v0	bomba del chota			new_style	add/Latin
+mb_genres_v0	bongo flava	Bongo Flava	style	exact	none
+mb_genres_v0	boogaloo	Boogaloo	style	exact	none
+mb_genres_v0	boogie	Boogie	style	exact	none
+mb_genres_v0	boogie rock			new_style	add/Rock
+mb_genres_v0	boogie-woogie	Boogie Woogie	style	exact	none
+mb_genres_v0	boom bap	Boom Bap	style	exact	none
+mb_genres_v0	bossa nova	Bossa Nova	style	exact	none
+mb_genres_v0	bounce	Bounce	style	exact	none
+mb_genres_v0	bounce beat			new_style	ignore
+mb_genres_v0	bouncy techno	Bouncy Techno	style	exact	none
+mb_genres_v0	bouyon			new_style	ignore
+mb_genres_v0	boyfriend country			new_style	add/Folk, World, & Country
+mb_genres_v0	brass band	Brass Band	style	exact	none
+mb_genres_v0	brazilian bass			new_style	ignore
+mb_genres_v0	brazilian phonk			new_style	add/Hip Hop
+mb_genres_v0	break-in	Break-In	style	exact	none
+mb_genres_v0	breakbeat	Breakbeat	style	exact	none
+mb_genres_v0	breakbeat hardcore			new_style	add/Electronic
+mb_genres_v0	breakbeat kota			new_style	add/Electronic
+mb_genres_v0	breakcore	Breakcore	style	exact	none
+mb_genres_v0	breaks	Breaks	style	exact	none
+mb_genres_v0	breakstep			new_style	ignore
+mb_genres_v0	brega	Brega	style	exact	none
+mb_genres_v0	brega calypso			new_style	ignore
+mb_genres_v0	brega funk			new_style	ignore
+mb_genres_v0	briddim			new_style	ignore
+mb_genres_v0	brill building			new_style	ignore
+mb_genres_v0	brit funk			new_style	add/Funk / Soul
+mb_genres_v0	britcore	Britcore	style	exact	none
+mb_genres_v0	british blues			new_style	add/Blues
+mb_genres_v0	british brass band			new_style	add/Brass & Military
+mb_genres_v0	british folk rock			new_style	add/Rock
+mb_genres_v0	british rhythm & blues			new_style	ignore
+mb_genres_v0	britpop	Britpop	style	exact	none
+mb_genres_v0	bro-country			new_style	add/Folk, World, & Country
+mb_genres_v0	broadband noise			new_style	ignore
+mb_genres_v0	broken beat	Broken Beat	style	exact	none
+mb_genres_v0	broken transmission			new_style	ignore
+mb_genres_v0	brostep			new_style	ignore
+mb_genres_v0	brutal death metal	Brutal Death Metal	style	exact	none
+mb_genres_v0	brutal prog			new_style	ignore
+mb_genres_v0	bubblegum bass			new_style	ignore
+mb_genres_v0	bubblegum dance			new_style	ignore
+mb_genres_v0	bubblegum pop			new_style	add/Pop
+mb_genres_v0	bubbling	Bubbling	style	exact	none
+mb_genres_v0	bubbling house			new_style	add/Electronic
+mb_genres_v0	buchiage trance			new_style	add/Electronic
+mb_genres_v0	budots			new_style	ignore
+mb_genres_v0	bulería			new_style	ignore
+mb_genres_v0	bullerengue			new_style	ignore
+mb_genres_v0	burger-highlife			new_style	ignore
+mb_genres_v0	burmese classical			new_style	ignore
+mb_genres_v0	burmese mono			new_style	ignore
+mb_genres_v0	burmese stereo			new_style	ignore
+mb_genres_v0	burning spirits			new_style	ignore
+mb_genres_v0	burrakatha			new_style	ignore
+mb_genres_v0	bytebeat			new_style	add/Electronic
+mb_genres_v0	byzantine chant			new_style	add/Classical
+mb_genres_v0	c-pop			new_style	add/Pop
+mb_genres_v0	c86			new_style	ignore
+mb_genres_v0	ca trù			new_style	ignore
+mb_genres_v0	cabaret	Cabaret	style	exact	none
+mb_genres_v0	cabo zouk			new_style	ignore
+mb_genres_v0	cadence lypso			new_style	ignore
+mb_genres_v0	cadence rampa			new_style	ignore
+mb_genres_v0	cải lương			new_style	ignore
+mb_genres_v0	cajun	Cajun	style	exact	none
+mb_genres_v0	cakewalk			new_style	ignore
+mb_genres_v0	čalgija			new_style	ignore
+mb_genres_v0	calipso venezolano			new_style	ignore
+mb_genres_v0	calypso	Calypso	style	exact	none
+mb_genres_v0	campursari			new_style	ignore
+mb_genres_v0	campus folk			new_style	add/Folk, World, & Country
+mb_genres_v0	canción melódica			new_style	ignore
+mb_genres_v0	candombe	Candombe	style	exact	none
+mb_genres_v0	candombe beat			new_style	add/Latin
+mb_genres_v0	cantata	Cantata	style	exact	none
+mb_genres_v0	cante alentejano			new_style	ignore
+mb_genres_v0	canterbury scene			new_style	ignore
+mb_genres_v0	canto a lo poeta			new_style	ignore
+mb_genres_v0	canto cardenche			new_style	ignore
+mb_genres_v0	canto degli alpini			new_style	ignore
+mb_genres_v0	cantonese opera			new_style	ignore
+mb_genres_v0	cantopop	Cantopop	style	exact	none
+mb_genres_v0	cantoria			new_style	ignore
+mb_genres_v0	cantu a chiterra			new_style	ignore
+mb_genres_v0	cantu a tenore			new_style	ignore
+mb_genres_v0	canzona			new_style	ignore
+mb_genres_v0	canzone d'autore			new_style	ignore
+mb_genres_v0	canzone napoletana	Canzone Napoletana	style	exact	none
+mb_genres_v0	canzone neomelodica			new_style	ignore
+mb_genres_v0	cape breton fiddling			new_style	ignore
+mb_genres_v0	cape jazz	Cape Jazz	style	exact	none
+mb_genres_v0	caporal			new_style	ignore
+mb_genres_v0	capriccio	Capriccio	style	exact	none
+mb_genres_v0	carimbó	Carimbó	style	exact	none
+mb_genres_v0	carnatic classical			new_style	ignore
+mb_genres_v0	carnavalito			new_style	add/Latin
+mb_genres_v0	carranga			new_style	ignore
+mb_genres_v0	celtic	Celtic	style	exact	none
+mb_genres_v0	celtic chant			new_style	ignore
+mb_genres_v0	celtic electronica			new_style	add/Electronic
+mb_genres_v0	celtic metal			new_style	add/Rock
+mb_genres_v0	celtic new age			new_style	ignore
+mb_genres_v0	celtic punk			new_style	add/Rock
+mb_genres_v0	celtic rock			new_style	add/Rock
+mb_genres_v0	central asian throat singing			new_style	ignore
+mb_genres_v0	chacarera	Chacarera	style	exact	none
+mb_genres_v0	chachachá			new_style	add/Latin
+mb_genres_v0	chalga			new_style	ignore
+mb_genres_v0	chamamé	Chamamé	style	exact	none
+mb_genres_v0	chamamé tropical			new_style	add/Latin
+mb_genres_v0	chamarrita açoriana			new_style	ignore
+mb_genres_v0	chamarrita rioplatense			new_style	ignore
+mb_genres_v0	chamber folk			new_style	add/Folk, World, & Country
+mb_genres_v0	chamber pop			new_style	add/Pop
+mb_genres_v0	champeta	Champeta	style	exact	none
+mb_genres_v0	changa tuki			new_style	ignore
+mb_genres_v0	change ringing			new_style	ignore
+mb_genres_v0	changjak gugak			new_style	ignore
+mb_genres_v0	changüí			new_style	ignore
+mb_genres_v0	chanson à texte			new_style	ignore
+mb_genres_v0	chanson française			new_style	ignore
+mb_genres_v0	chanson québécoise			new_style	ignore
+mb_genres_v0	chanson réaliste			new_style	ignore
+mb_genres_v0	chaozhou xianshi			new_style	ignore
+mb_genres_v0	chap hop			new_style	ignore
+mb_genres_v0	character piece			new_style	ignore
+mb_genres_v0	charanga	Charanga	style	exact	none
+mb_genres_v0	chazzanut			new_style	ignore
+mb_genres_v0	chèo			new_style	ignore
+mb_genres_v0	chicago blues	Chicago Blues	style	exact	none
+mb_genres_v0	chicago bop			new_style	ignore
+mb_genres_v0	chicago drill			new_style	add/Hip Hop
+mb_genres_v0	chicago house			new_style	add/Electronic
+mb_genres_v0	chicago polka			new_style	ignore
+mb_genres_v0	chicago soul			new_style	add/Funk / Soul
+mb_genres_v0	chicano rap			new_style	add/Hip Hop
+mb_genres_v0	chicha			new_style	add/Latin
+mb_genres_v0	children's music			new_style	add/Children's
+mb_genres_v0	chilena			new_style	add/Latin
+mb_genres_v0	chillout			new_style	ignore
+mb_genres_v0	chillstep			new_style	add/Electronic
+mb_genres_v0	chillsynth			new_style	add/Electronic
+mb_genres_v0	chillwave	Chillwave	style	exact	none
+mb_genres_v0	chimayche			new_style	ignore
+mb_genres_v0	chimurenga			new_style	ignore
+mb_genres_v0	chinese classical	Chinese Classical	style	exact	none
+mb_genres_v0	chinese literati music			new_style	ignore
+mb_genres_v0	chinese opera			new_style	ignore
+mb_genres_v0	chinese revolutionary opera			new_style	ignore
+mb_genres_v0	chipmunk soul			new_style	add/Funk / Soul
+mb_genres_v0	chiptune	Chiptune	style	exact	none
+mb_genres_v0	chöd			new_style	ignore
+mb_genres_v0	chopped and screwed			new_style	add/Hip Hop
+mb_genres_v0	chopper			new_style	ignore
+mb_genres_v0	choral symphony			new_style	ignore
+mb_genres_v0	choro	Choro	style	exact	none
+mb_genres_v0	chotis madrileño			new_style	ignore
+mb_genres_v0	christian hardcore			new_style	ignore
+mb_genres_v0	christian hip hop			new_style	add/Hip Hop
+mb_genres_v0	christian metal			new_style	add/Rock
+mb_genres_v0	christian rock			new_style	add/Rock
+mb_genres_v0	christmas music			new_style	ignore
+mb_genres_v0	church music			new_style	ignore
+mb_genres_v0	chutney	Chutney	style	exact	none
+mb_genres_v0	chutney soca			new_style	ignore
+mb_genres_v0	cilokaq			new_style	ignore
+mb_genres_v0	cinematic classical			new_style	ignore
+mb_genres_v0	ciranda			new_style	ignore
+mb_genres_v0	circus march			new_style	add/Brass & Military
+mb_genres_v0	city pop	City Pop	style	exact	none
+mb_genres_v0	classic blues			new_style	add/Blues
+mb_genres_v0	classic country			new_style	add/Folk, World, & Country
+mb_genres_v0	classic jazz			new_style	add/Jazz
+mb_genres_v0	classic ragtime			new_style	add/Jazz
+mb_genres_v0	classic rock	Classic Rock	style	exact	none
+mb_genres_v0	classical	Classical	genre	exact	none
+mb_genres_v0	classical crossover			new_style	add/Classical
+mb_genres_v0	classical period			new_style	add/Classical
+mb_genres_v0	close harmony			new_style	ignore
+mb_genres_v0	cloud rap	Cloud Rap	style	exact	none
+mb_genres_v0	club			new_style	ignore
+mb_genres_v0	cocktail nation			new_style	ignore
+mb_genres_v0	coco			new_style	ignore
+mb_genres_v0	coke rap			new_style	add/Hip Hop
+mb_genres_v0	coladeira			new_style	ignore
+mb_genres_v0	coldwave	Coldwave	style	exact	none
+mb_genres_v0	colindă			new_style	ignore
+mb_genres_v0	colour bass			new_style	add/Electronic
+mb_genres_v0	comédie-ballet			new_style	add/Classical
+mb_genres_v0	comedy	Comedy	style	exact	none
+mb_genres_v0	comedy hip hop			new_style	add/Hip Hop
+mb_genres_v0	comedy rock			new_style	add/Rock
+mb_genres_v0	comfy synth	Comfy Synth	style	exact	none
+mb_genres_v0	compas	Compas	style	exact	none
+mb_genres_v0	complextro			new_style	ignore
+mb_genres_v0	concert band	Concert Band	style	exact	none
+mb_genres_v0	concertina band			new_style	ignore
+mb_genres_v0	concerto	Concerto	style	exact	none
+mb_genres_v0	concerto for orchestra			new_style	ignore
+mb_genres_v0	concerto grosso	Concerto Grosso	style	exact	none
+mb_genres_v0	conducted improvisation			new_style	ignore
+mb_genres_v0	conga			new_style	ignore
+mb_genres_v0	congolese rumba			new_style	ignore
+mb_genres_v0	conscious hip hop			new_style	add/Hip Hop
+mb_genres_v0	contemporary christian			new_style	ignore
+mb_genres_v0	contemporary classical			new_style	add/Classical
+mb_genres_v0	contemporary country			new_style	add/Folk, World, & Country
+mb_genres_v0	contemporary folk			new_style	add/Folk, World, & Country
+mb_genres_v0	contemporary gospel			new_style	ignore
+mb_genres_v0	contemporary jazz	Contemporary Jazz	style	exact	none
+mb_genres_v0	contemporary r&b	Contemporary R&B	style	exact	none
+mb_genres_v0	contenance angloise			new_style	ignore
+mb_genres_v0	contra			new_style	ignore
+mb_genres_v0	cool jazz	Cool Jazz	style	exact	none
+mb_genres_v0	coon song			new_style	ignore
+mb_genres_v0	copla	Copla	style	exact	none
+mb_genres_v0	corrido	Corrido	style	exact	none
+mb_genres_v0	corrido tumbado			new_style	add/Latin
+mb_genres_v0	cosmic country			new_style	add/Folk, World, & Country
+mb_genres_v0	country	Country	style	exact	none
+mb_genres_v0	country and irish			new_style	add/Folk, World, & Country
+mb_genres_v0	country blues	Country Blues	style	exact	none
+mb_genres_v0	country boogie			new_style	add/Folk, World, & Country
+mb_genres_v0	country folk			new_style	add/Folk, World, & Country
+mb_genres_v0	country gospel			new_style	ignore
+mb_genres_v0	country pop			new_style	add/Folk, World, & Country
+mb_genres_v0	country rap			new_style	ignore
+mb_genres_v0	country rock	Country Rock	style	exact	none
+mb_genres_v0	country soul			new_style	ignore
+mb_genres_v0	country yodeling			new_style	add/Folk, World, & Country
+mb_genres_v0	countrypolitan			new_style	ignore
+mb_genres_v0	coupé-décalé			new_style	ignore
+mb_genres_v0	cowboy poetry			new_style	ignore
+mb_genres_v0	cowpunk			new_style	ignore
+mb_genres_v0	crack rock steady			new_style	ignore
+mb_genres_v0	crime jazz			new_style	add/Jazz
+mb_genres_v0	crossbreed			new_style	ignore
+mb_genres_v0	crossover jazz			new_style	add/Jazz
+mb_genres_v0	crossover prog			new_style	ignore
+mb_genres_v0	crossover thrash	Crossover Thrash	style	exact	none
+mb_genres_v0	cruise			new_style	ignore
+mb_genres_v0	crunk	Crunk	style	exact	none
+mb_genres_v0	crunkcore			new_style	ignore
+mb_genres_v0	crust punk			new_style	add/Rock
+mb_genres_v0	csárdás			new_style	ignore
+mb_genres_v0	cuarteto			new_style	add/Latin
+mb_genres_v0	cubatón			new_style	add/Latin
+mb_genres_v0	cuddlecore			new_style	ignore
+mb_genres_v0	cueca			new_style	add/Latin
+mb_genres_v0	cumbia	Cumbia	style	exact	none
+mb_genres_v0	cumbia amazónica			new_style	add/Latin
+mb_genres_v0	cumbia argentina			new_style	add/Latin
+mb_genres_v0	cumbia chilena			new_style	add/Latin
+mb_genres_v0	cumbia colombiana			new_style	add/Latin
+mb_genres_v0	cumbia mexicana			new_style	add/Latin
+mb_genres_v0	cumbia norteña mexicana			new_style	add/Latin
+mb_genres_v0	cumbia peruana			new_style	add/Latin
+mb_genres_v0	cumbia pop			new_style	add/Latin
+mb_genres_v0	cumbia rebajada			new_style	add/Latin
+mb_genres_v0	cumbia salvadoreña			new_style	add/Latin
+mb_genres_v0	cumbia santafesina			new_style	add/Latin
+mb_genres_v0	cumbia sonidera			new_style	add/Latin
+mb_genres_v0	cumbia turra			new_style	add/Latin
+mb_genres_v0	cumbia villera			new_style	add/Latin
+mb_genres_v0	cumbiatón			new_style	add/Latin
+mb_genres_v0	cuplé			new_style	ignore
+mb_genres_v0	currulao	Currulao	style	exact	none
+mb_genres_v0	cyber metal			new_style	add/Rock
+mb_genres_v0	cybergrind			new_style	ignore
+mb_genres_v0	cyberpunk			new_style	ignore
+mb_genres_v0	d-beat			new_style	ignore
+mb_genres_v0	dabke	Dabke	style	exact	none
+mb_genres_v0	dance			new_style	ignore
+mb_genres_v0	dance-pop	Dance-pop	style	exact	none
+mb_genres_v0	dance-punk			new_style	add/Rock
+mb_genres_v0	dance-punk revival			new_style	add/Rock
+mb_genres_v0	dance-rock			new_style	add/Rock
+mb_genres_v0	dancefloor drum and bass			new_style	add/Electronic
+mb_genres_v0	dancehall	Dancehall	style	exact	none
+mb_genres_v0	dangak			new_style	ignore
+mb_genres_v0	dangdut	Dangdut	style	exact	none
+mb_genres_v0	danmono			new_style	ignore
+mb_genres_v0	dansband	Dansband	style	exact	none
+mb_genres_v0	dansktop			new_style	ignore
+mb_genres_v0	danzón	Danzon	style	exact	none
+mb_genres_v0	dariacore			new_style	ignore
+mb_genres_v0	dark ambient	Dark Ambient	style	exact	none
+mb_genres_v0	dark cabaret			new_style	ignore
+mb_genres_v0	dark disco			new_style	ignore
+mb_genres_v0	dark electro	Dark Electro	style	exact	none
+mb_genres_v0	dark folk			new_style	add/Folk, World, & Country
+mb_genres_v0	dark jazz	Dark Jazz	style	exact	none
+mb_genres_v0	dark plugg			new_style	add/Hip Hop
+mb_genres_v0	dark psytrance			new_style	ignore
+mb_genres_v0	dark wave	Darkwave	style	exact	none
+mb_genres_v0	darkcore			new_style	ignore
+mb_genres_v0	darkcore edm			new_style	add/Electronic
+mb_genres_v0	darkstep			new_style	add/Electronic
+mb_genres_v0	darksynth			new_style	add/Electronic
+mb_genres_v0	data sonification			new_style	ignore
+mb_genres_v0	death 'n' roll			new_style	ignore
+mb_genres_v0	death industrial			new_style	add/Electronic
+mb_genres_v0	death metal	Death Metal	style	exact	none
+mb_genres_v0	death-doom metal			new_style	add/Rock
+mb_genres_v0	deathchant hardcore			new_style	ignore
+mb_genres_v0	deathcore	Deathcore	style	exact	none
+mb_genres_v0	deathgrind			new_style	ignore
+mb_genres_v0	deathrock	Deathrock	style	exact	none
+mb_genres_v0	deathstep			new_style	ignore
+mb_genres_v0	dechovka			new_style	ignore
+mb_genres_v0	deconstructed club	Deconstructed Club	style	exact	none
+mb_genres_v0	deejay			new_style	ignore
+mb_genres_v0	deep drum and bass			new_style	add/Electronic
+mb_genres_v0	deep funk			new_style	add/Funk / Soul
+mb_genres_v0	deep house	Deep House	style	exact	none
+mb_genres_v0	deep soul			new_style	add/Funk / Soul
+mb_genres_v0	deep tech			new_style	ignore
+mb_genres_v0	deep techno	Deep Techno	style	exact	none
+mb_genres_v0	delta blues	Delta Blues	style	exact	none
+mb_genres_v0	dembow			new_style	add/Latin
+mb_genres_v0	demostyle			new_style	ignore
+mb_genres_v0	dennery segment			new_style	ignore
+mb_genres_v0	denpa			new_style	ignore
+mb_genres_v0	depressive black metal	Depressive Black Metal	style	exact	none
+mb_genres_v0	descarga	Descarga	style	exact	none
+mb_genres_v0	desert blues	Desert Blues	style	exact	none
+mb_genres_v0	desert rock			new_style	add/Rock
+mb_genres_v0	desgarrada			new_style	ignore
+mb_genres_v0	detroit techno			new_style	add/Electronic
+mb_genres_v0	detroit trap			new_style	ignore
+mb_genres_v0	dhaanto			new_style	ignore
+mb_genres_v0	dhol tasha			new_style	ignore
+mb_genres_v0	dhrupad			new_style	ignore
+mb_genres_v0	digicore			new_style	ignore
+mb_genres_v0	digital cumbia			new_style	add/Latin
+mb_genres_v0	digital fusion			new_style	ignore
+mb_genres_v0	digital hardcore			new_style	ignore
+mb_genres_v0	dikir barat			new_style	ignore
+mb_genres_v0	dimotiko			new_style	ignore
+mb_genres_v0	dirty south			new_style	add/Hip Hop
+mb_genres_v0	disco	Disco	style	exact	none
+mb_genres_v0	disco polo	Disco Polo	style	exact	none
+mb_genres_v0	dissonant black metal			new_style	add/Rock
+mb_genres_v0	dissonant death metal			new_style	add/Rock
+mb_genres_v0	diva house			new_style	add/Electronic
+mb_genres_v0	divertissement			new_style	ignore
+mb_genres_v0	dixieland	Dixieland	style	exact	none
+mb_genres_v0	djanba			new_style	ignore
+mb_genres_v0	djent			new_style	add/Rock
+mb_genres_v0	doble paso			new_style	ignore
+mb_genres_v0	dobrado			new_style	ignore
+mb_genres_v0	doina			new_style	ignore
+mb_genres_v0	dondang sayang			new_style	ignore
+mb_genres_v0	dongjing			new_style	ignore
+mb_genres_v0	donk	Donk	style	exact	none
+mb_genres_v0	donosti sound			new_style	ignore
+mb_genres_v0	doo-wop	Doo Wop	style	exact	none
+mb_genres_v0	doom metal	Doom Metal	style	exact	none
+mb_genres_v0	doomcore	Doomcore	style	exact	none
+mb_genres_v0	doomgaze			new_style	ignore
+mb_genres_v0	doskpop			new_style	add/Pop
+mb_genres_v0	downtempo	Downtempo	style	exact	none
+mb_genres_v0	downtempo deathcore			new_style	add/Rock
+mb_genres_v0	dream pop	Dream Pop	style	exact	none
+mb_genres_v0	dream trance			new_style	add/Electronic
+mb_genres_v0	dreampunk			new_style	ignore
+mb_genres_v0	drift phonk			new_style	add/Hip Hop
+mb_genres_v0	drill	Drill	style	exact	none
+mb_genres_v0	drill and bass			new_style	add/Electronic
+mb_genres_v0	drinking song			new_style	ignore
+mb_genres_v0	drone	Drone	style	exact	none
+mb_genres_v0	drone metal			new_style	add/Rock
+mb_genres_v0	drum and bass			new_style	add/Electronic
+mb_genres_v0	drum and bugle corps			new_style	add/Brass & Military
+mb_genres_v0	drumfunk			new_style	ignore
+mb_genres_v0	drumless hip hop			new_style	add/Hip Hop
+mb_genres_v0	drumline			new_style	add/Brass & Military
+mb_genres_v0	drumstep			new_style	add/Electronic
+mb_genres_v0	dub	Dub	style	exact	none
+mb_genres_v0	dub poetry	Dub Poetry	style	exact	none
+mb_genres_v0	dub techno	Dub Techno	style	exact	none
+mb_genres_v0	dubstep	Dubstep	style	exact	none
+mb_genres_v0	dubstyle			new_style	ignore
+mb_genres_v0	dubwise			new_style	add/Reggae
+mb_genres_v0	duma			new_style	ignore
+mb_genres_v0	dunedin sound			new_style	ignore
+mb_genres_v0	dungeon rap			new_style	add/Hip Hop
+mb_genres_v0	dungeon sound			new_style	ignore
+mb_genres_v0	dungeon synth	Dungeon Synth	style	exact	none
+mb_genres_v0	duranguense	Duranguense	style	exact	none
+mb_genres_v0	dutch house			new_style	add/Electronic
+mb_genres_v0	eai			new_style	ignore
+mb_genres_v0	early hardstyle			new_style	add/Electronic
+mb_genres_v0	east coast hip hop			new_style	add/Hip Hop
+mb_genres_v0	eastern-style polka			new_style	ignore
+mb_genres_v0	easy listening	Easy Listening	style	exact	none
+mb_genres_v0	easycore			new_style	ignore
+mb_genres_v0	ebm	EBM	style	exact	none
+mb_genres_v0	eccojams			new_style	ignore
+mb_genres_v0	edm			new_style	add/Electronic
+mb_genres_v0	electric blues	Electric Blues	style	exact	none
+mb_genres_v0	electric texas blues			new_style	add/Blues
+mb_genres_v0	electro	Electro	style	exact	none
+mb_genres_v0	electro hop			new_style	add/Electronic
+mb_genres_v0	electro house	Electro House	style	exact	none
+mb_genres_v0	electro latino			new_style	ignore
+mb_genres_v0	electro swing	Electro Swing	style	exact	none
+mb_genres_v0	electro-disco			new_style	add/Electronic
+mb_genres_v0	electro-funk			new_style	ignore
+mb_genres_v0	electro-industrial			new_style	add/Electronic
+mb_genres_v0	electroacoustic	Electroacoustic	style	exact	none
+mb_genres_v0	electroclash	Electroclash	style	exact	none
+mb_genres_v0	electronic	Electronic	genre	exact	none
+mb_genres_v0	electronic rock			new_style	add/Rock
+mb_genres_v0	electronica			new_style	add/Electronic
+mb_genres_v0	electronicore			new_style	ignore
+mb_genres_v0	electropop			new_style	add/Pop
+mb_genres_v0	electropunk			new_style	ignore
+mb_genres_v0	electrotango			new_style	add/Latin
+mb_genres_v0	eleki			new_style	ignore
+mb_genres_v0	eletrofunk			new_style	ignore
+mb_genres_v0	embolada			new_style	ignore
+mb_genres_v0	emo	Emo	style	exact	none
+mb_genres_v0	emo pop			new_style	add/Rock
+mb_genres_v0	emo rap			new_style	add/Hip Hop
+mb_genres_v0	emocore			new_style	add/Rock
+mb_genres_v0	emoviolence			new_style	add/Rock
+mb_genres_v0	english pastoral school			new_style	ignore
+mb_genres_v0	enka	Enka	style	exact	none
+mb_genres_v0	éntekhno	Éntekhno	style	exact	none
+mb_genres_v0	epic collage			new_style	ignore
+mb_genres_v0	epic doom metal			new_style	add/Rock
+mb_genres_v0	estrada			new_style	ignore
+mb_genres_v0	ethereal wave			new_style	ignore
+mb_genres_v0	ethio-jazz			new_style	add/Jazz
+mb_genres_v0	étude	Etude	style	exact	none
+mb_genres_v0	euphoric hardstyle			new_style	add/Electronic
+mb_genres_v0	euro house	Euro House	style	exact	none
+mb_genres_v0	euro-disco	Euro-Disco	style	exact	none
+mb_genres_v0	euro-trance	Euro Trance	style	exact	none
+mb_genres_v0	eurobeat	Eurobeat	style	exact	none
+mb_genres_v0	eurodance	Eurodance	style	exact	none
+mb_genres_v0	europop	Europop	style	exact	none
+mb_genres_v0	euskal kantagintza berria			new_style	ignore
+mb_genres_v0	exotica	Exotica	style	exact	none
+mb_genres_v0	experimental	Experimental	style	exact	none
+mb_genres_v0	experimental big band			new_style	add/Jazz
+mb_genres_v0	experimental electronic			new_style	add/Electronic
+mb_genres_v0	experimental hip hop			new_style	add/Hip Hop
+mb_genres_v0	experimental rock			new_style	add/Rock
+mb_genres_v0	expressionism			new_style	add/Classical
+mb_genres_v0	extratone			new_style	ignore
+mb_genres_v0	fado	Fado	style	exact	none
+mb_genres_v0	fado de coimbra			new_style	ignore
+mb_genres_v0	fairy tale			new_style	ignore
+mb_genres_v0	fakaseasea			new_style	ignore
+mb_genres_v0	falak			new_style	ignore
+mb_genres_v0	famo			new_style	ignore
+mb_genres_v0	fandango			new_style	ignore
+mb_genres_v0	fandango caiçara			new_style	ignore
+mb_genres_v0	fantasia	Fantasia	style	exact	none
+mb_genres_v0	fantezi			new_style	ignore
+mb_genres_v0	festejo			new_style	ignore
+mb_genres_v0	festival progressive house			new_style	add/Electronic
+mb_genres_v0	festival trap			new_style	ignore
+mb_genres_v0	fidget house			new_style	add/Electronic
+mb_genres_v0	field recording	Field Recording	style	exact	none
+mb_genres_v0	fife and drum			new_style	add/Brass & Military
+mb_genres_v0	fife and drum blues			new_style	add/Blues
+mb_genres_v0	fijiri			new_style	ignore
+mb_genres_v0	filin			new_style	ignore
+mb_genres_v0	filipino rondalla			new_style	ignore
+mb_genres_v0	filk	Filk	style	exact	none
+mb_genres_v0	filmi			new_style	ignore
+mb_genres_v0	finnish tango			new_style	ignore
+mb_genres_v0	flamenco	Flamenco	style	exact	none
+mb_genres_v0	flamenco jazz			new_style	ignore
+mb_genres_v0	flamenco pop			new_style	add/Latin
+mb_genres_v0	flashcore			new_style	ignore
+mb_genres_v0	flex dance music			new_style	ignore
+mb_genres_v0	florida breaks			new_style	add/Electronic
+mb_genres_v0	fm synthesis			new_style	add/Electronic
+mb_genres_v0	folk	Folk	style	exact	none
+mb_genres_v0	folk metal	Folk Metal	style	exact	none
+mb_genres_v0	folk pop			new_style	add/Folk, World, & Country
+mb_genres_v0	folk punk			new_style	add/Rock
+mb_genres_v0	folk rock	Folk Rock	style	exact	none
+mb_genres_v0	folkhop			new_style	ignore
+mb_genres_v0	folktronica			new_style	ignore
+mb_genres_v0	fon leb			new_style	ignore
+mb_genres_v0	football chant			new_style	ignore
+mb_genres_v0	footwork	Footwork	style	exact	none
+mb_genres_v0	footwork jungle			new_style	add/Electronic
+mb_genres_v0	forest psytrance			new_style	ignore
+mb_genres_v0	forró	Forró	style	exact	none
+mb_genres_v0	forró de favela			new_style	add/Latin
+mb_genres_v0	forró eletrônico			new_style	add/Latin
+mb_genres_v0	forró universitário			new_style	add/Latin
+mb_genres_v0	frapcore			new_style	ignore
+mb_genres_v0	frat rap			new_style	add/Hip Hop
+mb_genres_v0	frat rock			new_style	add/Rock
+mb_genres_v0	freak folk			new_style	add/Folk, World, & Country
+mb_genres_v0	freakbeat			new_style	ignore
+mb_genres_v0	free car music			new_style	ignore
+mb_genres_v0	free folk			new_style	add/Folk, World, & Country
+mb_genres_v0	free improvisation	Free Improvisation	style	exact	none
+mb_genres_v0	free jazz	Free Jazz	style	exact	none
+mb_genres_v0	free tekno	Freetekno	style	exact	none
+mb_genres_v0	freeform hardcore			new_style	ignore
+mb_genres_v0	freestyle	Freestyle	style	exact	none
+mb_genres_v0	french electro			new_style	add/Electronic
+mb_genres_v0	french house	French House	style	exact	none
+mb_genres_v0	frenchcore			new_style	ignore
+mb_genres_v0	frevo	Frevo	style	exact	none
+mb_genres_v0	frevo de bloco			new_style	add/Latin
+mb_genres_v0	frevo de rua			new_style	add/Latin
+mb_genres_v0	frevo elétrico			new_style	add/Latin
+mb_genres_v0	frevo-canção			new_style	add/Latin
+mb_genres_v0	fugue			new_style	add/Classical
+mb_genres_v0	fuji			new_style	ignore
+mb_genres_v0	full-on			new_style	ignore
+mb_genres_v0	funaná	Funaná	style	exact	none
+mb_genres_v0	funeral doom metal	Funeral Doom Metal	style	exact	none
+mb_genres_v0	funeral march			new_style	ignore
+mb_genres_v0	fungi			new_style	ignore
+mb_genres_v0	funk	Funk	style	exact	none
+mb_genres_v0	funk automotivo			new_style	ignore
+mb_genres_v0	funk brasileiro			new_style	ignore
+mb_genres_v0	funk carioca			new_style	ignore
+mb_genres_v0	funk consciente			new_style	ignore
+mb_genres_v0	funk de bh			new_style	ignore
+mb_genres_v0	funk mandelão			new_style	ignore
+mb_genres_v0	funk melody			new_style	ignore
+mb_genres_v0	funk metal	Funk Metal	style	exact	none
+mb_genres_v0	funk ostentação			new_style	ignore
+mb_genres_v0	funk proibidão			new_style	ignore
+mb_genres_v0	funk rock			new_style	add/Rock
+mb_genres_v0	funknejo			new_style	ignore
+mb_genres_v0	funkot	Funkot	style	exact	none
+mb_genres_v0	funktronica			new_style	ignore
+mb_genres_v0	funky breaks			new_style	add/Electronic
+mb_genres_v0	funky house			new_style	add/Electronic
+mb_genres_v0	fusion gugak			new_style	ignore
+mb_genres_v0	future bass	Future Bass	style	exact	none
+mb_genres_v0	future bounce			new_style	ignore
+mb_genres_v0	future core			new_style	ignore
+mb_genres_v0	future funk			new_style	ignore
+mb_genres_v0	future garage			new_style	add/Electronic
+mb_genres_v0	future house	Future House	style	exact	none
+mb_genres_v0	future rave			new_style	add/Electronic
+mb_genres_v0	future riddim			new_style	ignore
+mb_genres_v0	futurepop	Future Pop	style	exact	none
+mb_genres_v0	futurism	Futurism	style	exact	none
+mb_genres_v0	g-funk	G-Funk	style	exact	none
+mb_genres_v0	g-house			new_style	add/Electronic
+mb_genres_v0	gaana			new_style	ignore
+mb_genres_v0	gabber	Gabber	style	exact	none
+mb_genres_v0	gaelic psalm singing			new_style	ignore
+mb_genres_v0	gagaku	Gagaku	style	exact	none
+mb_genres_v0	gagok			new_style	ignore
+mb_genres_v0	gaita zuliana			new_style	ignore
+mb_genres_v0	gallican chant			new_style	add/Classical
+mb_genres_v0	gambang kromong			new_style	ignore
+mb_genres_v0	gamelan	Gamelan	style	exact	none
+mb_genres_v0	gamelan angklung			new_style	ignore
+mb_genres_v0	gamelan beleganjur			new_style	ignore
+mb_genres_v0	gamelan degung			new_style	ignore
+mb_genres_v0	gamelan gender wayang			new_style	ignore
+mb_genres_v0	gamelan gong gede			new_style	ignore
+mb_genres_v0	gamelan gong kebyar			new_style	ignore
+mb_genres_v0	gamelan jegog			new_style	ignore
+mb_genres_v0	gamelan joged bumbung			new_style	ignore
+mb_genres_v0	gamelan salendro			new_style	ignore
+mb_genres_v0	gamelan sekaten			new_style	ignore
+mb_genres_v0	gamelan selunding			new_style	ignore
+mb_genres_v0	gamelan semar pegulingan			new_style	ignore
+mb_genres_v0	gamelan siteran			new_style	ignore
+mb_genres_v0	gamelan surakarta			new_style	ignore
+mb_genres_v0	gangsta rap			new_style	add/Hip Hop
+mb_genres_v0	garage house	Garage House	style	exact	none
+mb_genres_v0	garage psych			new_style	ignore
+mb_genres_v0	garage punk			new_style	add/Rock
+mb_genres_v0	garage rock	Garage Rock	style	exact	none
+mb_genres_v0	garage rock revival			new_style	add/Rock
+mb_genres_v0	garba			new_style	ignore
+mb_genres_v0	geek rock			new_style	add/Rock
+mb_genres_v0	género chico			new_style	ignore
+mb_genres_v0	género grande			new_style	ignore
+mb_genres_v0	genge			new_style	ignore
+mb_genres_v0	gengetone			new_style	ignore
+mb_genres_v0	għana	Għana	style	exact	none
+mb_genres_v0	ghazal	Ghazal	style	exact	none
+mb_genres_v0	ghetto funk			new_style	ignore
+mb_genres_v0	ghetto house	Ghetto House	style	exact	none
+mb_genres_v0	ghettotech	Ghettotech	style	exact	none
+mb_genres_v0	ginan			new_style	ignore
+mb_genres_v0	glam	Glam	style	exact	none
+mb_genres_v0	glam metal			new_style	add/Rock
+mb_genres_v0	glam punk			new_style	add/Rock
+mb_genres_v0	glam rock			new_style	add/Rock
+mb_genres_v0	glitch	Glitch	style	exact	none
+mb_genres_v0	glitch hop	Glitch Hop	style	exact	none
+mb_genres_v0	glitch hop edm			new_style	add/Electronic
+mb_genres_v0	glitch pop			new_style	add/Pop
+mb_genres_v0	gnawa	Gnawa	style	exact	none
+mb_genres_v0	go-go	Go-Go	style	exact	none
+mb_genres_v0	goa trance	Goa Trance	style	exact	none
+mb_genres_v0	gommance			new_style	ignore
+mb_genres_v0	gondang			new_style	ignore
+mb_genres_v0	goombay			new_style	ignore
+mb_genres_v0	goregrind	Goregrind	style	exact	none
+mb_genres_v0	gorenoise			new_style	ignore
+mb_genres_v0	gospel	Gospel	style	exact	none
+mb_genres_v0	gospel house			new_style	ignore
+mb_genres_v0	gospel reggae			new_style	add/Reggae
+mb_genres_v0	gothic			new_style	ignore
+mb_genres_v0	gothic country			new_style	add/Folk, World, & Country
+mb_genres_v0	gothic metal	Gothic Metal	style	exact	none
+mb_genres_v0	gothic rock			new_style	add/Rock
+mb_genres_v0	gqom	Gqom	style	exact	none
+mb_genres_v0	grand opera	Grand Opera	style	exact	none
+mb_genres_v0	graphical sound			new_style	ignore
+mb_genres_v0	grebo			new_style	ignore
+mb_genres_v0	gregorian chant			new_style	add/Classical
+mb_genres_v0	grime	Grime	style	exact	none
+mb_genres_v0	grindcore	Grindcore	style	exact	none
+mb_genres_v0	griot	Griot	style	exact	none
+mb_genres_v0	groove metal	Groove Metal	style	exact	none
+mb_genres_v0	group sounds	Group Sounds	style	exact	none
+mb_genres_v0	grunge	Grunge	style	exact	none
+mb_genres_v0	grupera			new_style	ignore
+mb_genres_v0	gstanzl			new_style	ignore
+mb_genres_v0	guaguancó	Guaguancó	style	exact	none
+mb_genres_v0	guajira	Guajira	style	exact	none
+mb_genres_v0	guangdong yinyue			new_style	ignore
+mb_genres_v0	guaracha	Guaracha	style	exact	none
+mb_genres_v0	guaracha edm			new_style	ignore
+mb_genres_v0	guaracha santiagueña			new_style	ignore
+mb_genres_v0	guarania	Guarania	style	exact	none
+mb_genres_v0	gufeng			new_style	ignore
+mb_genres_v0	guggenmusik	Guggenmusik	style	exact	none
+mb_genres_v0	guided meditation			new_style	add/Non-Music
+mb_genres_v0	guitarrada			new_style	ignore
+mb_genres_v0	gumbe			new_style	ignore
+mb_genres_v0	guoyue			new_style	ignore
+mb_genres_v0	gwo ka	Gwo Ka	style	exact	none
+mb_genres_v0	gypsy jazz	Gypsy Jazz	style	exact	none
+mb_genres_v0	gypsy punk			new_style	add/Rock
+mb_genres_v0	habanera			new_style	add/Latin
+mb_genres_v0	haitian vodou drumming			new_style	ignore
+mb_genres_v0	halftime	Halftime	style	exact	none
+mb_genres_v0	hambo			new_style	ignore
+mb_genres_v0	hamburger schule			new_style	ignore
+mb_genres_v0	hands up	Hands Up	style	exact	none
+mb_genres_v0	hanmai			new_style	ignore
+mb_genres_v0	haozi			new_style	ignore
+mb_genres_v0	hapa haole			new_style	ignore
+mb_genres_v0	happy hardcore	Happy Hardcore	style	exact	none
+mb_genres_v0	harana			new_style	ignore
+mb_genres_v0	harawi			new_style	ignore
+mb_genres_v0	hard beat	Hard Beat	style	exact	none
+mb_genres_v0	hard bop	Hard Bop	style	exact	none
+mb_genres_v0	hard drum			new_style	ignore
+mb_genres_v0	hard house	Hard House	style	exact	none
+mb_genres_v0	hard nrg			new_style	ignore
+mb_genres_v0	hard rock	Hard Rock	style	exact	none
+mb_genres_v0	hard techno	Hard Techno	style	exact	none
+mb_genres_v0	hard trance	Hard Trance	style	exact	none
+mb_genres_v0	hard trap			new_style	ignore
+mb_genres_v0	hardbag			new_style	ignore
+mb_genres_v0	hardbass			new_style	ignore
+mb_genres_v0	hardcore breaks			new_style	add/Electronic
+mb_genres_v0	hardcore hip hop	Hardcore Hip-Hop	style	exact	none
+mb_genres_v0	hardcore punk			new_style	add/Rock
+mb_genres_v0	hardcore techno			new_style	add/Electronic
+mb_genres_v0	hardgroove techno			new_style	add/Electronic
+mb_genres_v0	hardstep			new_style	add/Electronic
+mb_genres_v0	hardstyle	Hardstyle	style	exact	none
+mb_genres_v0	hardvapour			new_style	ignore
+mb_genres_v0	hardwave			new_style	ignore
+mb_genres_v0	harsh noise			new_style	ignore
+mb_genres_v0	harsh noise wall	Harsh Noise Wall	style	exact	none
+mb_genres_v0	hát tuồng			new_style	ignore
+mb_genres_v0	hauntology			new_style	ignore
+mb_genres_v0	heartland rock			new_style	add/Rock
+mb_genres_v0	heaven trap			new_style	ignore
+mb_genres_v0	heavy metal	Heavy Metal	style	exact	none
+mb_genres_v0	heavy psych			new_style	ignore
+mb_genres_v0	heikyoku			new_style	ignore
+mb_genres_v0	henan opera			new_style	ignore
+mb_genres_v0	hexd			new_style	ignore
+mb_genres_v0	hi-nrg	Hi NRG	style	exact	none
+mb_genres_v0	hi-tech			new_style	ignore
+mb_genres_v0	hi-tech full-on			new_style	ignore
+mb_genres_v0	highlife	Highlife	style	exact	none
+mb_genres_v0	hill country blues	Hill Country Blues	style	exact	none
+mb_genres_v0	himene tarava			new_style	ignore
+mb_genres_v0	hindustani classical			new_style	ignore
+mb_genres_v0	hip hop	Hip Hop	genre	exact	none
+mb_genres_v0	hip hop soul			new_style	ignore
+mb_genres_v0	hip house	Hip-House	style	exact	none
+mb_genres_v0	hipco			new_style	ignore
+mb_genres_v0	hiplife	Hiplife	style	exact	none
+mb_genres_v0	holy minimalism			new_style	add/Classical
+mb_genres_v0	honky tonk	Honky Tonk	style	exact	none
+mb_genres_v0	honkyoku	Honkyoku	style	exact	none
+mb_genres_v0	hopepunk			new_style	ignore
+mb_genres_v0	hornpipe			new_style	ignore
+mb_genres_v0	horror punk			new_style	add/Rock
+mb_genres_v0	horror synth			new_style	add/Electronic
+mb_genres_v0	horrorcore	Horrorcore	style	exact	none
+mb_genres_v0	hot rod music			new_style	ignore
+mb_genres_v0	house	House	style	exact	none
+mb_genres_v0	houston sound			new_style	ignore
+mb_genres_v0	huapango			new_style	add/Latin
+mb_genres_v0	huaylarsh			new_style	ignore
+mb_genres_v0	huayno	Huayno	style	exact	none
+mb_genres_v0	humppa			new_style	ignore
+mb_genres_v0	hungarian folk			new_style	add/Folk, World, & Country
+mb_genres_v0	hyangak			new_style	ignore
+mb_genres_v0	hybrid trap			new_style	ignore
+mb_genres_v0	hyper techno	Hyper Techno	style	exact	none
+mb_genres_v0	hyperpop	Hyperpop	style	exact	none
+mb_genres_v0	hypertechno	Hyper Techno	style	exact	none
+mb_genres_v0	hyphy	Hyphy	style	exact	none
+mb_genres_v0	hypnagogic pop	Hypnagogic pop	style	exact	none
+mb_genres_v0	iavnana			new_style	ignore
+mb_genres_v0	idm	IDM	style	exact	none
+mb_genres_v0	idol kayō			new_style	ignore
+mb_genres_v0	illbient	Illbient	style	exact	none
+mb_genres_v0	impressionism			new_style	add/Classical
+mb_genres_v0	impromptu			new_style	add/Classical
+mb_genres_v0	indeterminacy			new_style	ignore
+mb_genres_v0	indian classical	Indian Classical	style	exact	none
+mb_genres_v0	indian pop			new_style	add/Pop
+mb_genres_v0	indie folk			new_style	add/Folk, World, & Country
+mb_genres_v0	indie pop	Indie Pop	style	exact	none
+mb_genres_v0	indie rock	Indie Rock	style	exact	none
+mb_genres_v0	indie surf			new_style	ignore
+mb_genres_v0	indietronica			new_style	ignore
+mb_genres_v0	indo jazz			new_style	add/Jazz
+mb_genres_v0	indorock			new_style	ignore
+mb_genres_v0	industrial	Industrial	style	exact	none
+mb_genres_v0	industrial folk song			new_style	ignore
+mb_genres_v0	industrial hardcore			new_style	ignore
+mb_genres_v0	industrial hip hop			new_style	add/Hip Hop
+mb_genres_v0	industrial metal	Industrial Metal	style	exact	none
+mb_genres_v0	industrial musical			new_style	ignore
+mb_genres_v0	industrial rock			new_style	add/Rock
+mb_genres_v0	industrial techno			new_style	add/Electronic
+mb_genres_v0	instrumental	Instrumental	style	exact	none
+mb_genres_v0	instrumental hip hop			new_style	add/Hip Hop
+mb_genres_v0	instrumental jazz			new_style	add/Jazz
+mb_genres_v0	instrumental rock			new_style	add/Rock
+mb_genres_v0	integral serialism			new_style	add/Classical
+mb_genres_v0	interview	Interview	style	exact	none
+mb_genres_v0	iraqi maqam			new_style	ignore
+mb_genres_v0	irish folk			new_style	add/Folk, World, & Country
+mb_genres_v0	isa			new_style	ignore
+mb_genres_v0	isicathamiya			new_style	ignore
+mb_genres_v0	islamic modal music			new_style	ignore
+mb_genres_v0	italo dance	Italodance	style	exact	none
+mb_genres_v0	italo house	Italo House	style	exact	none
+mb_genres_v0	italo-disco	Italo-Disco	style	exact	none
+mb_genres_v0	izlan			new_style	ignore
+mb_genres_v0	izvorna bosanska muzika			new_style	ignore
+mb_genres_v0	j-core	J-Core	style	exact	none
+mb_genres_v0	j-euro			new_style	ignore
+mb_genres_v0	j-pop	J-pop	style	exact	none
+mb_genres_v0	j-rock	J-Rock	style	exact	none
+mb_genres_v0	jácara			new_style	ignore
+mb_genres_v0	jackin house			new_style	add/Electronic
+mb_genres_v0	jaipongan			new_style	ignore
+mb_genres_v0	jam band			new_style	ignore
+mb_genres_v0	jamaican ska			new_style	add/Reggae
+mb_genres_v0	james bay fiddling			new_style	ignore
+mb_genres_v0	jamgrass			new_style	ignore
+mb_genres_v0	jangle pop	Jangle Pop	style	exact	none
+mb_genres_v0	japanese classical			new_style	ignore
+mb_genres_v0	javanese gamelan			new_style	ignore
+mb_genres_v0	jawaiian			new_style	ignore
+mb_genres_v0	jazz	Jazz	genre	exact	none
+mb_genres_v0	jazz blues			new_style	ignore
+mb_genres_v0	jazz fusion			new_style	add/Jazz
+mb_genres_v0	jazz guachaca			new_style	ignore
+mb_genres_v0	jazz house			new_style	add/Electronic
+mb_genres_v0	jazz mugham			new_style	ignore
+mb_genres_v0	jazz poetry			new_style	add/Jazz
+mb_genres_v0	jazz pop			new_style	add/Jazz
+mb_genres_v0	jazz rap			new_style	ignore
+mb_genres_v0	jazz rock	Jazz-Rock	style	exact	none
+mb_genres_v0	jazz-funk	Jazz-Funk	style	exact	none
+mb_genres_v0	jazzstep			new_style	add/Electronic
+mb_genres_v0	jeongak			new_style	ignore
+mb_genres_v0	jerk			new_style	ignore
+mb_genres_v0	jerk rap			new_style	add/Hip Hop
+mb_genres_v0	jersey club	Jersey Club	style	exact	none
+mb_genres_v0	jersey club rap			new_style	add/Hip Hop
+mb_genres_v0	jersey drill			new_style	add/Hip Hop
+mb_genres_v0	jersey sound			new_style	ignore
+mb_genres_v0	jesus music			new_style	ignore
+mb_genres_v0	jiangnan sizhu			new_style	ignore
+mb_genres_v0	jit			new_style	ignore
+mb_genres_v0	jiuta	Jiuta	style	exact	none
+mb_genres_v0	joik			new_style	ignore
+mb_genres_v0	jongo			new_style	ignore
+mb_genres_v0	joropo	Joropo	style	exact	none
+mb_genres_v0	jōruri			new_style	ignore
+mb_genres_v0	jota	Jota	style	exact	none
+mb_genres_v0	jovem guarda			new_style	ignore
+mb_genres_v0	jubilee			new_style	ignore
+mb_genres_v0	jug band	Jug Band	style	exact	none
+mb_genres_v0	jùjú			new_style	ignore
+mb_genres_v0	juke	Juke	style	exact	none
+mb_genres_v0	jump blues	Jump Blues	style	exact	none
+mb_genres_v0	jump up			new_style	ignore
+mb_genres_v0	jumpstyle	Jumpstyle	style	exact	none
+mb_genres_v0	jungle	Jungle	style	exact	none
+mb_genres_v0	jungle dutch			new_style	add/Electronic
+mb_genres_v0	jungle terror			new_style	add/Electronic
+mb_genres_v0	junkanoo	Junkanoo	style	exact	none
+mb_genres_v0	k-pop	K-pop	style	exact	none
+mb_genres_v0	kabarett			new_style	ignore
+mb_genres_v0	kacapi suling			new_style	ignore
+mb_genres_v0	kadongo kamu			new_style	ignore
+mb_genres_v0	kafi			new_style	ignore
+mb_genres_v0	kagura			new_style	ignore
+mb_genres_v0	kai			new_style	ignore
+mb_genres_v0	kakawin			new_style	ignore
+mb_genres_v0	kalattut			new_style	ignore
+mb_genres_v0	kalindula			new_style	ignore
+mb_genres_v0	kalon'ny fahiny			new_style	ignore
+mb_genres_v0	kan ha diskan			new_style	ignore
+mb_genres_v0	kaneka			new_style	ignore
+mb_genres_v0	kankyō ongaku			new_style	ignore
+mb_genres_v0	kantan chamorrita			new_style	ignore
+mb_genres_v0	kanto			new_style	ignore
+mb_genres_v0	kantruem			new_style	ignore
+mb_genres_v0	kapuka			new_style	ignore
+mb_genres_v0	kaseko	Kaseko	style	exact	none
+mb_genres_v0	kasékò	Kaseko	style	exact	none
+mb_genres_v0	kawaii future bass			new_style	add/Electronic
+mb_genres_v0	kawaii metal			new_style	add/Rock
+mb_genres_v0	kayōkyoku	Kayōkyoku	style	exact	none
+mb_genres_v0	kecak			new_style	ignore
+mb_genres_v0	keroncong	Keroncong	style	exact	none
+mb_genres_v0	kete			new_style	ignore
+mb_genres_v0	ketuk tilu			new_style	ignore
+mb_genres_v0	khrueang sai			new_style	ignore
+mb_genres_v0	khyal			new_style	ignore
+mb_genres_v0	kidandali			new_style	ignore
+mb_genres_v0	kidumbak			new_style	ignore
+mb_genres_v0	kilapanga			new_style	ignore
+mb_genres_v0	kirtan			new_style	ignore
+mb_genres_v0	kizomba	Kizomba	style	exact	none
+mb_genres_v0	klapa			new_style	ignore
+mb_genres_v0	klasik	Klasik	style	exact	none
+mb_genres_v0	kleinkunst			new_style	ignore
+mb_genres_v0	klezmer	Klezmer	style	exact	none
+mb_genres_v0	kliningan			new_style	ignore
+mb_genres_v0	konnakol			new_style	ignore
+mb_genres_v0	könsrock			new_style	ignore
+mb_genres_v0	kontakion			new_style	ignore
+mb_genres_v0	koplo			new_style	ignore
+mb_genres_v0	korean ballad			new_style	ignore
+mb_genres_v0	korean classical			new_style	ignore
+mb_genres_v0	korean revolutionary opera			new_style	ignore
+mb_genres_v0	kouta			new_style	ignore
+mb_genres_v0	krakowiak			new_style	ignore
+mb_genres_v0	krautrock	Krautrock	style	exact	none
+mb_genres_v0	kréyol djaz			new_style	ignore
+mb_genres_v0	krushclub			new_style	ignore
+mb_genres_v0	kuda lumping			new_style	ignore
+mb_genres_v0	kuduro	Kuduro	style	exact	none
+mb_genres_v0	kujawiak			new_style	ignore
+mb_genres_v0	kulintang			new_style	ignore
+mb_genres_v0	kumi-daiko			new_style	ignore
+mb_genres_v0	kumiuta			new_style	ignore
+mb_genres_v0	kundiman			new_style	ignore
+mb_genres_v0	kunqu			new_style	ignore
+mb_genres_v0	kwaito	Kwaito	style	exact	none
+mb_genres_v0	kwassa kwassa			new_style	ignore
+mb_genres_v0	kwela			new_style	ignore
+mb_genres_v0	kyivan chant			new_style	ignore
+mb_genres_v0	laiko	Laïkó	style	exact	none
+mb_genres_v0	lambada	Lambada	style	exact	none
+mb_genres_v0	ländlermusik			new_style	ignore
+mb_genres_v0	landó			new_style	ignore
+mb_genres_v0	langgam jawa			new_style	ignore
+mb_genres_v0	latin	Latin	genre	exact	none
+mb_genres_v0	latin ballad			new_style	ignore
+mb_genres_v0	latin disco			new_style	ignore
+mb_genres_v0	latin funk			new_style	ignore
+mb_genres_v0	latin house			new_style	ignore
+mb_genres_v0	latin jazz	Latin Jazz	style	exact	none
+mb_genres_v0	latin pop	Latin Pop	style	exact	none
+mb_genres_v0	latin rock			new_style	ignore
+mb_genres_v0	latin soul			new_style	ignore
+mb_genres_v0	lauda			new_style	ignore
+mb_genres_v0	lavani			new_style	ignore
+mb_genres_v0	lecture			new_style	add/Non-Music
+mb_genres_v0	leftfield	Leftfield	style	exact	none
+mb_genres_v0	lento violento	Lento Violento	style	exact	none
+mb_genres_v0	levenslied	Levenslied	style	exact	none
+mb_genres_v0	lied	Lied	style	exact	none
+mb_genres_v0	liedermacher			new_style	ignore
+mb_genres_v0	liquid funk			new_style	add/Electronic
+mb_genres_v0	liquid riddim			new_style	ignore
+mb_genres_v0	liscio	Liscio	style	exact	none
+mb_genres_v0	livetronica			new_style	ignore
+mb_genres_v0	liwa			new_style	ignore
+mb_genres_v0	lo-fi	Lo-Fi	style	exact	none
+mb_genres_v0	lo-fi hip hop			new_style	add/Hip Hop
+mb_genres_v0	lo-fi house			new_style	add/Electronic
+mb_genres_v0	lolicore			new_style	ignore
+mb_genres_v0	loner folk			new_style	add/Folk, World, & Country
+mb_genres_v0	loud kei			new_style	ignore
+mb_genres_v0	louisiana blues	Louisiana Blues	style	exact	none
+mb_genres_v0	lounge	Lounge	style	exact	none
+mb_genres_v0	lovers rock	Lovers Rock	style	exact	none
+mb_genres_v0	lowend			new_style	ignore
+mb_genres_v0	lowercase	Lowercase	style	exact	none
+mb_genres_v0	luk krung	Luk Krung	style	exact	none
+mb_genres_v0	luk thung	Luk Thung	style	exact	none
+mb_genres_v0	lullaby	Lullaby	style	exact	none
+mb_genres_v0	lundu			new_style	ignore
+mb_genres_v0	lute song			new_style	ignore
+mb_genres_v0	machine rock			new_style	add/Rock
+mb_genres_v0	mad			new_style	ignore
+mb_genres_v0	madchester			new_style	ignore
+mb_genres_v0	maddahi			new_style	ignore
+mb_genres_v0	madrigal	Madrigal	style	exact	none
+mb_genres_v0	mafioso rap			new_style	add/Hip Hop
+mb_genres_v0	maftirim			new_style	ignore
+mb_genres_v0	mahori			new_style	ignore
+mb_genres_v0	mahraganat			new_style	ignore
+mb_genres_v0	mainstream rock			new_style	add/Rock
+mb_genres_v0	makina	Makina	style	exact	none
+mb_genres_v0	makossa			new_style	ignore
+mb_genres_v0	malagueña venezolana			new_style	ignore
+mb_genres_v0	malay gamelan			new_style	ignore
+mb_genres_v0	malhun			new_style	ignore
+mb_genres_v0	mallsoft			new_style	add/Electronic
+mb_genres_v0	malouf			new_style	ignore
+mb_genres_v0	maloya	Maloya	style	exact	none
+mb_genres_v0	maloya électronique			new_style	ignore
+mb_genres_v0	maloya élektrik			new_style	ignore
+mb_genres_v0	mambo	Mambo	style	exact	none
+mb_genres_v0	mambo chileno			new_style	add/Latin
+mb_genres_v0	mambo urbano			new_style	add/Latin
+mb_genres_v0	mandopop	Mandopop	style	exact	none
+mb_genres_v0	manele			new_style	ignore
+mb_genres_v0	mangambeu			new_style	ignore
+mb_genres_v0	mangue beat			new_style	ignore
+mb_genres_v0	manila sound	Manila Sound	style	exact	none
+mb_genres_v0	mantra			new_style	ignore
+mb_genres_v0	manyao			new_style	ignore
+mb_genres_v0	mappila			new_style	ignore
+mb_genres_v0	marabi			new_style	ignore
+mb_genres_v0	maracatu			new_style	ignore
+mb_genres_v0	march			new_style	add/Brass & Military
+mb_genres_v0	marching band			new_style	add/Brass & Military
+mb_genres_v0	marchinha			new_style	ignore
+mb_genres_v0	mariachi	Mariachi	style	exact	none
+mb_genres_v0	marinera			new_style	ignore
+mb_genres_v0	marrabenta			new_style	ignore
+mb_genres_v0	martial industrial			new_style	add/Electronic
+mb_genres_v0	mashcore			new_style	ignore
+mb_genres_v0	maskanda			new_style	ignore
+mb_genres_v0	mass	Mass	style	exact	none
+mb_genres_v0	mataali			new_style	ignore
+mb_genres_v0	math pop			new_style	ignore
+mb_genres_v0	math rock	Math Rock	style	exact	none
+mb_genres_v0	mathcore	Mathcore	style	exact	none
+mb_genres_v0	maxixe			new_style	add/Latin
+mb_genres_v0	mazurka			new_style	ignore
+mb_genres_v0	mbalax	Mbalax	style	exact	none
+mb_genres_v0	mbaqanga			new_style	ignore
+mb_genres_v0	mbolé			new_style	ignore
+mb_genres_v0	mbube			new_style	ignore
+mb_genres_v0	mchiriku			new_style	ignore
+mb_genres_v0	medieval	Medieval	style	exact	none
+mb_genres_v0	medieval lyric poetry			new_style	ignore
+mb_genres_v0	medieval metal			new_style	add/Rock
+mb_genres_v0	medieval rock			new_style	add/Rock
+mb_genres_v0	mega funk			new_style	ignore
+mb_genres_v0	meiji shinkyoku			new_style	ignore
+mb_genres_v0	melbourne bounce			new_style	ignore
+mb_genres_v0	melodic bass			new_style	add/Electronic
+mb_genres_v0	melodic black metal			new_style	add/Rock
+mb_genres_v0	melodic death metal	Melodic Death Metal	style	exact	none
+mb_genres_v0	melodic dubstep			new_style	add/Electronic
+mb_genres_v0	melodic hardcore	Melodic Hardcore	style	exact	none
+mb_genres_v0	melodic house			new_style	add/Electronic
+mb_genres_v0	melodic metalcore			new_style	add/Rock
+mb_genres_v0	melodic techno			new_style	add/Electronic
+mb_genres_v0	melodic trance			new_style	add/Electronic
+mb_genres_v0	mélodie			new_style	ignore
+mb_genres_v0	memphis rap	Memphis Rap	style	exact	none
+mb_genres_v0	mento	Mento	style	exact	none
+mb_genres_v0	menzuma			new_style	ignore
+mb_genres_v0	merecumbé			new_style	add/Latin
+mb_genres_v0	merengue	Merengue	style	exact	none
+mb_genres_v0	merengue típico			new_style	add/Latin
+mb_genres_v0	merenhouse			new_style	ignore
+mb_genres_v0	merequetengue			new_style	ignore
+mb_genres_v0	méringue			new_style	ignore
+mb_genres_v0	merseybeat			new_style	ignore
+mb_genres_v0	metal			new_style	add/Rock
+mb_genres_v0	metalcore	Metalcore	style	exact	none
+mb_genres_v0	métis fiddling			new_style	ignore
+mb_genres_v0	meyxana			new_style	ignore
+mb_genres_v0	miami bass	Miami Bass	style	exact	none
+mb_genres_v0	microfunk			new_style	ignore
+mb_genres_v0	microhouse	Microhouse	style	exact	none
+mb_genres_v0	microsound			new_style	add/Electronic
+mb_genres_v0	microtonal classical			new_style	add/Classical
+mb_genres_v0	midtempo bass			new_style	add/Electronic
+mb_genres_v0	midwest emo	Midwest Emo	style	exact	none
+mb_genres_v0	miejski folk			new_style	add/Folk, World, & Country
+mb_genres_v0	military cadence			new_style	add/Brass & Military
+mb_genres_v0	milonga	Milonga	style	exact	none
+mb_genres_v0	min'yō	Min'yō	style	exact	none
+mb_genres_v0	minatory			new_style	ignore
+mb_genres_v0	mincecore			new_style	ignore
+mb_genres_v0	minimal drum and bass			new_style	add/Electronic
+mb_genres_v0	minimal synth			new_style	add/Electronic
+mb_genres_v0	minimal techno	Minimal Techno	style	exact	none
+mb_genres_v0	minimal wave			new_style	add/Electronic
+mb_genres_v0	minimalism	Minimalism	style	exact	none
+mb_genres_v0	minneapolis sound	Minneapolis Sound	style	exact	none
+mb_genres_v0	minstrelsy			new_style	ignore
+mb_genres_v0	mobb music			new_style	ignore
+mb_genres_v0	mod	Mod	style	exact	none
+mb_genres_v0	mod revival			new_style	ignore
+mb_genres_v0	moda de viola			new_style	ignore
+mb_genres_v0	modal jazz			new_style	add/Jazz
+mb_genres_v0	modern blues			new_style	add/Blues
+mb_genres_v0	modern classical	Modern Classical	style	exact	none
+mb_genres_v0	modern creative			new_style	ignore
+mb_genres_v0	modern hardtek			new_style	ignore
+mb_genres_v0	modern laiko			new_style	ignore
+mb_genres_v0	modinha			new_style	ignore
+mb_genres_v0	moe song			new_style	ignore
+mb_genres_v0	monodrama			new_style	ignore
+mb_genres_v0	mood kayō			new_style	ignore
+mb_genres_v0	moogsploitation			new_style	ignore
+mb_genres_v0	moombahcore			new_style	ignore
+mb_genres_v0	moombahton	Moombahton	style	exact	none
+mb_genres_v0	mor lam			new_style	ignore
+mb_genres_v0	mor lam sing			new_style	ignore
+mb_genres_v0	morenada			new_style	ignore
+mb_genres_v0	morna	Morna	style	exact	none
+mb_genres_v0	moroccan chaabi			new_style	ignore
+mb_genres_v0	motet	Motet	style	exact	none
+mb_genres_v0	motown			new_style	add/Funk / Soul
+mb_genres_v0	moutya			new_style	ignore
+mb_genres_v0	movimiento alterado			new_style	ignore
+mb_genres_v0	mozarabic chant			new_style	add/Classical
+mb_genres_v0	mpb	MPB	style	exact	none
+mb_genres_v0	muak			new_style	ignore
+mb_genres_v0	mugham	Mugham	style	exact	none
+mb_genres_v0	muiñeira			new_style	ignore
+mb_genres_v0	mulatós			new_style	ignore
+mb_genres_v0	muliza			new_style	ignore
+mb_genres_v0	murga			new_style	ignore
+mb_genres_v0	murga uruguaya			new_style	ignore
+mb_genres_v0	musette	Musette	style	exact	none
+mb_genres_v0	music hall	Music Hall	style	exact	none
+mb_genres_v0	música cebolla			new_style	ignore
+mb_genres_v0	música criolla	Música Criolla	style	exact	none
+mb_genres_v0	música de intervenção			new_style	ignore
+mb_genres_v0	música llanera			new_style	ignore
+mb_genres_v0	música típica chilena			new_style	add/Latin
+mb_genres_v0	musical	Musical	style	exact	none
+mb_genres_v0	mūsīqā lubnāniyya			new_style	ignore
+mb_genres_v0	musique concrète	Musique Concrète	style	exact	none
+mb_genres_v0	musique concrète instrumentale			new_style	add/Electronic
+mb_genres_v0	muzika mizrahit			new_style	ignore
+mb_genres_v0	muzika yehudit mekorit			new_style	ignore
+mb_genres_v0	muzikat dika'on			new_style	ignore
+mb_genres_v0	muziki wa dansi			new_style	ignore
+mb_genres_v0	nagauta	Nagauta	style	exact	none
+mb_genres_v0	nanguan			new_style	ignore
+mb_genres_v0	narcocorrido			new_style	add/Latin
+mb_genres_v0	narodnozabavna glasba			new_style	ignore
+mb_genres_v0	nasheed			new_style	ignore
+mb_genres_v0	nashville sound			new_style	add/Folk, World, & Country
+mb_genres_v0	native american new age			new_style	ignore
+mb_genres_v0	nature sounds			new_style	add/Non-Music
+mb_genres_v0	natya sangeet			new_style	ignore
+mb_genres_v0	nederbeat			new_style	ignore
+mb_genres_v0	nederpop			new_style	add/Pop
+mb_genres_v0	neo kyma	Néo Kyma	style	exact	none
+mb_genres_v0	neo soul	Neo Soul	style	exact	none
+mb_genres_v0	neo-acoustic			new_style	ignore
+mb_genres_v0	neo-city pop			new_style	add/Pop
+mb_genres_v0	neo-grime			new_style	ignore
+mb_genres_v0	neo-medieval folk			new_style	add/Folk, World, & Country
+mb_genres_v0	neo-progressive rock			new_style	add/Rock
+mb_genres_v0	neo-psychedelia			new_style	ignore
+mb_genres_v0	neo-rockabilly			new_style	ignore
+mb_genres_v0	néo-trad			new_style	ignore
+mb_genres_v0	neo-traditional country			new_style	add/Folk, World, & Country
+mb_genres_v0	neoclassical dark wave			new_style	ignore
+mb_genres_v0	neoclassical metal	Neo-Classical Metal	style	exact	none
+mb_genres_v0	neoclassical new age			new_style	ignore
+mb_genres_v0	neoclassicism			new_style	add/Classical
+mb_genres_v0	neocrust			new_style	ignore
+mb_genres_v0	neofolk	Neofolk	style	exact	none
+mb_genres_v0	neofolklore			new_style	ignore
+mb_genres_v0	neon pop punk			new_style	add/Rock
+mb_genres_v0	neoperreo			new_style	ignore
+mb_genres_v0	neoromanticism			new_style	add/Classical
+mb_genres_v0	nerdcore			new_style	ignore
+mb_genres_v0	nerdcore techno	Nerdcore Techno	style	exact	none
+mb_genres_v0	neue deutsche härte			new_style	ignore
+mb_genres_v0	neue deutsche todeskunst			new_style	ignore
+mb_genres_v0	neue deutsche welle			new_style	ignore
+mb_genres_v0	neurofunk			new_style	add/Electronic
+mb_genres_v0	neurohop			new_style	ignore
+mb_genres_v0	new age	New Age	style	exact	none
+mb_genres_v0	new beat	New Beat	style	exact	none
+mb_genres_v0	new complexity			new_style	add/Classical
+mb_genres_v0	new jack swing	New Jack Swing	style	exact	none
+mb_genres_v0	new jazz			new_style	add/Jazz
+mb_genres_v0	new mexico music			new_style	ignore
+mb_genres_v0	new orleans blues			new_style	add/Blues
+mb_genres_v0	new orleans r&b			new_style	add/Funk / Soul
+mb_genres_v0	new rave			new_style	add/Electronic
+mb_genres_v0	new romantic			new_style	ignore
+mb_genres_v0	new wave	New Wave	style	exact	none
+mb_genres_v0	new york drill			new_style	add/Hip Hop
+mb_genres_v0	ngâm thơ			new_style	ignore
+mb_genres_v0	ngoma			new_style	ignore
+mb_genres_v0	nhạc đỏ			new_style	ignore
+mb_genres_v0	nhạc tiền chiến			new_style	ignore
+mb_genres_v0	nhạc vàng	Nhạc Vàng	style	exact	none
+mb_genres_v0	night full-on			new_style	ignore
+mb_genres_v0	nightcore			new_style	ignore
+mb_genres_v0	nigun			new_style	ignore
+mb_genres_v0	nintendocore	Nintendocore	style	exact	none
+mb_genres_v0	nitzhonot			new_style	ignore
+mb_genres_v0	njuup			new_style	ignore
+mb_genres_v0	no melody trap			new_style	ignore
+mb_genres_v0	no wave	No Wave	style	exact	none
+mb_genres_v0	nocturne	Nocturne	style	exact	none
+mb_genres_v0	noh			new_style	ignore
+mb_genres_v0	noiadance			new_style	ignore
+mb_genres_v0	noise	Noise	style	exact	none
+mb_genres_v0	noise pop			new_style	add/Rock
+mb_genres_v0	noise rock	Noise Rock	style	exact	none
+mb_genres_v0	noisecore	Noisecore	style	exact	none
+mb_genres_v0	noisegrind			new_style	ignore
+mb_genres_v0	non-music	Non-Music	genre	exact	none
+mb_genres_v0	nortec			new_style	ignore
+mb_genres_v0	norteño	Norteño	style	exact	none
+mb_genres_v0	northern soul			new_style	add/Funk / Soul
+mb_genres_v0	nóta			new_style	ignore
+mb_genres_v0	nouveau zydeco			new_style	ignore
+mb_genres_v0	nova cançó			new_style	ignore
+mb_genres_v0	novelty piano			new_style	ignore
+mb_genres_v0	novo dub			new_style	ignore
+mb_genres_v0	nu disco	Nu-Disco	style	exact	none
+mb_genres_v0	nu jazz			new_style	add/Jazz
+mb_genres_v0	nu metal	Nu Metal	style	exact	none
+mb_genres_v0	nu skool breaks			new_style	add/Electronic
+mb_genres_v0	nu style gabber			new_style	add/Electronic
+mb_genres_v0	nueva canción	Nueva Cancion	style	exact	none
+mb_genres_v0	nueva canción chilena			new_style	add/Latin
+mb_genres_v0	nueva canción española			new_style	ignore
+mb_genres_v0	nueva cumbia chilena			new_style	add/Latin
+mb_genres_v0	nueva trova	Nueva Trova	style	exact	none
+mb_genres_v0	nuevo cancionero			new_style	ignore
+mb_genres_v0	nuevo flamenco			new_style	add/Latin
+mb_genres_v0	nuevo tango			new_style	add/Latin
+mb_genres_v0	nustyle			new_style	ignore
+mb_genres_v0	nwobhm			new_style	add/Rock
+mb_genres_v0	nyū myūjikku			new_style	ignore
+mb_genres_v0	oberek			new_style	ignore
+mb_genres_v0	occult rock			new_style	add/Rock
+mb_genres_v0	odissi classical			new_style	ignore
+mb_genres_v0	ogene music			new_style	ignore
+mb_genres_v0	oi	Oi	style	exact	none
+mb_genres_v0	old roman chant			new_style	add/Classical
+mb_genres_v0	old school death metal			new_style	add/Rock
+mb_genres_v0	old school hip hop			new_style	add/Hip Hop
+mb_genres_v0	old-time			new_style	add/Folk, World, & Country
+mb_genres_v0	omutibo			new_style	ignore
+mb_genres_v0	onda nueva			new_style	ignore
+mb_genres_v0	ondō			new_style	ignore
+mb_genres_v0	onkyo			new_style	ignore
+mb_genres_v0	opera	Opera	style	exact	none
+mb_genres_v0	opera buffa			new_style	add/Classical
+mb_genres_v0	opéra comique			new_style	add/Classical
+mb_genres_v0	opera semiseria			new_style	add/Classical
+mb_genres_v0	opera seria			new_style	add/Classical
+mb_genres_v0	opera-ballet			new_style	add/Classical
+mb_genres_v0	operatic pop			new_style	add/Pop
+mb_genres_v0	operetta	Operetta	style	exact	none
+mb_genres_v0	opm			new_style	add/Pop
+mb_genres_v0	oratorio	Oratorio	style	exact	none
+mb_genres_v0	orchestral			new_style	ignore
+mb_genres_v0	orchestral jazz			new_style	add/Jazz
+mb_genres_v0	orchestral song			new_style	ignore
+mb_genres_v0	organic house			new_style	add/Electronic
+mb_genres_v0	ori deck			new_style	ignore
+mb_genres_v0	oriental ballad			new_style	ignore
+mb_genres_v0	orkes gambus			new_style	ignore
+mb_genres_v0	orthodox pop			new_style	add/Pop
+mb_genres_v0	outlaw country			new_style	add/Folk, World, & Country
+mb_genres_v0	outsider house			new_style	add/Electronic
+mb_genres_v0	overture	Overture	style	exact	none
+mb_genres_v0	özgün müzik			new_style	ignore
+mb_genres_v0	p-funk	P.Funk	style	exact	none
+mb_genres_v0	pachanga	Pachanga	style	exact	none
+mb_genres_v0	pacific reggae			new_style	add/Reggae
+mb_genres_v0	pagan black metal			new_style	add/Rock
+mb_genres_v0	pagan folk			new_style	add/Folk, World, & Country
+mb_genres_v0	paghjella			new_style	ignore
+mb_genres_v0	pagodão			new_style	ignore
+mb_genres_v0	pagode	Pagode	style	exact	none
+mb_genres_v0	pagode romântico			new_style	ignore
+mb_genres_v0	paisley underground			new_style	ignore
+mb_genres_v0	palingsound			new_style	ignore
+mb_genres_v0	palm-wine			new_style	ignore
+mb_genres_v0	palo de mayo			new_style	add/Latin
+mb_genres_v0	pansori			new_style	ignore
+mb_genres_v0	parang			new_style	ignore
+mb_genres_v0	parlour music			new_style	ignore
+mb_genres_v0	partido alto			new_style	ignore
+mb_genres_v0	pasillo			new_style	add/Latin
+mb_genres_v0	pasodoble	Pasodoble	style	exact	none
+mb_genres_v0	passion setting			new_style	ignore
+mb_genres_v0	pásztordal			new_style	ignore
+mb_genres_v0	payada			new_style	ignore
+mb_genres_v0	peak time techno			new_style	add/Electronic
+mb_genres_v0	pep band			new_style	add/Brass & Military
+mb_genres_v0	persian classical	Persian Classical	style	exact	none
+mb_genres_v0	persian pop	Persian Pop	style	exact	none
+mb_genres_v0	philly club			new_style	ignore
+mb_genres_v0	philly club rap			new_style	add/Hip Hop
+mb_genres_v0	philly drill			new_style	add/Hip Hop
+mb_genres_v0	philly soul			new_style	add/Funk / Soul
+mb_genres_v0	phleng phuea chiwit	Phleng Phuea Chiwit	style	exact	none
+mb_genres_v0	phonk	Phonk	style	exact	none
+mb_genres_v0	phonk house			new_style	add/Electronic
+mb_genres_v0	piano blues	Piano Blues	style	exact	none
+mb_genres_v0	piano rock			new_style	add/Rock
+mb_genres_v0	picopop			new_style	add/Pop
+mb_genres_v0	piedmont blues	Piedmont Blues	style	exact	none
+mb_genres_v0	pigfuck			new_style	ignore
+mb_genres_v0	pilón			new_style	ignore
+mb_genres_v0	pimba			new_style	ignore
+mb_genres_v0	pinpeat			new_style	ignore
+mb_genres_v0	pìobaireachd	Piobaireachd	style	exact	none
+mb_genres_v0	pipe band music			new_style	add/Brass & Military
+mb_genres_v0	piphat			new_style	ignore
+mb_genres_v0	pirekua			new_style	ignore
+mb_genres_v0	piseiro			new_style	ignore
+mb_genres_v0	piyyut			new_style	ignore
+mb_genres_v0	pizzica			new_style	ignore
+mb_genres_v0	plainchant	Plainchant	style	exact	none
+mb_genres_v0	plena	Plena	style	exact	none
+mb_genres_v0	plugg			new_style	add/Hip Hop
+mb_genres_v0	pluggnb			new_style	add/Hip Hop
+mb_genres_v0	plunderphonics	Plunderphonics	style	exact	none
+mb_genres_v0	poetry	Poetry	style	exact	none
+mb_genres_v0	polca criolla			new_style	ignore
+mb_genres_v0	polifonia occitana			new_style	ignore
+mb_genres_v0	political hip hop			new_style	add/Hip Hop
+mb_genres_v0	polka	Polka	style	exact	none
+mb_genres_v0	polka paraguaya			new_style	add/Latin
+mb_genres_v0	polonaise			new_style	ignore
+mb_genres_v0	pon-chak disco			new_style	ignore
+mb_genres_v0	pop	Pop	genre	exact	none
+mb_genres_v0	pop ghazal			new_style	add/Pop
+mb_genres_v0	pop kreatif			new_style	add/Pop
+mb_genres_v0	pop metal			new_style	add/Rock
+mb_genres_v0	pop minang			new_style	add/Pop
+mb_genres_v0	pop punk	Pop Punk	style	exact	none
+mb_genres_v0	pop raï			new_style	add/Pop
+mb_genres_v0	pop rap	Pop Rap	style	exact	none
+mb_genres_v0	pop rock	Pop Rock	style	exact	none
+mb_genres_v0	pop soul			new_style	add/Funk / Soul
+mb_genres_v0	pop yeh-yeh			new_style	add/Pop
+mb_genres_v0	porn groove			new_style	ignore
+mb_genres_v0	pornogrind	Pornogrind	style	exact	none
+mb_genres_v0	porro	Porro	style	exact	none
+mb_genres_v0	post-bop	Post Bop	style	exact	none
+mb_genres_v0	post-britpop			new_style	ignore
+mb_genres_v0	post-classical			new_style	add/Classical
+mb_genres_v0	post-dubstep			new_style	add/Electronic
+mb_genres_v0	post-grunge	Post-Grunge	style	exact	none
+mb_genres_v0	post-hardcore	Post-Hardcore	style	exact	none
+mb_genres_v0	post-industrial			new_style	ignore
+mb_genres_v0	post-metal	Post-Metal	style	exact	none
+mb_genres_v0	post-minimalism			new_style	add/Classical
+mb_genres_v0	post-punk	Post-Punk	style	exact	none
+mb_genres_v0	post-punk revival			new_style	add/Rock
+mb_genres_v0	post-rock	Post Rock	style	exact	none
+mb_genres_v0	powada			new_style	ignore
+mb_genres_v0	power electronics	Power Electronics	style	exact	none
+mb_genres_v0	power metal	Power Metal	style	exact	none
+mb_genres_v0	power noise			new_style	add/Electronic
+mb_genres_v0	power pop	Power Pop	style	exact	none
+mb_genres_v0	power soca			new_style	ignore
+mb_genres_v0	powerstomp			new_style	ignore
+mb_genres_v0	powerviolence	Power Violence	style	exact	none
+mb_genres_v0	praise & worship			new_style	ignore
+mb_genres_v0	praise break			new_style	ignore
+mb_genres_v0	prank calls			new_style	add/Non-Music
+mb_genres_v0	prelude	Prelude	style	exact	none
+mb_genres_v0	process music			new_style	add/Classical
+mb_genres_v0	production music			new_style	add/Stage & Screen
+mb_genres_v0	progressive			new_style	ignore
+mb_genres_v0	progressive bluegrass	Progressive Bluegrass	style	exact	none
+mb_genres_v0	progressive breaks	Progressive Breaks	style	exact	none
+mb_genres_v0	progressive country			new_style	add/Folk, World, & Country
+mb_genres_v0	progressive electronic			new_style	add/Electronic
+mb_genres_v0	progressive folk			new_style	add/Folk, World, & Country
+mb_genres_v0	progressive house	Progressive House	style	exact	none
+mb_genres_v0	progressive metal	Progressive Metal	style	exact	none
+mb_genres_v0	progressive metalcore			new_style	add/Rock
+mb_genres_v0	progressive pop			new_style	add/Pop
+mb_genres_v0	progressive psytrance			new_style	ignore
+mb_genres_v0	progressive rock			new_style	add/Rock
+mb_genres_v0	progressive soul			new_style	add/Funk / Soul
+mb_genres_v0	progressive trance	Progressive Trance	style	exact	none
+mb_genres_v0	proto-punk			new_style	add/Rock
+mb_genres_v0	psichedelia occulta italiana			new_style	ignore
+mb_genres_v0	psybient			new_style	ignore
+mb_genres_v0	psybreaks			new_style	ignore
+mb_genres_v0	psychedelic	Psychedelic	style	exact	none
+mb_genres_v0	psychedelic folk			new_style	add/Folk, World, & Country
+mb_genres_v0	psychedelic pop			new_style	add/Pop
+mb_genres_v0	psychedelic rock	Psychedelic Rock	style	exact	none
+mb_genres_v0	psychedelic soul			new_style	add/Funk / Soul
+mb_genres_v0	psychobilly	Psychobilly	style	exact	none
+mb_genres_v0	psychploitation			new_style	ignore
+mb_genres_v0	psycore			new_style	ignore
+mb_genres_v0	psystyle			new_style	ignore
+mb_genres_v0	psytrance	Psy-Trance	style	exact	none
+mb_genres_v0	pub rock	Pub Rock	style	exact	none
+mb_genres_v0	puirt à beul			new_style	ignore
+mb_genres_v0	pumpcore			new_style	ignore
+mb_genres_v0	pungmul			new_style	ignore
+mb_genres_v0	punk	Punk	style	exact	none
+mb_genres_v0	punk blues			new_style	add/Blues
+mb_genres_v0	punk poetry			new_style	add/Rock
+mb_genres_v0	punk rap			new_style	ignore
+mb_genres_v0	punk rock			new_style	add/Rock
+mb_genres_v0	punta			new_style	add/Latin
+mb_genres_v0	punto			new_style	ignore
+mb_genres_v0	purple sound			new_style	ignore
+mb_genres_v0	puxa			new_style	ignore
+mb_genres_v0	q-pop			new_style	add/Pop
+mb_genres_v0	qaraami			new_style	ignore
+mb_genres_v0	qasidah modern			new_style	ignore
+mb_genres_v0	qawwali	Qawwali	style	exact	none
+mb_genres_v0	quan họ			new_style	ignore
+mb_genres_v0	queercore			new_style	ignore
+mb_genres_v0	quiet storm			new_style	add/Funk / Soul
+mb_genres_v0	quyi			new_style	ignore
+mb_genres_v0	r&b			new_style	add/Funk / Soul
+mb_genres_v0	rabbit song			new_style	ignore
+mb_genres_v0	rabiz			new_style	ignore
+mb_genres_v0	raga rock			new_style	add/Rock
+mb_genres_v0	rage			new_style	ignore
+mb_genres_v0	ragga	Ragga	style	exact	none
+mb_genres_v0	ragga hip-hop	Ragga HipHop	style	exact	none
+mb_genres_v0	ragga jungle			new_style	ignore
+mb_genres_v0	raggacore			new_style	ignore
+mb_genres_v0	raggatek			new_style	ignore
+mb_genres_v0	ragtime	Ragtime	style	exact	none
+mb_genres_v0	ragtime song			new_style	add/Jazz
+mb_genres_v0	raï	Raï	style	exact	none
+mb_genres_v0	rain sounds			new_style	add/Non-Music
+mb_genres_v0	ranchera	Ranchera	style	exact	none
+mb_genres_v0	rap metal			new_style	add/Rock
+mb_genres_v0	rap rock			new_style	add/Rock
+mb_genres_v0	rapcore			new_style	ignore
+mb_genres_v0	rapso	Rapso	style	exact	none
+mb_genres_v0	raqs baladi			new_style	ignore
+mb_genres_v0	rara	Rara	style	exact	none
+mb_genres_v0	rasin			new_style	ignore
+mb_genres_v0	rasqueado cuiabano			new_style	ignore
+mb_genres_v0	rasteirinha			new_style	ignore
+mb_genres_v0	ratchet music			new_style	ignore
+mb_genres_v0	rautalanka			new_style	ignore
+mb_genres_v0	rave			new_style	add/Electronic
+mb_genres_v0	raw punk			new_style	add/Rock
+mb_genres_v0	rawphoric			new_style	ignore
+mb_genres_v0	rawstyle			new_style	ignore
+mb_genres_v0	rebetiko	Rebetiko	style	exact	none
+mb_genres_v0	red dirt			new_style	add/Folk, World, & Country
+mb_genres_v0	red disco			new_style	ignore
+mb_genres_v0	red song			new_style	ignore
+mb_genres_v0	reductionism			new_style	add/Classical
+mb_genres_v0	regalia			new_style	ignore
+mb_genres_v0	reggae	Reggae	genre	exact	none
+mb_genres_v0	reggae rock			new_style	ignore
+mb_genres_v0	reggae-pop	Reggae-Pop	style	exact	none
+mb_genres_v0	reggaeton	Reggaeton	style	exact	none
+mb_genres_v0	regional mexicano			new_style	add/Latin
+mb_genres_v0	renaissance	Renaissance	style	exact	none
+mb_genres_v0	reparto			new_style	ignore
+mb_genres_v0	repente			new_style	ignore
+mb_genres_v0	requiem	Requiem	style	exact	none
+mb_genres_v0	revue			new_style	ignore
+mb_genres_v0	rhumba			new_style	ignore
+mb_genres_v0	ricercar			new_style	ignore
+mb_genres_v0	riddim dubstep			new_style	add/Electronic
+mb_genres_v0	rigsar			new_style	ignore
+mb_genres_v0	ring shout			new_style	ignore
+mb_genres_v0	riot grrrl			new_style	ignore
+mb_genres_v0	ripsaw			new_style	ignore
+mb_genres_v0	ritmada			new_style	ignore
+mb_genres_v0	ritual ambient			new_style	add/Electronic
+mb_genres_v0	rizitika			new_style	ignore
+mb_genres_v0	rkt			new_style	ignore
+mb_genres_v0	rock	Rock	genre	exact	none
+mb_genres_v0	rock and roll	Rock & Roll	style	exact	none
+mb_genres_v0	rock andaluz			new_style	add/Rock
+mb_genres_v0	rock andino			new_style	add/Rock
+mb_genres_v0	rock musical			new_style	add/Stage & Screen
+mb_genres_v0	rock opera	Rock Opera	style	exact	none
+mb_genres_v0	rock rural			new_style	add/Rock
+mb_genres_v0	rock urbano			new_style	add/Rock
+mb_genres_v0	rock urbano mexicano			new_style	add/Rock
+mb_genres_v0	rockabilly	Rockabilly	style	exact	none
+mb_genres_v0	rocksteady	Rocksteady	style	exact	none
+mb_genres_v0	rōkyoku	Rōkyoku	style	exact	none
+mb_genres_v0	rom kbach			new_style	ignore
+mb_genres_v0	romanian popcorn			new_style	ignore
+mb_genres_v0	romantic classical			new_style	add/Classical
+mb_genres_v0	romantic flow			new_style	ignore
+mb_genres_v0	romantische oper			new_style	ignore
+mb_genres_v0	rominimal			new_style	ignore
+mb_genres_v0	roots reggae	Roots Reggae	style	exact	none
+mb_genres_v0	roots rock			new_style	add/Rock
+mb_genres_v0	rumba	Rumba	style	exact	none
+mb_genres_v0	rumba catalana			new_style	add/Latin
+mb_genres_v0	rumba cubana			new_style	add/Latin
+mb_genres_v0	rumba flamenca			new_style	add/Latin
+mb_genres_v0	runo song			new_style	ignore
+mb_genres_v0	russian chanson			new_style	ignore
+mb_genres_v0	russian orthodox liturgical music			new_style	ignore
+mb_genres_v0	russian romance			new_style	ignore
+mb_genres_v0	ryūkōka	Ryūkōka	style	exact	none
+mb_genres_v0	sa'idi			new_style	ignore
+mb_genres_v0	sacred harp			new_style	ignore
+mb_genres_v0	sacred steel			new_style	ignore
+mb_genres_v0	saeta			new_style	ignore
+mb_genres_v0	salegy	Salegy	style	exact	none
+mb_genres_v0	salsa	Salsa	style	exact	none
+mb_genres_v0	salsa choke			new_style	add/Latin
+mb_genres_v0	salsa dura			new_style	add/Latin
+mb_genres_v0	salsa romántica			new_style	add/Latin
+mb_genres_v0	saluang klasik			new_style	ignore
+mb_genres_v0	samba	Samba	style	exact	none
+mb_genres_v0	samba de breque			new_style	add/Latin
+mb_genres_v0	samba de gafieira			new_style	add/Latin
+mb_genres_v0	samba de roda			new_style	add/Latin
+mb_genres_v0	samba de terreiro			new_style	add/Latin
+mb_genres_v0	samba soul			new_style	ignore
+mb_genres_v0	samba-canção	Samba-Canção	style	exact	none
+mb_genres_v0	samba-choro			new_style	add/Latin
+mb_genres_v0	samba-enredo			new_style	add/Latin
+mb_genres_v0	samba-exaltação			new_style	add/Latin
+mb_genres_v0	samba-jazz			new_style	ignore
+mb_genres_v0	samba-joia			new_style	add/Latin
+mb_genres_v0	samba-reggae			new_style	ignore
+mb_genres_v0	samba-rock			new_style	ignore
+mb_genres_v0	sambalanço			new_style	add/Latin
+mb_genres_v0	sambass			new_style	ignore
+mb_genres_v0	sample drill			new_style	add/Hip Hop
+mb_genres_v0	sampledelia			new_style	ignore
+mb_genres_v0	samri			new_style	ignore
+mb_genres_v0	sanjo			new_style	ignore
+mb_genres_v0	santé engagé			new_style	ignore
+mb_genres_v0	sarala gee			new_style	ignore
+mb_genres_v0	sardana			new_style	ignore
+mb_genres_v0	sarum chant			new_style	add/Classical
+mb_genres_v0	sasscore			new_style	ignore
+mb_genres_v0	sawt			new_style	ignore
+mb_genres_v0	saya afroboliviana			new_style	ignore
+mb_genres_v0	scam rap			new_style	add/Hip Hop
+mb_genres_v0	schlager	Schlager	style	exact	none
+mb_genres_v0	schottische			new_style	ignore
+mb_genres_v0	schranz	Schranz	style	exact	none
+mb_genres_v0	scottish country dance music			new_style	add/Folk, World, & Country
+mb_genres_v0	screamo	Screamo	style	exact	none
+mb_genres_v0	scrumpy and western			new_style	ignore
+mb_genres_v0	sea shanty			new_style	ignore
+mb_genres_v0	sean-nós	Sean-nós	style	exact	none
+mb_genres_v0	seapunk			new_style	ignore
+mb_genres_v0	séga	Séga	style	exact	none
+mb_genres_v0	seggae			new_style	add/Reggae
+mb_genres_v0	seguidilla			new_style	ignore
+mb_genres_v0	seishun punk			new_style	add/Rock
+mb_genres_v0	semba			new_style	ignore
+mb_genres_v0	semi-trot			new_style	ignore
+mb_genres_v0	serenade	Serenade	style	exact	none
+mb_genres_v0	serialism			new_style	add/Classical
+mb_genres_v0	sermon	Sermon	style	exact	none
+mb_genres_v0	sertanejo	Sertanejo	style	exact	none
+mb_genres_v0	sertanejo raiz			new_style	ignore
+mb_genres_v0	sertanejo romântico			new_style	ignore
+mb_genres_v0	sertanejo universitário			new_style	ignore
+mb_genres_v0	seto leelo			new_style	ignore
+mb_genres_v0	sevdalinka			new_style	ignore
+mb_genres_v0	sevillanas			new_style	ignore
+mb_genres_v0	sexy drill			new_style	add/Hip Hop
+mb_genres_v0	shaabi	Shaabi	style	exact	none
+mb_genres_v0	shabad kirtan			new_style	ignore
+mb_genres_v0	shan'ge			new_style	ignore
+mb_genres_v0	shangaan electro			new_style	add/Electronic
+mb_genres_v0	shanto			new_style	ignore
+mb_genres_v0	shashmaqam			new_style	ignore
+mb_genres_v0	shatta			new_style	ignore
+mb_genres_v0	shibuya-kei	Shibuya-Kei	style	exact	none
+mb_genres_v0	shidaiqu	Shidaiqu	style	exact	none
+mb_genres_v0	shima-uta			new_style	ignore
+mb_genres_v0	shinkyoku	Shinkyoku	style	exact	none
+mb_genres_v0	shitgaze			new_style	ignore
+mb_genres_v0	shoegaze	Shoegaze	style	exact	none
+mb_genres_v0	shōmyō	Shomyo	style	exact	none
+mb_genres_v0	shoor			new_style	ignore
+mb_genres_v0	sichuan opera			new_style	ignore
+mb_genres_v0	sierreño			new_style	ignore
+mb_genres_v0	sigidrigi			new_style	ignore
+mb_genres_v0	sigilkore			new_style	ignore
+mb_genres_v0	sinawi			new_style	ignore
+mb_genres_v0	sinfonia concertante			new_style	add/Classical
+mb_genres_v0	singeli	Singeli	style	exact	none
+mb_genres_v0	singer-songwriter			new_style	ignore
+mb_genres_v0	singspiel	Singspiel	style	exact	none
+mb_genres_v0	sissy bounce			new_style	ignore
+mb_genres_v0	sitarsploitation			new_style	ignore
+mb_genres_v0	sizhu music			new_style	ignore
+mb_genres_v0	ska	Ska	style	exact	none
+mb_genres_v0	ska punk			new_style	add/Rock
+mb_genres_v0	skacore			new_style	ignore
+mb_genres_v0	skate punk			new_style	add/Rock
+mb_genres_v0	sketch comedy			new_style	add/Non-Music
+mb_genres_v0	skiffle	Skiffle	style	exact	none
+mb_genres_v0	skiladiko			new_style	ignore
+mb_genres_v0	skinhead reggae			new_style	add/Reggae
+mb_genres_v0	skullstep			new_style	add/Electronic
+mb_genres_v0	skweee	Skweee	style	exact	none
+mb_genres_v0	slack-key guitar			new_style	ignore
+mb_genres_v0	slacker rock			new_style	add/Rock
+mb_genres_v0	slam death metal			new_style	add/Rock
+mb_genres_v0	slam poetry			new_style	add/Non-Music
+mb_genres_v0	slap house			new_style	add/Electronic
+mb_genres_v0	sleaze rock			new_style	add/Rock
+mb_genres_v0	slimepunk			new_style	ignore
+mb_genres_v0	slow waltz			new_style	ignore
+mb_genres_v0	slowcore	Slowcore	style	exact	none
+mb_genres_v0	slowed & reverb			new_style	ignore
+mb_genres_v0	sludge metal	Sludge Metal	style	exact	none
+mb_genres_v0	slushwave			new_style	add/Electronic
+mb_genres_v0	smooth jazz	Smooth Jazz	style	exact	none
+mb_genres_v0	smooth soul			new_style	add/Funk / Soul
+mb_genres_v0	snap	Snap	style	exact	none
+mb_genres_v0	soca	Soca	style	exact	none
+mb_genres_v0	soft rock	Soft Rock	style	exact	none
+mb_genres_v0	soft visual			new_style	ignore
+mb_genres_v0	sōkyoku	Sokyoku	style	exact	none
+mb_genres_v0	son calentano			new_style	ignore
+mb_genres_v0	son cubano			new_style	add/Latin
+mb_genres_v0	son de pascua			new_style	ignore
+mb_genres_v0	son huasteco			new_style	ignore
+mb_genres_v0	son istmeño			new_style	ignore
+mb_genres_v0	son jarocho			new_style	add/Latin
+mb_genres_v0	son montuno	Son Montuno	style	exact	none
+mb_genres_v0	son nica			new_style	ignore
+mb_genres_v0	sonata	Sonata	style	exact	none
+mb_genres_v0	songo			new_style	ignore
+mb_genres_v0	sonorism			new_style	ignore
+mb_genres_v0	sophisti-pop			new_style	add/Pop
+mb_genres_v0	soukous	Soukous	style	exact	none
+mb_genres_v0	soul	Soul	style	exact	none
+mb_genres_v0	soul blues			new_style	ignore
+mb_genres_v0	soul jazz	Soul-Jazz	style	exact	none
+mb_genres_v0	sound art	Sound Art	style	exact	none
+mb_genres_v0	sound collage	Sound Collage	style	exact	none
+mb_genres_v0	sound effects			new_style	add/Non-Music
+mb_genres_v0	sound poetry	Sound Poetry	style	exact	none
+mb_genres_v0	southeast asian classical			new_style	ignore
+mb_genres_v0	southern gospel			new_style	ignore
+mb_genres_v0	southern hip hop			new_style	add/Hip Hop
+mb_genres_v0	southern metal			new_style	add/Rock
+mb_genres_v0	southern rock	Southern Rock	style	exact	none
+mb_genres_v0	southern soul			new_style	add/Funk / Soul
+mb_genres_v0	sovietwave			new_style	ignore
+mb_genres_v0	space age pop			new_style	add/Pop
+mb_genres_v0	space ambient			new_style	add/Electronic
+mb_genres_v0	space disco			new_style	ignore
+mb_genres_v0	space rock	Space Rock	style	exact	none
+mb_genres_v0	space rock revival			new_style	add/Rock
+mb_genres_v0	spacesynth			new_style	add/Electronic
+mb_genres_v0	spamwave			new_style	ignore
+mb_genres_v0	spectralism	Spectralism	style	exact	none
+mb_genres_v0	speech	Speech	style	exact	none
+mb_genres_v0	speed garage	Speed Garage	style	exact	none
+mb_genres_v0	speed house			new_style	add/Electronic
+mb_genres_v0	speed metal	Speed Metal	style	exact	none
+mb_genres_v0	speedcore	Speedcore	style	exact	none
+mb_genres_v0	spiritual jazz	Spiritual Jazz	style	exact	none
+mb_genres_v0	spirituals	Spirituals	style	exact	none
+mb_genres_v0	splittercore			new_style	ignore
+mb_genres_v0	spoken word	Spoken Word	style	exact	none
+mb_genres_v0	spouge			new_style	ignore
+mb_genres_v0	staïfi			new_style	ignore
+mb_genres_v0	standup comedy			new_style	add/Non-Music
+mb_genres_v0	steampunk			new_style	ignore
+mb_genres_v0	steel band	Steel Band	style	exact	none
+mb_genres_v0	stenchcore			new_style	ignore
+mb_genres_v0	sticheron			new_style	ignore
+mb_genres_v0	stochastic music			new_style	add/Classical
+mb_genres_v0	stomp and holler			new_style	ignore
+mb_genres_v0	stoner metal			new_style	add/Rock
+mb_genres_v0	stoner rap			new_style	add/Hip Hop
+mb_genres_v0	stoner rock	Stoner Rock	style	exact	none
+mb_genres_v0	stornello			new_style	ignore
+mb_genres_v0	street punk			new_style	add/Rock
+mb_genres_v0	stride	Stride	style	exact	none
+mb_genres_v0	string quartet			new_style	add/Classical
+mb_genres_v0	stutter house			new_style	add/Electronic
+mb_genres_v0	sufi rock			new_style	add/Rock
+mb_genres_v0	sufiana kalam			new_style	ignore
+mb_genres_v0	sundanese pop			new_style	add/Pop
+mb_genres_v0	sungura			new_style	ignore
+mb_genres_v0	sunshine pop	Sunshine Pop	style	exact	none
+mb_genres_v0	suomisaundi	Suomisaundi	style	exact	none
+mb_genres_v0	surf	Surf	style	exact	none
+mb_genres_v0	surf punk			new_style	add/Rock
+mb_genres_v0	surf rock			new_style	add/Rock
+mb_genres_v0	sutartinės			new_style	ignore
+mb_genres_v0	swamp blues			new_style	add/Blues
+mb_genres_v0	swamp pop	Swamp Pop	style	exact	none
+mb_genres_v0	swamp rock			new_style	add/Rock
+mb_genres_v0	swancore			new_style	ignore
+mb_genres_v0	sweet jazz			new_style	add/Jazz
+mb_genres_v0	swing	Swing	style	exact	none
+mb_genres_v0	swing revival			new_style	ignore
+mb_genres_v0	symphonic black metal			new_style	add/Rock
+mb_genres_v0	symphonic metal	Symphonic Metal	style	exact	none
+mb_genres_v0	symphonic mugham			new_style	ignore
+mb_genres_v0	symphonic poem			new_style	ignore
+mb_genres_v0	symphonic prog			new_style	ignore
+mb_genres_v0	symphonic rock	Symphonic Rock	style	exact	none
+mb_genres_v0	symphony	Symphony	style	exact	none
+mb_genres_v0	synth funk			new_style	add/Funk / Soul
+mb_genres_v0	synth-pop	Synth-pop	style	exact	none
+mb_genres_v0	synthwave	Synthwave	style	exact	none
+mb_genres_v0	t-pop			new_style	add/Pop
+mb_genres_v0	taarab	Taarab	style	exact	none
+mb_genres_v0	tajaraste			new_style	ignore
+mb_genres_v0	takamba			new_style	ignore
+mb_genres_v0	talempong			new_style	ignore
+mb_genres_v0	talempong goyang			new_style	ignore
+mb_genres_v0	talking blues			new_style	add/Blues
+mb_genres_v0	tallava			new_style	ignore
+mb_genres_v0	tamborera			new_style	ignore
+mb_genres_v0	tamborito			new_style	ignore
+mb_genres_v0	tamborzão			new_style	ignore
+mb_genres_v0	tammurriata			new_style	ignore
+mb_genres_v0	tân cổ giao duyên			new_style	ignore
+mb_genres_v0	tango	Tango	style	exact	none
+mb_genres_v0	tanjidor			new_style	ignore
+mb_genres_v0	taoist ritual music			new_style	ignore
+mb_genres_v0	tape music			new_style	add/Electronic
+mb_genres_v0	tappa			new_style	ignore
+mb_genres_v0	taquirari			new_style	ignore
+mb_genres_v0	tarana			new_style	ignore
+mb_genres_v0	tarantella			new_style	ignore
+mb_genres_v0	tarawangsa			new_style	ignore
+mb_genres_v0	tarraxinha			new_style	ignore
+mb_genres_v0	tassa			new_style	ignore
+mb_genres_v0	tassu			new_style	ignore
+mb_genres_v0	tchinkoumé			new_style	ignore
+mb_genres_v0	tearout			new_style	ignore
+mb_genres_v0	tearout brostep			new_style	ignore
+mb_genres_v0	tech house	Tech House	style	exact	none
+mb_genres_v0	tech trance	Tech Trance	style	exact	none
+mb_genres_v0	technical death metal	Technical Death Metal	style	exact	none
+mb_genres_v0	technical thrash metal			new_style	add/Rock
+mb_genres_v0	techno	Techno	style	exact	none
+mb_genres_v0	techno bass			new_style	add/Electronic
+mb_genres_v0	techno kayō			new_style	add/Electronic
+mb_genres_v0	technobanda			new_style	ignore
+mb_genres_v0	technoid			new_style	ignore
+mb_genres_v0	techstep			new_style	add/Electronic
+mb_genres_v0	tecnobrega			new_style	add/Latin
+mb_genres_v0	tecnofunk			new_style	add/Latin
+mb_genres_v0	tecnomerengue			new_style	add/Latin
+mb_genres_v0	tecnorumba			new_style	add/Latin
+mb_genres_v0	teen pop			new_style	add/Pop
+mb_genres_v0	tejano	Tejano	style	exact	none
+mb_genres_v0	tembang cianjuran			new_style	ignore
+mb_genres_v0	terror plugg			new_style	add/Hip Hop
+mb_genres_v0	terrorcore			new_style	ignore
+mb_genres_v0	tex-mex			new_style	add/Latin
+mb_genres_v0	texas blues	Texas Blues	style	exact	none
+mb_genres_v0	texas country			new_style	add/Folk, World, & Country
+mb_genres_v0	thai classical	Thai Classical	style	exact	none
+mb_genres_v0	thall			new_style	ignore
+mb_genres_v0	theme and variations			new_style	add/Classical
+mb_genres_v0	third stream			new_style	add/Jazz
+mb_genres_v0	third wave ska			new_style	add/Reggae
+mb_genres_v0	thrash metal			new_style	add/Rock
+mb_genres_v0	thrashcore			new_style	add/Rock
+mb_genres_v0	thumri			new_style	ignore
+mb_genres_v0	tibetan buddhist chant			new_style	ignore
+mb_genres_v0	tiento			new_style	ignore
+mb_genres_v0	timba	Timba	style	exact	none
+mb_genres_v0	timbila			new_style	ignore
+mb_genres_v0	tin pan alley			new_style	ignore
+mb_genres_v0	tivaner inngernerlu			new_style	ignore
+mb_genres_v0	tizita			new_style	ignore
+mb_genres_v0	toada de boi			new_style	ignore
+mb_genres_v0	toccata			new_style	add/Classical
+mb_genres_v0	tonada asturiana			new_style	add/Latin
+mb_genres_v0	tonada potosina			new_style	add/Latin
+mb_genres_v0	tonadilla			new_style	ignore
+mb_genres_v0	tondero			new_style	ignore
+mb_genres_v0	tontipop			new_style	add/Pop
+mb_genres_v0	totalism			new_style	add/Classical
+mb_genres_v0	township bubblegum			new_style	ignore
+mb_genres_v0	township jive			new_style	ignore
+mb_genres_v0	toypop			new_style	add/Pop
+mb_genres_v0	toytown pop			new_style	add/Pop
+mb_genres_v0	tradi-moderne congolais			new_style	ignore
+mb_genres_v0	tradi-moderne ivoirien			new_style	ignore
+mb_genres_v0	traditional black gospel			new_style	add/Funk / Soul
+mb_genres_v0	traditional bluegrass			new_style	add/Folk, World, & Country
+mb_genres_v0	traditional country			new_style	add/Folk, World, & Country
+mb_genres_v0	traditional doom metal			new_style	add/Rock
+mb_genres_v0	traditional pop			new_style	add/Pop
+mb_genres_v0	tragédie en musique			new_style	add/Classical
+mb_genres_v0	trallalero	Trallalero	style	exact	none
+mb_genres_v0	trampská hudba			new_style	ignore
+mb_genres_v0	trance	Trance	style	exact	none
+mb_genres_v0	trance metal			new_style	ignore
+mb_genres_v0	trancestep			new_style	add/Electronic
+mb_genres_v0	trap	Trap	style	exact	none
+mb_genres_v0	trap dancehall			new_style	ignore
+mb_genres_v0	trap edm			new_style	add/Electronic
+mb_genres_v0	trap latino			new_style	ignore
+mb_genres_v0	trap metal			new_style	add/Rock
+mb_genres_v0	trap shaabi			new_style	ignore
+mb_genres_v0	trap soul			new_style	ignore
+mb_genres_v0	trapfunk			new_style	ignore
+mb_genres_v0	tread			new_style	ignore
+mb_genres_v0	tribal ambient			new_style	add/Electronic
+mb_genres_v0	tribal guarachero			new_style	ignore
+mb_genres_v0	tribal house	Tribal House	style	exact	none
+mb_genres_v0	trikitixa			new_style	ignore
+mb_genres_v0	trip hop	Trip Hop	style	exact	none
+mb_genres_v0	troparion			new_style	ignore
+mb_genres_v0	tropical house	Tropical House	style	exact	none
+mb_genres_v0	tropical rock			new_style	add/Rock
+mb_genres_v0	tropicália			new_style	add/Latin
+mb_genres_v0	tropicanibalismo			new_style	ignore
+mb_genres_v0	tropipop			new_style	add/Latin
+mb_genres_v0	trot			new_style	ignore
+mb_genres_v0	trova	Trova	style	exact	none
+mb_genres_v0	trova yucateca			new_style	add/Latin
+mb_genres_v0	truck driving country			new_style	add/Folk, World, & Country
+mb_genres_v0	tsapiky			new_style	ignore
+mb_genres_v0	tsonga disco			new_style	ignore
+mb_genres_v0	tsugaru-jamisen			new_style	ignore
+mb_genres_v0	tumba			new_style	ignore
+mb_genres_v0	tumba francesa			new_style	ignore
+mb_genres_v0	tumbélé			new_style	ignore
+mb_genres_v0	turbo-folk			new_style	add/Folk, World, & Country
+mb_genres_v0	turkish classical			new_style	ignore
+mb_genres_v0	turkish folk			new_style	add/Folk, World, & Country
+mb_genres_v0	turkish pop			new_style	add/Pop
+mb_genres_v0	turntablism	Turntablism	style	exact	none
+mb_genres_v0	twee pop			new_style	add/Pop
+mb_genres_v0	twerk			new_style	ignore
+mb_genres_v0	twoubadou			new_style	ignore
+mb_genres_v0	uaajeerneq			new_style	ignore
+mb_genres_v0	udigrudi			new_style	ignore
+mb_genres_v0	uk drill			new_style	add/Hip Hop
+mb_genres_v0	uk funky	UK Funky	style	exact	none
+mb_genres_v0	uk garage	UK Garage	style	exact	none
+mb_genres_v0	uk hardcore			new_style	ignore
+mb_genres_v0	uk jackin			new_style	ignore
+mb_genres_v0	uk street soul	UK Street Soul	style	exact	none
+mb_genres_v0	uk82			new_style	ignore
+mb_genres_v0	unakesa			new_style	ignore
+mb_genres_v0	underground hip hop			new_style	add/Hip Hop
+mb_genres_v0	unyago			new_style	ignore
+mb_genres_v0	upopo			new_style	ignore
+mb_genres_v0	uptempo hardcore			new_style	ignore
+mb_genres_v0	urban contemporary gospel			new_style	add/Funk / Soul
+mb_genres_v0	urban cowboy			new_style	ignore
+mb_genres_v0	urtiin duu			new_style	ignore
+mb_genres_v0	urumi melam			new_style	ignore
+mb_genres_v0	us power metal			new_style	add/Rock
+mb_genres_v0	utopian virtual			new_style	ignore
+mb_genres_v0	uyghur muqam			new_style	ignore
+mb_genres_v0	uzun hava			new_style	ignore
+mb_genres_v0	v-pop	V-pop	style	exact	none
+mb_genres_v0	vaigat			new_style	ignore
+mb_genres_v0	vallenato	Vallenato	style	exact	none
+mb_genres_v0	vals criollo			new_style	add/Latin
+mb_genres_v0	vals venezolano			new_style	add/Latin
+mb_genres_v0	valsa brasileira			new_style	add/Latin
+mb_genres_v0	vanera			new_style	ignore
+mb_genres_v0	vapornoise			new_style	add/Electronic
+mb_genres_v0	vaportrap			new_style	add/Electronic
+mb_genres_v0	vaporwave	Vaporwave	style	exact	none
+mb_genres_v0	vaudeville	Vaudeville	style	exact	none
+mb_genres_v0	vaudeville blues			new_style	add/Blues
+mb_genres_v0	vedic chant			new_style	ignore
+mb_genres_v0	verbunkos			new_style	ignore
+mb_genres_v0	verismo	Verismo	style	exact	none
+mb_genres_v0	vietnamese bolero			new_style	ignore
+mb_genres_v0	vietnamese classical			new_style	ignore
+mb_genres_v0	viking metal	Viking Metal	style	exact	none
+mb_genres_v0	viking rock			new_style	add/Rock
+mb_genres_v0	villancico			new_style	ignore
+mb_genres_v0	vinahouse			new_style	ignore
+mb_genres_v0	visa			new_style	ignore
+mb_genres_v0	visual kei			new_style	ignore
+mb_genres_v0	vocal house			new_style	add/Electronic
+mb_genres_v0	vocal jazz			new_style	add/Jazz
+mb_genres_v0	vocal surf			new_style	ignore
+mb_genres_v0	vocal trance			new_style	add/Electronic
+mb_genres_v0	vocalese			new_style	add/Jazz
+mb_genres_v0	volkstümliche musik			new_style	ignore
+mb_genres_v0	vude			new_style	ignore
+mb_genres_v0	wa euro			new_style	ignore
+mb_genres_v0	waka			new_style	ignore
+mb_genres_v0	waltz			new_style	ignore
+mb_genres_v0	wangga			new_style	ignore
+mb_genres_v0	war metal			new_style	add/Rock
+mb_genres_v0	wassoulou			new_style	ignore
+mb_genres_v0	waulking song			new_style	ignore
+mb_genres_v0	wave			new_style	ignore
+mb_genres_v0	weightless			new_style	ignore
+mb_genres_v0	west coast breaks			new_style	add/Electronic
+mb_genres_v0	west coast hip hop			new_style	add/Hip Hop
+mb_genres_v0	west coast swing			new_style	ignore
+mb_genres_v0	western			new_style	ignore
+mb_genres_v0	western classical			new_style	add/Classical
+mb_genres_v0	western swing	Western Swing	style	exact	none
+mb_genres_v0	whale song			new_style	add/Non-Music
+mb_genres_v0	whistling			new_style	add/Non-Music
+mb_genres_v0	white voice			new_style	ignore
+mb_genres_v0	winter synth			new_style	add/Electronic
+mb_genres_v0	witch house	Witch House	style	exact	none
+mb_genres_v0	wong shadow			new_style	ignore
+mb_genres_v0	wonky			new_style	ignore
+mb_genres_v0	wonky techno			new_style	add/Electronic
+mb_genres_v0	work song			new_style	ignore
+mb_genres_v0	world fusion			new_style	ignore
+mb_genres_v0	worldbeat			new_style	ignore
+mb_genres_v0	wyrd folk			new_style	add/Folk, World, & Country
+mb_genres_v0	xẩm			new_style	ignore
+mb_genres_v0	xaxado			new_style	add/Latin
+mb_genres_v0	xian psych			new_style	ignore
+mb_genres_v0	xote			new_style	add/Latin
+mb_genres_v0	xuc			new_style	ignore
+mb_genres_v0	yacht rock			new_style	add/Rock
+mb_genres_v0	yakousei			new_style	ignore
+mb_genres_v0	yangzhou opera			new_style	ignore
+mb_genres_v0	yaraví			new_style	ignore
+mb_genres_v0	yayue			new_style	ignore
+mb_genres_v0	yé-yé	Yé-Yé	style	exact	none
+mb_genres_v0	yodeling			new_style	add/Folk, World, & Country
+mb_genres_v0	ytpmv			new_style	ignore
+mb_genres_v0	yu-mex			new_style	ignore
+mb_genres_v0	yue opera			new_style	ignore
+mb_genres_v0	yukar			new_style	ignore
+mb_genres_v0	zamacueca			new_style	add/Latin
+mb_genres_v0	zamba	Zamba	style	exact	none
+mb_genres_v0	zamrock			new_style	ignore
+mb_genres_v0	zarzuela	Zarzuela	style	exact	none
+mb_genres_v0	zarzuela barroca			new_style	ignore
+mb_genres_v0	zeitoper			new_style	add/Classical
+mb_genres_v0	zema			new_style	ignore
+mb_genres_v0	zemirot			new_style	ignore
+mb_genres_v0	zenonesque			new_style	ignore
+mb_genres_v0	zess			new_style	ignore
+mb_genres_v0	zeuhl			new_style	ignore
+mb_genres_v0	zeybek			new_style	ignore
+mb_genres_v0	zhongguo feng	Zhongguo Feng	style	exact	none
+mb_genres_v0	ziglibithy			new_style	ignore
+mb_genres_v0	zinli			new_style	ignore
+mb_genres_v0	znamenny chant			new_style	ignore
+mb_genres_v0	zoblazo			new_style	ignore
+mb_genres_v0	zohioliin duu			new_style	ignore
+mb_genres_v0	zolo			new_style	ignore
+mb_genres_v0	zouglou			new_style	ignore
+mb_genres_v0	zouk	Zouk	style	exact	none
+mb_genres_v0	zouk love			new_style	ignore
+mb_genres_v0	zydeco	Zydeco	style	exact	none

@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "kukicha"
+version = "0.1.0"
+description = "Scan and query a SQLite-backed music metadata database."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "Flask>=3.1.0",
+  "Jinja2>=3.1.0",
+  "mutagen>=1.47.0",
+  "Pillow>=10.0.0",
+]
+
+[project.scripts]
+kukicha = "kukicha.cli:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+kukicha = ["data/*.tsv", "templates/player/*.html", "static/*.css", "static/*.js", "static/*.svg"]

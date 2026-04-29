@@ -1,0 +1,1914 @@
+kind	name	parent	source	source_term	status	count
+genre	1		discogs_20260301_masters	1	native	6
+genre	Blues		discogs_20260301_masters	Blues	native	53173
+genre	Blues		mb_genres_v0	blues	exact	53173
+genre	Brass & Military		discogs_20260301_masters	Brass & Military	native	8872
+genre	Children's		discogs_20260301_masters	Children's	native	25908
+genre	Classical		discogs_20260301_masters	Classical	native	155567
+genre	Classical		mb_genres_v0	classical	exact	25889
+genre	Electronic		discogs_20260301_masters	Electronic	native	694640
+genre	Electronic		mb_genres_v0	electronic	exact	694640
+genre	Folk, World, & Country		discogs_20260301_masters	Folk, World, & Country	native	332077
+genre	Funk / Soul		discogs_20260301_masters	Funk / Soul	native	175908
+genre	Hip Hop		discogs_20260301_masters	Hip Hop	native	122414
+genre	Hip Hop		mb_genres_v0	hip hop	exact	8003
+genre	Jazz		discogs_20260301_masters	Jazz	native	200211
+genre	Jazz		mb_genres_v0	jazz	exact	200211
+genre	Latin		discogs_20260301_masters	Latin	native	109875
+genre	Latin		mb_genres_v0	latin	exact	4527
+genre	Non-Music		discogs_20260301_masters	Non-Music	native	43682
+genre	Non-Music		mb_genres_v0	non-music	exact	43682
+genre	Pop		discogs_20260301_masters	Pop	native	522683
+genre	Pop		mb_genres_v0	pop	exact	522683
+genre	Reggae		discogs_20260301_masters	Reggae	native	63734
+genre	Reggae		mb_genres_v0	reggae	exact	13206
+genre	Rock		discogs_20260301_masters	Rock	native	776857
+genre	Rock		mb_genres_v0	rock	exact	776857
+genre	Stage & Screen		discogs_20260301_masters	Stage & Screen	native	74213
+style	Aboriginal	Folk, World, & Country	discogs_20260301_masters	Aboriginal	native	616
+style	Abstract	Electronic	discogs_20260301_masters	Abstract	native	21619
+style	Abstract Hip Hop	Hip Hop	mb_genres_v0	abstract hip hop	added	
+style	Acid	Electronic	discogs_20260301_masters	Acid	native	14358
+style	Acid Breaks	Electronic	mb_genres_v0	acid breaks	added	
+style	Acid House	Electronic	discogs_20260301_masters	Acid House	native	4195
+style	Acid House	Electronic	mb_genres_v0	acid house	exact	4195
+style	Acid Jazz	Electronic	discogs_20260301_masters	Acid Jazz	native	3204
+style	Acid Jazz	Electronic	mb_genres_v0	acid jazz	exact	3204
+style	Acid Rock	Rock	discogs_20260301_masters	Acid Rock	native	1554
+style	Acid Rock	Rock	mb_genres_v0	acid rock	exact	1554
+style	Acid Techno	Electronic	mb_genres_v0	acid techno	added	
+style	Acid Trance	Electronic	mb_genres_v0	acid trance	added	
+style	Acousmatic	Electronic	mb_genres_v0	acousmatic	added	
+style	Acoustic	Rock	discogs_20260301_masters	Acoustic	native	18107
+style	Acoustic Blues	Blues	mb_genres_v0	acoustic blues	added	
+style	Acoustic Chicago Blues	Blues	mb_genres_v0	acoustic chicago blues	added	
+style	Acoustic Rock	Rock	mb_genres_v0	acoustic rock	added	
+style	Acoustic Texas Blues	Blues	mb_genres_v0	acoustic texas blues	added	
+style	African	Folk, World, & Country	discogs_20260301_masters	African	native	11695
+style	African Blues	Blues	mb_genres_v0	african blues	added	
+style	Afro House	Electronic	mb_genres_v0	afro house	added	
+style	Afro Rock	Rock	mb_genres_v0	afro rock	added	
+style	Afro-Cuban	Latin	discogs_20260301_masters	Afro-Cuban	native	2478
+style	Afro-Cuban Jazz	Jazz	discogs_20260301_masters	Afro-Cuban Jazz	native	1427
+style	Afro-Cuban Jazz	Jazz	mb_genres_v0	afro-cuban jazz	exact	1427
+style	Afro-Funk	Funk / Soul	mb_genres_v0	afro-funk	added	
+style	Afro-Jazz	Jazz	mb_genres_v0	afro-jazz	added	
+style	Afrobeat	Funk / Soul	discogs_20260301_masters	Afrobeat	native	2740
+style	Afrobeat	Funk / Soul	mb_genres_v0	afrobeat	exact	2740
+style	Aguinaldo	Latin	discogs_20260301_masters	Aguinaldo	native	105
+style	Aleatoric	Classical	discogs_20260301_masters	Aleatoric	native	4
+style	Algorave	Electronic	mb_genres_v0	algorave	added	
+style	Alt-Pop	Pop	discogs_20260301_masters	Alt-Pop	native	968
+style	Alternative Country	Folk, World, & Country	mb_genres_v0	alternative country	added	
+style	Alternative Folk	Folk, World, & Country	mb_genres_v0	alternative folk	added	
+style	Alternative Hip Hop	Hip Hop	mb_genres_v0	alternative hip hop	added	
+style	Alternative Metal	Rock	discogs_20260301_masters	Alternative Metal	native	880
+style	Alternative Metal	Rock	mb_genres_v0	alternative metal	exact	880
+style	Alternative Pop	Pop	mb_genres_v0	alternative pop	added	
+style	Alternative Punk	Rock	mb_genres_v0	alternative punk	added	
+style	Alternative R&B	Funk / Soul	mb_genres_v0	alternative r&b	added	
+style	Alternative Rock	Rock	discogs_20260301_masters	Alternative Rock	native	65853
+style	Alternative Rock	Rock	mb_genres_v0	alternative rock	exact	65853
+style	Amapiano	Electronic	discogs_20260301_masters	Amapiano	native	13
+style	Amapiano	Electronic	mb_genres_v0	amapiano	exact	13
+style	Ambient	Electronic	discogs_20260301_masters	Ambient	native	68533
+style	Ambient	Electronic	mb_genres_v0	ambient	exact	68533
+style	Ambient Americana	Folk, World, & Country	mb_genres_v0	ambient americana	added	
+style	Ambient House	Electronic	discogs_20260301_masters	Ambient House	native	160
+style	Ambient House	Electronic	mb_genres_v0	ambient house	exact	160
+style	Ambient Plugg	Hip Hop	mb_genres_v0	ambient plugg	added	
+style	Ambient Pop	Pop	mb_genres_v0	ambient pop	added	
+style	Ambient Techno	Electronic	mb_genres_v0	ambient techno	added	
+style	Ambient Trance	Electronic	mb_genres_v0	ambient trance	added	
+style	Ambrosian Chant	Classical	mb_genres_v0	ambrosian chant	added	
+style	Americana	Folk, World, & Country	mb_genres_v0	americana	added	
+style	Anarcho-Punk	Rock	discogs_20260301_masters	Anarcho-Punk	native	83
+style	Anarcho-Punk	Rock	mb_genres_v0	anarcho-punk	exact	83
+style	Anatolian Rock	Rock	discogs_20260301_masters	Anatolian Rock	native	32
+style	Anatolian Rock	Rock	mb_genres_v0	anatolian rock	exact	32
+style	Andalusian Classical	Folk, World, & Country	discogs_20260301_masters	Andalusian Classical	native	155
+style	Andalusian Classical	Folk, World, & Country	mb_genres_v0	andalusian classical	exact	155
+style	Andean Music	Folk, World, & Country	discogs_20260301_masters	Andean Music	native	903
+style	Animal Sounds	Non-Music	mb_genres_v0	animal sounds	added	
+style	Anison	Stage & Screen	discogs_20260301_masters	Anison	native	2043
+style	Antifolk	Folk, World, & Country	discogs_20260301_masters	Antifolk	native	30
+style	Antifolk	Folk, World, & Country	mb_genres_v0	anti-folk	exact	30
+style	AOR	Rock	discogs_20260301_masters	AOR	native	4817
+style	AOR	Rock	mb_genres_v0	aor	exact	4817
+style	Appalachian Folk	Folk, World, & Country	mb_genres_v0	appalachian folk	added	
+style	Appalachian Music	Folk, World, & Country	discogs_20260301_masters	Appalachian Music	native	547
+style	Arabesk Rap	Hip Hop	mb_genres_v0	arabesk rap	added	
+style	Arabic Pop	Pop	discogs_20260301_masters	Arabic Pop	native	152
+style	Arena Rock	Rock	discogs_20260301_masters	Arena Rock	native	3167
+style	Arena Rock	Rock	mb_genres_v0	arena rock	exact	3167
+style	Ars Antiqua	Classical	mb_genres_v0	ars antiqua	added	
+style	Ars Nova	Classical	mb_genres_v0	ars nova	added	
+style	Ars Subtilior	Classical	mb_genres_v0	ars subtilior	added	
+style	Art Pop	Pop	mb_genres_v0	art pop	added	
+style	Art Punk	Rock	mb_genres_v0	art punk	added	
+style	Art Rock	Rock	discogs_20260301_masters	Art Rock	native	10159
+style	Art Rock	Rock	mb_genres_v0	art rock	exact	10159
+style	Art Song	Classical	discogs_20260301_masters	Art Song	native	275
+style	Art Song	Classical	mb_genres_v0	art song	exact	275
+style	Asian Rock	Rock	mb_genres_v0	asian rock	added	
+style	Asmr	Non-Music	mb_genres_v0	asmr	added	
+style	Atmospheric Black Metal	Rock	discogs_20260301_masters	Atmospheric Black Metal	native	2469
+style	Atmospheric Black Metal	Rock	mb_genres_v0	atmospheric black metal	exact	2469
+style	Atmospheric Drum And Bass	Electronic	mb_genres_v0	atmospheric drum and bass	added	
+style	Atmospheric Sludge Metal	Rock	mb_genres_v0	atmospheric sludge metal	added	
+style	Atonal	Classical	discogs_20260301_masters	Atonal	native	8
+style	Audio Documentary	Non-Music	mb_genres_v0	audio documentary	added	
+style	Audio Drama	Non-Music	mb_genres_v0	audio drama	added	
+style	Audiobook	Non-Music	discogs_20260301_masters	Audiobook	native	3110
+style	Avant-Folk	Folk, World, & Country	mb_genres_v0	avant-folk	added	
+style	Avant-garde Jazz	Jazz	discogs_20260301_masters	Avant-garde Jazz	native	3894
+style	Avant-garde Jazz	Jazz	mb_genres_v0	avant-garde jazz	exact	3894
+style	Avant-Garde Metal	Rock	mb_genres_v0	avant-garde metal	added	
+style	Avant-Garde Pop	Pop	mb_genres_v0	avant-garde pop	added	
+style	Avantgarde	Rock	discogs_20260301_masters	Avantgarde	native	10928
+style	Avantgarde	Rock	mb_genres_v0	avant-garde	exact	10928
+style	Axé	Latin	discogs_20260301_masters	Axé	native	330
+style	Axé	Latin	mb_genres_v0	axé	exact	330
+style	Azonto	Reggae	discogs_20260301_masters	Azonto	native	7
+style	Bachata	Latin	discogs_20260301_masters	Bachata	native	460
+style	Bachata	Latin	mb_genres_v0	bachata	exact	460
+style	Bachatón	Latin	mb_genres_v0	bachatón	added	
+style	Baila	Folk, World, & Country	discogs_20260301_masters	Baila	native	4
+style	Baila	Folk, World, & Country	mb_genres_v0	baila	exact	4
+style	Baião	Latin	discogs_20260301_masters	Baião	native	330
+style	Baião	Latin	mb_genres_v0	baião	exact	330
+style	Bakersfield Sound	Folk, World, & Country	discogs_20260301_masters	Bakersfield Sound	native	543
+style	Bakersfield Sound	Folk, World, & Country	mb_genres_v0	bakersfield sound	exact	543
+style	Balearic	Electronic	discogs_20260301_masters	Balearic	native	494
+style	Balearic Trance	Electronic	mb_genres_v0	balearic trance	added	
+style	Ballad	Pop	discogs_20260301_masters	Ballad	native	53830
+style	Ballad	Pop	mb_genres_v0	ballad	exact	53830
+style	Ballad Opera	Classical	mb_genres_v0	ballad opera	added	
+style	Ballet	Classical	discogs_20260301_masters	Ballet	native	713
+style	Ballet	Classical	mb_genres_v0	ballet	exact	713
+style	Ballet De Cour	Classical	mb_genres_v0	ballet de cour	added	
+style	Ballroom	Electronic	discogs_20260301_masters	Ballroom	native	79
+style	Ballroom House	Electronic	mb_genres_v0	ballroom house	added	
+style	Baltimore Club	Electronic	discogs_20260301_masters	Baltimore Club	native	106
+style	Baltimore Club	Electronic	mb_genres_v0	baltimore club	exact	106
+style	Bambuco	Latin	discogs_20260301_masters	Bambuco	native	99
+style	Bambuco	Latin	mb_genres_v0	bambuco	exact	99
+style	Banda	Latin	discogs_20260301_masters	Banda	native	170
+style	Bangladeshi Classical	Folk, World, & Country	discogs_20260301_masters	Bangladeshi Classical	native	21
+style	Barbershop	Pop	discogs_20260301_masters	Barbershop	native	257
+style	Barbershop	Pop	mb_genres_v0	barbershop	exact	257
+style	Bard Rock	Rock	mb_genres_v0	bard rock	added	
+style	Baroque	Classical	discogs_20260301_masters	Baroque	native	19834
+style	Baroque	Classical	mb_genres_v0	baroque	exact	19834
+style	Baroque Pop	Rock	discogs_20260301_masters	Baroque Pop	native	399
+style	Baroque Pop	Rock	mb_genres_v0	baroque pop	exact	399
+style	Baroque Suite	Classical	mb_genres_v0	baroque suite	added	
+style	Basque Music	Folk, World, & Country	discogs_20260301_masters	Basque Music	native	259
+style	Bass House	Electronic	mb_genres_v0	bass house	added	
+style	Bass Music	Hip Hop	discogs_20260301_masters	Bass Music	native	3374
+style	Bassline	Electronic	discogs_20260301_masters	Bassline	native	546
+style	Bassline	Electronic	mb_genres_v0	bassline	exact	546
+style	Battle Rap	Hip Hop	mb_genres_v0	battle rap	added	
+style	Batucada	Latin	discogs_20260301_masters	Batucada	native	469
+style	Batucada	Latin	mb_genres_v0	batucada	exact	469
+style	Bayou Funk	Funk / Soul	discogs_20260301_masters	Bayou Funk	native	374
+style	Beat	Rock	discogs_20260301_masters	Beat	native	10967
+style	Beat Rock	Rock	mb_genres_v0	beat rock	added	
+style	Beatbox	Hip Hop	discogs_20260301_masters	Beatbox	native	106
+style	Beatdown	Electronic	discogs_20260301_masters	Beatdown	native	262
+style	Bebop	Jazz	mb_genres_v0	bebop	added	
+style	Bedroom Pop	Pop	mb_genres_v0	bedroom pop	added	
+style	Beguine	Latin	discogs_20260301_masters	Beguine	native	729
+style	Bel Canto	Classical	discogs_20260301_masters	Bel Canto	native	7
+style	Belgian Techno	Electronic	mb_genres_v0	belgian techno	added	
+style	Beneventan Chant	Classical	mb_genres_v0	beneventan chant	added	
+style	Bengali Music	Folk, World, & Country	discogs_20260301_masters	Bengali Music	native	145
+style	Berlin-School	Electronic	discogs_20260301_masters	Berlin-School	native	4015
+style	Berlin-School	Electronic	mb_genres_v0	berlin school	exact	4015
+style	Bećarac	Folk, World, & Country	discogs_20260301_masters	Bećarac	native	4
+style	Bhangra	Folk, World, & Country	discogs_20260301_masters	Bhangra	native	1108
+style	Bhangra	Folk, World, & Country	mb_genres_v0	bhangra	exact	1108
+style	Bhojpuri Pop	Pop	mb_genres_v0	bhojpuri pop	added	
+style	Big Band	Jazz	discogs_20260301_masters	Big Band	native	17994
+style	Big Band	Jazz	mb_genres_v0	big band	exact	17994
+style	Big Beat	Electronic	discogs_20260301_masters	Big Beat	native	2467
+style	Big Beat	Electronic	mb_genres_v0	big beat	exact	2467
+style	Big Room House	Electronic	mb_genres_v0	big room house	added	
+style	Big Room Trance	Electronic	mb_genres_v0	big room trance	added	
+style	Birdsong	Non-Music	mb_genres_v0	birdsong	added	
+style	Bit Music	Electronic	mb_genres_v0	bit music	added	
+style	Bitpop	Electronic	discogs_20260301_masters	Bitpop	native	54
+style	Bitpop	Electronic	mb_genres_v0	bitpop	exact	54
+style	Black Metal	Rock	discogs_20260301_masters	Black Metal	native	37417
+style	Black Metal	Rock	mb_genres_v0	black metal	exact	37417
+style	Blackened Crust	Rock	mb_genres_v0	blackened crust	added	
+style	Blackened Death Metal	Rock	mb_genres_v0	blackened death metal	added	
+style	Blackgaze	Rock	discogs_20260301_masters	Blackgaze	native	345
+style	Blackgaze	Rock	mb_genres_v0	blackgaze	exact	345
+style	Bleep	Electronic	discogs_20260301_masters	Bleep	native	497
+style	Bleep Techno	Electronic	mb_genres_v0	bleep techno	added	
+style	Blue-Eyed Soul	Funk / Soul	mb_genres_v0	blue-eyed soul	added	
+style	Bluegrass	Folk, World, & Country	discogs_20260301_masters	Bluegrass	native	6330
+style	Bluegrass	Folk, World, & Country	mb_genres_v0	bluegrass	exact	6330
+style	Blues Rock	Rock	discogs_20260301_masters	Blues Rock	native	19768
+style	Blues Rock	Rock	mb_genres_v0	blues rock	exact	19768
+style	Bolero	Latin	discogs_20260301_masters	Bolero	native	9112
+style	Bolero	Latin	mb_genres_v0	bolero	exact	9112
+style	Bolero Español	Latin	mb_genres_v0	bolero español	added	
+style	Bolero Son	Latin	mb_genres_v0	bolero son	added	
+style	Bolero-Beat	Latin	mb_genres_v0	bolero-beat	added	
+style	Bollywood	Stage & Screen	discogs_20260301_masters	Bollywood	native	4008
+style	Bomba	Latin	discogs_20260301_masters	Bomba	native	272
+style	Bomba	Latin	mb_genres_v0	bomba	exact	272
+style	Bomba Del Chota	Latin	mb_genres_v0	bomba del chota	added	
+style	Bongo Flava	Hip Hop	discogs_20260301_masters	Bongo Flava	native	6
+style	Bongo Flava	Hip Hop	mb_genres_v0	bongo flava	exact	6
+style	Boogaloo	Latin	discogs_20260301_masters	Boogaloo	native	1171
+style	Boogaloo	Latin	mb_genres_v0	boogaloo	exact	1171
+style	Boogie	Funk / Soul	discogs_20260301_masters	Boogie	native	4816
+style	Boogie	Funk / Soul	mb_genres_v0	boogie	exact	4816
+style	Boogie Rock	Rock	mb_genres_v0	boogie rock	added	
+style	Boogie Woogie	Blues	discogs_20260301_masters	Boogie Woogie	native	887
+style	Boogie Woogie	Blues	mb_genres_v0	boogie-woogie	exact	887
+style	Boom Bap	Hip Hop	discogs_20260301_masters	Boom Bap	native	4940
+style	Boom Bap	Hip Hop	mb_genres_v0	boom bap	exact	4940
+style	Bop	Jazz	discogs_20260301_masters	Bop	native	7593
+style	Bossa Nova	Jazz	discogs_20260301_masters	Bossa Nova	native	4031
+style	Bossa Nova	Jazz	mb_genres_v0	bossa nova	exact	4031
+style	Bossanova	Latin	discogs_20260301_masters	Bossanova	native	2901
+style	Bounce	Hip Hop	discogs_20260301_masters	Bounce	native	424
+style	Bounce	Hip Hop	mb_genres_v0	bounce	exact	424
+style	Bouncy Techno	Electronic	discogs_20260301_masters	Bouncy Techno	native	163
+style	Bouncy Techno	Electronic	mb_genres_v0	bouncy techno	exact	163
+style	Boyfriend Country	Folk, World, & Country	mb_genres_v0	boyfriend country	added	
+style	Brass Band	Brass & Military	discogs_20260301_masters	Brass Band	native	2129
+style	Brass Band	Brass & Military	mb_genres_v0	brass band	exact	2129
+style	Brass Instrument	Classical	discogs_20260301_masters	Brass Instrument	native	88
+style	Brazilian Phonk	Hip Hop	mb_genres_v0	brazilian phonk	added	
+style	Break-In	Pop	discogs_20260301_masters	Break-In	native	78
+style	Break-In	Pop	mb_genres_v0	break-in	exact	78
+style	Breakbeat	Electronic	discogs_20260301_masters	Breakbeat	native	18409
+style	Breakbeat	Electronic	mb_genres_v0	breakbeat	exact	18409
+style	Breakbeat Hardcore	Electronic	mb_genres_v0	breakbeat hardcore	added	
+style	Breakbeat Kota	Electronic	mb_genres_v0	breakbeat kota	added	
+style	Breakcore	Electronic	discogs_20260301_masters	Breakcore	native	3739
+style	Breakcore	Electronic	mb_genres_v0	breakcore	exact	3739
+style	Breaks	Electronic	discogs_20260301_masters	Breaks	native	12095
+style	Breaks	Electronic	mb_genres_v0	breaks	exact	12095
+style	Brega	Latin	discogs_20260301_masters	Brega	native	8
+style	Brega	Latin	mb_genres_v0	brega	exact	8
+style	Brit Funk	Funk / Soul	mb_genres_v0	brit funk	added	
+style	Britcore	Hip Hop	discogs_20260301_masters	Britcore	native	346
+style	Britcore	Hip Hop	mb_genres_v0	britcore	exact	346
+style	British Blues	Blues	mb_genres_v0	british blues	added	
+style	British Brass Band	Brass & Military	mb_genres_v0	british brass band	added	
+style	British Folk Rock	Rock	mb_genres_v0	british folk rock	added	
+style	Britpop	Rock	discogs_20260301_masters	Britpop	native	1837
+style	Britpop	Rock	mb_genres_v0	britpop	exact	1837
+style	Bro-Country	Folk, World, & Country	mb_genres_v0	bro-country	added	
+style	Broken Beat	Electronic	discogs_20260301_masters	Broken Beat	native	3220
+style	Broken Beat	Electronic	mb_genres_v0	broken beat	exact	3220
+style	Brutal Death Metal	Rock	discogs_20260301_masters	Brutal Death Metal	native	231
+style	Brutal Death Metal	Rock	mb_genres_v0	brutal death metal	exact	231
+style	Bubblegum	Pop	discogs_20260301_masters	Bubblegum	native	1353
+style	Bubblegum Pop	Pop	mb_genres_v0	bubblegum pop	added	
+style	Bubbling	Reggae	discogs_20260301_masters	Bubbling	native	22
+style	Bubbling	Reggae	mb_genres_v0	bubbling	exact	22
+style	Bubbling House	Electronic	mb_genres_v0	bubbling house	added	
+style	Buchiage Trance	Electronic	mb_genres_v0	buchiage trance	added	
+style	Bytebeat	Electronic	mb_genres_v0	bytebeat	added	
+style	Byzantine	Folk, World, & Country	discogs_20260301_masters	Byzantine	native	4
+style	Byzantine Chant	Classical	mb_genres_v0	byzantine chant	added	
+style	C-Pop	Pop	mb_genres_v0	c-pop	added	
+style	Cabaret	Stage & Screen	discogs_20260301_masters	Cabaret	native	263
+style	Cabaret	Stage & Screen	mb_genres_v0	cabaret	exact	263
+style	Caipira	Folk, World, & Country	discogs_20260301_masters	Caipira	native	108
+style	Cajun	Folk, World, & Country	discogs_20260301_masters	Cajun	native	1037
+style	Cajun	Folk, World, & Country	mb_genres_v0	cajun	exact	1037
+style	Calypso	Reggae	discogs_20260301_masters	Calypso	native	3084
+style	Calypso	Reggae	mb_genres_v0	calypso	exact	3084
+style	Cambodian Classical	Folk, World, & Country	discogs_20260301_masters	Cambodian Classical	native	26
+style	Campus Folk	Folk, World, & Country	mb_genres_v0	campus folk	added	
+style	Candombe	Latin	discogs_20260301_masters	Candombe	native	108
+style	Candombe	Latin	mb_genres_v0	candombe	exact	108
+style	Candombe Beat	Latin	mb_genres_v0	candombe beat	added	
+style	Cantata	Classical	discogs_20260301_masters	Cantata	native	890
+style	Cantata	Classical	mb_genres_v0	cantata	exact	890
+style	Cantopop	Pop	discogs_20260301_masters	Cantopop	native	1166
+style	Cantopop	Pop	mb_genres_v0	cantopop	exact	1166
+style	Cantorial	Folk, World, & Country	discogs_20260301_masters	Cantorial	native	101
+style	Canzone Napoletana	Folk, World, & Country	discogs_20260301_masters	Canzone Napoletana	native	2265
+style	Canzone Napoletana	Folk, World, & Country	mb_genres_v0	canzone napoletana	exact	2265
+style	Cape Jazz	Jazz	discogs_20260301_masters	Cape Jazz	native	195
+style	Cape Jazz	Jazz	mb_genres_v0	cape jazz	exact	195
+style	Capriccio	Classical	discogs_20260301_masters	Capriccio	native	97
+style	Capriccio	Classical	mb_genres_v0	capriccio	exact	97
+style	Carimbó	Latin	discogs_20260301_masters	Carimbó	native	77
+style	Carimbó	Latin	mb_genres_v0	carimbó	exact	77
+style	Carnatic	Folk, World, & Country	discogs_20260301_masters	Carnatic	native	347
+style	Carnavalito	Latin	mb_genres_v0	carnavalito	added	
+style	Catalan Music	Folk, World, & Country	discogs_20260301_masters	Catalan Music	native	550
+style	Celtic	Folk, World, & Country	discogs_20260301_masters	Celtic	native	6215
+style	Celtic	Folk, World, & Country	mb_genres_v0	celtic	exact	6215
+style	Celtic Electronica	Electronic	mb_genres_v0	celtic electronica	added	
+style	Celtic Metal	Rock	mb_genres_v0	celtic metal	added	
+style	Celtic Punk	Rock	mb_genres_v0	celtic punk	added	
+style	Celtic Rock	Rock	mb_genres_v0	celtic rock	added	
+style	Cha-Cha	Latin	discogs_20260301_masters	Cha-Cha	native	4621
+style	Chacarera	Folk, World, & Country	discogs_20260301_masters	Chacarera	native	198
+style	Chacarera	Folk, World, & Country	mb_genres_v0	chacarera	exact	198
+style	Chachachá	Latin	mb_genres_v0	chachachá	added	
+style	Chamamé	Folk, World, & Country	discogs_20260301_masters	Chamamé	native	194
+style	Chamamé	Folk, World, & Country	mb_genres_v0	chamamé	exact	194
+style	Chamamé Tropical	Latin	mb_genres_v0	chamamé tropical	added	
+style	Chamber Folk	Folk, World, & Country	mb_genres_v0	chamber folk	added	
+style	Chamber Music	Classical	discogs_20260301_masters	Chamber Music	native	1912
+style	Chamber Pop	Pop	mb_genres_v0	chamber pop	added	
+style	Champeta	Latin	discogs_20260301_masters	Champeta	native	60
+style	Champeta	Latin	mb_genres_v0	champeta	exact	60
+style	Chanson	Pop	discogs_20260301_masters	Chanson	native	48216
+style	Charanga	Latin	discogs_20260301_masters	Charanga	native	760
+style	Charanga	Latin	mb_genres_v0	charanga	exact	760
+style	Chicago Blues	Blues	discogs_20260301_masters	Chicago Blues	native	2525
+style	Chicago Blues	Blues	mb_genres_v0	chicago blues	exact	2525
+style	Chicago Drill	Hip Hop	mb_genres_v0	chicago drill	added	
+style	Chicago House	Electronic	mb_genres_v0	chicago house	added	
+style	Chicago Soul	Funk / Soul	mb_genres_v0	chicago soul	added	
+style	Chicano Rap	Hip Hop	mb_genres_v0	chicano rap	added	
+style	Chicha	Latin	mb_genres_v0	chicha	added	
+style	Children'S Music	Children's	mb_genres_v0	children's music	added	
+style	Chilena	Latin	mb_genres_v0	chilena	added	
+style	Chillstep	Electronic	mb_genres_v0	chillstep	added	
+style	Chillsynth	Electronic	mb_genres_v0	chillsynth	added	
+style	Chillwave	Electronic	discogs_20260301_masters	Chillwave	native	2261
+style	Chillwave	Electronic	mb_genres_v0	chillwave	exact	2261
+style	Chinese Classical	Folk, World, & Country	discogs_20260301_masters	Chinese Classical	native	792
+style	Chinese Classical	Folk, World, & Country	mb_genres_v0	chinese classical	exact	792
+style	Chipmunk Soul	Funk / Soul	mb_genres_v0	chipmunk soul	added	
+style	Chiptune	Electronic	discogs_20260301_masters	Chiptune	native	2807
+style	Chiptune	Electronic	mb_genres_v0	chiptune	exact	2807
+style	Chopped And Screwed	Hip Hop	mb_genres_v0	chopped and screwed	added	
+style	Choral	Classical	discogs_20260301_masters	Choral	native	6846
+style	Choro	Latin	discogs_20260301_masters	Choro	native	367
+style	Choro	Latin	mb_genres_v0	choro	exact	367
+style	Christian Hip Hop	Hip Hop	mb_genres_v0	christian hip hop	added	
+style	Christian Metal	Rock	mb_genres_v0	christian metal	added	
+style	Christian Rock	Rock	mb_genres_v0	christian rock	added	
+style	Chutney	Folk, World, & Country	discogs_20260301_masters	Chutney	native	195
+style	Chutney	Folk, World, & Country	mb_genres_v0	chutney	exact	195
+style	Circus March	Brass & Military	mb_genres_v0	circus march	added	
+style	City Pop	Pop	discogs_20260301_masters	City Pop	native	2821
+style	City Pop	Pop	mb_genres_v0	city pop	exact	2821
+style	Classic Blues	Blues	mb_genres_v0	classic blues	added	
+style	Classic Country	Folk, World, & Country	mb_genres_v0	classic country	added	
+style	Classic Jazz	Jazz	mb_genres_v0	classic jazz	added	
+style	Classic Ragtime	Jazz	mb_genres_v0	classic ragtime	added	
+style	Classic Rock	Rock	discogs_20260301_masters	Classic Rock	native	18030
+style	Classic Rock	Rock	mb_genres_v0	classic rock	exact	18030
+style	Classical	Classical	discogs_20260301_masters	Classical	native	25889
+style	Classical Crossover	Classical	mb_genres_v0	classical crossover	added	
+style	Classical Guitar	Classical	discogs_20260301_masters	Classical Guitar	native	79
+style	Classical Period	Classical	mb_genres_v0	classical period	added	
+style	Cloud Rap	Hip Hop	discogs_20260301_masters	Cloud Rap	native	792
+style	Cloud Rap	Hip Hop	mb_genres_v0	cloud rap	exact	792
+style	Cobla	Folk, World, & Country	discogs_20260301_masters	Cobla	native	71
+style	Coke Rap	Hip Hop	mb_genres_v0	coke rap	added	
+style	Coldwave	Rock	discogs_20260301_masters	Coldwave	native	1458
+style	Coldwave	Rock	mb_genres_v0	coldwave	exact	1458
+style	Colour Bass	Electronic	mb_genres_v0	colour bass	added	
+style	Comedy	Non-Music	discogs_20260301_masters	Comedy	native	11055
+style	Comedy	Non-Music	mb_genres_v0	comedy	exact	11055
+style	Comedy Hip Hop	Hip Hop	mb_genres_v0	comedy hip hop	added	
+style	Comedy Rock	Rock	mb_genres_v0	comedy rock	added	
+style	Comfy Synth	Electronic	discogs_20260301_masters	Comfy Synth	native	157
+style	Comfy Synth	Electronic	mb_genres_v0	comfy synth	exact	157
+style	Compas	Latin	discogs_20260301_masters	Compas	native	749
+style	Compas	Latin	mb_genres_v0	compas	exact	749
+style	Comédie-Ballet	Classical	mb_genres_v0	comédie-ballet	added	
+style	Concert Band	Classical	discogs_20260301_masters	Concert Band	native	206
+style	Concert Band	Classical	mb_genres_v0	concert band	exact	206
+style	Concert Film	Stage & Screen	discogs_20260301_masters	Concert Film	native	842
+style	Concerto	Classical	discogs_20260301_masters	Concerto	native	2913
+style	Concerto	Classical	mb_genres_v0	concerto	exact	2913
+style	Concerto Grosso	Classical	discogs_20260301_masters	Concerto Grosso	native	223
+style	Concerto Grosso	Classical	mb_genres_v0	concerto grosso	exact	223
+style	Conjunto	Latin	discogs_20260301_masters	Conjunto	native	525
+style	Conscious	Hip Hop	discogs_20260301_masters	Conscious	native	8562
+style	Conscious Hip Hop	Hip Hop	mb_genres_v0	conscious hip hop	added	
+style	Contemporary	Classical	discogs_20260301_masters	Contemporary	native	12035
+style	Contemporary Classical	Classical	mb_genres_v0	contemporary classical	added	
+style	Contemporary Country	Folk, World, & Country	mb_genres_v0	contemporary country	added	
+style	Contemporary Folk	Folk, World, & Country	mb_genres_v0	contemporary folk	added	
+style	Contemporary Jazz	Jazz	discogs_20260301_masters	Contemporary Jazz	native	15070
+style	Contemporary Jazz	Jazz	mb_genres_v0	contemporary jazz	exact	15070
+style	Contemporary R&B	Funk / Soul	discogs_20260301_masters	Contemporary R&B	native	12203
+style	Contemporary R&B	Funk / Soul	mb_genres_v0	contemporary r&b	exact	12203
+style	Cool Jazz	Jazz	discogs_20260301_masters	Cool Jazz	native	5162
+style	Cool Jazz	Jazz	mb_genres_v0	cool jazz	exact	5162
+style	Copla	Folk, World, & Country	discogs_20260301_masters	Copla	native	756
+style	Copla	Folk, World, & Country	mb_genres_v0	copla	exact	756
+style	Corrido	Latin	discogs_20260301_masters	Corrido	native	1017
+style	Corrido	Latin	mb_genres_v0	corrido	exact	1017
+style	Corrido Tumbado	Latin	mb_genres_v0	corrido tumbado	added	
+style	Cosmic Country	Folk, World, & Country	mb_genres_v0	cosmic country	added	
+style	Country	Folk, World, & Country	discogs_20260301_masters	Country	native	57568
+style	Country	Folk, World, & Country	mb_genres_v0	country	exact	57568
+style	Country And Irish	Folk, World, & Country	mb_genres_v0	country and irish	added	
+style	Country Blues	Blues	discogs_20260301_masters	Country Blues	native	3129
+style	Country Blues	Blues	mb_genres_v0	country blues	exact	3129
+style	Country Boogie	Folk, World, & Country	mb_genres_v0	country boogie	added	
+style	Country Folk	Folk, World, & Country	mb_genres_v0	country folk	added	
+style	Country Pop	Folk, World, & Country	mb_genres_v0	country pop	added	
+style	Country Rock	Rock	discogs_20260301_masters	Country Rock	native	13213
+style	Country Rock	Rock	mb_genres_v0	country rock	exact	13213
+style	Country Yodeling	Folk, World, & Country	mb_genres_v0	country yodeling	added	
+style	Cretan	Folk, World, & Country	discogs_20260301_masters	Cretan	native	387
+style	Crime Jazz	Jazz	mb_genres_v0	crime jazz	added	
+style	Crossover Jazz	Jazz	mb_genres_v0	crossover jazz	added	
+style	Crossover thrash	Rock	discogs_20260301_masters	Crossover thrash	native	184
+style	Crossover Thrash	Rock	discogs_20260301_masters	Crossover Thrash	native	23
+style	Crossover thrash	Rock	mb_genres_v0	crossover thrash	exact	184
+style	Crunk	Hip Hop	discogs_20260301_masters	Crunk	native	624
+style	Crunk	Hip Hop	mb_genres_v0	crunk	exact	624
+style	Crust	Rock	discogs_20260301_masters	Crust	native	3108
+style	Crust Punk	Rock	mb_genres_v0	crust punk	added	
+style	Cuarteto	Latin	mb_genres_v0	cuarteto	added	
+style	Cuatro	Latin	discogs_20260301_masters	Cuatro	native	81
+style	Cubano	Latin	discogs_20260301_masters	Cubano	native	1111
+style	Cubatón	Latin	mb_genres_v0	cubatón	added	
+style	Cueca	Latin	mb_genres_v0	cueca	added	
+style	Cumbia	Latin	discogs_20260301_masters	Cumbia	native	7581
+style	Cumbia	Latin	mb_genres_v0	cumbia	exact	7581
+style	Cumbia Amazónica	Latin	mb_genres_v0	cumbia amazónica	added	
+style	Cumbia Argentina	Latin	mb_genres_v0	cumbia argentina	added	
+style	Cumbia Chilena	Latin	mb_genres_v0	cumbia chilena	added	
+style	Cumbia Colombiana	Latin	mb_genres_v0	cumbia colombiana	added	
+style	Cumbia Mexicana	Latin	mb_genres_v0	cumbia mexicana	added	
+style	Cumbia Norteña Mexicana	Latin	mb_genres_v0	cumbia norteña mexicana	added	
+style	Cumbia Peruana	Latin	mb_genres_v0	cumbia peruana	added	
+style	Cumbia Pop	Latin	mb_genres_v0	cumbia pop	added	
+style	Cumbia Rebajada	Latin	mb_genres_v0	cumbia rebajada	added	
+style	Cumbia Salvadoreña	Latin	mb_genres_v0	cumbia salvadoreña	added	
+style	Cumbia Santafesina	Latin	mb_genres_v0	cumbia santafesina	added	
+style	Cumbia Sonidera	Latin	mb_genres_v0	cumbia sonidera	added	
+style	Cumbia Turra	Latin	mb_genres_v0	cumbia turra	added	
+style	Cumbia Villera	Latin	mb_genres_v0	cumbia villera	added	
+style	Cumbiatón	Latin	mb_genres_v0	cumbiatón	added	
+style	Currulao	Latin	discogs_20260301_masters	Currulao	native	18
+style	Currulao	Latin	mb_genres_v0	currulao	exact	18
+style	Cut-up/DJ	Hip Hop	discogs_20260301_masters	Cut-up/DJ	native	1903
+style	Cyber Metal	Rock	mb_genres_v0	cyber metal	added	
+style	Dabke	Folk, World, & Country	discogs_20260301_masters	Dabke	native	8
+style	Dabke	Folk, World, & Country	mb_genres_v0	dabke	exact	8
+style	Dance-pop	Electronic	discogs_20260301_masters	Dance-pop	native	10459
+style	Dance-pop	Electronic	mb_genres_v0	dance-pop	exact	10459
+style	Dance-Punk	Rock	mb_genres_v0	dance-punk	added	
+style	Dance-Punk Revival	Rock	mb_genres_v0	dance-punk revival	added	
+style	Dance-Rock	Rock	mb_genres_v0	dance-rock	added	
+style	Dancefloor Drum And Bass	Electronic	mb_genres_v0	dancefloor drum and bass	added	
+style	Dancehall	Reggae	discogs_20260301_masters	Dancehall	native	12977
+style	Dancehall	Reggae	mb_genres_v0	dancehall	exact	12977
+style	Dances	Classical	discogs_20260301_masters	Dances	native	349
+style	Dangdut	Folk, World, & Country	discogs_20260301_masters	Dangdut	native	126
+style	Dangdut	Folk, World, & Country	mb_genres_v0	dangdut	exact	126
+style	Dansband	Pop	discogs_20260301_masters	Dansband	native	956
+style	Dansband	Pop	mb_genres_v0	dansband	exact	956
+style	Danzon	Latin	discogs_20260301_masters	Danzon	native	521
+style	Danzon	Latin	mb_genres_v0	danzón	exact	521
+style	Dark Ambient	Electronic	discogs_20260301_masters	Dark Ambient	native	13109
+style	Dark Ambient	Electronic	mb_genres_v0	dark ambient	exact	13109
+style	Dark Electro	Electronic	discogs_20260301_masters	Dark Electro	native	411
+style	Dark Electro	Electronic	mb_genres_v0	dark electro	exact	411
+style	Dark Folk	Folk, World, & Country	mb_genres_v0	dark folk	added	
+style	Dark Jazz	Jazz	discogs_20260301_masters	Dark Jazz	native	187
+style	Dark Jazz	Jazz	mb_genres_v0	dark jazz	exact	187
+style	Dark Plugg	Hip Hop	mb_genres_v0	dark plugg	added	
+style	Darkcore Edm	Electronic	mb_genres_v0	darkcore edm	added	
+style	Darkstep	Electronic	mb_genres_v0	darkstep	added	
+style	Darksynth	Electronic	mb_genres_v0	darksynth	added	
+style	Darkwave	Electronic	discogs_20260301_masters	Darkwave	native	6619
+style	Darkwave	Electronic	mb_genres_v0	dark wave	exact	6619
+style	Death Industrial	Electronic	mb_genres_v0	death industrial	added	
+style	Death Metal	Rock	discogs_20260301_masters	Death Metal	native	27061
+style	Death Metal	Rock	mb_genres_v0	death metal	exact	27061
+style	Death-Doom Metal	Rock	mb_genres_v0	death-doom metal	added	
+style	Deathcore	Rock	discogs_20260301_masters	Deathcore	native	1584
+style	Deathcore	Rock	mb_genres_v0	deathcore	exact	1584
+style	Deathrock	Rock	discogs_20260301_masters	Deathrock	native	814
+style	Deathrock	Rock	mb_genres_v0	deathrock	exact	814
+style	Deconstructed Club	Electronic	discogs_20260301_masters	Deconstructed Club	native	128
+style	Deconstructed Club	Electronic	mb_genres_v0	deconstructed club	exact	128
+style	Deep Drum And Bass	Electronic	mb_genres_v0	deep drum and bass	added	
+style	Deep Funk	Funk / Soul	mb_genres_v0	deep funk	added	
+style	Deep House	Electronic	discogs_20260301_masters	Deep House	native	30991
+style	Deep House	Electronic	mb_genres_v0	deep house	exact	30991
+style	Deep Soul	Funk / Soul	mb_genres_v0	deep soul	added	
+style	Deep Techno	Electronic	discogs_20260301_masters	Deep Techno	native	1943
+style	Deep Techno	Electronic	mb_genres_v0	deep techno	exact	1943
+style	Delta Blues	Blues	discogs_20260301_masters	Delta Blues	native	1246
+style	Delta Blues	Blues	mb_genres_v0	delta blues	exact	1246
+style	Dembow	Latin	mb_genres_v0	dembow	added	
+style	Depressive Black Metal	Rock	discogs_20260301_masters	Depressive Black Metal	native	1105
+style	Depressive Black Metal	Rock	mb_genres_v0	depressive black metal	exact	1105
+style	Descarga	Latin	discogs_20260301_masters	Descarga	native	938
+style	Descarga	Latin	mb_genres_v0	descarga	exact	938
+style	Desert Blues	Folk, World, & Country	discogs_20260301_masters	Desert Blues	native	62
+style	Desert Blues	Folk, World, & Country	mb_genres_v0	desert blues	exact	62
+style	Desert Rock	Rock	mb_genres_v0	desert rock	added	
+style	Detroit Techno	Electronic	mb_genres_v0	detroit techno	added	
+style	Dialogue	Non-Music	discogs_20260301_masters	Dialogue	native	1696
+style	Digital Cumbia	Latin	mb_genres_v0	digital cumbia	added	
+style	Dirty South	Hip Hop	mb_genres_v0	dirty south	added	
+style	Disco	Funk / Soul	discogs_20260301_masters	Disco	native	54423
+style	Disco	Funk / Soul	mb_genres_v0	disco	exact	54423
+style	Disco Polo	Electronic	discogs_20260301_masters	Disco Polo	native	550
+style	Disco Polo	Electronic	mb_genres_v0	disco polo	exact	550
+style	Dissonant Black Metal	Rock	mb_genres_v0	dissonant black metal	added	
+style	Dissonant Death Metal	Rock	mb_genres_v0	dissonant death metal	added	
+style	Diva House	Electronic	mb_genres_v0	diva house	added	
+style	Divertimento	Classical	discogs_20260301_masters	Divertimento	native	95
+style	Dixieland	Jazz	discogs_20260301_masters	Dixieland	native	5368
+style	Dixieland	Jazz	mb_genres_v0	dixieland	exact	5368
+style	DJ Battle Tool	Hip Hop	discogs_20260301_masters	DJ Battle Tool	native	530
+style	Djent	Rock	mb_genres_v0	djent	added	
+style	Donk	Electronic	discogs_20260301_masters	Donk	native	465
+style	Donk	Electronic	mb_genres_v0	donk	exact	465
+style	Doo Wop	Rock	discogs_20260301_masters	Doo Wop	native	8385
+style	Doo Wop	Rock	mb_genres_v0	doo-wop	exact	8385
+style	Doom Metal	Rock	discogs_20260301_masters	Doom Metal	native	13272
+style	Doom Metal	Rock	mb_genres_v0	doom metal	exact	13272
+style	Doomcore	Electronic	discogs_20260301_masters	Doomcore	native	481
+style	Doomcore	Electronic	mb_genres_v0	doomcore	exact	481
+style	Doskpop	Pop	mb_genres_v0	doskpop	added	
+style	Downtempo	Electronic	discogs_20260301_masters	Downtempo	native	37298
+style	Downtempo	Electronic	mb_genres_v0	downtempo	exact	37298
+style	Downtempo Deathcore	Rock	mb_genres_v0	downtempo deathcore	added	
+style	Dream Pop	Rock	discogs_20260301_masters	Dream Pop	native	2299
+style	Dream Pop	Rock	mb_genres_v0	dream pop	exact	2299
+style	Dream Trance	Electronic	mb_genres_v0	dream trance	added	
+style	Drift Phonk	Hip Hop	mb_genres_v0	drift phonk	added	
+style	Drill	Hip Hop	discogs_20260301_masters	Drill	native	207
+style	Drill	Hip Hop	mb_genres_v0	drill	exact	207
+style	Drill And Bass	Electronic	mb_genres_v0	drill and bass	added	
+style	Drone	Electronic	discogs_20260301_masters	Drone	native	18352
+style	Drone	Electronic	mb_genres_v0	drone	exact	18352
+style	Drone Metal	Rock	mb_genres_v0	drone metal	added	
+style	Drum And Bass	Electronic	mb_genres_v0	drum and bass	added	
+style	Drum And Bugle Corps	Brass & Military	mb_genres_v0	drum and bugle corps	added	
+style	Drum n Bass	Electronic	discogs_20260301_masters	Drum n Bass	native	30730
+style	Drumless Hip Hop	Hip Hop	mb_genres_v0	drumless hip hop	added	
+style	Drumline	Brass & Military	mb_genres_v0	drumline	added	
+style	Drumstep	Electronic	mb_genres_v0	drumstep	added	
+style	Dub	Reggae	discogs_20260301_masters	Dub	native	18259
+style	Dub	Reggae	mb_genres_v0	dub	exact	18259
+style	Dub Poetry	Reggae	discogs_20260301_masters	Dub Poetry	native	153
+style	Dub Poetry	Reggae	mb_genres_v0	dub poetry	exact	153
+style	Dub Techno	Electronic	discogs_20260301_masters	Dub Techno	native	5077
+style	Dub Techno	Electronic	mb_genres_v0	dub techno	exact	5077
+style	Dubstep	Electronic	discogs_20260301_masters	Dubstep	native	8061
+style	Dubstep	Electronic	mb_genres_v0	dubstep	exact	8061
+style	Dubwise	Reggae	mb_genres_v0	dubwise	added	
+style	Dungeon Rap	Hip Hop	mb_genres_v0	dungeon rap	added	
+style	Dungeon Synth	Electronic	discogs_20260301_masters	Dungeon Synth	native	4040
+style	Dungeon Synth	Electronic	mb_genres_v0	dungeon synth	exact	4040
+style	Duranguense	Latin	discogs_20260301_masters	Duranguense	native	25
+style	Duranguense	Latin	mb_genres_v0	duranguense	exact	25
+style	Dutch House	Electronic	mb_genres_v0	dutch house	added	
+style	Early	Classical	discogs_20260301_masters	Early	native	354
+style	Early Hardstyle	Electronic	mb_genres_v0	early hardstyle	added	
+style	East Coast Blues	Blues	discogs_20260301_masters	East Coast Blues	native	218
+style	East Coast Hip Hop	Hip Hop	mb_genres_v0	east coast hip hop	added	
+style	Easy Listening	Jazz	discogs_20260301_masters	Easy Listening	native	32346
+style	Easy Listening	Jazz	mb_genres_v0	easy listening	exact	32346
+style	EBM	Electronic	discogs_20260301_masters	EBM	native	8672
+style	EBM	Electronic	mb_genres_v0	ebm	exact	8672
+style	Edm	Electronic	mb_genres_v0	edm	added	
+style	Education	Non-Music	discogs_20260301_masters	Education	native	1805
+style	Educational	Children's	discogs_20260301_masters	Educational	native	1770
+style	Electric Blues	Blues	discogs_20260301_masters	Electric Blues	native	2894
+style	Electric Blues	Blues	mb_genres_v0	electric blues	exact	2894
+style	Electric Texas Blues	Blues	mb_genres_v0	electric texas blues	added	
+style	Electro	Electronic	discogs_20260301_masters	Electro	native	52680
+style	Electro	Electronic	mb_genres_v0	electro	exact	52680
+style	Electro Hop	Electronic	mb_genres_v0	electro hop	added	
+style	Electro House	Electronic	discogs_20260301_masters	Electro House	native	7603
+style	Electro House	Electronic	mb_genres_v0	electro house	exact	7603
+style	Electro Swing	Electronic	discogs_20260301_masters	Electro Swing	native	183
+style	Electro Swing	Electronic	mb_genres_v0	electro swing	exact	183
+style	Electro-Disco	Electronic	mb_genres_v0	electro-disco	added	
+style	Electro-Industrial	Electronic	mb_genres_v0	electro-industrial	added	
+style	Electroacoustic	Electronic	discogs_20260301_masters	Electroacoustic	native	1416
+style	Electroacoustic	Electronic	mb_genres_v0	electroacoustic	exact	1416
+style	Electroclash	Electronic	discogs_20260301_masters	Electroclash	native	595
+style	Electroclash	Electronic	mb_genres_v0	electroclash	exact	595
+style	Electronic Rock	Rock	mb_genres_v0	electronic rock	added	
+style	Electronica	Electronic	mb_genres_v0	electronica	added	
+style	Electropop	Pop	mb_genres_v0	electropop	added	
+style	Electrotango	Latin	mb_genres_v0	electrotango	added	
+style	Emo	Rock	discogs_20260301_masters	Emo	native	8432
+style	Emo	Rock	mb_genres_v0	emo	exact	8432
+style	Emo Pop	Rock	mb_genres_v0	emo pop	added	
+style	Emo Rap	Hip Hop	mb_genres_v0	emo rap	added	
+style	Emocore	Rock	mb_genres_v0	emocore	added	
+style	Emoviolence	Rock	mb_genres_v0	emoviolence	added	
+style	Enka	Pop	discogs_20260301_masters	Enka	native	696
+style	Enka	Pop	mb_genres_v0	enka	exact	696
+style	Epic Doom Metal	Rock	mb_genres_v0	epic doom metal	added	
+style	Erotic	Non-Music	discogs_20260301_masters	Erotic	native	361
+style	Ethereal	Rock	discogs_20260301_masters	Ethereal	native	2905
+style	Ethio-Jazz	Jazz	mb_genres_v0	ethio-jazz	added	
+style	Ethno-pop	Pop	discogs_20260301_masters	Ethno-pop	native	643
+style	Etude	Classical	discogs_20260301_masters	Etude	native	168
+style	Etude	Classical	mb_genres_v0	étude	exact	168
+style	Euphoric Hardstyle	Electronic	mb_genres_v0	euphoric hardstyle	added	
+style	Euro House	Electronic	discogs_20260301_masters	Euro House	native	26325
+style	Euro House	Electronic	mb_genres_v0	euro house	exact	26325
+style	Euro Trance	Electronic	discogs_20260301_masters	Euro Trance	native	72
+style	Euro Trance	Electronic	mb_genres_v0	euro-trance	exact	72
+style	Euro-Disco	Electronic	discogs_20260301_masters	Euro-Disco	native	2317
+style	Euro-Disco	Electronic	mb_genres_v0	euro-disco	exact	2317
+style	Eurobeat	Electronic	discogs_20260301_masters	Eurobeat	native	2266
+style	Eurobeat	Electronic	mb_genres_v0	eurobeat	exact	2266
+style	Eurodance	Electronic	discogs_20260301_masters	Eurodance	native	6073
+style	Eurodance	Electronic	mb_genres_v0	eurodance	exact	6073
+style	Europop	Pop	discogs_20260301_masters	Europop	native	21643
+style	Europop	Pop	mb_genres_v0	europop	exact	21643
+style	Exotica	Jazz	discogs_20260301_masters	Exotica	native	347
+style	Exotica	Jazz	mb_genres_v0	exotica	exact	347
+style	Experimental	Electronic	discogs_20260301_masters	Experimental	native	86701
+style	Experimental	Electronic	mb_genres_v0	experimental	exact	86701
+style	Experimental Big Band	Jazz	mb_genres_v0	experimental big band	added	
+style	Experimental Electronic	Electronic	mb_genres_v0	experimental electronic	added	
+style	Experimental Hip Hop	Hip Hop	mb_genres_v0	experimental hip hop	added	
+style	Experimental Rock	Rock	mb_genres_v0	experimental rock	added	
+style	Expressionism	Classical	mb_genres_v0	expressionism	added	
+style	Fado	Folk, World, & Country	discogs_20260301_masters	Fado	native	1482
+style	Fado	Folk, World, & Country	mb_genres_v0	fado	exact	1482
+style	Fantasia	Classical	discogs_20260301_masters	Fantasia	native	260
+style	Fantasia	Classical	mb_genres_v0	fantasia	exact	260
+style	Favela Funk	Hip Hop	discogs_20260301_masters	Favela Funk	native	154
+style	Festival Progressive House	Electronic	mb_genres_v0	festival progressive house	added	
+style	Fidget House	Electronic	mb_genres_v0	fidget house	added	
+style	Field Recording	Non-Music	discogs_20260301_masters	Field Recording	native	6331
+style	Field Recording	Non-Music	mb_genres_v0	field recording	exact	6331
+style	Fife And Drum	Brass & Military	mb_genres_v0	fife and drum	added	
+style	Fife And Drum Blues	Blues	mb_genres_v0	fife and drum blues	added	
+style	Filk	Folk, World, & Country	discogs_20260301_masters	Filk	native	25
+style	Filk	Folk, World, & Country	mb_genres_v0	filk	exact	25
+style	Flamenco	Latin	discogs_20260301_masters	Flamenco	native	5676
+style	Flamenco	Latin	mb_genres_v0	flamenco	exact	5676
+style	Flamenco Pop	Latin	mb_genres_v0	flamenco pop	added	
+style	Florida Breaks	Electronic	mb_genres_v0	florida breaks	added	
+style	Fm Synthesis	Electronic	mb_genres_v0	fm synthesis	added	
+style	Folk	Folk, World, & Country	discogs_20260301_masters	Folk	native	63328
+style	Folk	Folk, World, & Country	mb_genres_v0	folk	exact	63328
+style	Folk Metal	Rock	discogs_20260301_masters	Folk Metal	native	1735
+style	Folk Metal	Rock	mb_genres_v0	folk metal	exact	1735
+style	Folk Pop	Folk, World, & Country	mb_genres_v0	folk pop	added	
+style	Folk Punk	Rock	mb_genres_v0	folk punk	added	
+style	Folk Rock	Rock	discogs_20260301_masters	Folk Rock	native	31982
+style	Folk Rock	Rock	mb_genres_v0	folk rock	exact	31982
+style	Footwork	Electronic	discogs_20260301_masters	Footwork	native	308
+style	Footwork	Electronic	mb_genres_v0	footwork	exact	308
+style	Footwork Jungle	Electronic	mb_genres_v0	footwork jungle	added	
+style	Formes Fixes	Classical	discogs_20260301_masters	Formes Fixes	native	1
+style	Forró	Latin	discogs_20260301_masters	Forró	native	924
+style	Forró	Latin	mb_genres_v0	forró	exact	924
+style	Forró De Favela	Latin	mb_genres_v0	forró de favela	added	
+style	Forró Eletrônico	Latin	mb_genres_v0	forró eletrônico	added	
+style	Forró Universitário	Latin	mb_genres_v0	forró universitário	added	
+style	Frat Rap	Hip Hop	mb_genres_v0	frat rap	added	
+style	Frat Rock	Rock	mb_genres_v0	frat rock	added	
+style	Freak Folk	Folk, World, & Country	mb_genres_v0	freak folk	added	
+style	Free Folk	Folk, World, & Country	mb_genres_v0	free folk	added	
+style	Free Funk	Funk / Soul	discogs_20260301_masters	Free Funk	native	426
+style	Free Improvisation	Jazz	discogs_20260301_masters	Free Improvisation	native	7000
+style	Free Improvisation	Jazz	mb_genres_v0	free improvisation	exact	7000
+style	Free Jazz	Jazz	discogs_20260301_masters	Free Jazz	native	6217
+style	Free Jazz	Jazz	mb_genres_v0	free jazz	exact	6217
+style	Freestyle	Electronic	discogs_20260301_masters	Freestyle	native	3365
+style	Freestyle	Electronic	mb_genres_v0	freestyle	exact	3365
+style	Freetekno	Electronic	discogs_20260301_masters	Freetekno	native	2344
+style	Freetekno	Electronic	mb_genres_v0	free tekno	exact	2344
+style	French Electro	Electronic	mb_genres_v0	french electro	added	
+style	French House	Electronic	discogs_20260301_masters	French House	native	199
+style	French House	Electronic	mb_genres_v0	french house	exact	199
+style	Frevo	Latin	discogs_20260301_masters	Frevo	native	26
+style	Frevo	Latin	mb_genres_v0	frevo	exact	26
+style	Frevo De Bloco	Latin	mb_genres_v0	frevo de bloco	added	
+style	Frevo De Rua	Latin	mb_genres_v0	frevo de rua	added	
+style	Frevo Elétrico	Latin	mb_genres_v0	frevo elétrico	added	
+style	Frevo-Canção	Latin	mb_genres_v0	frevo-canção	added	
+style	Fugue	Classical	mb_genres_v0	fugue	added	
+style	Funaná	Folk, World, & Country	discogs_20260301_masters	Funaná	native	134
+style	Funaná	Folk, World, & Country	mb_genres_v0	funaná	exact	134
+style	Funeral Doom Metal	Rock	discogs_20260301_masters	Funeral Doom Metal	native	644
+style	Funeral Doom Metal	Rock	mb_genres_v0	funeral doom metal	exact	644
+style	Funk	Funk / Soul	discogs_20260301_masters	Funk	native	32717
+style	Funk	Funk / Soul	mb_genres_v0	funk	exact	32717
+style	Funk Metal	Rock	discogs_20260301_masters	Funk Metal	native	1173
+style	Funk Metal	Rock	mb_genres_v0	funk metal	exact	1173
+style	Funk Rock	Rock	mb_genres_v0	funk rock	added	
+style	Funkot	Electronic	discogs_20260301_masters	Funkot	native	31
+style	Funkot	Electronic	mb_genres_v0	funkot	exact	31
+style	Funky Breaks	Electronic	mb_genres_v0	funky breaks	added	
+style	Funky House	Electronic	mb_genres_v0	funky house	added	
+style	Fusion	Jazz	discogs_20260301_masters	Fusion	native	11023
+style	Future Bass	Electronic	discogs_20260301_masters	Future Bass	native	165
+style	Future Bass	Electronic	mb_genres_v0	future bass	exact	165
+style	Future Garage	Electronic	mb_genres_v0	future garage	added	
+style	Future House	Electronic	discogs_20260301_masters	Future House	native	136
+style	Future House	Electronic	mb_genres_v0	future house	exact	136
+style	Future Jazz	Electronic	discogs_20260301_masters	Future Jazz	native	5842
+style	Future Pop	Electronic	discogs_20260301_masters	Future Pop	native	68
+style	Future Pop	Electronic	mb_genres_v0	futurepop	exact	68
+style	Future Rave	Electronic	mb_genres_v0	future rave	added	
+style	Futurism	Classical	discogs_20260301_masters	Futurism	native	2
+style	Futurism	Classical	mb_genres_v0	futurism	exact	2
+style	G-Funk	Hip Hop	discogs_20260301_masters	G-Funk	native	2343
+style	G-Funk	Hip Hop	mb_genres_v0	g-funk	exact	2343
+style	G-House	Electronic	mb_genres_v0	g-house	added	
+style	Gabber	Electronic	discogs_20260301_masters	Gabber	native	4926
+style	Gabber	Electronic	mb_genres_v0	gabber	exact	4926
+style	Gagaku	Folk, World, & Country	discogs_20260301_masters	Gagaku	native	96
+style	Gagaku	Folk, World, & Country	mb_genres_v0	gagaku	exact	96
+style	Gaita	Latin	discogs_20260301_masters	Gaita	native	221
+style	Galician Traditional	Folk, World, & Country	discogs_20260301_masters	Galician Traditional	native	123
+style	Gallican Chant	Classical	mb_genres_v0	gallican chant	added	
+style	Gamelan	Folk, World, & Country	discogs_20260301_masters	Gamelan	native	302
+style	Gamelan	Folk, World, & Country	mb_genres_v0	gamelan	exact	302
+style	Gangsta	Hip Hop	discogs_20260301_masters	Gangsta	native	12254
+style	Gangsta Rap	Hip Hop	mb_genres_v0	gangsta rap	added	
+style	Garage House	Electronic	discogs_20260301_masters	Garage House	native	7379
+style	Garage House	Electronic	mb_genres_v0	garage house	exact	7379
+style	Garage Punk	Rock	mb_genres_v0	garage punk	added	
+style	Garage Rock	Rock	discogs_20260301_masters	Garage Rock	native	26094
+style	Garage Rock	Rock	mb_genres_v0	garage rock	exact	26094
+style	Garage Rock Revival	Rock	mb_genres_v0	garage rock revival	added	
+style	Geek Rock	Rock	mb_genres_v0	geek rock	added	
+style	Geet	Folk, World, & Country	discogs_20260301_masters	Geet	native	52
+style	Ghazal	Folk, World, & Country	discogs_20260301_masters	Ghazal	native	350
+style	Ghazal	Folk, World, & Country	mb_genres_v0	ghazal	exact	350
+style	Ghetto	Electronic	discogs_20260301_masters	Ghetto	native	438
+style	Ghetto House	Electronic	discogs_20260301_masters	Ghetto House	native	428
+style	Ghetto House	Electronic	mb_genres_v0	ghetto house	exact	428
+style	Ghettotech	Electronic	discogs_20260301_masters	Ghettotech	native	223
+style	Ghettotech	Electronic	mb_genres_v0	ghettotech	exact	223
+style	Glam	Rock	discogs_20260301_masters	Glam	native	6692
+style	Glam	Rock	mb_genres_v0	glam	exact	6692
+style	Glam Metal	Rock	mb_genres_v0	glam metal	added	
+style	Glam Punk	Rock	mb_genres_v0	glam punk	added	
+style	Glam Rock	Rock	mb_genres_v0	glam rock	added	
+style	Glitch	Electronic	discogs_20260301_masters	Glitch	native	4073
+style	Glitch	Electronic	mb_genres_v0	glitch	exact	4073
+style	Glitch Hop	Electronic	discogs_20260301_masters	Glitch Hop	native	260
+style	Glitch Hop	Electronic	mb_genres_v0	glitch hop	exact	260
+style	Glitch Hop Edm	Electronic	mb_genres_v0	glitch hop edm	added	
+style	Glitch Pop	Pop	mb_genres_v0	glitch pop	added	
+style	Gnawa	Folk, World, & Country	discogs_20260301_masters	Gnawa	native	40
+style	Gnawa	Folk, World, & Country	mb_genres_v0	gnawa	exact	40
+style	Go-Go	Hip Hop	discogs_20260301_masters	Go-Go	native	381
+style	Go-Go	Hip Hop	mb_genres_v0	go-go	exact	381
+style	Goa Trance	Electronic	discogs_20260301_masters	Goa Trance	native	3065
+style	Goa Trance	Electronic	mb_genres_v0	goa trance	exact	3065
+style	Goregrind	Rock	discogs_20260301_masters	Goregrind	native	2005
+style	Goregrind	Rock	mb_genres_v0	goregrind	exact	2005
+style	Gospel	Funk / Soul	discogs_20260301_masters	Gospel	native	18834
+style	Gospel	Funk / Soul	mb_genres_v0	gospel	exact	18834
+style	Gospel Reggae	Reggae	mb_genres_v0	gospel reggae	added	
+style	Goth Rock	Rock	discogs_20260301_masters	Goth Rock	native	7943
+style	Gothic Country	Folk, World, & Country	mb_genres_v0	gothic country	added	
+style	Gothic Metal	Rock	discogs_20260301_masters	Gothic Metal	native	2094
+style	Gothic Metal	Rock	mb_genres_v0	gothic metal	exact	2094
+style	Gothic Rock	Rock	mb_genres_v0	gothic rock	added	
+style	Gqom	Electronic	discogs_20260301_masters	Gqom	native	32
+style	Gqom	Electronic	mb_genres_v0	gqom	exact	32
+style	Grand Opera	Classical	discogs_20260301_masters	Grand Opera	native	2
+style	Grand Opera	Classical	mb_genres_v0	grand opera	exact	2
+style	Gregorian Chant	Classical	mb_genres_v0	gregorian chant	added	
+style	Grime	Electronic	discogs_20260301_masters	Grime	native	2308
+style	Grime	Electronic	mb_genres_v0	grime	exact	2308
+style	Grindcore	Rock	discogs_20260301_masters	Grindcore	native	9975
+style	Grindcore	Rock	mb_genres_v0	grindcore	exact	9975
+style	Griot	Folk, World, & Country	discogs_20260301_masters	Griot	native	173
+style	Griot	Folk, World, & Country	mb_genres_v0	griot	exact	173
+style	Groove Metal	Rock	discogs_20260301_masters	Groove Metal	native	626
+style	Groove Metal	Rock	mb_genres_v0	groove metal	exact	626
+style	Group Sounds	Rock	discogs_20260301_masters	Group Sounds	native	276
+style	Group Sounds	Rock	mb_genres_v0	group sounds	exact	276
+style	Grunge	Rock	discogs_20260301_masters	Grunge	native	4092
+style	Grunge	Rock	mb_genres_v0	grunge	exact	4092
+style	Guaguancó	Latin	discogs_20260301_masters	Guaguancó	native	2207
+style	Guaguancó	Latin	mb_genres_v0	guaguancó	exact	2207
+style	Guajira	Latin	discogs_20260301_masters	Guajira	native	936
+style	Guajira	Latin	mb_genres_v0	guajira	exact	936
+style	Guaracha	Latin	discogs_20260301_masters	Guaracha	native	2584
+style	Guaracha	Latin	mb_genres_v0	guaracha	exact	2584
+style	Guarania	Folk, World, & Country	discogs_20260301_masters	Guarania	native	152
+style	Guarania	Folk, World, & Country	mb_genres_v0	guarania	exact	152
+style	Guggenmusik	Brass & Military	discogs_20260301_masters	Guggenmusik	native	24
+style	Guggenmusik	Brass & Military	mb_genres_v0	guggenmusik	exact	24
+style	Guided Meditation	Non-Music	mb_genres_v0	guided meditation	added	
+style	Gusle	Folk, World, & Country	discogs_20260301_masters	Gusle	native	141
+style	Gwo Ka	Folk, World, & Country	discogs_20260301_masters	Gwo Ka	native	76
+style	Gwo Ka	Folk, World, & Country	mb_genres_v0	gwo ka	exact	76
+style	Gypsy Jazz	Jazz	discogs_20260301_masters	Gypsy Jazz	native	1149
+style	Gypsy Jazz	Jazz	mb_genres_v0	gypsy jazz	exact	1149
+style	Gypsy Punk	Rock	mb_genres_v0	gypsy punk	added	
+style	Għana	Folk, World, & Country	discogs_20260301_masters	Għana	native	11
+style	Għana	Folk, World, & Country	mb_genres_v0	għana	exact	11
+style	Habanera	Latin	mb_genres_v0	habanera	added	
+style	Halftime	Electronic	discogs_20260301_masters	Halftime	native	671
+style	Halftime	Electronic	mb_genres_v0	halftime	exact	671
+style	Hands Up	Electronic	discogs_20260301_masters	Hands Up	native	1941
+style	Hands Up	Electronic	mb_genres_v0	hands up	exact	1941
+style	Happy Hardcore	Electronic	discogs_20260301_masters	Happy Hardcore	native	6005
+style	Happy Hardcore	Electronic	mb_genres_v0	happy hardcore	exact	6005
+style	Hard Beat	Electronic	discogs_20260301_masters	Hard Beat	native	112
+style	Hard Beat	Electronic	mb_genres_v0	hard beat	exact	112
+style	Hard Bop	Jazz	discogs_20260301_masters	Hard Bop	native	4024
+style	Hard Bop	Jazz	mb_genres_v0	hard bop	exact	4024
+style	Hard House	Electronic	discogs_20260301_masters	Hard House	native	7992
+style	Hard House	Electronic	mb_genres_v0	hard house	exact	7992
+style	Hard Rock	Rock	discogs_20260301_masters	Hard Rock	native	37575
+style	Hard Rock	Rock	mb_genres_v0	hard rock	exact	37575
+style	Hard Techno	Electronic	discogs_20260301_masters	Hard Techno	native	1418
+style	Hard Techno	Electronic	mb_genres_v0	hard techno	exact	1418
+style	Hard Trance	Electronic	discogs_20260301_masters	Hard Trance	native	12594
+style	Hard Trance	Electronic	mb_genres_v0	hard trance	exact	12594
+style	Hardcore	Rock	discogs_20260301_masters	Hardcore	native	68984
+style	Hardcore Breaks	Electronic	mb_genres_v0	hardcore breaks	added	
+style	Hardcore Hip-Hop	Hip Hop	discogs_20260301_masters	Hardcore Hip-Hop	native	5086
+style	Hardcore Hip-Hop	Hip Hop	mb_genres_v0	hardcore hip hop	exact	5086
+style	Hardcore Punk	Rock	mb_genres_v0	hardcore punk	added	
+style	Hardcore Techno	Electronic	mb_genres_v0	hardcore techno	added	
+style	Hardgroove Techno	Electronic	mb_genres_v0	hardgroove techno	added	
+style	Hardstep	Electronic	mb_genres_v0	hardstep	added	
+style	Hardstyle	Electronic	discogs_20260301_masters	Hardstyle	native	5230
+style	Hardstyle	Electronic	mb_genres_v0	hardstyle	exact	5230
+style	Harmonica Blues	Blues	discogs_20260301_masters	Harmonica Blues	native	1018
+style	Harpsichord	Classical	discogs_20260301_masters	Harpsichord	native	352
+style	Harsh Noise Wall	Electronic	discogs_20260301_masters	Harsh Noise Wall	native	2031
+style	Harsh Noise Wall	Electronic	mb_genres_v0	harsh noise wall	exact	2031
+style	Hawaiian	Folk, World, & Country	discogs_20260301_masters	Hawaiian	native	1839
+style	Health-Fitness	Non-Music	discogs_20260301_masters	Health-Fitness	native	407
+style	Heartland Rock	Rock	mb_genres_v0	heartland rock	added	
+style	Heavy Metal	Rock	discogs_20260301_masters	Heavy Metal	native	32047
+style	Heavy Metal	Rock	mb_genres_v0	heavy metal	exact	32047
+style	Hi NRG	Electronic	discogs_20260301_masters	Hi NRG	native	4289
+style	Hi NRG	Electronic	mb_genres_v0	hi-nrg	exact	4289
+style	Highlife	Folk, World, & Country	discogs_20260301_masters	Highlife	native	1292
+style	Highlife	Folk, World, & Country	mb_genres_v0	highlife	exact	1292
+style	Hill Country Blues	Blues	discogs_20260301_masters	Hill Country Blues	native	58
+style	Hill Country Blues	Blues	mb_genres_v0	hill country blues	exact	58
+style	Hillbilly	Folk, World, & Country	discogs_20260301_masters	Hillbilly	native	909
+style	Hindustani	Folk, World, & Country	discogs_20260301_masters	Hindustani	native	4727
+style	Hip Hop	Electronic	discogs_20260301_masters	Hip Hop	native	8003
+style	Hip-House	Electronic	discogs_20260301_masters	Hip-House	native	2542
+style	Hip-House	Electronic	mb_genres_v0	hip house	exact	2542
+style	Hiplife	Hip Hop	discogs_20260301_masters	Hiplife	native	121
+style	Hiplife	Hip Hop	mb_genres_v0	hiplife	exact	121
+style	Hokkien Pop	Pop	discogs_20260301_masters	Hokkien Pop	native	1759
+style	Holiday	Pop	discogs_20260301_masters	Holiday	native	15211
+style	Holy Minimalism	Classical	mb_genres_v0	holy minimalism	added	
+style	Honky Tonk	Folk, World, & Country	discogs_20260301_masters	Honky Tonk	native	2024
+style	Honky Tonk	Folk, World, & Country	mb_genres_v0	honky tonk	exact	2024
+style	Honkyoku	Folk, World, & Country	discogs_20260301_masters	Honkyoku	native	8
+style	Honkyoku	Folk, World, & Country	mb_genres_v0	honkyoku	exact	8
+style	Horror Punk	Rock	mb_genres_v0	horror punk	added	
+style	Horror Rock	Rock	discogs_20260301_masters	Horror Rock	native	840
+style	Horror Synth	Electronic	mb_genres_v0	horror synth	added	
+style	Horrorcore	Hip Hop	discogs_20260301_masters	Horrorcore	native	1446
+style	Horrorcore	Hip Hop	mb_genres_v0	horrorcore	exact	1446
+style	House	Electronic	discogs_20260301_masters	House	native	101385
+style	House	Electronic	mb_genres_v0	house	exact	101385
+style	Huapango	Latin	mb_genres_v0	huapango	added	
+style	Huayno	Folk, World, & Country	discogs_20260301_masters	Huayno	native	322
+style	Huayno	Folk, World, & Country	mb_genres_v0	huayno	exact	322
+style	Hungarian Folk	Folk, World, & Country	mb_genres_v0	hungarian folk	added	
+style	Hyper Techno	Electronic	discogs_20260301_masters	Hyper Techno	native	75
+style	Hyper Techno	Electronic	mb_genres_v0	hyper techno	exact	75
+style	Hyper Techno	Electronic	mb_genres_v0	hypertechno	exact	75
+style	Hyperpop	Electronic	discogs_20260301_masters	Hyperpop	native	336
+style	Hyperpop	Electronic	mb_genres_v0	hyperpop	exact	336
+style	Hyphy	Hip Hop	discogs_20260301_masters	Hyphy	native	142
+style	Hyphy	Hip Hop	mb_genres_v0	hyphy	exact	142
+style	Hypnagogic pop	Pop	discogs_20260301_masters	Hypnagogic pop	native	102
+style	Hypnagogic pop	Pop	mb_genres_v0	hypnagogic pop	exact	102
+style	IDM	Electronic	discogs_20260301_masters	IDM	native	15169
+style	IDM	Electronic	mb_genres_v0	idm	exact	15169
+style	Illbient	Electronic	discogs_20260301_masters	Illbient	native	836
+style	Illbient	Electronic	mb_genres_v0	illbient	exact	836
+style	Impressionism	Classical	mb_genres_v0	impressionism	added	
+style	Impressionist	Classical	discogs_20260301_masters	Impressionist	native	2828
+style	Impromptu	Classical	mb_genres_v0	impromptu	added	
+style	Incidental Music	Classical	discogs_20260301_masters	Incidental Music	native	61
+style	Indian Classical	Folk, World, & Country	discogs_20260301_masters	Indian Classical	native	2666
+style	Indian Classical	Folk, World, & Country	mb_genres_v0	indian classical	exact	2666
+style	Indian Pop	Pop	mb_genres_v0	indian pop	added	
+style	Indie Folk	Folk, World, & Country	mb_genres_v0	indie folk	added	
+style	Indie Pop	Pop	discogs_20260301_masters	Indie Pop	native	17857
+style	Indie Pop	Pop	mb_genres_v0	indie pop	exact	17857
+style	Indie Rock	Rock	discogs_20260301_masters	Indie Rock	native	65648
+style	Indie Rock	Rock	mb_genres_v0	indie rock	exact	65648
+style	Indo Jazz	Jazz	mb_genres_v0	indo jazz	added	
+style	Indo-Pop	Pop	discogs_20260301_masters	Indo-Pop	native	538
+style	Industrial	Electronic	discogs_20260301_masters	Industrial	native	29759
+style	Industrial	Electronic	mb_genres_v0	industrial	exact	29759
+style	Industrial Hip Hop	Hip Hop	mb_genres_v0	industrial hip hop	added	
+style	Industrial Metal	Rock	discogs_20260301_masters	Industrial Metal	native	973
+style	Industrial Metal	Rock	mb_genres_v0	industrial metal	exact	973
+style	Industrial Rock	Rock	mb_genres_v0	industrial rock	added	
+style	Industrial Techno	Electronic	mb_genres_v0	industrial techno	added	
+style	Instrumental	Hip Hop	discogs_20260301_masters	Instrumental	native	11928
+style	Instrumental	Hip Hop	mb_genres_v0	instrumental	exact	11928
+style	Instrumental Hip Hop	Hip Hop	mb_genres_v0	instrumental hip hop	added	
+style	Instrumental Jazz	Jazz	mb_genres_v0	instrumental jazz	added	
+style	Instrumental Rock	Rock	mb_genres_v0	instrumental rock	added	
+style	Integral Serialism	Classical	mb_genres_v0	integral serialism	added	
+style	Interview	Non-Music	discogs_20260301_masters	Interview	native	2131
+style	Interview	Non-Music	mb_genres_v0	interview	exact	2131
+style	Irish Folk	Folk, World, & Country	mb_genres_v0	irish folk	added	
+style	Italo House	Electronic	discogs_20260301_masters	Italo House	native	1421
+style	Italo House	Electronic	mb_genres_v0	italo house	exact	1421
+style	Italo-Disco	Electronic	discogs_20260301_masters	Italo-Disco	native	7936
+style	Italo-Disco	Electronic	mb_genres_v0	italo-disco	exact	7936
+style	Italodance	Electronic	discogs_20260301_masters	Italodance	native	6570
+style	Italodance	Electronic	mb_genres_v0	italo dance	exact	6570
+style	Izvorna	Folk, World, & Country	discogs_20260301_masters	Izvorna	native	85
+style	J-Core	Electronic	discogs_20260301_masters	J-Core	native	302
+style	J-Core	Electronic	mb_genres_v0	j-core	exact	302
+style	J-pop	Pop	discogs_20260301_masters	J-pop	native	9589
+style	J-pop	Pop	mb_genres_v0	j-pop	exact	9589
+style	J-Rock	Rock	discogs_20260301_masters	J-Rock	native	1691
+style	J-Rock	Rock	mb_genres_v0	j-rock	exact	1691
+style	Jackin House	Electronic	mb_genres_v0	jackin house	added	
+style	Jamaican Ska	Reggae	mb_genres_v0	jamaican ska	added	
+style	Jangle Pop	Rock	discogs_20260301_masters	Jangle Pop	native	800
+style	Jangle Pop	Rock	mb_genres_v0	jangle pop	exact	800
+style	Jazz Fusion	Jazz	mb_genres_v0	jazz fusion	added	
+style	Jazz House	Electronic	mb_genres_v0	jazz house	added	
+style	Jazz Poetry	Jazz	mb_genres_v0	jazz poetry	added	
+style	Jazz Pop	Jazz	mb_genres_v0	jazz pop	added	
+style	Jazz-Funk	Jazz	discogs_20260301_masters	Jazz-Funk	native	10013
+style	Jazz-Funk	Jazz	mb_genres_v0	jazz-funk	exact	10013
+style	Jazz-Rock	Jazz	discogs_20260301_masters	Jazz-Rock	native	7021
+style	Jazz-Rock	Jazz	mb_genres_v0	jazz rock	exact	7021
+style	Jazzdance	Electronic	discogs_20260301_masters	Jazzdance	native	1520
+style	Jazzstep	Electronic	mb_genres_v0	jazzstep	added	
+style	Jazzy Hip-Hop	Hip Hop	discogs_20260301_masters	Jazzy Hip-Hop	native	3817
+style	Jerk Rap	Hip Hop	mb_genres_v0	jerk rap	added	
+style	Jersey Club	Electronic	discogs_20260301_masters	Jersey Club	native	84
+style	Jersey Club	Electronic	mb_genres_v0	jersey club	exact	84
+style	Jersey Club Rap	Hip Hop	mb_genres_v0	jersey club rap	added	
+style	Jersey Drill	Hip Hop	mb_genres_v0	jersey drill	added	
+style	Jibaro	Latin	discogs_20260301_masters	Jibaro	native	167
+style	Jiuta	Folk, World, & Country	discogs_20260301_masters	Jiuta	native	8
+style	Jiuta	Folk, World, & Country	mb_genres_v0	jiuta	exact	8
+style	Joropo	Latin	discogs_20260301_masters	Joropo	native	189
+style	Joropo	Latin	mb_genres_v0	joropo	exact	189
+style	Jota	Folk, World, & Country	discogs_20260301_masters	Jota	native	136
+style	Jota	Folk, World, & Country	mb_genres_v0	jota	exact	136
+style	Jug Band	Blues	discogs_20260301_masters	Jug Band	native	82
+style	Jug Band	Blues	mb_genres_v0	jug band	exact	82
+style	Juke	Electronic	discogs_20260301_masters	Juke	native	565
+style	Juke	Electronic	mb_genres_v0	juke	exact	565
+style	Jump Blues	Blues	discogs_20260301_masters	Jump Blues	native	1101
+style	Jump Blues	Blues	mb_genres_v0	jump blues	exact	1101
+style	Jumpstyle	Electronic	discogs_20260301_masters	Jumpstyle	native	1000
+style	Jumpstyle	Electronic	mb_genres_v0	jumpstyle	exact	1000
+style	Jungle	Electronic	discogs_20260301_masters	Jungle	native	8726
+style	Jungle	Electronic	mb_genres_v0	jungle	exact	8726
+style	Jungle Dutch	Electronic	mb_genres_v0	jungle dutch	added	
+style	Jungle Terror	Electronic	mb_genres_v0	jungle terror	added	
+style	Junkanoo	Reggae	discogs_20260301_masters	Junkanoo	native	58
+style	Junkanoo	Reggae	mb_genres_v0	junkanoo	exact	58
+style	K-pop	Pop	discogs_20260301_masters	K-pop	native	2490
+style	K-pop	Pop	mb_genres_v0	k-pop	exact	2490
+style	K-Rock	Rock	discogs_20260301_masters	K-Rock	native	334
+style	Karaoke	Pop	discogs_20260301_masters	Karaoke	native	714
+style	Kaseko	Folk, World, & Country	discogs_20260301_masters	Kaseko	native	206
+style	Kaseko	Folk, World, & Country	mb_genres_v0	kaseko	exact	206
+style	Kaseko	Folk, World, & Country	mb_genres_v0	kasékò	exact	206
+style	Kaskawi	Folk, World, & Country	discogs_20260301_masters	Kaskawi	native	1
+style	Kawaii Future Bass	Electronic	mb_genres_v0	kawaii future bass	added	
+style	Kawaii Metal	Rock	mb_genres_v0	kawaii metal	added	
+style	Kayōkyoku	Pop	discogs_20260301_masters	Kayōkyoku	native	6771
+style	Kayōkyoku	Pop	mb_genres_v0	kayōkyoku	exact	6771
+style	Keroncong	Folk, World, & Country	discogs_20260301_masters	Keroncong	native	105
+style	Keroncong	Folk, World, & Country	mb_genres_v0	keroncong	exact	105
+style	Keyboard	Classical	discogs_20260301_masters	Keyboard	native	401
+style	Khaliji	Folk, World, & Country	discogs_20260301_masters	Khaliji	native	8
+style	Kizomba	Folk, World, & Country	discogs_20260301_masters	Kizomba	native	46
+style	Kizomba	Folk, World, & Country	mb_genres_v0	kizomba	exact	46
+style	Klasik	Folk, World, & Country	discogs_20260301_masters	Klasik	native	9
+style	Klasik	Folk, World, & Country	mb_genres_v0	klasik	exact	9
+style	Klezmer	Folk, World, & Country	discogs_20260301_masters	Klezmer	native	702
+style	Klezmer	Folk, World, & Country	mb_genres_v0	klezmer	exact	702
+style	Kolo	Folk, World, & Country	discogs_20260301_masters	Kolo	native	396
+style	Korean Court Music	Folk, World, & Country	discogs_20260301_masters	Korean Court Music	native	40
+style	Krautrock	Rock	discogs_20260301_masters	Krautrock	native	4532
+style	Krautrock	Rock	mb_genres_v0	krautrock	exact	4532
+style	Kuduro	Folk, World, & Country	discogs_20260301_masters	Kuduro	native	39
+style	Kuduro	Folk, World, & Country	mb_genres_v0	kuduro	exact	39
+style	Kwaito	Hip Hop	discogs_20260301_masters	Kwaito	native	339
+style	Kwaito	Hip Hop	mb_genres_v0	kwaito	exact	339
+style	Lambada	Latin	discogs_20260301_masters	Lambada	native	358
+style	Lambada	Latin	mb_genres_v0	lambada	exact	358
+style	Lao Music	Folk, World, & Country	discogs_20260301_masters	Lao Music	native	17
+style	Late Romantic	Classical	discogs_20260301_masters	Late Romantic	native	810
+style	Latin	Electronic	discogs_20260301_masters	Latin	native	4527
+style	Latin Jazz	Jazz	discogs_20260301_masters	Latin Jazz	native	6787
+style	Latin Jazz	Jazz	mb_genres_v0	latin jazz	exact	6787
+style	Latin Pop	Pop	discogs_20260301_masters	Latin Pop	native	855
+style	Latin Pop	Pop	mb_genres_v0	latin pop	exact	855
+style	Laïkó	Folk, World, & Country	discogs_20260301_masters	Laïkó	native	7175
+style	Laïkó	Folk, World, & Country	mb_genres_v0	laiko	exact	7175
+style	Lecture	Non-Music	mb_genres_v0	lecture	added	
+style	Leftfield	Electronic	discogs_20260301_masters	Leftfield	native	9967
+style	Leftfield	Electronic	mb_genres_v0	leftfield	exact	9967
+style	Lento Violento	Electronic	discogs_20260301_masters	Lento Violento	native	226
+style	Lento Violento	Electronic	mb_genres_v0	lento violento	exact	226
+style	Levenslied	Pop	discogs_20260301_masters	Levenslied	native	522
+style	Levenslied	Pop	mb_genres_v0	levenslied	exact	522
+style	Lied	Classical	discogs_20260301_masters	Lied	native	228
+style	Lied	Classical	mb_genres_v0	lied	exact	228
+style	Light Music	Pop	discogs_20260301_masters	Light Music	native	2915
+style	Liquid Funk	Electronic	mb_genres_v0	liquid funk	added	
+style	Liscio	Folk, World, & Country	discogs_20260301_masters	Liscio	native	372
+style	Liscio	Folk, World, & Country	mb_genres_v0	liscio	exact	372
+style	Lo-Fi	Rock	discogs_20260301_masters	Lo-Fi	native	10114
+style	Lo-Fi	Rock	mb_genres_v0	lo-fi	exact	10114
+style	Lo-Fi Hip Hop	Hip Hop	mb_genres_v0	lo-fi hip hop	added	
+style	Lo-Fi House	Electronic	mb_genres_v0	lo-fi house	added	
+style	Loner Folk	Folk, World, & Country	mb_genres_v0	loner folk	added	
+style	Louisiana Blues	Blues	discogs_20260301_masters	Louisiana Blues	native	750
+style	Louisiana Blues	Blues	mb_genres_v0	louisiana blues	exact	750
+style	Lounge	Rock	discogs_20260301_masters	Lounge	native	2131
+style	Lounge	Rock	mb_genres_v0	lounge	exact	2131
+style	Lovers Rock	Reggae	discogs_20260301_masters	Lovers Rock	native	2542
+style	Lovers Rock	Reggae	mb_genres_v0	lovers rock	exact	2542
+style	Low Bap	Hip Hop	discogs_20260301_masters	Low Bap	native	31
+style	Lowercase	Electronic	discogs_20260301_masters	Lowercase	native	55
+style	Lowercase	Electronic	mb_genres_v0	lowercase	exact	55
+style	Luk Krung	Folk, World, & Country	discogs_20260301_masters	Luk Krung	native	87
+style	Luk Krung	Folk, World, & Country	mb_genres_v0	luk krung	exact	87
+style	Luk Thung	Folk, World, & Country	discogs_20260301_masters	Luk Thung	native	835
+style	Luk Thung	Folk, World, & Country	mb_genres_v0	luk thung	exact	835
+style	Lullaby	Children's	discogs_20260301_masters	Lullaby	native	81
+style	Lullaby	Children's	mb_genres_v0	lullaby	exact	81
+style	Machine Rock	Rock	mb_genres_v0	machine rock	added	
+style	Madrigal	Classical	discogs_20260301_masters	Madrigal	native	155
+style	Madrigal	Classical	mb_genres_v0	madrigal	exact	155
+style	Mafioso Rap	Hip Hop	mb_genres_v0	mafioso rap	added	
+style	Magnificat	Classical	discogs_20260301_masters	Magnificat	native	79
+style	Mainstream Rock	Rock	mb_genres_v0	mainstream rock	added	
+style	Makina	Electronic	discogs_20260301_masters	Makina	native	1535
+style	Makina	Electronic	mb_genres_v0	makina	exact	1535
+style	Mallsoft	Electronic	mb_genres_v0	mallsoft	added	
+style	Maloya	Folk, World, & Country	discogs_20260301_masters	Maloya	native	142
+style	Maloya	Folk, World, & Country	mb_genres_v0	maloya	exact	142
+style	Mambo	Latin	discogs_20260301_masters	Mambo	native	3582
+style	Mambo	Latin	mb_genres_v0	mambo	exact	3582
+style	Mambo Chileno	Latin	mb_genres_v0	mambo chileno	added	
+style	Mambo Urbano	Latin	mb_genres_v0	mambo urbano	added	
+style	Mandopop	Pop	discogs_20260301_masters	Mandopop	native	4956
+style	Mandopop	Pop	mb_genres_v0	mandopop	exact	4956
+style	Manila Sound	Pop	discogs_20260301_masters	Manila Sound	native	62
+style	Manila Sound	Pop	mb_genres_v0	manila sound	exact	62
+style	March	Brass & Military	mb_genres_v0	march	added	
+style	Marcha Carnavalesca	Latin	discogs_20260301_masters	Marcha Carnavalesca	native	88
+style	Marches	Brass & Military	discogs_20260301_masters	Marches	native	3601
+style	Marching Band	Brass & Military	mb_genres_v0	marching band	added	
+style	Mariachi	Latin	discogs_20260301_masters	Mariachi	native	1869
+style	Mariachi	Latin	mb_genres_v0	mariachi	exact	1869
+style	Marimba	Latin	discogs_20260301_masters	Marimba	native	164
+style	Martial Industrial	Electronic	mb_genres_v0	martial industrial	added	
+style	Mass	Classical	discogs_20260301_masters	Mass	native	490
+style	Mass	Classical	mb_genres_v0	mass	exact	490
+style	Math Rock	Rock	discogs_20260301_masters	Math Rock	native	3230
+style	Math Rock	Rock	mb_genres_v0	math rock	exact	3230
+style	Mathcore	Rock	discogs_20260301_masters	Mathcore	native	195
+style	Mathcore	Rock	mb_genres_v0	mathcore	exact	195
+style	Maxixe	Latin	mb_genres_v0	maxixe	added	
+style	Mbalax	Folk, World, & Country	discogs_20260301_masters	Mbalax	native	139
+style	Mbalax	Folk, World, & Country	mb_genres_v0	mbalax	exact	139
+style	Medical	Non-Music	discogs_20260301_masters	Medical	native	97
+style	Medieval	Classical	discogs_20260301_masters	Medieval	native	2176
+style	Medieval	Classical	mb_genres_v0	medieval	exact	2176
+style	Medieval Metal	Rock	mb_genres_v0	medieval metal	added	
+style	Medieval Rock	Rock	mb_genres_v0	medieval rock	added	
+style	Melodic Bass	Electronic	mb_genres_v0	melodic bass	added	
+style	Melodic Black Metal	Rock	mb_genres_v0	melodic black metal	added	
+style	Melodic Death Metal	Rock	discogs_20260301_masters	Melodic Death Metal	native	2240
+style	Melodic Death Metal	Rock	mb_genres_v0	melodic death metal	exact	2240
+style	Melodic Dubstep	Electronic	mb_genres_v0	melodic dubstep	added	
+style	Melodic Hardcore	Rock	discogs_20260301_masters	Melodic Hardcore	native	1554
+style	Melodic Hardcore	Rock	mb_genres_v0	melodic hardcore	exact	1554
+style	Melodic House	Electronic	mb_genres_v0	melodic house	added	
+style	Melodic Metalcore	Rock	mb_genres_v0	melodic metalcore	added	
+style	Melodic Techno	Electronic	mb_genres_v0	melodic techno	added	
+style	Melodic Trance	Electronic	mb_genres_v0	melodic trance	added	
+style	Memphis Blues	Blues	discogs_20260301_masters	Memphis Blues	native	248
+style	Memphis Rap	Hip Hop	discogs_20260301_masters	Memphis Rap	native	177
+style	Memphis Rap	Hip Hop	mb_genres_v0	memphis rap	exact	177
+style	Mento	Reggae	discogs_20260301_masters	Mento	native	187
+style	Mento	Reggae	mb_genres_v0	mento	exact	187
+style	Merecumbé	Latin	mb_genres_v0	merecumbé	added	
+style	Merengue	Latin	discogs_20260301_masters	Merengue	native	4583
+style	Merengue	Latin	mb_genres_v0	merengue	exact	4583
+style	Merengue Típico	Latin	mb_genres_v0	merengue típico	added	
+style	Metal	Rock	mb_genres_v0	metal	added	
+style	Metalcore	Rock	discogs_20260301_masters	Metalcore	native	5052
+style	Metalcore	Rock	mb_genres_v0	metalcore	exact	5052
+style	Miami Bass	Hip Hop	discogs_20260301_masters	Miami Bass	native	497
+style	Miami Bass	Hip Hop	mb_genres_v0	miami bass	exact	497
+style	Microhouse	Electronic	discogs_20260301_masters	Microhouse	native	64
+style	Microhouse	Electronic	mb_genres_v0	microhouse	exact	64
+style	Microsound	Electronic	mb_genres_v0	microsound	added	
+style	Microtonal Classical	Classical	mb_genres_v0	microtonal classical	added	
+style	Midtempo Bass	Electronic	mb_genres_v0	midtempo bass	added	
+style	Midwest Emo	Rock	discogs_20260301_masters	Midwest Emo	native	64
+style	Midwest Emo	Rock	mb_genres_v0	midwest emo	exact	64
+style	Miejski Folk	Folk, World, & Country	mb_genres_v0	miejski folk	added	
+style	Military	Brass & Military	discogs_20260301_masters	Military	native	1930
+style	Military Cadence	Brass & Military	mb_genres_v0	military cadence	added	
+style	Milonga	Folk, World, & Country	discogs_20260301_masters	Milonga	native	101
+style	Milonga	Folk, World, & Country	mb_genres_v0	milonga	exact	101
+style	Min'yō	Folk, World, & Country	discogs_20260301_masters	Min'yō	native	418
+style	Min'yō	Folk, World, & Country	mb_genres_v0	min'yō	exact	418
+style	Minimal	Electronic	discogs_20260301_masters	Minimal	native	22470
+style	Minimal Drum And Bass	Electronic	mb_genres_v0	minimal drum and bass	added	
+style	Minimal Synth	Electronic	mb_genres_v0	minimal synth	added	
+style	Minimal Techno	Electronic	discogs_20260301_masters	Minimal Techno	native	2720
+style	Minimal Techno	Electronic	mb_genres_v0	minimal techno	exact	2720
+style	Minimal Wave	Electronic	mb_genres_v0	minimal wave	added	
+style	Minimalism	Classical	discogs_20260301_masters	Minimalism	native	35
+style	Minimalism	Classical	mb_genres_v0	minimalism	exact	35
+style	Minneapolis Sound	Funk / Soul	discogs_20260301_masters	Minneapolis Sound	native	224
+style	Minneapolis Sound	Funk / Soul	mb_genres_v0	minneapolis sound	exact	224
+style	Mizrahi	Folk, World, & Country	discogs_20260301_masters	Mizrahi	native	305
+style	Mo Lam	Folk, World, & Country	discogs_20260301_masters	Mo Lam	native	173
+style	Mod	Rock	discogs_20260301_masters	Mod	native	3623
+style	Mod	Rock	mb_genres_v0	mod	exact	3623
+style	Modal	Jazz	discogs_20260301_masters	Modal	native	2274
+style	Modal Jazz	Jazz	mb_genres_v0	modal jazz	added	
+style	Modern	Classical	discogs_20260301_masters	Modern	native	18783
+style	Modern Blues	Blues	mb_genres_v0	modern blues	added	
+style	Modern Classical	Electronic	discogs_20260301_masters	Modern Classical	native	8047
+style	Modern Classical	Electronic	mb_genres_v0	modern classical	exact	8047
+style	Modern Electric Blues	Blues	discogs_20260301_masters	Modern Electric Blues	native	1264
+style	Monolog	Non-Music	discogs_20260301_masters	Monolog	native	1443
+style	Moombahton	Electronic	discogs_20260301_masters	Moombahton	native	55
+style	Moombahton	Electronic	mb_genres_v0	moombahton	exact	55
+style	Morna	Folk, World, & Country	discogs_20260301_masters	Morna	native	169
+style	Morna	Folk, World, & Country	mb_genres_v0	morna	exact	169
+style	Motet	Classical	discogs_20260301_masters	Motet	native	223
+style	Motet	Classical	mb_genres_v0	motet	exact	223
+style	Motown	Funk / Soul	mb_genres_v0	motown	added	
+style	Motswako	Hip Hop	discogs_20260301_masters	Motswako	native	5
+style	Mouth Music	Folk, World, & Country	discogs_20260301_masters	Mouth Music	native	47
+style	Movie Effects	Non-Music	discogs_20260301_masters	Movie Effects	native	289
+style	Mozarabic Chant	Classical	mb_genres_v0	mozarabic chant	added	
+style	MPB	Latin	discogs_20260301_masters	MPB	native	6735
+style	MPB	Latin	mb_genres_v0	mpb	exact	6735
+style	Mugham	Folk, World, & Country	discogs_20260301_masters	Mugham	native	115
+style	Mugham	Folk, World, & Country	mb_genres_v0	mugham	exact	115
+style	Musette	Folk, World, & Country	discogs_20260301_masters	Musette	native	482
+style	Musette	Folk, World, & Country	mb_genres_v0	musette	exact	482
+style	Music Hall	Pop	discogs_20260301_masters	Music Hall	native	1619
+style	Music Hall	Pop	mb_genres_v0	music hall	exact	1619
+style	Music Video	Stage & Screen	discogs_20260301_masters	Music Video	native	368
+style	Musical	Stage & Screen	discogs_20260301_masters	Musical	native	6786
+style	Musical	Stage & Screen	mb_genres_v0	musical	exact	6786
+style	Musique Concrète	Electronic	discogs_20260301_masters	Musique Concrète	native	3161
+style	Musique Concrète	Electronic	mb_genres_v0	musique concrète	exact	3161
+style	Musique Concrète Instrumentale	Electronic	mb_genres_v0	musique concrète instrumentale	added	
+style	Música Criolla	Latin	discogs_20260301_masters	Música Criolla	native	448
+style	Música Criolla	Latin	mb_genres_v0	música criolla	exact	448
+style	Música Típica Chilena	Latin	mb_genres_v0	música típica chilena	added	
+style	Nagauta	Folk, World, & Country	discogs_20260301_masters	Nagauta	native	16
+style	Nagauta	Folk, World, & Country	mb_genres_v0	nagauta	exact	16
+style	Narcocorrido	Latin	mb_genres_v0	narcocorrido	added	
+style	Nashville Sound	Folk, World, & Country	mb_genres_v0	nashville sound	added	
+style	Nature Sounds	Non-Music	mb_genres_v0	nature sounds	added	
+style	NDW	Rock	discogs_20260301_masters	NDW	native	388
+style	Nederpop	Pop	mb_genres_v0	nederpop	added	
+style	Neo Soul	Funk / Soul	discogs_20260301_masters	Neo Soul	native	2569
+style	Neo Soul	Funk / Soul	mb_genres_v0	neo soul	exact	2569
+style	Neo Trance	Electronic	discogs_20260301_masters	Neo Trance	native	264
+style	Neo-City Pop	Pop	mb_genres_v0	neo-city pop	added	
+style	Neo-Classical	Classical	discogs_20260301_masters	Neo-Classical	native	4001
+style	Neo-Classical Metal	Rock	discogs_20260301_masters	Neo-Classical Metal	native	36
+style	Neo-Classical Metal	Rock	mb_genres_v0	neoclassical metal	exact	36
+style	Neo-Medieval Folk	Folk, World, & Country	mb_genres_v0	neo-medieval folk	added	
+style	Neo-Progressive Rock	Rock	mb_genres_v0	neo-progressive rock	added	
+style	Neo-Romantic	Classical	discogs_20260301_masters	Neo-Romantic	native	1970
+style	Neo-Traditional Country	Folk, World, & Country	mb_genres_v0	neo-traditional country	added	
+style	Neoclassicism	Classical	mb_genres_v0	neoclassicism	added	
+style	Neofolk	Rock	discogs_20260301_masters	Neofolk	native	3141
+style	Neofolk	Rock	mb_genres_v0	neofolk	exact	3141
+style	Neon Pop Punk	Rock	mb_genres_v0	neon pop punk	added	
+style	Neopagan	Folk, World, & Country	discogs_20260301_masters	Neopagan	native	41
+style	Neoromanticism	Classical	mb_genres_v0	neoromanticism	added	
+style	Nerdcore Techno	Electronic	discogs_20260301_masters	Nerdcore Techno	native	88
+style	Nerdcore Techno	Electronic	mb_genres_v0	nerdcore techno	exact	88
+style	Neurofunk	Electronic	mb_genres_v0	neurofunk	added	
+style	New Age	Electronic	discogs_20260301_masters	New Age	native	9221
+style	New Age	Electronic	mb_genres_v0	new age	exact	9221
+style	New Beat	Electronic	discogs_20260301_masters	New Beat	native	1446
+style	New Beat	Electronic	mb_genres_v0	new beat	exact	1446
+style	New Complexity	Classical	mb_genres_v0	new complexity	added	
+style	New Jack Swing	Funk / Soul	discogs_20260301_masters	New Jack Swing	native	1756
+style	New Jack Swing	Funk / Soul	mb_genres_v0	new jack swing	exact	1756
+style	New Jazz	Jazz	mb_genres_v0	new jazz	added	
+style	New Orleans Blues	Blues	mb_genres_v0	new orleans blues	added	
+style	New Orleans R&B	Funk / Soul	mb_genres_v0	new orleans r&b	added	
+style	New Rave	Electronic	mb_genres_v0	new rave	added	
+style	New Wave	Rock	discogs_20260301_masters	New Wave	native	24516
+style	New Wave	Rock	mb_genres_v0	new wave	exact	24516
+style	New York Drill	Hip Hop	mb_genres_v0	new york drill	added	
+style	Nhạc Vàng	Folk, World, & Country	discogs_20260301_masters	Nhạc Vàng	native	194
+style	Nhạc Vàng	Folk, World, & Country	mb_genres_v0	nhạc vàng	exact	194
+style	Nintendocore	Rock	discogs_20260301_masters	Nintendocore	native	41
+style	Nintendocore	Rock	mb_genres_v0	nintendocore	exact	41
+style	No Wave	Rock	discogs_20260301_masters	No Wave	native	1123
+style	No Wave	Rock	mb_genres_v0	no wave	exact	1123
+style	Nocturne	Classical	discogs_20260301_masters	Nocturne	native	144
+style	Nocturne	Classical	mb_genres_v0	nocturne	exact	144
+style	Noise	Electronic	discogs_20260301_masters	Noise	native	29630
+style	Noise	Electronic	mb_genres_v0	noise	exact	29630
+style	Noise Pop	Rock	mb_genres_v0	noise pop	added	
+style	Noise Rock	Rock	discogs_20260301_masters	Noise Rock	native	1332
+style	Noise Rock	Rock	mb_genres_v0	noise rock	exact	1332
+style	Noisecore	Rock	discogs_20260301_masters	Noisecore	native	1116
+style	Noisecore	Rock	mb_genres_v0	noisecore	exact	1116
+style	Nordic	Folk, World, & Country	discogs_20260301_masters	Nordic	native	1858
+style	Norteño	Latin	discogs_20260301_masters	Norteño	native	1154
+style	Norteño	Latin	mb_genres_v0	norteño	exact	1154
+style	Northern Soul	Funk / Soul	mb_genres_v0	northern soul	added	
+style	Novelty	Pop	discogs_20260301_masters	Novelty	native	6458
+style	Nu Jazz	Jazz	mb_genres_v0	nu jazz	added	
+style	Nu Metal	Rock	discogs_20260301_masters	Nu Metal	native	3232
+style	Nu Metal	Rock	mb_genres_v0	nu metal	exact	3232
+style	Nu Skool Breaks	Electronic	mb_genres_v0	nu skool breaks	added	
+style	Nu Style Gabber	Electronic	mb_genres_v0	nu style gabber	added	
+style	Nu-Disco	Electronic	discogs_20260301_masters	Nu-Disco	native	2965
+style	Nu-Disco	Electronic	mb_genres_v0	nu disco	exact	2965
+style	Nueva Cancion	Latin	discogs_20260301_masters	Nueva Cancion	native	717
+style	Nueva Cancion	Latin	mb_genres_v0	nueva canción	exact	717
+style	Nueva Canción Chilena	Latin	mb_genres_v0	nueva canción chilena	added	
+style	Nueva Cumbia Chilena	Latin	mb_genres_v0	nueva cumbia chilena	added	
+style	Nueva Trova	Latin	discogs_20260301_masters	Nueva Trova	native	240
+style	Nueva Trova	Latin	mb_genres_v0	nueva trova	exact	240
+style	Nuevo Flamenco	Latin	mb_genres_v0	nuevo flamenco	added	
+style	Nuevo Tango	Latin	mb_genres_v0	nuevo tango	added	
+style	Nursery Rhymes	Children's	discogs_20260301_masters	Nursery Rhymes	native	2386
+style	Nwobhm	Rock	mb_genres_v0	nwobhm	added	
+style	Néo Kyma	Folk, World, & Country	discogs_20260301_masters	Néo Kyma	native	75
+style	Néo Kyma	Folk, World, & Country	mb_genres_v0	neo kyma	exact	75
+style	Népzene	Folk, World, & Country	discogs_20260301_masters	Népzene	native	541
+style	Occitan	Folk, World, & Country	discogs_20260301_masters	Occitan	native	253
+style	Occult	Non-Music	discogs_20260301_masters	Occult	native	75
+style	Occult Rock	Rock	mb_genres_v0	occult rock	added	
+style	Oi	Rock	discogs_20260301_masters	Oi	native	7905
+style	Oi	Rock	mb_genres_v0	oi	exact	7905
+style	Ojkača	Folk, World, & Country	discogs_20260301_masters	Ojkača	native	6
+style	Old Roman Chant	Classical	mb_genres_v0	old roman chant	added	
+style	Old School Death Metal	Rock	mb_genres_v0	old school death metal	added	
+style	Old School Hip Hop	Hip Hop	mb_genres_v0	old school hip hop	added	
+style	Old-Time	Folk, World, & Country	mb_genres_v0	old-time	added	
+style	Opera	Classical	discogs_20260301_masters	Opera	native	14095
+style	Opera	Classical	mb_genres_v0	opera	exact	14095
+style	Opera Buffa	Classical	mb_genres_v0	opera buffa	added	
+style	Opera Semiseria	Classical	mb_genres_v0	opera semiseria	added	
+style	Opera Seria	Classical	mb_genres_v0	opera seria	added	
+style	Opera-Ballet	Classical	mb_genres_v0	opera-ballet	added	
+style	Operatic Pop	Pop	mb_genres_v0	operatic pop	added	
+style	Operetta	Classical	discogs_20260301_masters	Operetta	native	2812
+style	Operetta	Classical	mb_genres_v0	operetta	exact	2812
+style	Opm	Pop	mb_genres_v0	opm	added	
+style	Opéra Comique	Classical	mb_genres_v0	opéra comique	added	
+style	Oratorio	Classical	discogs_20260301_masters	Oratorio	native	1069
+style	Oratorio	Classical	mb_genres_v0	oratorio	exact	1069
+style	Orchestra	Classical	discogs_20260301_masters	Orchestra	native	4668
+style	Orchestral Jazz	Jazz	mb_genres_v0	orchestral jazz	added	
+style	Organ	Classical	discogs_20260301_masters	Organ	native	2092
+style	Organic House	Electronic	mb_genres_v0	organic house	added	
+style	Orthodox Pop	Pop	mb_genres_v0	orthodox pop	added	
+style	Ottoman Classical	Folk, World, & Country	discogs_20260301_masters	Ottoman Classical	native	360
+style	Outlaw Country	Folk, World, & Country	mb_genres_v0	outlaw country	added	
+style	Outsider House	Electronic	mb_genres_v0	outsider house	added	
+style	Overtone Singing	Folk, World, & Country	discogs_20260301_masters	Overtone Singing	native	177
+style	Overture	Classical	discogs_20260301_masters	Overture	native	417
+style	Overture	Classical	mb_genres_v0	overture	exact	417
+style	P.Funk	Funk / Soul	discogs_20260301_masters	P.Funk	native	771
+style	P.Funk	Funk / Soul	mb_genres_v0	p-funk	exact	771
+style	Pachanga	Latin	discogs_20260301_masters	Pachanga	native	858
+style	Pachanga	Latin	mb_genres_v0	pachanga	exact	858
+style	Pacific	Folk, World, & Country	discogs_20260301_masters	Pacific	native	2231
+style	Pacific Reggae	Reggae	mb_genres_v0	pacific reggae	added	
+style	Pagan Black Metal	Rock	mb_genres_v0	pagan black metal	added	
+style	Pagan Folk	Folk, World, & Country	mb_genres_v0	pagan folk	added	
+style	Pagode	Latin	discogs_20260301_masters	Pagode	native	57
+style	Pagode	Latin	mb_genres_v0	pagode	exact	57
+style	Palo De Mayo	Latin	mb_genres_v0	palo de mayo	added	
+style	Parody	Pop	discogs_20260301_masters	Parody	native	5006
+style	Pasillo	Latin	mb_genres_v0	pasillo	added	
+style	Pasodoble	Folk, World, & Country	discogs_20260301_masters	Pasodoble	native	625
+style	Pasodoble	Folk, World, & Country	mb_genres_v0	pasodoble	exact	625
+style	Passion	Classical	discogs_20260301_masters	Passion	native	222
+style	Peak Time Techno	Electronic	mb_genres_v0	peak time techno	added	
+style	Pep Band	Brass & Military	mb_genres_v0	pep band	added	
+style	Percussion Ensemble	Folk, World, & Country	discogs_20260301_masters	Percussion Ensemble	native	31
+style	Persian Classical	Folk, World, & Country	discogs_20260301_masters	Persian Classical	native	303
+style	Persian Classical	Folk, World, & Country	mb_genres_v0	persian classical	exact	303
+style	Persian Pop	Pop	discogs_20260301_masters	Persian Pop	native	39
+style	Persian Pop	Pop	mb_genres_v0	persian pop	exact	39
+style	Philippine Classical	Folk, World, & Country	discogs_20260301_masters	Philippine Classical	native	81
+style	Philly Club Rap	Hip Hop	mb_genres_v0	philly club rap	added	
+style	Philly Drill	Hip Hop	mb_genres_v0	philly drill	added	
+style	Philly Soul	Funk / Soul	mb_genres_v0	philly soul	added	
+style	Phleng Phuea Chiwit	Folk, World, & Country	discogs_20260301_masters	Phleng Phuea Chiwit	native	144
+style	Phleng Phuea Chiwit	Folk, World, & Country	mb_genres_v0	phleng phuea chiwit	exact	144
+style	Phonk	Hip Hop	discogs_20260301_masters	Phonk	native	139
+style	Phonk	Hip Hop	mb_genres_v0	phonk	exact	139
+style	Phonk House	Electronic	mb_genres_v0	phonk house	added	
+style	Piano	Classical	discogs_20260301_masters	Piano	native	2573
+style	Piano Blues	Blues	discogs_20260301_masters	Piano Blues	native	1401
+style	Piano Blues	Blues	mb_genres_v0	piano blues	exact	1401
+style	Piano Rock	Rock	mb_genres_v0	piano rock	added	
+style	Picopop	Pop	mb_genres_v0	picopop	added	
+style	Piedmont Blues	Blues	discogs_20260301_masters	Piedmont Blues	native	191
+style	Piedmont Blues	Blues	mb_genres_v0	piedmont blues	exact	191
+style	Piobaireachd	Folk, World, & Country	discogs_20260301_masters	Piobaireachd	native	50
+style	Piobaireachd	Folk, World, & Country	mb_genres_v0	pìobaireachd	exact	50
+style	Pipe & Drum	Brass & Military	discogs_20260301_masters	Pipe & Drum	native	390
+style	Pipe Band Music	Brass & Military	mb_genres_v0	pipe band music	added	
+style	Plainchant	Classical	discogs_20260301_masters	Plainchant	native	29
+style	Plainchant	Classical	mb_genres_v0	plainchant	exact	29
+style	Plena	Latin	discogs_20260301_masters	Plena	native	417
+style	Plena	Latin	mb_genres_v0	plena	exact	417
+style	Plugg	Hip Hop	mb_genres_v0	plugg	added	
+style	Pluggnb	Hip Hop	mb_genres_v0	pluggnb	added	
+style	Plunderphonics	Electronic	discogs_20260301_masters	Plunderphonics	native	352
+style	Plunderphonics	Electronic	mb_genres_v0	plunderphonics	exact	352
+style	Poetry	Non-Music	discogs_20260301_masters	Poetry	native	3597
+style	Poetry	Non-Music	mb_genres_v0	poetry	exact	3597
+style	Political	Non-Music	discogs_20260301_masters	Political	native	1599
+style	Political Hip Hop	Hip Hop	mb_genres_v0	political hip hop	added	
+style	Polka	Folk, World, & Country	discogs_20260301_masters	Polka	native	6110
+style	Polka	Folk, World, & Country	mb_genres_v0	polka	exact	6110
+style	Polka Paraguaya	Latin	mb_genres_v0	polka paraguaya	added	
+style	Pop Ghazal	Pop	mb_genres_v0	pop ghazal	added	
+style	Pop Kreatif	Pop	mb_genres_v0	pop kreatif	added	
+style	Pop Metal	Rock	mb_genres_v0	pop metal	added	
+style	Pop Minang	Pop	mb_genres_v0	pop minang	added	
+style	Pop Punk	Rock	discogs_20260301_masters	Pop Punk	native	5912
+style	Pop Punk	Rock	mb_genres_v0	pop punk	exact	5912
+style	Pop Rap	Hip Hop	discogs_20260301_masters	Pop Rap	native	10541
+style	Pop Rap	Hip Hop	mb_genres_v0	pop rap	exact	10541
+style	Pop Raï	Pop	mb_genres_v0	pop raï	added	
+style	Pop Rock	Rock	discogs_20260301_masters	Pop Rock	native	102165
+style	Pop Rock	Rock	mb_genres_v0	pop rock	exact	102165
+style	Pop Soul	Funk / Soul	mb_genres_v0	pop soul	added	
+style	Pop Yeh-Yeh	Pop	mb_genres_v0	pop yeh-yeh	added	
+style	Pornogrind	Rock	discogs_20260301_masters	Pornogrind	native	378
+style	Pornogrind	Rock	mb_genres_v0	pornogrind	exact	378
+style	Porro	Latin	discogs_20260301_masters	Porro	native	1080
+style	Porro	Latin	mb_genres_v0	porro	exact	1080
+style	Post Bop	Jazz	discogs_20260301_masters	Post Bop	native	5091
+style	Post Bop	Jazz	mb_genres_v0	post-bop	exact	5091
+style	Post Rock	Rock	discogs_20260301_masters	Post Rock	native	10524
+style	Post Rock	Rock	mb_genres_v0	post-rock	exact	10524
+style	Post-Classical	Classical	mb_genres_v0	post-classical	added	
+style	Post-Dubstep	Electronic	mb_genres_v0	post-dubstep	added	
+style	Post-Grunge	Rock	discogs_20260301_masters	Post-Grunge	native	130
+style	Post-Grunge	Rock	mb_genres_v0	post-grunge	exact	130
+style	Post-Hardcore	Rock	discogs_20260301_masters	Post-Hardcore	native	4234
+style	Post-Hardcore	Rock	mb_genres_v0	post-hardcore	exact	4234
+style	Post-Metal	Rock	discogs_20260301_masters	Post-Metal	native	1769
+style	Post-Metal	Rock	mb_genres_v0	post-metal	exact	1769
+style	Post-Minimalism	Classical	mb_genres_v0	post-minimalism	added	
+style	Post-Modern	Classical	discogs_20260301_masters	Post-Modern	native	833
+style	Post-Punk	Rock	discogs_20260301_masters	Post-Punk	native	14045
+style	Post-Punk	Rock	mb_genres_v0	post-punk	exact	14045
+style	Post-Punk Revival	Rock	mb_genres_v0	post-punk revival	added	
+style	Power Electronics	Electronic	discogs_20260301_masters	Power Electronics	native	3905
+style	Power Electronics	Electronic	mb_genres_v0	power electronics	exact	3905
+style	Power Metal	Rock	discogs_20260301_masters	Power Metal	native	4115
+style	Power Metal	Rock	mb_genres_v0	power metal	exact	4115
+style	Power Noise	Electronic	mb_genres_v0	power noise	added	
+style	Power Pop	Rock	discogs_20260301_masters	Power Pop	native	9494
+style	Power Pop	Rock	mb_genres_v0	power pop	exact	9494
+style	Power Violence	Rock	discogs_20260301_masters	Power Violence	native	1114
+style	Power Violence	Rock	mb_genres_v0	powerviolence	exact	1114
+style	Prank Calls	Non-Music	mb_genres_v0	prank calls	added	
+style	Prelude	Classical	discogs_20260301_masters	Prelude	native	325
+style	Prelude	Classical	mb_genres_v0	prelude	exact	325
+style	Process Music	Classical	mb_genres_v0	process music	added	
+style	Production Music	Stage & Screen	mb_genres_v0	production music	added	
+style	Prog Rock	Rock	discogs_20260301_masters	Prog Rock	native	27062
+style	Program Music	Classical	discogs_20260301_masters	Program Music	native	176
+style	Progressive Bluegrass	Folk, World, & Country	discogs_20260301_masters	Progressive Bluegrass	native	76
+style	Progressive Bluegrass	Folk, World, & Country	mb_genres_v0	progressive bluegrass	exact	76
+style	Progressive Breaks	Electronic	discogs_20260301_masters	Progressive Breaks	native	503
+style	Progressive Breaks	Electronic	mb_genres_v0	progressive breaks	exact	503
+style	Progressive Country	Folk, World, & Country	mb_genres_v0	progressive country	added	
+style	Progressive Electronic	Electronic	mb_genres_v0	progressive electronic	added	
+style	Progressive Folk	Folk, World, & Country	mb_genres_v0	progressive folk	added	
+style	Progressive House	Electronic	discogs_20260301_masters	Progressive House	native	22849
+style	Progressive House	Electronic	mb_genres_v0	progressive house	exact	22849
+style	Progressive Metal	Rock	discogs_20260301_masters	Progressive Metal	native	5394
+style	Progressive Metal	Rock	mb_genres_v0	progressive metal	exact	5394
+style	Progressive Metalcore	Rock	mb_genres_v0	progressive metalcore	added	
+style	Progressive Pop	Pop	mb_genres_v0	progressive pop	added	
+style	Progressive Rock	Rock	mb_genres_v0	progressive rock	added	
+style	Progressive Soul	Funk / Soul	mb_genres_v0	progressive soul	added	
+style	Progressive Trance	Electronic	discogs_20260301_masters	Progressive Trance	native	16846
+style	Progressive Trance	Electronic	mb_genres_v0	progressive trance	exact	16846
+style	Promotional	Non-Music	discogs_20260301_masters	Promotional	native	867
+style	Proto-Punk	Rock	mb_genres_v0	proto-punk	added	
+style	Psy-Trance	Electronic	discogs_20260301_masters	Psy-Trance	native	8975
+style	Psy-Trance	Electronic	mb_genres_v0	psytrance	exact	8975
+style	Psychedelic	Funk / Soul	discogs_20260301_masters	Psychedelic	native	3095
+style	Psychedelic	Funk / Soul	mb_genres_v0	psychedelic	exact	3095
+style	Psychedelic Folk	Folk, World, & Country	mb_genres_v0	psychedelic folk	added	
+style	Psychedelic Pop	Pop	mb_genres_v0	psychedelic pop	added	
+style	Psychedelic Rock	Rock	discogs_20260301_masters	Psychedelic Rock	native	37215
+style	Psychedelic Rock	Rock	mb_genres_v0	psychedelic rock	exact	37215
+style	Psychedelic Soul	Funk / Soul	mb_genres_v0	psychedelic soul	added	
+style	Psychobilly	Rock	discogs_20260301_masters	Psychobilly	native	2305
+style	Psychobilly	Rock	mb_genres_v0	psychobilly	exact	2305
+style	Pub Rock	Rock	discogs_20260301_masters	Pub Rock	native	1044
+style	Pub Rock	Rock	mb_genres_v0	pub rock	exact	1044
+style	Public Broadcast	Non-Music	discogs_20260301_masters	Public Broadcast	native	491
+style	Public Service Announcement	Non-Music	discogs_20260301_masters	Public Service Announcement	native	76
+style	Punk	Rock	discogs_20260301_masters	Punk	native	89970
+style	Punk	Rock	mb_genres_v0	punk	exact	89970
+style	Punk Blues	Blues	mb_genres_v0	punk blues	added	
+style	Punk Poetry	Rock	mb_genres_v0	punk poetry	added	
+style	Punk Rock	Rock	mb_genres_v0	punk rock	added	
+style	Punta	Latin	mb_genres_v0	punta	added	
+style	Q-Pop	Pop	mb_genres_v0	q-pop	added	
+style	Qawwali	Folk, World, & Country	discogs_20260301_masters	Qawwali	native	225
+style	Qawwali	Folk, World, & Country	mb_genres_v0	qawwali	exact	225
+style	Quechua	Latin	discogs_20260301_masters	Quechua	native	455
+style	Quiet Storm	Funk / Soul	mb_genres_v0	quiet storm	added	
+style	R&B	Funk / Soul	mb_genres_v0	r&b	added	
+style	Radioplay	Non-Music	discogs_20260301_masters	Radioplay	native	6688
+style	Raga Rock	Rock	mb_genres_v0	raga rock	added	
+style	Ragga	Reggae	discogs_20260301_masters	Ragga	native	2051
+style	Ragga	Reggae	mb_genres_v0	ragga	exact	2051
+style	Ragga HipHop	Hip Hop	discogs_20260301_masters	Ragga HipHop	native	1689
+style	Ragga HipHop	Hip Hop	mb_genres_v0	ragga hip-hop	exact	1689
+style	Ragtime	Jazz	discogs_20260301_masters	Ragtime	native	2467
+style	Ragtime	Jazz	mb_genres_v0	ragtime	exact	2467
+style	Ragtime Song	Jazz	mb_genres_v0	ragtime song	added	
+style	Rain Sounds	Non-Music	mb_genres_v0	rain sounds	added	
+style	Ranchera	Latin	discogs_20260301_masters	Ranchera	native	3423
+style	Ranchera	Latin	mb_genres_v0	ranchera	exact	3423
+style	Rap Metal	Rock	mb_genres_v0	rap metal	added	
+style	Rap Rock	Rock	mb_genres_v0	rap rock	added	
+style	Rapso	Reggae	discogs_20260301_masters	Rapso	native	31
+style	Rapso	Reggae	mb_genres_v0	rapso	exact	31
+style	Rara	Folk, World, & Country	discogs_20260301_masters	Rara	native	2
+style	Rara	Folk, World, & Country	mb_genres_v0	rara	exact	2
+style	Rave	Electronic	mb_genres_v0	rave	added	
+style	Raw Punk	Rock	mb_genres_v0	raw punk	added	
+style	Raï	Folk, World, & Country	discogs_20260301_masters	Raï	native	734
+style	Raï	Folk, World, & Country	mb_genres_v0	raï	exact	734
+style	Rebetiko	Folk, World, & Country	discogs_20260301_masters	Rebetiko	native	924
+style	Rebetiko	Folk, World, & Country	mb_genres_v0	rebetiko	exact	924
+style	Red Dirt	Folk, World, & Country	mb_genres_v0	red dirt	added	
+style	Reductionism	Classical	mb_genres_v0	reductionism	added	
+style	Reggae	Reggae	discogs_20260301_masters	Reggae	native	13206
+style	Reggae Gospel	Reggae	discogs_20260301_masters	Reggae Gospel	native	216
+style	Reggae-Pop	Reggae	discogs_20260301_masters	Reggae-Pop	native	3590
+style	Reggae-Pop	Reggae	mb_genres_v0	reggae-pop	exact	3590
+style	Reggaeton	Latin	discogs_20260301_masters	Reggaeton	native	1388
+style	Reggaeton	Latin	mb_genres_v0	reggaeton	exact	1388
+style	Regional Mexicano	Latin	mb_genres_v0	regional mexicano	added	
+style	Religious	Folk, World, & Country	discogs_20260301_masters	Religious	native	10759
+style	Renaissance	Classical	discogs_20260301_masters	Renaissance	native	3895
+style	Renaissance	Classical	mb_genres_v0	renaissance	exact	3895
+style	Requiem	Classical	discogs_20260301_masters	Requiem	native	122
+style	Requiem	Classical	mb_genres_v0	requiem	exact	122
+style	Rhapsody	Classical	discogs_20260301_masters	Rhapsody	native	188
+style	Rhythm & Blues	Funk / Soul	discogs_20260301_masters	Rhythm & Blues	native	28646
+style	Rhythmic Noise	Electronic	discogs_20260301_masters	Rhythmic Noise	native	2060
+style	Riddim Dubstep	Electronic	mb_genres_v0	riddim dubstep	added	
+style	Ritual Ambient	Electronic	mb_genres_v0	ritual ambient	added	
+style	RnB/Swing	Hip Hop	discogs_20260301_masters	RnB/Swing	native	7050
+style	Rock & Roll	Rock	discogs_20260301_masters	Rock & Roll	native	41148
+style	Rock & Roll	Rock	mb_genres_v0	rock and roll	exact	41148
+style	Rock Andaluz	Rock	mb_genres_v0	rock andaluz	added	
+style	Rock Andino	Rock	mb_genres_v0	rock andino	added	
+style	Rock Musical	Stage & Screen	mb_genres_v0	rock musical	added	
+style	Rock Opera	Rock	discogs_20260301_masters	Rock Opera	native	210
+style	Rock Opera	Rock	mb_genres_v0	rock opera	exact	210
+style	Rock Rural	Rock	mb_genres_v0	rock rural	added	
+style	Rock Urbano	Rock	mb_genres_v0	rock urbano	added	
+style	Rock Urbano Mexicano	Rock	mb_genres_v0	rock urbano mexicano	added	
+style	Rockabilly	Rock	discogs_20260301_masters	Rockabilly	native	10936
+style	Rockabilly	Rock	mb_genres_v0	rockabilly	exact	10936
+style	Rocksteady	Reggae	discogs_20260301_masters	Rocksteady	native	3205
+style	Rocksteady	Reggae	mb_genres_v0	rocksteady	exact	3205
+style	Romani	Folk, World, & Country	discogs_20260301_masters	Romani	native	2128
+style	Romantic	Classical	discogs_20260301_masters	Romantic	native	41040
+style	Romantic Classical	Classical	mb_genres_v0	romantic classical	added	
+style	Roots Reggae	Reggae	discogs_20260301_masters	Roots Reggae	native	10918
+style	Roots Reggae	Reggae	mb_genres_v0	roots reggae	exact	10918
+style	Roots Rock	Rock	mb_genres_v0	roots rock	added	
+style	Rumba	Latin	discogs_20260301_masters	Rumba	native	5345
+style	Rumba	Latin	mb_genres_v0	rumba	exact	5345
+style	Rumba Catalana	Latin	mb_genres_v0	rumba catalana	added	
+style	Rumba Cubana	Latin	mb_genres_v0	rumba cubana	added	
+style	Rumba Flamenca	Latin	mb_genres_v0	rumba flamenca	added	
+style	Rune Singing	Folk, World, & Country	discogs_20260301_masters	Rune Singing	native	39
+style	Russian Pop	Pop	discogs_20260301_masters	Russian Pop	native	198
+style	Ryūkōka	Pop	discogs_20260301_masters	Ryūkōka	native	174
+style	Ryūkōka	Pop	mb_genres_v0	ryūkōka	exact	174
+style	Rōkyoku	Folk, World, & Country	discogs_20260301_masters	Rōkyoku	native	14
+style	Rōkyoku	Folk, World, & Country	mb_genres_v0	rōkyoku	exact	14
+style	Salegy	Folk, World, & Country	discogs_20260301_masters	Salegy	native	82
+style	Salegy	Folk, World, & Country	mb_genres_v0	salegy	exact	82
+style	Salsa	Latin	discogs_20260301_masters	Salsa	native	9460
+style	Salsa	Latin	mb_genres_v0	salsa	exact	9460
+style	Salsa Choke	Latin	mb_genres_v0	salsa choke	added	
+style	Salsa Dura	Latin	mb_genres_v0	salsa dura	added	
+style	Salsa Romántica	Latin	mb_genres_v0	salsa romántica	added	
+style	Samba	Latin	discogs_20260301_masters	Samba	native	6487
+style	Samba	Latin	mb_genres_v0	samba	exact	6487
+style	Samba De Breque	Latin	mb_genres_v0	samba de breque	added	
+style	Samba De Gafieira	Latin	mb_genres_v0	samba de gafieira	added	
+style	Samba De Roda	Latin	mb_genres_v0	samba de roda	added	
+style	Samba De Terreiro	Latin	mb_genres_v0	samba de terreiro	added	
+style	Samba-Canção	Latin	discogs_20260301_masters	Samba-Canção	native	322
+style	Samba-Canção	Latin	mb_genres_v0	samba-canção	exact	322
+style	Samba-Choro	Latin	mb_genres_v0	samba-choro	added	
+style	Samba-Enredo	Latin	mb_genres_v0	samba-enredo	added	
+style	Samba-Exaltação	Latin	mb_genres_v0	samba-exaltação	added	
+style	Samba-Joia	Latin	mb_genres_v0	samba-joia	added	
+style	Sambalanço	Latin	mb_genres_v0	sambalanço	added	
+style	Sample Drill	Hip Hop	mb_genres_v0	sample drill	added	
+style	Sankyoku	Folk, World, & Country	discogs_20260301_masters	Sankyoku	native	2
+style	Sarum Chant	Classical	mb_genres_v0	sarum chant	added	
+style	Scam Rap	Hip Hop	mb_genres_v0	scam rap	added	
+style	Schlager	Pop	discogs_20260301_masters	Schlager	native	39071
+style	Schlager	Pop	mb_genres_v0	schlager	exact	39071
+style	Schranz	Electronic	discogs_20260301_masters	Schranz	native	376
+style	Schranz	Electronic	mb_genres_v0	schranz	exact	376
+style	Score	Stage & Screen	discogs_20260301_masters	Score	native	9694
+style	Scottish Country Dance Music	Folk, World, & Country	mb_genres_v0	scottish country dance music	added	
+style	Screamo	Rock	discogs_20260301_masters	Screamo	native	235
+style	Screamo	Rock	mb_genres_v0	screamo	exact	235
+style	Screw	Hip Hop	discogs_20260301_masters	Screw	native	628
+style	Sea Shanties	Folk, World, & Country	discogs_20260301_masters	Sea Shanties	native	484
+style	Sean-nós	Folk, World, & Country	discogs_20260301_masters	Sean-nós	native	27
+style	Sean-nós	Folk, World, & Country	mb_genres_v0	sean-nós	exact	27
+style	Seggae	Reggae	mb_genres_v0	seggae	added	
+style	Seishun Punk	Rock	mb_genres_v0	seishun punk	added	
+style	Sephardic	Folk, World, & Country	discogs_20260301_masters	Sephardic	native	166
+style	Serenade	Classical	discogs_20260301_masters	Serenade	native	278
+style	Serenade	Classical	mb_genres_v0	serenade	exact	278
+style	Seresta	Latin	discogs_20260301_masters	Seresta	native	80
+style	Serial	Classical	discogs_20260301_masters	Serial	native	102
+style	Serialism	Classical	mb_genres_v0	serialism	added	
+style	Sermon	Non-Music	discogs_20260301_masters	Sermon	native	392
+style	Sermon	Non-Music	mb_genres_v0	sermon	exact	392
+style	Sertanejo	Folk, World, & Country	discogs_20260301_masters	Sertanejo	native	243
+style	Sertanejo	Folk, World, & Country	mb_genres_v0	sertanejo	exact	243
+style	Sexy Drill	Hip Hop	mb_genres_v0	sexy drill	added	
+style	Shaabi	Folk, World, & Country	discogs_20260301_masters	Shaabi	native	110
+style	Shaabi	Folk, World, & Country	mb_genres_v0	shaabi	exact	110
+style	Shangaan Electro	Electronic	mb_genres_v0	shangaan electro	added	
+style	Shibuya-Kei	Pop	discogs_20260301_masters	Shibuya-Kei	native	58
+style	Shibuya-Kei	Pop	mb_genres_v0	shibuya-kei	exact	58
+style	Shidaiqu	Pop	discogs_20260301_masters	Shidaiqu	native	298
+style	Shidaiqu	Pop	mb_genres_v0	shidaiqu	exact	298
+style	Shinkyoku	Folk, World, & Country	discogs_20260301_masters	Shinkyoku	native	4
+style	Shinkyoku	Folk, World, & Country	mb_genres_v0	shinkyoku	exact	4
+style	Shoegaze	Rock	discogs_20260301_masters	Shoegaze	native	8225
+style	Shoegaze	Rock	mb_genres_v0	shoegaze	exact	8225
+style	Shomyo	Folk, World, & Country	discogs_20260301_masters	Shomyo	native	12
+style	Shomyo	Folk, World, & Country	mb_genres_v0	shōmyō	exact	12
+style	Sinfonia Concertante	Classical	mb_genres_v0	sinfonia concertante	added	
+style	Singeli	Folk, World, & Country	discogs_20260301_masters	Singeli	native	4
+style	Singeli	Folk, World, & Country	mb_genres_v0	singeli	exact	4
+style	Singspiel	Stage & Screen	discogs_20260301_masters	Singspiel	native	2
+style	Singspiel	Stage & Screen	mb_genres_v0	singspiel	exact	2
+style	Ska	Reggae	discogs_20260301_masters	Ska	native	9479
+style	Ska	Reggae	mb_genres_v0	ska	exact	9479
+style	Ska Punk	Rock	mb_genres_v0	ska punk	added	
+style	Skate Punk	Rock	mb_genres_v0	skate punk	added	
+style	Sketch Comedy	Non-Music	mb_genres_v0	sketch comedy	added	
+style	Skiffle	Rock	discogs_20260301_masters	Skiffle	native	387
+style	Skiffle	Rock	mb_genres_v0	skiffle	exact	387
+style	Skinhead Reggae	Reggae	mb_genres_v0	skinhead reggae	added	
+style	Skullstep	Electronic	mb_genres_v0	skullstep	added	
+style	Skweee	Electronic	discogs_20260301_masters	Skweee	native	101
+style	Skweee	Electronic	mb_genres_v0	skweee	exact	101
+style	Slacker Rock	Rock	mb_genres_v0	slacker rock	added	
+style	Slam Death Metal	Rock	mb_genres_v0	slam death metal	added	
+style	Slam Poetry	Non-Music	mb_genres_v0	slam poetry	added	
+style	Slap House	Electronic	mb_genres_v0	slap house	added	
+style	Sleaze Rock	Rock	mb_genres_v0	sleaze rock	added	
+style	Slowcore	Rock	discogs_20260301_masters	Slowcore	native	244
+style	Slowcore	Rock	mb_genres_v0	slowcore	exact	244
+style	Sludge Metal	Rock	discogs_20260301_masters	Sludge Metal	native	3961
+style	Sludge Metal	Rock	mb_genres_v0	sludge metal	exact	3961
+style	Slushwave	Electronic	mb_genres_v0	slushwave	added	
+style	Smooth Jazz	Jazz	discogs_20260301_masters	Smooth Jazz	native	4845
+style	Smooth Jazz	Jazz	mb_genres_v0	smooth jazz	exact	4845
+style	Smooth Soul	Funk / Soul	mb_genres_v0	smooth soul	added	
+style	Snap	Hip Hop	discogs_20260301_masters	Snap	native	26
+style	Snap	Hip Hop	mb_genres_v0	snap	exact	26
+style	Soca	Reggae	discogs_20260301_masters	Soca	native	1813
+style	Soca	Reggae	mb_genres_v0	soca	exact	1813
+style	Soft Rock	Rock	discogs_20260301_masters	Soft Rock	native	17935
+style	Soft Rock	Rock	mb_genres_v0	soft rock	exact	17935
+style	Sokyoku	Folk, World, & Country	discogs_20260301_masters	Sokyoku	native	12
+style	Sokyoku	Folk, World, & Country	mb_genres_v0	sōkyoku	exact	12
+style	Solo	Classical	discogs_20260301_masters	Solo	native	859
+style	Son	Latin	discogs_20260301_masters	Son	native	2098
+style	Son Cubano	Latin	mb_genres_v0	son cubano	added	
+style	Son Jarocho	Latin	mb_genres_v0	son jarocho	added	
+style	Son Montuno	Latin	discogs_20260301_masters	Son Montuno	native	899
+style	Son Montuno	Latin	mb_genres_v0	son montuno	exact	899
+style	Sonata	Classical	discogs_20260301_masters	Sonata	native	1661
+style	Sonata	Classical	mb_genres_v0	sonata	exact	1661
+style	Sonero	Latin	discogs_20260301_masters	Sonero	native	73
+style	Sophisti-Pop	Pop	mb_genres_v0	sophisti-pop	added	
+style	Soukous	Folk, World, & Country	discogs_20260301_masters	Soukous	native	1756
+style	Soukous	Folk, World, & Country	mb_genres_v0	soukous	exact	1756
+style	Soul	Funk / Soul	discogs_20260301_masters	Soul	native	60943
+style	Soul	Funk / Soul	mb_genres_v0	soul	exact	60943
+style	Soul-Jazz	Jazz	discogs_20260301_masters	Soul-Jazz	native	8434
+style	Soul-Jazz	Jazz	mb_genres_v0	soul jazz	exact	8434
+style	Sound Art	Non-Music	discogs_20260301_masters	Sound Art	native	772
+style	Sound Art	Non-Music	mb_genres_v0	sound art	exact	772
+style	Sound Collage	Electronic	discogs_20260301_masters	Sound Collage	native	1381
+style	Sound Collage	Electronic	mb_genres_v0	sound collage	exact	1381
+style	Sound Effects	Non-Music	mb_genres_v0	sound effects	added	
+style	Sound Poetry	Non-Music	discogs_20260301_masters	Sound Poetry	native	223
+style	Sound Poetry	Non-Music	mb_genres_v0	sound poetry	exact	223
+style	Soundtrack	Stage & Screen	discogs_20260301_masters	Soundtrack	native	33779
+style	Southern Hip Hop	Hip Hop	mb_genres_v0	southern hip hop	added	
+style	Southern Metal	Rock	mb_genres_v0	southern metal	added	
+style	Southern Rock	Rock	discogs_20260301_masters	Southern Rock	native	3414
+style	Southern Rock	Rock	mb_genres_v0	southern rock	exact	3414
+style	Southern Soul	Funk / Soul	mb_genres_v0	southern soul	added	
+style	Space Age Pop	Pop	mb_genres_v0	space age pop	added	
+style	Space Ambient	Electronic	mb_genres_v0	space ambient	added	
+style	Space Rock	Rock	discogs_20260301_masters	Space Rock	native	4513
+style	Space Rock	Rock	mb_genres_v0	space rock	exact	4513
+style	Space Rock Revival	Rock	mb_genres_v0	space rock revival	added	
+style	Space-Age	Jazz	discogs_20260301_masters	Space-Age	native	1799
+style	Spacesynth	Electronic	mb_genres_v0	spacesynth	added	
+style	Spaza	Hip Hop	discogs_20260301_masters	Spaza	native	4
+style	Special Effects	Non-Music	discogs_20260301_masters	Special Effects	native	812
+style	Spectralism	Classical	discogs_20260301_masters	Spectralism	native	8
+style	Spectralism	Classical	mb_genres_v0	spectralism	exact	8
+style	Speech	Non-Music	discogs_20260301_masters	Speech	native	1098
+style	Speech	Non-Music	mb_genres_v0	speech	exact	1098
+style	Speed Garage	Electronic	discogs_20260301_masters	Speed Garage	native	1018
+style	Speed Garage	Electronic	mb_genres_v0	speed garage	exact	1018
+style	Speed House	Electronic	mb_genres_v0	speed house	added	
+style	Speed Metal	Rock	discogs_20260301_masters	Speed Metal	native	3304
+style	Speed Metal	Rock	mb_genres_v0	speed metal	exact	3304
+style	Speedcore	Electronic	discogs_20260301_masters	Speedcore	native	1986
+style	Speedcore	Electronic	mb_genres_v0	speedcore	exact	1986
+style	Spiritual Jazz	Jazz	discogs_20260301_masters	Spiritual Jazz	native	397
+style	Spiritual Jazz	Jazz	mb_genres_v0	spiritual jazz	exact	397
+style	Spirituals	Folk, World, & Country	discogs_20260301_masters	Spirituals	native	215
+style	Spirituals	Folk, World, & Country	mb_genres_v0	spirituals	exact	215
+style	Spoken Word	Non-Music	discogs_20260301_masters	Spoken Word	native	8109
+style	Spoken Word	Non-Music	mb_genres_v0	spoken word	exact	8109
+style	Sport	Non-Music	discogs_20260301_masters	Sport	native	93
+style	Standup Comedy	Non-Music	mb_genres_v0	standup comedy	added	
+style	Steel Band	Reggae	discogs_20260301_masters	Steel Band	native	453
+style	Steel Band	Reggae	mb_genres_v0	steel band	exact	453
+style	Stochastic Music	Classical	mb_genres_v0	stochastic music	added	
+style	Stoner Metal	Rock	mb_genres_v0	stoner metal	added	
+style	Stoner Rap	Hip Hop	mb_genres_v0	stoner rap	added	
+style	Stoner Rock	Rock	discogs_20260301_masters	Stoner Rock	native	7944
+style	Stoner Rock	Rock	mb_genres_v0	stoner rock	exact	7944
+style	Story	Children's	discogs_20260301_masters	Story	native	7269
+style	Street Punk	Rock	mb_genres_v0	street punk	added	
+style	Stride	Jazz	discogs_20260301_masters	Stride	native	128
+style	Stride	Jazz	mb_genres_v0	stride	exact	128
+style	String Ensemble	Classical	discogs_20260301_masters	String Ensemble	native	1109
+style	String Instrument	Classical	discogs_20260301_masters	String Instrument	native	1732
+style	String Quartet	Classical	mb_genres_v0	string quartet	added	
+style	Stutter House	Electronic	mb_genres_v0	stutter house	added	
+style	Style Galant	Classical	discogs_20260301_masters	Style Galant	native	7
+style	Sufi Rock	Rock	mb_genres_v0	sufi rock	added	
+style	Suite	Classical	discogs_20260301_masters	Suite	native	836
+style	Sundanese Pop	Pop	mb_genres_v0	sundanese pop	added	
+style	Sunshine Pop	Pop	discogs_20260301_masters	Sunshine Pop	native	519
+style	Sunshine Pop	Pop	mb_genres_v0	sunshine pop	exact	519
+style	Suomisaundi	Electronic	discogs_20260301_masters	Suomisaundi	native	18
+style	Suomisaundi	Electronic	mb_genres_v0	suomisaundi	exact	18
+style	Surf	Rock	discogs_20260301_masters	Surf	native	6936
+style	Surf	Rock	mb_genres_v0	surf	exact	6936
+style	Surf Punk	Rock	mb_genres_v0	surf punk	added	
+style	Surf Rock	Rock	mb_genres_v0	surf rock	added	
+style	Swamp Blues	Blues	mb_genres_v0	swamp blues	added	
+style	Swamp Pop	Rock	discogs_20260301_masters	Swamp Pop	native	370
+style	Swamp Pop	Rock	mb_genres_v0	swamp pop	exact	370
+style	Swamp Rock	Rock	mb_genres_v0	swamp rock	added	
+style	Sweet Jazz	Jazz	mb_genres_v0	sweet jazz	added	
+style	Swing	Jazz	discogs_20260301_masters	Swing	native	18461
+style	Swing	Jazz	mb_genres_v0	swing	exact	18461
+style	Swingbeat	Funk / Soul	discogs_20260301_masters	Swingbeat	native	513
+style	Symphonic Black Metal	Rock	mb_genres_v0	symphonic black metal	added	
+style	Symphonic Metal	Rock	discogs_20260301_masters	Symphonic Metal	native	1989
+style	Symphonic Metal	Rock	mb_genres_v0	symphonic metal	exact	1989
+style	Symphonic Rock	Rock	discogs_20260301_masters	Symphonic Rock	native	3328
+style	Symphonic Rock	Rock	mb_genres_v0	symphonic rock	exact	3328
+style	Symphony	Classical	discogs_20260301_masters	Symphony	native	2164
+style	Symphony	Classical	mb_genres_v0	symphony	exact	2164
+style	Synth Funk	Funk / Soul	mb_genres_v0	synth funk	added	
+style	Synth-pop	Electronic	discogs_20260301_masters	Synth-pop	native	64153
+style	Synth-pop	Electronic	mb_genres_v0	synth-pop	exact	64153
+style	Synthpunk	Electronic	discogs_20260301_masters	Synthpunk	native	63
+style	Synthwave	Electronic	discogs_20260301_masters	Synthwave	native	7038
+style	Synthwave	Electronic	mb_genres_v0	synthwave	exact	7038
+style	Sámi Music	Folk, World, & Country	discogs_20260301_masters	Sámi Music	native	78
+style	Séga	Folk, World, & Country	discogs_20260301_masters	Séga	native	494
+style	Séga	Folk, World, & Country	mb_genres_v0	séga	exact	494
+style	T-Pop	Pop	mb_genres_v0	t-pop	added	
+style	Taarab	Folk, World, & Country	discogs_20260301_masters	Taarab	native	25
+style	Taarab	Folk, World, & Country	mb_genres_v0	taarab	exact	25
+style	Talking Blues	Blues	mb_genres_v0	talking blues	added	
+style	Tamburitza	Folk, World, & Country	discogs_20260301_masters	Tamburitza	native	36
+style	Tamil Film Music	Folk, World, & Country	discogs_20260301_masters	Tamil Film Music	native	41
+style	Tango	Latin	discogs_20260301_masters	Tango	native	6267
+style	Tango	Latin	mb_genres_v0	tango	exact	6267
+style	Tape Music	Electronic	mb_genres_v0	tape music	added	
+style	Te Deum	Classical	discogs_20260301_masters	Te Deum	native	71
+style	Tech House	Electronic	discogs_20260301_masters	Tech House	native	29618
+style	Tech House	Electronic	mb_genres_v0	tech house	exact	29618
+style	Tech Trance	Electronic	discogs_20260301_masters	Tech Trance	native	2847
+style	Tech Trance	Electronic	mb_genres_v0	tech trance	exact	2847
+style	Technical	Non-Music	discogs_20260301_masters	Technical	native	434
+style	Technical Death Metal	Rock	discogs_20260301_masters	Technical Death Metal	native	909
+style	Technical Death Metal	Rock	mb_genres_v0	technical death metal	exact	909
+style	Technical Thrash Metal	Rock	mb_genres_v0	technical thrash metal	added	
+style	Techno	Electronic	discogs_20260301_masters	Techno	native	78006
+style	Techno	Electronic	mb_genres_v0	techno	exact	78006
+style	Techno Bass	Electronic	mb_genres_v0	techno bass	added	
+style	Techno Kayō	Electronic	mb_genres_v0	techno kayō	added	
+style	Techstep	Electronic	mb_genres_v0	techstep	added	
+style	Tecnobrega	Latin	mb_genres_v0	tecnobrega	added	
+style	Tecnofunk	Latin	mb_genres_v0	tecnofunk	added	
+style	Tecnomerengue	Latin	mb_genres_v0	tecnomerengue	added	
+style	Tecnorumba	Latin	mb_genres_v0	tecnorumba	added	
+style	Teen Pop	Pop	mb_genres_v0	teen pop	added	
+style	Tejano	Latin	discogs_20260301_masters	Tejano	native	1001
+style	Tejano	Latin	mb_genres_v0	tejano	exact	1001
+style	Terror Plugg	Hip Hop	mb_genres_v0	terror plugg	added	
+style	Tex-Mex	Latin	mb_genres_v0	tex-mex	added	
+style	Texas Blues	Blues	discogs_20260301_masters	Texas Blues	native	996
+style	Texas Blues	Blues	mb_genres_v0	texas blues	exact	996
+style	Texas Country	Folk, World, & Country	mb_genres_v0	texas country	added	
+style	Thai Classical	Folk, World, & Country	discogs_20260301_masters	Thai Classical	native	63
+style	Thai Classical	Folk, World, & Country	mb_genres_v0	thai classical	exact	63
+style	Theme	Stage & Screen	discogs_20260301_masters	Theme	native	10379
+style	Theme And Variations	Classical	mb_genres_v0	theme and variations	added	
+style	Theme With Variations	Classical	discogs_20260301_masters	Theme With Variations	native	453
+style	Therapy	Non-Music	discogs_20260301_masters	Therapy	native	758
+style	Third Stream	Jazz	mb_genres_v0	third stream	added	
+style	Third Wave Ska	Reggae	mb_genres_v0	third wave ska	added	
+style	Thrash	Rock	discogs_20260301_masters	Thrash	native	16586
+style	Thrash Metal	Rock	mb_genres_v0	thrash metal	added	
+style	Thrashcore	Rock	mb_genres_v0	thrashcore	added	
+style	Thug Rap	Hip Hop	discogs_20260301_masters	Thug Rap	native	2586
+style	Timba	Latin	discogs_20260301_masters	Timba	native	187
+style	Timba	Latin	mb_genres_v0	timba	exact	187
+style	Toasting	Reggae	discogs_20260301_masters	Toasting	native	396
+style	Toccata	Classical	mb_genres_v0	toccata	added	
+style	Tonada Asturiana	Latin	mb_genres_v0	tonada asturiana	added	
+style	Tonada Potosina	Latin	mb_genres_v0	tonada potosina	added	
+style	Tone Poem	Classical	discogs_20260301_masters	Tone Poem	native	254
+style	Tontipop	Pop	mb_genres_v0	tontipop	added	
+style	Totalism	Classical	mb_genres_v0	totalism	added	
+style	Toypop	Pop	mb_genres_v0	toypop	added	
+style	Toytown Pop	Pop	mb_genres_v0	toytown pop	added	
+style	Traditional Black Gospel	Funk / Soul	mb_genres_v0	traditional black gospel	added	
+style	Traditional Bluegrass	Folk, World, & Country	mb_genres_v0	traditional bluegrass	added	
+style	Traditional Country	Folk, World, & Country	mb_genres_v0	traditional country	added	
+style	Traditional Doom Metal	Rock	mb_genres_v0	traditional doom metal	added	
+style	Traditional Pop	Pop	mb_genres_v0	traditional pop	added	
+style	Tragédie En Musique	Classical	mb_genres_v0	tragédie en musique	added	
+style	Trallalero	Folk, World, & Country	discogs_20260301_masters	Trallalero	native	5
+style	Trallalero	Folk, World, & Country	mb_genres_v0	trallalero	exact	5
+style	Trance	Electronic	discogs_20260301_masters	Trance	native	49487
+style	Trance	Electronic	mb_genres_v0	trance	exact	49487
+style	Trancestep	Electronic	mb_genres_v0	trancestep	added	
+style	Trap	Hip Hop	discogs_20260301_masters	Trap	native	5209
+style	Trap	Hip Hop	mb_genres_v0	trap	exact	5209
+style	Trap Edm	Electronic	mb_genres_v0	trap edm	added	
+style	Trap Metal	Rock	mb_genres_v0	trap metal	added	
+style	Tribal	Electronic	discogs_20260301_masters	Tribal	native	7529
+style	Tribal Ambient	Electronic	mb_genres_v0	tribal ambient	added	
+style	Tribal House	Electronic	discogs_20260301_masters	Tribal House	native	3601
+style	Tribal House	Electronic	mb_genres_v0	tribal house	exact	3601
+style	Trip Hop	Electronic	discogs_20260301_masters	Trip Hop	native	7358
+style	Trip Hop	Electronic	mb_genres_v0	trip hop	exact	7358
+style	Tropical House	Electronic	discogs_20260301_masters	Tropical House	native	469
+style	Tropical House	Electronic	mb_genres_v0	tropical house	exact	469
+style	Tropical Rock	Rock	mb_genres_v0	tropical rock	added	
+style	Tropicália	Latin	mb_genres_v0	tropicália	added	
+style	Tropipop	Latin	mb_genres_v0	tropipop	added	
+style	Trova	Latin	discogs_20260301_masters	Trova	native	261
+style	Trova	Latin	mb_genres_v0	trova	exact	261
+style	Trova Yucateca	Latin	mb_genres_v0	trova yucateca	added	
+style	Truck Driving Country	Folk, World, & Country	mb_genres_v0	truck driving country	added	
+style	Turbo-Folk	Folk, World, & Country	mb_genres_v0	turbo-folk	added	
+style	Turkish Folk	Folk, World, & Country	mb_genres_v0	turkish folk	added	
+style	Turkish Pop	Pop	mb_genres_v0	turkish pop	added	
+style	Turntablism	Hip Hop	discogs_20260301_masters	Turntablism	native	473
+style	Turntablism	Hip Hop	mb_genres_v0	turntablism	exact	473
+style	Twee Pop	Pop	mb_genres_v0	twee pop	added	
+style	Twelve-tone	Classical	discogs_20260301_masters	Twelve-tone	native	232
+style	Twist	Rock	discogs_20260301_masters	Twist	native	2039
+style	Uk Drill	Hip Hop	mb_genres_v0	uk drill	added	
+style	UK Funky	Electronic	discogs_20260301_masters	UK Funky	native	165
+style	UK Funky	Electronic	mb_genres_v0	uk funky	exact	165
+style	UK Garage	Electronic	discogs_20260301_masters	UK Garage	native	6005
+style	UK Garage	Electronic	mb_genres_v0	uk garage	exact	6005
+style	UK Street Soul	Funk / Soul	discogs_20260301_masters	UK Street Soul	native	373
+style	UK Street Soul	Funk / Soul	mb_genres_v0	uk street soul	exact	373
+style	Unblack Metal	Rock	discogs_20260301_masters	Unblack Metal	native	425
+style	Underground Hip Hop	Hip Hop	mb_genres_v0	underground hip hop	added	
+style	Urban Contemporary Gospel	Funk / Soul	mb_genres_v0	urban contemporary gospel	added	
+style	Us Power Metal	Rock	mb_genres_v0	us power metal	added	
+style	V-pop	Pop	discogs_20260301_masters	V-pop	native	46
+style	V-pop	Pop	mb_genres_v0	v-pop	exact	46
+style	Vallenato	Latin	discogs_20260301_masters	Vallenato	native	1321
+style	Vallenato	Latin	mb_genres_v0	vallenato	exact	1321
+style	Vals Criollo	Latin	mb_genres_v0	vals criollo	added	
+style	Vals Venezolano	Latin	mb_genres_v0	vals venezolano	added	
+style	Valsa Brasileira	Latin	mb_genres_v0	valsa brasileira	added	
+style	Vapornoise	Electronic	mb_genres_v0	vapornoise	added	
+style	Vaportrap	Electronic	mb_genres_v0	vaportrap	added	
+style	Vaporwave	Electronic	discogs_20260301_masters	Vaporwave	native	6804
+style	Vaporwave	Electronic	mb_genres_v0	vaporwave	exact	6804
+style	Vaudeville	Stage & Screen	discogs_20260301_masters	Vaudeville	native	130
+style	Vaudeville	Stage & Screen	mb_genres_v0	vaudeville	exact	130
+style	Vaudeville Blues	Blues	mb_genres_v0	vaudeville blues	added	
+style	Verismo	Classical	discogs_20260301_masters	Verismo	native	1
+style	Verismo	Classical	mb_genres_v0	verismo	exact	1
+style	Video Game Music	Stage & Screen	discogs_20260301_masters	Video Game Music	native	2795
+style	Viking Metal	Rock	discogs_20260301_masters	Viking Metal	native	1015
+style	Viking Metal	Rock	mb_genres_v0	viking metal	exact	1015
+style	Viking Rock	Rock	mb_genres_v0	viking rock	added	
+style	Villancicos	Folk, World, & Country	discogs_20260301_masters	Villancicos	native	198
+style	Vocal	Pop	discogs_20260301_masters	Vocal	native	94590
+style	Vocal House	Electronic	mb_genres_v0	vocal house	added	
+style	Vocal Jazz	Jazz	mb_genres_v0	vocal jazz	added	
+style	Vocal Trance	Electronic	mb_genres_v0	vocal trance	added	
+style	Vocalese	Jazz	mb_genres_v0	vocalese	added	
+style	Vocaloid	Electronic	discogs_20260301_masters	Vocaloid	native	78
+style	Volksmusik	Folk, World, & Country	discogs_20260301_masters	Volksmusik	native	7326
+style	Waiata	Folk, World, & Country	discogs_20260301_masters	Waiata	native	80
+style	War Metal	Rock	mb_genres_v0	war metal	added	
+style	West Coast Breaks	Electronic	mb_genres_v0	west coast breaks	added	
+style	West Coast Hip Hop	Hip Hop	mb_genres_v0	west coast hip hop	added	
+style	Western Classical	Classical	mb_genres_v0	western classical	added	
+style	Western Swing	Folk, World, & Country	discogs_20260301_masters	Western Swing	native	747
+style	Western Swing	Folk, World, & Country	mb_genres_v0	western swing	exact	747
+style	Whale Song	Non-Music	mb_genres_v0	whale song	added	
+style	Whistling	Non-Music	mb_genres_v0	whistling	added	
+style	Wind Ensemble	Classical	discogs_20260301_masters	Wind Ensemble	native	126
+style	Winter Synth	Electronic	mb_genres_v0	winter synth	added	
+style	Witch House	Electronic	discogs_20260301_masters	Witch House	native	1364
+style	Witch House	Electronic	mb_genres_v0	witch house	exact	1364
+style	Wonky Techno	Electronic	mb_genres_v0	wonky techno	added	
+style	Woodwind Instrument	Classical	discogs_20260301_masters	Woodwind Instrument	native	206
+style	Wyrd Folk	Folk, World, & Country	mb_genres_v0	wyrd folk	added	
+style	Xaxado	Latin	mb_genres_v0	xaxado	added	
+style	Xote	Latin	mb_genres_v0	xote	added	
+style	Yacht Rock	Rock	mb_genres_v0	yacht rock	added	
+style	Yemenite Jewish	Folk, World, & Country	discogs_20260301_masters	Yemenite Jewish	native	69
+style	Yodeling	Folk, World, & Country	mb_genres_v0	yodeling	added	
+style	Yoruba	Folk, World, & Country	discogs_20260301_masters	Yoruba	native	11
+style	Yé-Yé	Rock	discogs_20260301_masters	Yé-Yé	native	1247
+style	Yé-Yé	Rock	mb_genres_v0	yé-yé	exact	1247
+style	Zamacueca	Latin	mb_genres_v0	zamacueca	added	
+style	Zamba	Folk, World, & Country	discogs_20260301_masters	Zamba	native	252
+style	Zamba	Folk, World, & Country	mb_genres_v0	zamba	exact	252
+style	Zarzuela	Classical	discogs_20260301_masters	Zarzuela	native	332
+style	Zarzuela	Classical	mb_genres_v0	zarzuela	exact	332
+style	Zeitoper	Classical	mb_genres_v0	zeitoper	added	
+style	Zemer Ivri	Folk, World, & Country	discogs_20260301_masters	Zemer Ivri	native	136
+style	Zhongguo Feng	Pop	discogs_20260301_masters	Zhongguo Feng	native	24
+style	Zhongguo Feng	Pop	mb_genres_v0	zhongguo feng	exact	24
+style	Zouk	Folk, World, & Country	discogs_20260301_masters	Zouk	native	1778
+style	Zouk	Folk, World, & Country	mb_genres_v0	zouk	exact	1778
+style	Zydeco	Folk, World, & Country	discogs_20260301_masters	Zydeco	native	494
+style	Zydeco	Folk, World, & Country	mb_genres_v0	zydeco	exact	494
+style	Éntekhno	Folk, World, & Country	discogs_20260301_masters	Éntekhno	native	2368
+style	Éntekhno	Folk, World, & Country	mb_genres_v0	éntekhno	exact	2368

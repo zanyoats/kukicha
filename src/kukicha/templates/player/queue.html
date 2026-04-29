@@ -1,0 +1,20 @@
+<div class="view-page" data-page="queue">
+  <div class="album-view-nav">
+    <a class="back-link" href="{{ queue_back_url }}" data-history-back data-nav>&larr; back</a>
+    <a class="back-link" href="/" data-nav>&uarr; index</a>
+  </div>
+
+  <header class="view-header">
+    <div>
+      <h1>Queue</h1>
+      <div class="count" data-queue-meta data-duration-text="{{ queue_duration_text }}">{{ queue_meta }}</div>
+    </div>
+  </header>
+
+  {% if queue_rows %}
+    {% set is_queue = true %}
+    {% include "player/_track_table.html" %}
+  {% else %}
+    <div class="empty">Queue is empty.</div>
+  {% endif %}
+</div>

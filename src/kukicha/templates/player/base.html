@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ app_title }}</title>
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml" sizes="any">
+  <link rel="stylesheet" href="/static/player.css">
+</head>
+<body data-page="{{ page_name }}">
+  <main>
+    <section id="view" data-page="{{ page_name }}">
+      {% include view_template %}
+    </section>
+
+    <section id="controls" class="controls" aria-label="Player controls">
+      <div id="now-playing" aria-live="polite"></div>
+      <div class="buttons">
+        <button class="primary" id="play" type="button">Play</button>
+        <button id="previous" type="button">Previous</button>
+        <button id="next" type="button">Next</button>
+        <a id="queue-link" class="button-link" href="{{ queue_url }}" data-nav>Queue</a>
+      </div>
+      <audio id="audio" controls preload="metadata"></audio>
+      <div id="error" aria-live="polite"></div>
+    </section>
+  </main>
+  <div id="toast" class="toast" hidden aria-live="polite"></div>
+  <script type="application/json" id="queue-state">{{ queue_state|tojson }}</script>
+  <script src="/static/player.js"></script>
+</body>
+</html>
