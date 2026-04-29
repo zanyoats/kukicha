@@ -38,8 +38,6 @@ from .models import (
 from .sorting import album_page_sort_key, playlist_track_sort_key
 from .sql import (
     TRACK_COLUMNS,
-    album_paths_params,
-    album_paths_sql,
     placeholders_for,
     root_scope_clause,
 )
@@ -186,44 +184,75 @@ class LibraryQueries:
             ).fetchone()
             if row is None:
                 raise AlbumNotFoundError(album_id)
-            summary = self._album_summaries_from_rows(
+            root_sql, root_params = root_scope_clause("library_tracks", root_positions)
+            track_rows = list(
+                connection.execute(
+                    f"""
+                    SELECT {TRACK_COLUMNS}
+                    FROM library_tracks
+                    WHERE album_id = ?{root_sql}
+                    ORDER BY track_id
+                    """,
+                    [album_id, *root_params],
+                )
+            )
+            if root_positions and not track_rows:
+                raise AlbumNotFoundError(album_id)
+            track_ids = [int(track_row["track_id"]) for track_row in track_rows]
+            genres_by_track = track_values_by_track(
                 connection,
-                [row],
-                root_positions=root_positions,
-                include_track_ids=False,
-            )[0]
+                track_ids,
+                table="library_track_genres",
+                column="genre",
+            )
+            styles_by_track = track_values_by_track(
+                connection,
+                track_ids,
+                table="library_track_styles",
+                column="style",
+            )
+            track_ids_with_cover = track_ids_with_artwork(connection, track_ids)
             tracks = tuple(
                 sorted(
-                    self._tracks_for_album(
+                    self._playlist_tracks_from_rows(
                         connection,
-                        album_id,
-                        root_positions=root_positions,
+                        track_rows,
+                        genres_by_track=genres_by_track,
+                        styles_by_track=styles_by_track,
+                        track_ids_with_cover=track_ids_with_cover,
+                        album_ids_with_cover=(
+                            {album_id} if track_ids_with_cover else set()
+                        ),
                     ),
                     key=playlist_track_sort_key,
                 )
             )
-            if root_positions and not tracks:
-                raise AlbumNotFoundError(album_id)
             paths = tuple(
-                str(path_row["path"])
-                for path_row in connection.execute(
-                    album_paths_sql(root_positions),
-                    album_paths_params(album_id, root_positions),
+                str(track_row["path"])
+                for track_row in sorted(
+                    track_rows,
+                    key=lambda track_row: (
+                        str(track_row["path"]).casefold(),
+                        int(track_row["track_id"]),
+                    ),
                 )
             )
         return AlbumDetails(
-            album_id=summary.album_id,
-            artist=summary.artist,
-            album=summary.album,
-            year=summary.year,
-                track_count=summary.track_count,
-                file_created_at=summary.file_created_at,
-                genres=summary.genres,
-            styles=summary.styles,
-            has_cover=summary.has_cover,
-            is_compilation=summary.is_compilation,
-            is_work=summary.is_work,
-            art_track_id=summary.art_track_id,
+            album_id=str(row["album_id"]),
+            artist=str(row["artist"]),
+            album=str(row["album"]),
+            year=int(row["year"]) if row["year"] is not None else None,
+            track_count=len(track_rows) if root_positions else int(row["track_count"]),
+            file_created_at=row["file_created_at"],
+            genres=album_values_from_track_values(genres_by_track),
+            styles=album_values_from_track_values(styles_by_track),
+            has_cover=bool(track_ids_with_cover),
+            is_compilation=any(bool(track_row["is_compilation"]) for track_row in track_rows),
+            is_work=any(
+                bool(track_row["work"] or track_row["grouping"])
+                for track_row in track_rows
+            ),
+            art_track_id=min(track_ids) if track_ids else None,
             track_ids=tuple(track.track_id for track in tracks if track.track_id is not None),
             paths=paths,
             tracks=tracks,
@@ -645,6 +674,11 @@ class LibraryQueries:
         self,
         connection: Connection,
         rows: Iterable[Row],
+        *,
+        genres_by_track: dict[int, list[str]] | None = None,
+        styles_by_track: dict[int, list[str]] | None = None,
+        track_ids_with_cover: set[int] | None = None,
+        album_ids_with_cover: set[str] | None = None,
     ) -> list[PlaylistTrack]:
         track_rows = list(rows)
         track_ids = [int(row["track_id"]) for row in track_rows]
@@ -653,34 +687,24 @@ class LibraryQueries:
             for row in track_rows
             if row["album_id"] is not None and str(row["album_id"])
         ]
-        genres_by_track = track_values_by_track(
-            connection,
-            track_ids,
-            table="library_track_genres",
-            column="genre",
-        )
-        styles_by_track = track_values_by_track(
-            connection,
-            track_ids,
-            table="library_track_styles",
-            column="style",
-        )
+        if genres_by_track is None:
+            genres_by_track = track_values_by_track(
+                connection,
+                track_ids,
+                table="library_track_genres",
+                column="genre",
+            )
+        if styles_by_track is None:
+            styles_by_track = track_values_by_track(
+                connection,
+                track_ids,
+                table="library_track_styles",
+                column="style",
+            )
         taxonomy_genres, taxonomy_styles = taxonomy_sets(connection)
-        track_ids_with_cover: set[int] = set()
         track_ids_with_playlist_membership: set[int] = set()
         if track_ids:
             placeholders = placeholders_for(track_ids)
-            track_ids_with_cover = set(
-                int(row["track_id"])
-                for row in connection.execute(
-                    f"""
-                    SELECT DISTINCT track_id
-                    FROM library_track_artwork
-                    WHERE track_id IN ({placeholders})
-                    """,
-                    track_ids,
-                )
-            )
             track_ids_with_playlist_membership = set(
                 int(row["track_id"])
                 for row in connection.execute(
@@ -692,8 +716,9 @@ class LibraryQueries:
                     track_ids,
                 )
             )
-        album_ids_with_cover: set[str] = set()
-        if album_ids:
+        if track_ids_with_cover is None:
+            track_ids_with_cover = track_ids_with_artwork(connection, track_ids)
+        if album_ids_with_cover is None and album_ids:
             placeholders = placeholders_for(album_ids)
             album_ids_with_cover = set(
                 str(row["album_id"])
@@ -708,6 +733,8 @@ class LibraryQueries:
                     album_ids,
                 )
             )
+        elif album_ids_with_cover is None:
+            album_ids_with_cover = set()
         tracks: list[PlaylistTrack] = []
         for row in track_rows:
             track_id = int(row["track_id"])
@@ -964,6 +991,33 @@ def track_values_by_track(
     ):
         values.setdefault(int(row["track_id"]), []).append(str(row[column]))
     return values
+
+
+def track_ids_with_artwork(connection: Connection, track_ids: list[int]) -> set[int]:
+    if not track_ids:
+        return set()
+    placeholders = placeholders_for(track_ids)
+    return {
+        int(row["track_id"])
+        for row in connection.execute(
+            f"""
+            SELECT DISTINCT track_id
+            FROM library_track_artwork
+            WHERE track_id IN ({placeholders})
+            """,
+            track_ids,
+        )
+    }
+
+
+def album_values_from_track_values(
+    values_by_track: dict[int, list[str]],
+) -> tuple[str, ...]:
+    return unique_sorted(
+        value
+        for track_values in values_by_track.values()
+        for value in track_values
+    )
 
 
 def taxonomy_sets(connection: Connection) -> tuple[set[str], set[str]]:

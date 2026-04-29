@@ -71,29 +71,35 @@ class LibraryAlbumPathQueryTest(unittest.TestCase):
     def test_album_details_paths_respect_root_filter(self) -> None:
         with TemporaryDirectory() as tempdir:
             database = Path(tempdir) / "kukicha.sqlite"
+            root_a_track = TrackRecord(
+                path="/music/a/Artist/Album/01.flac",
+                root_position=0,
+                file_type="flac",
+                artist="Artist",
+                album_artist="Artist",
+                album="Album",
+                title="Root A",
+                work="Root A Work",
+                is_compilation=True,
+                genres=["Electronic"],
+                styles=["Ambient"],
+                album_artwork=TrackArtwork(mime_type="image/png", data=b"cover"),
+            )
+            root_b_track = TrackRecord(
+                path="/music/b/Artist/Album/01.flac",
+                root_position=1,
+                file_type="flac",
+                artist="Artist",
+                album_artist="Artist",
+                album="Album",
+                title="Root B",
+                genres=["Jazz"],
+                styles=["Modal"],
+            )
             save_library(
                 MusicLibrary(
                     roots=["/music/a", "/music/b"],
-                    tracks=[
-                        TrackRecord(
-                            path="/music/a/Artist/Album/01.flac",
-                            root_position=0,
-                            file_type="flac",
-                            artist="Artist",
-                            album_artist="Artist",
-                            album="Album",
-                            title="Root A",
-                        ),
-                        TrackRecord(
-                            path="/music/b/Artist/Album/01.flac",
-                            root_position=1,
-                            file_type="flac",
-                            artist="Artist",
-                            album_artist="Artist",
-                            album="Album",
-                            title="Root B",
-                        ),
-                    ],
+                    tracks=[root_a_track, root_b_track],
                     supported_extensions=[".flac"],
                     generated_at="2026-04-22T00:00:00+00:00",
                 ),
@@ -106,6 +112,16 @@ class LibraryAlbumPathQueryTest(unittest.TestCase):
             )
 
         self.assertEqual(album.paths, ("/music/b/Artist/Album/01.flac",))
+        self.assertEqual(album.track_count, 1)
+        self.assertEqual(album.genres, ("Jazz",))
+        self.assertEqual(album.styles, ("Modal",))
+        self.assertFalse(album.has_cover)
+        self.assertFalse(album.is_compilation)
+        self.assertFalse(album.is_work)
+        self.assertEqual(album.art_track_id, root_b_track.track_id)
+        self.assertEqual(album.track_ids, (root_b_track.track_id,))
+        self.assertEqual([track.path for track in album.tracks], [root_b_track.path])
+        self.assertEqual([track.has_cover for track in album.tracks], [False])
 
 
 class LibraryMusicBrainzPersistenceTest(unittest.TestCase):

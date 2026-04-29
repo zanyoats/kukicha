@@ -39,18 +39,3 @@ def root_scope_clause(
         return "", []
     placeholders = placeholders_for(root_positions)
     return f" AND {track_alias}.root_position IN ({placeholders})", list(root_positions)
-
-
-def album_paths_sql(root_positions: tuple[int, ...]) -> str:
-    root_sql, _ = root_scope_clause("library_tracks", root_positions)
-    return f"""
-        SELECT path
-        FROM library_tracks
-        WHERE album_id = ?{root_sql}
-        ORDER BY path COLLATE NOCASE, track_id
-        """
-
-
-def album_paths_params(album_id: str, root_positions: tuple[int, ...]) -> list[object]:
-    _, root_params = root_scope_clause("library_tracks", root_positions)
-    return [album_id, *root_params]
