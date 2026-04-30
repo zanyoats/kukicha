@@ -36,8 +36,6 @@ PLAYER_PAGE_LINKS = (
     ("artists", "Artists", "/artists"),
     ("settings", "Settings", "/settings"),
     ("jobs", "Jobs", "/jobs"),
-    ("cache", "Cache", "/cache"),
-    ("logs", "Logs", "/logs"),
     ("help", "Help", "/help"),
 )
 PLAYER_PAGE_BY_KEY = {key: {"title": title, "url": url} for key, title, url in PLAYER_PAGE_LINKS}

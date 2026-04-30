@@ -1058,7 +1058,7 @@ class PlayerStartupTest(unittest.TestCase):
 
 class PlayerPageMenuTest(unittest.TestCase):
     def test_player_page_menu_items_include_all_pages_and_mark_current(self) -> None:
-        items = player_page_menu_items("logs")
+        items = player_page_menu_items("jobs")
 
         self.assertEqual(
             [(item.title, item.url) for item in items],
@@ -1067,12 +1067,10 @@ class PlayerPageMenuTest(unittest.TestCase):
                 ("Artists", "/artists"),
                 ("Settings", "/settings"),
                 ("Jobs", "/jobs"),
-                ("Cache", "/cache"),
-                ("Logs", "/logs"),
                 ("Help", "/help"),
             ],
         )
-        self.assertEqual([item.current for item in items], [False, False, False, False, False, True, False])
+        self.assertEqual([item.current for item in items], [False, False, False, True, False])
 
     def test_player_page_menu_template_separates_library_links_from_settings(self) -> None:
         template = build_template_environment().get_template("player/_page_title.html")
@@ -1491,7 +1489,7 @@ class PlayerWebAdapterTest(unittest.TestCase):
 
             self.assertEqual(response.status_code, 204)
 
-    def test_notifications_route_is_removed(self) -> None:
+    def test_removed_placeholder_routes_return_not_found(self) -> None:
         with TemporaryDirectory() as tempdir:
             temp_path = Path(tempdir)
             runtime = self.make_runtime(temp_path / "kukicha.sqlite")
@@ -1500,6 +1498,8 @@ class PlayerWebAdapterTest(unittest.TestCase):
                 client = app.test_client()
 
             self.assertEqual(client.get("/notifications").status_code, 404)
+            self.assertEqual(client.get("/cache").status_code, 404)
+            self.assertEqual(client.get("/logs").status_code, 404)
 
     def test_cancel_job_route_returns_job_payload(self) -> None:
         with TemporaryDirectory() as tempdir:
