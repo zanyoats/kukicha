@@ -325,6 +325,6 @@ def job_kind_label_for_message(kind: str) -> str:
         "edit_album": "Tag edit",
         "edit_album_musicbrainz": "MusicBrainz ID edit",
         "update_playlist_file": "Update playlist file",
-        "rescan_root": "Rescan",
+        "rescan_library": "Rescan",
     }
     return labels.get(kind, " ".join(part.capitalize() for part in kind.split("_") if part) or "Job")

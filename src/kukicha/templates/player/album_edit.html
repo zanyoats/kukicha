@@ -16,23 +16,24 @@
         <h2 title="{{ album.album }}">
           {{ album.album|display_album_title }}{% if album_root_links %} <span class="album-title-root-links">({%- for item in album_root_links -%}<a class="album-detail-meta-link" href="{{ item.url }}" data-nav>{{ item.label }}</a>{% if not loop.last %}, {% endif %}{%- endfor -%})</span>{% endif %}
         </h2>
-        <ul class="meta-list album-artist-meta">
-          {% for part in album_artist_parts %}
-            <li>{{ part }}</li>
-          {% endfor %}
-        </ul>
-        {% if album_genre_year_parts %}
-          <ul class="meta-list album-genre-meta">
-            {% for part in album_genre_year_parts %}
-              <li>{{ part }}</li>
-            {% endfor %}
+        {% if album_artist_parts or album_year_text %}
+          <ul class="meta-list album-artist-meta">
+            {% if album_artist_parts %}
+              <li>{% for part in album_artist_parts %}{{ part }}{% if not loop.last %}, {% endif %}{% endfor %}</li>
+            {% endif %}
+            {% if album_year_text %}
+              <li class="album-year-meta">{{ album_year_text }}</li>
+            {% endif %}
           </ul>
         {% endif %}
-        {% if album_style_parts %}
-          <ul class="meta-list album-style-meta">
-            {% for part in album_style_parts %}
-              <li>{{ part }}</li>
-            {% endfor %}
+        {% if album_genre_parts or album_style_parts %}
+          <ul class="meta-list album-genre-meta">
+            {% if album_genre_parts %}
+              <li>{% for part in album_genre_parts %}{{ part }}{% if not loop.last %}, {% endif %}{% endfor %}</li>
+            {% endif %}
+            {% if album_style_parts %}
+              <li class="album-style-meta">{% for part in album_style_parts %}{{ part }}{% if not loop.last %}, {% endif %}{% endfor %}</li>
+            {% endif %}
           </ul>
         {% endif %}
       </div>
@@ -75,7 +76,7 @@
   <section class="album-edit-panel settings-panel">
     <div class="settings-panel-header">
       <h3>Update Audio Tags</h3>
-      <div class="settings-panel-meta">Writes genre, album title, album artist, and artist tags to the files in the background. Rescan the root afterward to update library filters, artists, and stats.</div>
+      <div class="settings-panel-meta">Writes genre, album title, album artist, and artist tags to the files in the background. Rescan the library afterward to update library filters, artists, and stats.</div>
     </div>
     <form class="album-edit-form" action="{{ album_tag_edit_action_url }}" method="post" data-album-tag-form>
       <label class="album-edit-field">

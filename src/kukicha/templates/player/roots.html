@@ -15,14 +15,9 @@
           autocomplete="off" spellcheck="false" data-initial-focus data-root-path-input>
       </label>
       <div class="settings-actions">
-        <button type="button" data-pick-root {% if not root_picker_supported %}disabled{% endif %}>Choose Folder</button>
         <button class="primary" type="submit" data-add-root disabled>Add and Scan</button>
       </div>
-      <div class="settings-status" data-root-form-status aria-live="polite">
-        {% if not root_picker_supported %}
-          Native folder picking is currently available on macOS only.
-        {% endif %}
-      </div>
+      <div class="settings-status" data-root-form-status aria-live="polite"></div>
     </form>
   </section>
 
@@ -30,6 +25,9 @@
     <div class="settings-panel-header">
       <h2>Current Roots</h2>
       <div class="settings-panel-meta">Add and scan, delete, and rescan run in the background. Check Jobs for progress.</div>
+    </div>
+    <div class="settings-actions">
+      <button type="button" data-rescan-library {% if not roots %}disabled{% endif %}>Rescan</button>
     </div>
     <div class="roots-list" data-root-list {% if not roots %}hidden{% endif %}>
       {% for root in roots %}
@@ -56,7 +54,6 @@
             </dl>
           </div>
           <div class="root-card-actions">
-            <button type="button" data-rescan-root data-root-position="{{ root.position }}">Rescan</button>
             <button type="button" class="danger" data-delete-root data-root-position="{{ root.position }}">Delete</button>
           </div>
         </article>

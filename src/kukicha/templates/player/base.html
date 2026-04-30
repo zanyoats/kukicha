@@ -6,6 +6,11 @@
   <title>{{ app_title }}</title>
   <link rel="icon" href="/static/favicon.svg" type="image/svg+xml" sizes="any">
   <link rel="stylesheet" href="/static/player.css">
+  <style>
+    :root {
+      --accent: {{ accent_color }};
+    }
+  </style>
 </head>
 <body data-page="{{ page_name }}">
   <main>
@@ -22,7 +27,6 @@
         <a id="queue-link" class="button-link" href="{{ queue_url }}" data-nav>Queue</a>
       </div>
       <audio id="audio" controls preload="metadata"></audio>
-      <div id="error" aria-live="polite"></div>
     </section>
   </main>
   <div id="toast" class="toast" hidden aria-live="polite"

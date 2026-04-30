@@ -4,22 +4,27 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, quote
 
-from .use_case import LibraryQueries
+from .use_case import ALBUM_LIST_SORT_RECENTLY_ADDED, AlbumListQuery, LibraryQueries
 from .use_case import album_list_query_from_params, album_musicbrainz_link
 from .player_runtime import PlayerRuntime
 
 
 def base_player_context(runtime: PlayerRuntime, **context: Any) -> dict[str, Any]:
     from .player_config import (
+        DEFAULT_ACCENT_COLOR,
         DEFAULT_LINKED_TOAST_TIMEOUT_MS,
         DEFAULT_TOAST_TIMEOUT_MS,
+        player_accent_color,
     )
     from .player_presenters import queue_state_payload
 
     base = {
-        "app_title": "kukicha player",
+        "app_title": "kukicha",
         "queue_state": queue_state_payload(runtime.queue_state_copy()),
         "queue_url": "/queue",
+        "accent_color": player_accent_color(
+            player_option_string(runtime, "accent_color", DEFAULT_ACCENT_COLOR)
+        ),
         "toast_timeout_ms": player_option_int(
             runtime,
             "toast_timeout_ms",
@@ -41,6 +46,43 @@ def player_option_int(runtime: PlayerRuntime, name: str, default: int) -> int:
     return value if type(value) is int else default
 
 
+def player_option_string(runtime: PlayerRuntime, name: str, default: str) -> str:
+    options = getattr(runtime, "options", None)
+    value = getattr(options, name, default) if options is not None else default
+    return value if isinstance(value, str) else default
+
+
+def album_index_query_from_query_string(query_string: str) -> AlbumListQuery:
+    parsed = album_list_query_from_params(parse_qs(query_string))
+    return AlbumListQuery(
+        artists=parsed.artists,
+        album=parsed.album,
+        root_positions=parsed.root_positions,
+        genres=parsed.genres,
+        styles=parsed.styles,
+        genre_filters=parsed.genre_filters,
+        has_cover=parsed.has_cover,
+        is_compilation=parsed.is_compilation,
+        is_work=parsed.is_work,
+        page=parsed.page,
+        per_page=parsed.per_page,
+        search=parsed.search,
+        sort=parsed.sort,
+        is_playlist=False,
+    )
+
+
+def playlist_index_query_from_query_string(query_string: str) -> AlbumListQuery:
+    parsed = album_list_query_from_params(parse_qs(query_string))
+    return AlbumListQuery(
+        search=parsed.search,
+        page=parsed.page,
+        per_page=parsed.per_page,
+        sort=ALBUM_LIST_SORT_RECENTLY_ADDED,
+        is_playlist=True,
+    )
+
+
 def build_index_context(runtime: PlayerRuntime, query_string: str) -> dict[str, Any]:
     from .player_navigation import (
         ALBUM_SORT_OPTIONS,
@@ -55,9 +97,7 @@ def build_index_context(runtime: PlayerRuntime, query_string: str) -> dict[str, 
     )
 
     api = LibraryQueries(runtime.database)
-    query = api.expand_album_list_query(
-        album_list_query_from_params(parse_qs(query_string))
-    )
+    query = api.expand_album_list_query(album_index_query_from_query_string(query_string))
     filters = api.filter_options()
     album_page = api.list_album_page(query)
     context = base_player_context(
@@ -81,10 +121,53 @@ def build_index_context(runtime: PlayerRuntime, query_string: str) -> dict[str, 
         if album_page.has_next
         else "",
         clear_url="/",
+        filter_action_url="/",
+        show_filter_controls=True,
+        show_sort_controls=True,
+        search_placeholder="Search albums, artists, tracks",
+        empty_message="No albums matched these filters.",
+        pagination_label="Album pages",
         sort_options=ALBUM_SORT_OPTIONS,
         default_per_page=DEFAULT_ALBUMS_PER_PAGE,
     )
     context.update(player_page_context("library"))
+    return context
+
+
+def build_playlist_index_context(runtime: PlayerRuntime, query_string: str) -> dict[str, Any]:
+    from .player_navigation import (
+        ALBUM_SORT_OPTIONS,
+        DEFAULT_ALBUMS_PER_PAGE,
+        playlist_index_url,
+        player_page_context,
+    )
+
+    api = LibraryQueries(runtime.database)
+    query = playlist_index_query_from_query_string(query_string)
+    album_page = api.list_album_page(query)
+    context = base_player_context(
+        runtime,
+        view_template="player/index.html",
+        album_page=album_page,
+        albums=album_page.items,
+        query=query,
+        previous_url=playlist_index_url(query, page=album_page.page - 1)
+        if album_page.has_previous
+        else "",
+        next_url=playlist_index_url(query, page=album_page.page + 1)
+        if album_page.has_next
+        else "",
+        clear_url="/playlists",
+        filter_action_url="/playlists",
+        show_filter_controls=False,
+        show_sort_controls=False,
+        search_placeholder="Search playlists",
+        empty_message="No playlists matched this search.",
+        pagination_label="Playlist pages",
+        sort_options=ALBUM_SORT_OPTIONS,
+        default_per_page=DEFAULT_ALBUMS_PER_PAGE,
+    )
+    context.update(player_page_context("playlists"))
     return context
 
 
@@ -161,7 +244,6 @@ def build_artists_page_context(runtime: PlayerRuntime) -> dict[str, Any]:
 def build_roots_page_context(runtime: PlayerRuntime) -> dict[str, Any]:
     from .player_common import plural
     from .player_navigation import player_page_context
-    from .player_platform import root_picker_supported
 
     api = LibraryQueries(runtime.database)
     roots = api.library_roots()
@@ -175,7 +257,6 @@ def build_roots_page_context(runtime: PlayerRuntime) -> dict[str, Any]:
         roots=roots,
         root_stats_by_position=root_stats_by_position,
         count_text=f"{len(roots)} {plural(len(roots), 'root', 'roots')}",
-        root_picker_supported=root_picker_supported(),
     )
     context.update(player_page_context("roots"))
     return context
@@ -196,6 +277,43 @@ def build_artist_split_rules_page_context(runtime: PlayerRuntime) -> dict[str, A
         ),
     )
     context.update(player_page_context("artist-split-rules"))
+    return context
+
+
+def build_musicbrainz_overrides_page_context(runtime: PlayerRuntime) -> dict[str, Any]:
+    from .player_common import plural
+    from .player_navigation import player_page_context
+
+    overrides = LibraryQueries(runtime.database).album_musicbrainz_overrides()
+    context = base_player_context(
+        runtime,
+        view_template="player/musicbrainz_overrides.html",
+        musicbrainz_overrides=tuple(
+            {
+                "album_id": override.album_id,
+                "album": override.album,
+                "artist": override.artist,
+                "year": override.year,
+                "release_mbid": override.release_mbid,
+                "release_group_mbid": override.release_group_mbid,
+                "is_current_album": override.is_current_album,
+                "album_url": f"/albums/{quote(override.album_id, safe=':')}"
+                if override.is_current_album
+                else "",
+                "album_edit_url": f"/albums/{quote(override.album_id, safe=':')}/edit"
+                if override.is_current_album
+                else "",
+                "delete_url": (
+                    f"/api/musicbrainz-overrides/{quote(override.album_id, safe=':')}/delete"
+                    if not override.is_current_album
+                    else ""
+                ),
+            }
+            for override in overrides
+        ),
+        count_text=f"{len(overrides)} {plural(len(overrides), 'override', 'overrides')}",
+    )
+    context.update(player_page_context("musicbrainz-overrides"))
     return context
 
 
@@ -292,8 +410,8 @@ def build_playlist_context(
     query_string: str,
 ) -> dict[str, Any]:
     from .player_navigation import (
-        album_index_url,
         playlist_cover_url,
+        playlist_index_url,
     )
     from .player_presenters import (
         playlist_item_view,
@@ -303,9 +421,7 @@ def build_playlist_context(
     )
 
     api = LibraryQueries(runtime.database)
-    query = api.expand_album_list_query(
-        album_list_query_from_params(parse_qs(query_string))
-    )
+    query = playlist_index_query_from_query_string(query_string)
     playlist = api.get_playlist(playlist_id)
     track_views = track_views_with_playlist_options(
         runtime.database,
@@ -322,7 +438,8 @@ def build_playlist_context(
         query=query,
         tracks=track_views,
         table_rows=track_table_rows(track_views),
-        playlist_back_url=album_index_url(query),
+        playlist_back_url=playlist_index_url(query),
+        playlist_index_url=playlist_index_url(query),
         playlist_path_text=playlist.path,
         playlist_track_meta=playlist_track_meta(playlist, track_views),
         playlist_cover_data_url=playlist_cover_url(playlist.cover_svg, playlist.name),
@@ -339,7 +456,7 @@ def build_album_edit_context(
         album_edit_genre_value,
         album_artist_parts,
         album_root_links,
-        album_genre_year_parts,
+        album_genre_parts,
         album_style_parts,
         album_url,
     )
@@ -367,7 +484,8 @@ def build_album_edit_context(
         tracks=track_views,
         album_root_links=album_root_links(album, roots),
         album_artist_parts=album_artist_parts(album),
-        album_genre_year_parts=album_genre_year_parts(album),
+        album_year_text=str(album.year) if album.year else "",
+        album_genre_parts=album_genre_parts(album),
         album_style_parts=album_style_parts(album),
         album_back_url=album_url(album, query),
         album_musicbrainz_action_url=f"/api/albums/{quote(album.album_id, safe=':')}/musicbrainz",

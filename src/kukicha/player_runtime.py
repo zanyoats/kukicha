@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections import deque
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from queue import Queue
 from threading import Event, Lock, Thread
@@ -19,6 +19,7 @@ class PlayerQueueState:
     position: int = 0
     loaded_track_id: int | None = None
     paused: bool = True
+    errored_track_ids: list[int] = field(default_factory=list)
 
 
 class PlayerJobCanceled(Exception):
@@ -266,6 +267,7 @@ class PlayerRuntime:
                 position=self.queue_state.position,
                 loaded_track_id=self.queue_state.loaded_track_id,
                 paused=self.queue_state.paused,
+                errored_track_ids=list(self.queue_state.errored_track_ids),
             )
 
     def reset_queue_state(self) -> None:

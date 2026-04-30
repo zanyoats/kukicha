@@ -34,10 +34,12 @@ class TrackNotFoundError(LibraryQueryError, KeyError):
 
 ALBUM_LIST_SORT_RECENTLY_ADDED = "recently_added"
 ALBUM_LIST_SORT_ARTIST = "artist"
+ALBUM_LIST_SORT_GENRE = "genre"
 ALBUM_LIST_SORT_VALUES = frozenset(
     (
         ALBUM_LIST_SORT_RECENTLY_ADDED,
         ALBUM_LIST_SORT_ARTIST,
+        ALBUM_LIST_SORT_GENRE,
     )
 )
 
@@ -131,6 +133,7 @@ class AlbumSummary:
     playlist_id: int | None = None
     path: str = ""
     cover_svg: str = ""
+    sort_genre: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -212,6 +215,17 @@ class LibraryRootFilterOption:
 class AlbumArtistSplitMapping:
     album_artist: str
     mapped_artists: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class AlbumMusicBrainzOverride:
+    album_id: str
+    album: str
+    artist: str
+    year: int | None
+    release_mbid: str | None = None
+    release_group_mbid: str | None = None
+    is_current_album: bool = False
 
 
 @dataclass(frozen=True, slots=True)

@@ -16,8 +16,10 @@ from .filters import (
 )
 from .models import (
     ALBUM_LIST_SORT_ARTIST,
+    ALBUM_LIST_SORT_GENRE,
     ALBUM_LIST_SORT_RECENTLY_ADDED,
     AlbumArtistSplitMapping,
+    AlbumMusicBrainzOverride,
     AlbumDetails,
     AlbumListQuery,
     AlbumNotFoundError,
@@ -129,7 +131,11 @@ class LibraryQueries:
                     [*query.root_positions, *params],
                 )
             )
-            return self._album_summaries_from_rows(connection, rows)
+            return self._album_summaries_from_rows(
+                connection,
+                rows,
+                root_positions=query.root_positions,
+            )
 
         rows = list(
             connection.execute(
@@ -154,7 +160,7 @@ class LibraryQueries:
         connection: Connection,
         query: AlbumListQuery,
     ) -> tuple[AlbumSummary, ...]:
-        if query.is_playlist is False or not playlist_query_can_match(query):
+        if query.is_playlist is not True or not playlist_query_can_match(query):
             return ()
         where_sql, params = playlist_where_clause(query)
         rows = [
@@ -546,6 +552,73 @@ class LibraryQueries:
             for row in rows
         )
 
+    def album_musicbrainz_overrides(self) -> tuple[AlbumMusicBrainzOverride, ...]:
+        with connect_database(self.database, create=False) as connection:
+            rows = list(
+                connection.execute(
+                    """
+                    SELECT
+                        links.album_id,
+                        NULLIF(TRIM(links.release_mbid), '') AS release_mbid,
+                        NULLIF(TRIM(links.release_group_mbid), '') AS release_group_mbid,
+                        albums.album,
+                        albums.year
+                    FROM album_musicbrainz_links AS links
+                    LEFT JOIN library_albums AS albums
+                        ON albums.album_id = links.album_id
+                    WHERE
+                        COALESCE(TRIM(links.release_mbid), '') != ''
+                        OR COALESCE(TRIM(links.release_group_mbid), '') != ''
+                    """
+                )
+            )
+            artists_by_album = album_artists_by_album(
+                connection,
+                (
+                    str(row["album_id"])
+                    for row in rows
+                    if row["album"] is not None
+                ),
+            )
+
+        overrides = [
+            AlbumMusicBrainzOverride(
+                album_id=album_id,
+                album=str(row["album"]) if row["album"] is not None else album_id,
+                artist=(
+                    album_artist_display_text(artists_by_album.get(album_id, ()))
+                    if row["album"] is not None
+                    else ""
+                ),
+                year=int(row["year"]) if row["year"] is not None else None,
+                release_mbid=(
+                    str(row["release_mbid"])
+                    if row["release_mbid"] is not None
+                    else None
+                ),
+                release_group_mbid=(
+                    str(row["release_group_mbid"])
+                    if row["release_group_mbid"] is not None
+                    else None
+                ),
+                is_current_album=row["album"] is not None,
+            )
+            for row in rows
+            for album_id in (str(row["album_id"]),)
+        ]
+        return tuple(
+            sorted(
+                overrides,
+                key=lambda item: (
+                    item.release_group_mbid is None,
+                    item.release_group_mbid or "",
+                    item.release_mbid is None,
+                    item.release_mbid or "",
+                    item.album_id.casefold(),
+                ),
+            )
+        )
+
     def cache_stats(self) -> tuple[CacheStat, ...]:
         with connect_database(self.database, create=False) as connection:
             return tuple(
@@ -785,11 +858,21 @@ class LibraryQueries:
         self,
         connection: Connection,
         rows: Iterable[Row],
+        *,
+        root_positions: Iterable[int] = (),
     ) -> tuple[AlbumSummary, ...]:
         album_rows = list(rows)
+        album_ids = tuple(
+            dict.fromkeys(str(row["album_id"]) for row in album_rows if row["album_id"])
+        )
         artists_by_album = album_artists_by_album(
             connection,
-            (str(row["album_id"]) for row in album_rows if row["album_id"]),
+            album_ids,
+        )
+        sort_genres_by_album = album_sort_genres_by_album(
+            connection,
+            album_ids,
+            root_positions=root_positions,
         )
         summaries: list[AlbumSummary] = []
         for row in album_rows:
@@ -809,6 +892,7 @@ class LibraryQueries:
                         if row["art_track_id"] is not None
                         else None
                     ),
+                    sort_genre=sort_genres_by_album.get(album_id),
                 )
             )
         return tuple(summaries)
@@ -955,6 +1039,44 @@ def album_artists_by_album(
     }
 
 
+def album_sort_genres_by_album(
+    connection: Connection,
+    album_ids: Iterable[str],
+    *,
+    root_positions: Iterable[int] = (),
+) -> dict[str, str]:
+    requested_ids = tuple(dict.fromkeys(album_id for album_id in album_ids if album_id))
+    if not requested_ids:
+        return {}
+    root_positions = tuple(root_positions)
+    album_placeholders = placeholders_for(requested_ids)
+    params: list[object] = [*requested_ids]
+    table = "library_album_genres"
+    root_sql = ""
+    if root_positions:
+        table = "library_album_root_genres"
+        root_sql = f"AND root_position IN ({placeholders_for(root_positions)})"
+        params.extend(root_positions)
+    genres_by_album: dict[str, list[str]] = {}
+    for row in connection.execute(
+        f"""
+        SELECT album_id, genre
+        FROM {table}
+        WHERE album_id IN ({album_placeholders})
+            {root_sql}
+        ORDER BY album_id
+        """,
+        params,
+    ):
+        genres_by_album.setdefault(str(row["album_id"]), []).append(str(row["genre"]))
+    genres: dict[str, str] = {}
+    for album_id, values in genres_by_album.items():
+        sorted_values = unique_sorted(values)
+        if sorted_values:
+            genres[album_id] = sorted_values[0]
+    return genres
+
+
 def album_artist_display_text(artists: Iterable[str]) -> str:
     return ", ".join(artists) or "<unknown artist>"
 
@@ -1087,6 +1209,7 @@ def library_root_options(connection: Connection) -> tuple[LibraryRootFilterOptio
 
 __all__ = [
     "ALBUM_LIST_SORT_ARTIST",
+    "ALBUM_LIST_SORT_GENRE",
     "ALBUM_LIST_SORT_RECENTLY_ADDED",
     "AlbumArtistSplitMapping",
     "AlbumDetails",

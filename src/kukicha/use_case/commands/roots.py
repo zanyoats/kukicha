@@ -30,15 +30,13 @@ from ..library import (
     AlbumArtistMappingResolver,
     CoverArtResolutionStats,
     GenreResolutionStats,
-    load_library,
     resolve_library_cover_art,
     resolve_library_genres,
     save_library_with_options,
 )
-from ...models import MusicLibrary
 from ...player_errors import PlayerNotFoundError
 from ...player_runtime import PlayerJobCancelToken, PlayerJobResult, PlayerRuntime
-from ...scanner import build_library, iter_playlist_files, parse_playlists
+from ...scanner import build_library
 
 LOGGER = logging.getLogger("kukicha.player")
 
@@ -227,8 +225,8 @@ class RootScanResult:
 
 
 @dataclass(frozen=True, slots=True)
-class RootRescanResult:
-    root: LibraryRootFilterOption
+class LibraryRescanResult:
+    roots_scanned: int
     tracks_scanned: int
     albums_scanned: int
     playlists_scanned: int
@@ -367,16 +365,17 @@ def run_add_root_job(
     )
 
 
-def rescan_library_root(
+def rescan_library(
     database: Path,
-    position: int,
     *,
     album_artist_split_patterns: Iterable[str | None] = DEFAULT_ALBUM_ARTIST_SPLIT_PATTERNS,
     cancel_check: Callable[[], None] | None = None,
-) -> RootRescanResult:
-    root = library_root_by_position(database, position)
+) -> LibraryRescanResult:
     roots = tuple(LibraryQueries(database).library_roots())
-    existing_library = load_library(database, include_artwork=True)
+    if not roots:
+        raise ValueError("no roots configured")
+
+    root_rows = [(root.position, root.path) for root in roots]
     missing_required_tag_count = 0
 
     def log_missing_required_tags(_track: object, _missing_fields: list[str]) -> None:
@@ -390,103 +389,70 @@ def rescan_library_root(
 
     if cancel_check is not None:
         cancel_check()
-    rescanned_library = build_library(
-        [Path(root.path)],
+    library = build_library(
+        [Path(root.path) for root in roots],
         progress=scan_progress,
         progress_every=500,
         on_missing_required_tags=log_missing_required_tags,
     )
     if cancel_check is not None:
         cancel_check()
-    for track in rescanned_library.tracks:
-        track.root_position = position
-
-    combined_tracks = [
-        *[track for track in existing_library.tracks if track.root_position != position],
-        *rescanned_library.tracks,
-    ]
-    rescanned_playlist_paths = [
-        (position, path)
-        for path in iter_playlist_files([Path(root.path)])
-    ]
-    rescanned_playlists = parse_playlists(rescanned_playlist_paths, combined_tracks)
-    combined_library = MusicLibrary(
-        roots=[item.path for item in roots],
-        tracks=combined_tracks,
-        supported_extensions=(
-            rescanned_library.supported_extensions
-            if rescanned_library.supported_extensions
-            else existing_library.supported_extensions
-        ),
-        generated_at=rescanned_library.generated_at,
-        playlists=[
-            *[
-                playlist
-                for playlist in existing_library.playlists
-                if playlist.root_position != position
-            ],
-            *rescanned_playlists,
-        ],
-    )
     connection = connect_database(database, create=False)
     try:
-        connection.execute("SAVEPOINT rescan_root")
+        connection.execute("SAVEPOINT rescan_library")
         try:
             if cancel_check is not None:
                 cancel_check()
             genre_resolution = resolve_library_genres(
-                rescanned_library,
+                library,
                 database,
                 connection=connection,
                 album_artist_split_patterns=album_artist_split_patterns,
             ) or GenreResolutionStats()
             cover_art_resolution = resolve_library_cover_art(
-                rescanned_library,
+                library,
                 database,
                 connection=connection,
                 album_artist_split_patterns=album_artist_split_patterns,
             ) or CoverArtResolutionStats()
             save_library_with_options(
-                combined_library,
+                library,
                 database,
                 connection=connection,
-                root_rows=[(item.position, item.path) for item in roots],
+                root_rows=root_rows,
                 album_artist_split_patterns=album_artist_split_patterns,
             )
             if cancel_check is not None:
                 cancel_check()
-            connection.execute("RELEASE SAVEPOINT rescan_root")
+            connection.execute("RELEASE SAVEPOINT rescan_library")
             connection.commit()
         except Exception:
-            connection.execute("ROLLBACK TO SAVEPOINT rescan_root")
-            connection.execute("RELEASE SAVEPOINT rescan_root")
+            connection.execute("ROLLBACK TO SAVEPOINT rescan_library")
+            connection.execute("RELEASE SAVEPOINT rescan_library")
             connection.rollback()
             raise
     finally:
         connection.close()
 
-    albums = group_library_albums(rescanned_library)
-    return RootRescanResult(
-        root=root,
-        tracks_scanned=len(rescanned_library.tracks),
+    albums = group_library_albums(library)
+    return LibraryRescanResult(
+        roots_scanned=len(roots),
+        tracks_scanned=len(library.tracks),
         albums_scanned=len(albums),
-        playlists_scanned=len(rescanned_playlists),
+        playlists_scanned=len(library.playlists),
         files_missing_required_tags=missing_required_tag_count,
         genre_resolution=genre_resolution,
         cover_art_resolution=cover_art_resolution,
     )
 
 
-def run_rescan_root_job(
+def run_rescan_library_job(
     runtime: PlayerRuntime,
-    root: LibraryRootFilterOption,
     cancel_token: PlayerJobCancelToken,
 ) -> PlayerJobResult:
     started_at = perf_counter()
-    root_label = root_display_label(root)
-    result = rescan_library_root(
+    result = rescan_library(
         runtime.database,
-        root.position,
         album_artist_split_patterns=runtime.album_artist_split_patterns,
         cancel_check=cancel_token.raise_if_canceled,
     )
@@ -495,7 +461,7 @@ def run_rescan_root_job(
         "%s",
         library_job_summary_text(
             "rescan",
-            root.path,
+            "library",
             tracks_scanned=result.tracks_scanned,
             albums_scanned=result.albums_scanned,
             playlists_scanned=result.playlists_scanned,
@@ -513,10 +479,9 @@ def run_rescan_root_job(
     ):
         LOGGER.info("%s", line)
     return PlayerJobResult(
-        message=f"Rescan completed for {root_label}.",
+        message="Rescan completed.",
         context={
-            "path": root.path,
-            "root_position": root.position,
+            "roots_scanned": result.roots_scanned,
             "tracks_scanned": result.tracks_scanned,
             "albums_scanned": result.albums_scanned,
             "playlists_scanned": result.playlists_scanned,
@@ -524,6 +489,7 @@ def run_rescan_root_job(
             "duration_seconds": duration_seconds,
         },
     )
+
 
 def delete_library_root(
     database: Path,

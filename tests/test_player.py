@@ -4,7 +4,6 @@ import io
 import os
 from pathlib import Path
 from queue import Queue
-import subprocess
 from tempfile import TemporaryDirectory
 import unittest
 from unittest.mock import Mock, call, patch
@@ -13,6 +12,7 @@ from urllib.parse import parse_qs
 from kukicha.album_artists import DEFAULT_ALBUM_ARTIST_SPLIT_PATTERNS
 from kukicha.use_case import (
     ALBUM_LIST_SORT_ARTIST,
+    ALBUM_LIST_SORT_GENRE,
     ALBUM_LIST_SORT_RECENTLY_ADDED,
     AlbumDetails,
     AlbumListQuery,
@@ -35,6 +35,7 @@ from kukicha.player_jobs import (
 )
 
 from kukicha.player_config import (
+    DEFAULT_ACCENT_COLOR,
     DEFAULT_LINKED_TOAST_TIMEOUT_MS,
     DEFAULT_PLAYER_HOST,
     DEFAULT_PLAYER_LOG_LEVEL,
@@ -62,11 +63,12 @@ from kukicha.use_case import (
     prepare_album_musicbrainz_edit_job,
     prepare_album_musicbrainz_edit_request,
     prepare_album_tag_edit_job,
-    rescan_library_root,
+    rescan_library,
     scan_library_with_new_root,
     set_track_playlist_membership,
     set_track_playlist_membership_database,
     start_album_tag_edit,
+    update_playback as update_playback_command,
     update_player_job,
     update_queue as update_queue_command,
 )
@@ -84,7 +86,6 @@ from kukicha.player_navigation import (
     player_page_menu_items,
 )
 from kukicha.use_case import album_list_query_from_params
-from kukicha.player_platform import choose_directory_path
 from kukicha.player_playlists import (
     update_playlist_file_for_membership,
 )
@@ -96,6 +97,7 @@ from kukicha.player_presenters import (
     normalized_queue_state,
     playlist_item_view,
     queue_meta_text,
+    queue_status,
     reset_queue_state,
     track_playback_payload,
     track_view,
@@ -145,6 +147,7 @@ class PlayerQueueStateTest(unittest.TestCase):
             position=1,
             loaded_track_id=102,
             paused=False,
+            errored_track_ids=[101],
         )
 
         reset_queue_state(state)
@@ -153,6 +156,7 @@ class PlayerQueueStateTest(unittest.TestCase):
         self.assertEqual(state.position, 0)
         self.assertIsNone(state.loaded_track_id)
         self.assertTrue(state.paused)
+        self.assertEqual(state.errored_track_ids, [])
 
     def test_normalized_queue_state_keeps_finished_queue_position(self) -> None:
         state = normalized_queue_state(
@@ -179,6 +183,29 @@ class PlayerQueueStateTest(unittest.TestCase):
         self.assertEqual(state.position, 1)
         self.assertEqual(state.loaded_track_id, 102)
         self.assertFalse(state.paused)
+
+    def test_normalized_queue_state_keeps_valid_error_track_ids(self) -> None:
+        state = normalized_queue_state(
+            [101, 102, 103],
+            position=1,
+            loaded_track_id=102,
+            paused=False,
+            errored_track_ids=[102, "103", 999, "not-an-int", 102],
+        )
+
+        self.assertEqual(state.errored_track_ids, [102, 103])
+
+    def test_queue_status_shows_error_for_errored_track(self) -> None:
+        state = PlayerQueueState(
+            track_ids=[101, 102, 103],
+            position=2,
+            loaded_track_id=103,
+            paused=False,
+            errored_track_ids=[102],
+        )
+
+        self.assertEqual(queue_status(state, 102, 1), "Error")
+        self.assertEqual(queue_status(state, 103, 2), "Now")
 
     def test_queue_meta_text_counts_finished_queue_as_played(self) -> None:
         text = queue_meta_text(
@@ -232,12 +259,37 @@ class PlayerRuntimeTest(unittest.TestCase):
                     "position": 0,
                     "loaded_track_id": 101,
                     "paused": False,
+                    "errored_track_ids": [101, 999],
                 }
             )
 
         self.assertEqual(payload["track_ids"], [101])
         self.assertEqual(payload["loaded_track_id"], 101)
         self.assertFalse(payload["paused"])
+        self.assertEqual(payload["errored_track_ids"], [101])
+
+    def test_update_playback_records_valid_queue_error_ids(self) -> None:
+        runtime = PlayerRuntime(Path("/tmp/kukicha-test.sqlite"))
+        runtime.queue_state = PlayerQueueState(
+            track_ids=[101, 102],
+            position=0,
+            loaded_track_id=101,
+            paused=False,
+        )
+
+        payload = update_playback_command(
+            runtime,
+            {
+                "position": 1,
+                "loaded_track_id": 102,
+                "paused": False,
+                "errored_track_ids": [101, 999, "102"],
+            },
+        )
+
+        self.assertEqual(payload["position"], 1)
+        self.assertEqual(payload["loaded_track_id"], 102)
+        self.assertEqual(payload["errored_track_ids"], [101, 102])
 
     def test_jobs_are_published_to_subscribers(self) -> None:
         runtime = PlayerRuntime(Path("/tmp/kukicha-test.sqlite"))
@@ -252,17 +304,17 @@ class PlayerRuntimeTest(unittest.TestCase):
                 started_at=None,
                 finished_at=None,
                 cancel_requested_at=None,
-                kind="rescan_root",
+                kind="rescan_library",
                 status="queued",
-                message="Rescan queued for Music.",
+                message="Rescan queued.",
                 reason="",
-                context={"path": "/Volumes/Music", "root_position": 0},
+                context={"roots_scanned": 1},
             )
         )
 
         payload = subscriber.get_nowait()
         self.assertEqual(payload["job_id"], 7)
-        self.assertEqual(payload["kind"], "rescan_root")
+        self.assertEqual(payload["kind"], "rescan_library")
 
     def test_enqueued_job_runs_and_updates_status(self) -> None:
         with TemporaryDirectory() as tempdir:
@@ -273,15 +325,15 @@ class PlayerRuntimeTest(unittest.TestCase):
 
             with patch.object(runtime, "ensure_job_worker_locked"):
                 record = runtime.enqueue_job(
-                    kind="rescan_root",
-                    queued_message="Rescan queued for Music.",
-                    running_message="Rescan running for Music.",
-                    canceled_message="Rescan canceled for Music.",
-                    failed_message="Rescan failed for Music.",
-                    context={"path": "/Volumes/Music", "root_position": 0},
+                    kind="rescan_library",
+                    queued_message="Rescan queued.",
+                    running_message="Rescan running.",
+                    canceled_message="Rescan canceled.",
+                    failed_message="Rescan failed.",
+                    context={"roots_scanned": 1},
                     runner=lambda _cancel_token: PlayerJobResult(
-                        "Rescan completed for Music.",
-                        {"path": "/Volumes/Music", "root_position": 0, "tracks_scanned": 1},
+                        "Rescan completed.",
+                        {"roots_scanned": 1, "tracks_scanned": 1},
                     ),
                 )
                 queued = runtime.job_queue.popleft()
@@ -290,7 +342,7 @@ class PlayerRuntimeTest(unittest.TestCase):
             finished = get_player_job(database, record.job_id)
 
             self.assertEqual(finished.status, "succeeded")
-            self.assertEqual(finished.message, "Rescan completed for Music.")
+            self.assertEqual(finished.message, "Rescan completed.")
             self.assertEqual(finished.context["tracks_scanned"], 1)
 
     def test_queued_job_can_be_canceled_before_running(self) -> None:
@@ -303,12 +355,12 @@ class PlayerRuntimeTest(unittest.TestCase):
 
             with patch.object(runtime, "ensure_job_worker_locked"):
                 record = runtime.enqueue_job(
-                    kind="rescan_root",
-                    queued_message="Rescan queued for Music.",
-                    running_message="Rescan running for Music.",
-                    canceled_message="Rescan canceled for Music.",
-                    failed_message="Rescan failed for Music.",
-                    context={"path": "/Volumes/Music", "root_position": 0},
+                    kind="rescan_library",
+                    queued_message="Rescan queued.",
+                    running_message="Rescan running.",
+                    canceled_message="Rescan canceled.",
+                    failed_message="Rescan failed.",
+                    context={"roots_scanned": 1},
                     runner=runner,
                 )
                 queued = runtime.job_queue.popleft()
@@ -333,7 +385,7 @@ class PlayerRuntimeTest(unittest.TestCase):
             )
             running = create_player_job(
                 database,
-                kind="rescan_root",
+                kind="rescan_library",
                 message="Rescan queued.",
                 context={},
             )
@@ -803,6 +855,29 @@ class PlayerPlaylistMembershipTest(unittest.TestCase):
         self.assertLess(html.index('<td class="cover-cell">'), html.index("Track Artist"))
         self.assertIn('<td class="track-artist">Track Artist</td>', html)
 
+    def test_track_table_renders_queue_error_status(self) -> None:
+        view = make_track_view(
+            7,
+            root_position=0,
+            path="/music/Album/07.mp3",
+        )
+
+        html = build_template_environment().get_template("player/_track_table.html").render(
+            table_rows=[
+                {
+                    "track": view,
+                    "group_label": "",
+                    "queue_position": 0,
+                    "queue_status": "Error",
+                }
+            ],
+            is_queue=True,
+            queue_state=PlayerQueueState(track_ids=[7], errored_track_ids=[7]),
+        )
+
+        self.assertIn('<th class="queue-status-head">Queue</th>', html)
+        self.assertIn('<span class="queue-status-label">Error</span>', html)
+
     def test_valid_playback_ids_accepts_tracks_and_external_playlist_items(self) -> None:
         api = Mock()
         api.get_tracks_by_ids.return_value = (
@@ -833,6 +908,7 @@ class PlayerConfigTest(unittest.TestCase):
                         "FFmpegPath = 'bin/ffmpeg'",
                         "Host = '0.0.0.0'",
                         "Port = 43210",
+                        "AccentColor = 'RebeccaPurple'",
                         "ToastTimeoutMs = 12000",
                         "LinkedToastTimeoutMs = 30000",
                         "AlbumArtistSplitPatterns = ['&', '/']",
@@ -849,6 +925,7 @@ class PlayerConfigTest(unittest.TestCase):
             self.assertEqual(options.host, "0.0.0.0")
             self.assertEqual(options.port, 43210)
             self.assertEqual(options.log_level, "INFO")
+            self.assertEqual(options.accent_color, "rebeccapurple")
             self.assertEqual(options.toast_timeout_ms, 12000)
             self.assertEqual(options.linked_toast_timeout_ms, 30000)
             self.assertEqual(options.album_artist_split_patterns, ("&", "/"))
@@ -865,6 +942,7 @@ class PlayerConfigTest(unittest.TestCase):
             self.assertEqual(options.host, DEFAULT_PLAYER_HOST)
             self.assertEqual(options.port, DEFAULT_PLAYER_PORT)
             self.assertEqual(options.log_level, DEFAULT_PLAYER_LOG_LEVEL)
+            self.assertEqual(options.accent_color, DEFAULT_ACCENT_COLOR)
             self.assertEqual(options.toast_timeout_ms, DEFAULT_TOAST_TIMEOUT_MS)
             self.assertEqual(options.linked_toast_timeout_ms, DEFAULT_LINKED_TOAST_TIMEOUT_MS)
             self.assertEqual(
@@ -917,6 +995,19 @@ class PlayerConfigTest(unittest.TestCase):
             with self.assertRaisesRegex(PlayerConfigError, "LinkedToastTimeoutMs must be an integer"):
                 load_player_options(config_path)
 
+    def test_load_player_options_rejects_invalid_accent_color(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            config_path = Path(tempdir) / "kukicha.toml"
+            config_path.write_text("AccentColor = 'plaid'\n", encoding="utf-8")
+
+            with self.assertRaisesRegex(PlayerConfigError, "AccentColor must be a valid CSS named color"):
+                load_player_options(config_path)
+
+            config_path.write_text("AccentColor = 123\n", encoding="utf-8")
+
+            with self.assertRaisesRegex(PlayerConfigError, "AccentColor must be a non-empty string"):
+                load_player_options(config_path)
+
     def test_load_player_options_rejects_unknown_config_keys(self) -> None:
         with TemporaryDirectory() as tempdir:
             config_path = Path(tempdir) / "kukicha.toml"
@@ -937,6 +1028,7 @@ class PlayerConfigTest(unittest.TestCase):
             self.assertIn(f"DatabasePath: {(config_home / 'kukicha' / 'kukicha.sqlite').resolve()} (default)", help_text)
             self.assertIn(f"Host: {DEFAULT_PLAYER_HOST} (default)", help_text)
             self.assertIn(f"Port: {DEFAULT_PLAYER_PORT} (default)", help_text)
+            self.assertIn(f"AccentColor: {DEFAULT_ACCENT_COLOR} (default)", help_text)
             self.assertIn(f"ToastTimeoutMs: {DEFAULT_TOAST_TIMEOUT_MS} (default)", help_text)
             self.assertIn(
                 f"LinkedToastTimeoutMs: {DEFAULT_LINKED_TOAST_TIMEOUT_MS} (default)",
@@ -949,9 +1041,12 @@ class PlayerConfigTest(unittest.TestCase):
             )
             self.assertIn(
                 "Supported keys:\n  LogLevel\n  DatabasePath\n  FFmpegPath\n  Host\n  Port\n"
-                "  ToastTimeoutMs\n  LinkedToastTimeoutMs\n  AlbumArtistSplitPatterns",
+                "  AccentColor\n  ToastTimeoutMs\n  LinkedToastTimeoutMs\n"
+                "  AlbumArtistSplitPatterns",
                 help_text,
             )
+            self.assertIn("AccentColor accepts any valid CSS named color.", help_text)
+            self.assertNotIn("Supported AccentColor values:", help_text)
 
 
 class CliPlayerCommandTest(unittest.TestCase):
@@ -1066,10 +1161,12 @@ class PlayerPageMenuTest(unittest.TestCase):
                 ("heading", "LIBRARY", ""),
                 ("link", "Albums", "/"),
                 ("link", "Artists", "/artists"),
+                ("link", "Playlist", "/playlists"),
                 ("divider", "", ""),
                 ("heading", "SETTINGS", ""),
                 ("link", "Roots", "/roots"),
                 ("link", "Artists Split Rules", "/artist-split-rules"),
+                ("link", "MusicBrainz Overrides", "/musicbrainz-overrides"),
                 ("link", "Cache", "/cache"),
                 ("divider", "", ""),
                 ("link", "Jobs", "/jobs"),
@@ -1096,9 +1193,12 @@ class PlayerPageMenuTest(unittest.TestCase):
         self.assertIn('class="page-menu-divider"', html)
         self.assertLess(html.index("LIBRARY"), html.index("Albums"))
         self.assertLess(html.index("Artists"), html.index('class="page-menu-divider"'))
+        self.assertLess(html.index("Artists"), html.index("Playlist"))
+        self.assertLess(html.index("Playlist"), html.index('class="page-menu-divider"'))
         self.assertLess(html.index("SETTINGS"), html.index("Roots"))
         self.assertLess(html.index("Roots"), html.index("Artists Split Rules"))
-        self.assertLess(html.index("Artists Split Rules"), html.index("Cache"))
+        self.assertLess(html.index("Artists Split Rules"), html.index("MusicBrainz Overrides"))
+        self.assertLess(html.index("MusicBrainz Overrides"), html.index("Cache"))
 
     def test_player_page_heading_rejects_unknown_page(self) -> None:
         with self.assertRaisesRegex(ValueError, "unknown player page"):
@@ -1221,10 +1321,12 @@ class PlayerGenreFilterQueryParamsTest(unittest.TestCase):
     def test_parses_sort_param_and_defaults_to_recently_added(self) -> None:
         default_query = album_list_query_from_params(parse_qs(""))
         artist_query = album_list_query_from_params(parse_qs("sort=artist"))
+        genre_query = album_list_query_from_params(parse_qs("sort=genre"))
         invalid_query = album_list_query_from_params(parse_qs("sort=unknown"))
 
         self.assertEqual(default_query.sort, ALBUM_LIST_SORT_RECENTLY_ADDED)
         self.assertEqual(artist_query.sort, ALBUM_LIST_SORT_ARTIST)
+        self.assertEqual(genre_query.sort, ALBUM_LIST_SORT_GENRE)
         self.assertEqual(invalid_query.sort, ALBUM_LIST_SORT_RECENTLY_ADDED)
 
     def test_album_index_url_includes_only_non_default_sort_param(self) -> None:
@@ -1236,6 +1338,16 @@ class PlayerGenreFilterQueryParamsTest(unittest.TestCase):
             album_index_url(AlbumListQuery(sort=ALBUM_LIST_SORT_ARTIST)),
             "/?sort=artist",
         )
+        self.assertEqual(
+            album_index_url(AlbumListQuery(sort=ALBUM_LIST_SORT_GENRE)),
+            "/?sort=genre",
+        )
+
+    def test_album_query_params_do_not_include_playlist_filter(self) -> None:
+        query = album_list_query_from_params(parse_qs("playlist=1&search=Road"))
+
+        self.assertIsNone(query.is_playlist)
+        self.assertEqual(album_index_url(AlbumListQuery(is_playlist=True, search="Road")), "/?search=Road")
 
 
 class PlayerAlbumDetailLinksTest(unittest.TestCase):
@@ -1424,6 +1536,80 @@ class PlayerAlbumDetailLinksTest(unittest.TestCase):
             html.index("album-genre-meta"),
         )
 
+    def test_album_template_renders_styles_adjacent_to_genres(self) -> None:
+        album = AlbumDetails(
+            album_id="autechre::tri-repetae",
+            artist="Autechre",
+            album_artists=("Autechre",),
+            album="Tri Repetae",
+            year=1995,
+            track_count=0,
+        )
+        template = build_template_environment().get_template("player/album.html")
+
+        html = template.render(
+            album=album,
+            album_back_url="/",
+            album_edit_page_url="/albums/autechre::tri-repetae/edit",
+            album_root_links=(),
+            album_artist_links=album_artist_links(album, AlbumListQuery()),
+            album_genre_links=({"label": "Electronic", "url": "/?genre=Electronic"},),
+            album_year_text="",
+            album_style_links=({"label": "IDM", "url": "/?style=IDM"},),
+            track_sections=(),
+        )
+
+        genre_list_start = html.index('<ul class="meta-list album-genre-meta">')
+        genre_list_end = html.index("</ul>", genre_list_start)
+        style_item = html.index('<li class="album-style-meta">')
+
+        self.assertLess(genre_list_start, html.index("Electronic"))
+        self.assertLess(html.index("Electronic"), style_item)
+        self.assertLess(style_item, html.index("IDM"))
+        self.assertLess(style_item, genre_list_end)
+        self.assertNotIn('<ul class="meta-list album-style-meta">', html)
+
+    def test_album_edit_template_matches_album_identity_meta_grouping(self) -> None:
+        album = AlbumDetails(
+            album_id="autechre::tri-repetae",
+            artist="Autechre",
+            album_artists=("Autechre",),
+            album="Tri Repetae",
+            year=1995,
+            track_count=0,
+        )
+        template = build_template_environment().get_template("player/album_edit.html")
+
+        html = template.render(
+            album=album,
+            album_back_url="/albums/autechre::tri-repetae",
+            album_root_links=(),
+            album_artist_parts=("Autechre",),
+            album_year_text="1995",
+            album_genre_parts=("Electronic",),
+            album_style_parts=("IDM",),
+            album_musicbrainz_action_url="/api/albums/autechre::tri-repetae/musicbrainz",
+            album_tag_edit_action_url="/api/albums/autechre::tri-repetae/tags",
+            album_tag_edit_album_artist="Autechre",
+            album_tag_edit_genre="Electronic; IDM",
+            album_musicbrainz_release_mbid="",
+            album_musicbrainz_release_group_mbid="",
+            tracks=(),
+        )
+
+        artist_list_start = html.index('<ul class="meta-list album-artist-meta">')
+        genre_list_start = html.index('<ul class="meta-list album-genre-meta">')
+        genre_list_end = html.index("</ul>", genre_list_start)
+        style_item = html.index('<li class="album-style-meta">')
+
+        self.assertLess(artist_list_start, html.index("Autechre"))
+        self.assertLess(html.index('<li class="album-year-meta">1995</li>'), genre_list_start)
+        self.assertLess(genre_list_start, html.index("Electronic"))
+        self.assertLess(html.index("Electronic"), style_item)
+        self.assertLess(style_item, html.index("IDM"))
+        self.assertLess(style_item, genre_list_end)
+        self.assertNotIn('<ul class="meta-list album-style-meta">', html)
+
     def test_album_templates_render_comma_separated_root_filter_links_in_title(self) -> None:
         album = AlbumDetails(
             album_id="brian-eno-robert-fripp::no-pussyfooting",
@@ -1461,7 +1647,8 @@ class PlayerAlbumDetailLinksTest(unittest.TestCase):
             album_back_url="/albums/brian-eno-robert-fripp::no-pussyfooting",
             album_root_links=root_links,
             album_artist_parts=("Brian Eno", "Robert Fripp"),
-            album_genre_year_parts=(),
+            album_year_text="",
+            album_genre_parts=(),
             album_style_parts=(),
             album_musicbrainz_action_url="/api/albums/brian-eno-robert-fripp::no-pussyfooting/musicbrainz",
             album_tag_edit_action_url="/api/albums/brian-eno-robert-fripp::no-pussyfooting/tags",
@@ -1479,38 +1666,6 @@ class PlayerAlbumDetailLinksTest(unittest.TestCase):
         )
         self.assertIn(expected, album_html)
         self.assertIn(expected, edit_html)
-
-
-class PlayerDirectoryPickerTest(unittest.TestCase):
-    def test_choose_directory_path_returns_selected_folder_on_macos(self) -> None:
-        with (
-            patch("kukicha.player_platform.sys.platform", "darwin"),
-            patch(
-                "kukicha.player_platform.subprocess.run",
-                return_value=subprocess.CompletedProcess(
-                    args=["osascript"],
-                    returncode=0,
-                    stdout="/Volumes/Music\n",
-                    stderr="",
-                ),
-            ),
-        ):
-            self.assertEqual(choose_directory_path(), "/Volumes/Music")
-
-    def test_choose_directory_path_returns_none_when_picker_is_canceled(self) -> None:
-        with (
-            patch("kukicha.player_platform.sys.platform", "darwin"),
-            patch(
-                "kukicha.player_platform.subprocess.run",
-                return_value=subprocess.CompletedProcess(
-                    args=["osascript"],
-                    returncode=1,
-                    stdout="",
-                    stderr="execution error: User canceled. (-128)",
-                ),
-            ),
-        ):
-            self.assertIsNone(choose_directory_path())
 
 
 class PlayerWebAdapterTest(unittest.TestCase):
@@ -1562,7 +1717,7 @@ class PlayerWebAdapterTest(unittest.TestCase):
                 started_at=None,
                 finished_at="2026-04-21T10:00:01Z",
                 cancel_requested_at="2026-04-21T10:00:01Z",
-                kind="rescan_root",
+                kind="rescan_library",
                 status="canceled",
                 message="Rescan canceled.",
                 reason="Canceled by user.",
@@ -1577,9 +1732,82 @@ class PlayerWebAdapterTest(unittest.TestCase):
             self.assertEqual(response.get_json()["job"]["status"], "canceled")
             runtime.cancel_job.assert_called_once_with(9)
 
+    def test_rescan_library_route_queues_job(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            database = temp_path / "kukicha.sqlite"
+            connection = connect_database(database)
+            try:
+                connection.execute(
+                    "INSERT INTO library_roots (position, root_path) VALUES (?, ?)",
+                    (0, "/music/a"),
+                )
+                connection.commit()
+            finally:
+                connection.close()
+
+            runtime = self.make_runtime(database)
+            runtime.enqueue_job.return_value = PlayerJobRecord(
+                job_id=12,
+                created_at="2026-04-21T10:00:00Z",
+                updated_at="2026-04-21T10:00:00Z",
+                started_at=None,
+                finished_at=None,
+                cancel_requested_at=None,
+                kind="rescan_library",
+                status="queued",
+                message="Rescan queued.",
+                reason="",
+                context={"roots_scanned": 1},
+            )
+            with patch("kukicha.player_web_adapter.PlayerRuntime", return_value=runtime):
+                app = create_player_app(self.make_options(temp_path))
+
+            response = app.test_client().post("/api/roots/rescan")
+
+            self.assertEqual(response.status_code, 202)
+            payload = response.get_json()
+            self.assertEqual(payload["message"], "Rescan queued.")
+            self.assertEqual(payload["job"]["kind"], "rescan_library")
+            runtime.enqueue_job.assert_called_once()
+            self.assertEqual(runtime.enqueue_job.call_args.kwargs["kind"], "rescan_library")
+            self.assertEqual(
+                runtime.enqueue_job.call_args.kwargs["context"],
+                {"roots_scanned": 1},
+            )
+
+    def test_rescan_library_route_rejects_empty_root_set(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            database = temp_path / "kukicha.sqlite"
+            connection = connect_database(database)
+            connection.close()
+
+            runtime = self.make_runtime(database)
+            with patch("kukicha.player_web_adapter.PlayerRuntime", return_value=runtime):
+                app = create_player_app(self.make_options(temp_path))
+
+            response = app.test_client().post("/api/roots/rescan")
+
+            self.assertEqual(response.status_code, 400)
+            self.assertEqual(response.get_json(), {"error": "no roots configured"})
+            runtime.enqueue_job.assert_not_called()
+
+    def test_per_root_rescan_route_is_removed(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            runtime = self.make_runtime(temp_path / "kukicha.sqlite")
+            with patch("kukicha.player_web_adapter.PlayerRuntime", return_value=runtime):
+                app = create_player_app(self.make_options(temp_path))
+
+            response = app.test_client().post("/api/roots/0/rescan")
+
+            self.assertEqual(response.status_code, 404)
+            runtime.enqueue_job.assert_not_called()
+
     def test_page_rendering_can_return_full_document_or_fragment(self) -> None:
         context = {
-            "app_title": "kukicha player",
+            "app_title": "kukicha",
             "queue_state": {},
             "queue_url": "/queue",
             "page_name": "library",
@@ -1664,6 +1892,90 @@ class PlayerWebAdapterTest(unittest.TestCase):
             self.assertNotIn(b"<!doctype html>", fragment_response.data)
             self.assertIn(b"<h1>Artists</h1>", fragment_response.data)
 
+    def test_albums_and_playlist_pages_are_separate_indexes(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            database = temp_path / "kukicha.sqlite"
+            save_library(
+                MusicLibrary(
+                    roots=["/music"],
+                    tracks=[
+                        TrackRecord(
+                            path="/music/Artist/Studio Album/01.flac",
+                            root_position=0,
+                            file_type="flac",
+                            artist="Artist",
+                            album_artist="Artist",
+                            album="Studio Album",
+                            title="Track",
+                        )
+                    ],
+                    playlists=[
+                        PlaylistRecord(
+                            path="/music/playlists/road.m3u8",
+                            root_position=0,
+                            name="Road Mix",
+                            file_created_at="2026-04-29T12:00:00+00:00",
+                            items=[
+                                PlaylistItemRecord(
+                                    path="https://example.test/stream",
+                                    title="Stream",
+                                )
+                            ],
+                        ),
+                        PlaylistRecord(
+                            path="/music/playlists/alpha.m3u8",
+                            root_position=0,
+                            name="Alpha Mix",
+                            file_created_at="2026-04-28T12:00:00+00:00",
+                        )
+                    ],
+                    supported_extensions=[".flac"],
+                    generated_at="2026-04-29T00:00:00+00:00",
+                ),
+                database,
+            )
+            runtime = self.make_runtime(database)
+            with patch("kukicha.player_web_adapter.PlayerRuntime", return_value=runtime):
+                app = create_player_app(self.make_options(temp_path))
+                client = app.test_client()
+                albums_response = client.get("/")
+                playlist_response = client.get("/playlists?search=Road")
+                playlist_sort_response = client.get("/playlists?sort=artist")
+                playlist_detail_response = client.get("/playlists/1?search=Road")
+
+        self.assertEqual(albums_response.status_code, 200)
+        self.assertIn(b"<h1>Albums</h1>", albums_response.data)
+        self.assertIn(b"Studio Album", albums_response.data)
+        self.assertNotIn(b"Road Mix", albums_response.data)
+        self.assertNotIn(b'name="playlist"', albums_response.data)
+        self.assertNotIn(b"Not playlist", albums_response.data)
+
+        self.assertEqual(playlist_response.status_code, 200)
+        self.assertIn(b"<h1>Playlist</h1>", playlist_response.data)
+        self.assertIn(b'action="/playlists"', playlist_response.data)
+        self.assertIn(b'placeholder="Search playlists"', playlist_response.data)
+        self.assertIn(b"Road Mix", playlist_response.data)
+        self.assertNotIn(b"Studio Album", playlist_response.data)
+        self.assertNotIn(b'name="sort"', playlist_response.data)
+        self.assertNotIn(b'class="filter-menu sort-menu"', playlist_response.data)
+        self.assertNotIn(b'data-filter-summary="roots"', playlist_response.data)
+        self.assertNotIn(b'data-filter-summary="artists"', playlist_response.data)
+        self.assertNotIn(b'data-filter-summary="genres"', playlist_response.data)
+        self.assertNotIn(b'data-filter-summary="properties"', playlist_response.data)
+        self.assertIn(b'href="/playlists/1?search=Road"', playlist_response.data)
+
+        self.assertEqual(playlist_detail_response.status_code, 200)
+        self.assertIn(b'href="/playlists?search=Road"', playlist_detail_response.data)
+
+        self.assertEqual(playlist_sort_response.status_code, 200)
+        self.assertLess(
+            playlist_sort_response.data.index(b"Road Mix"),
+            playlist_sort_response.data.index(b"Alpha Mix"),
+        )
+        self.assertIn(b'href="/playlists/1"', playlist_sort_response.data)
+        self.assertNotIn(b"sort=artist", playlist_sort_response.data)
+
     def test_help_page_renders_config_values_and_sources(self) -> None:
         with TemporaryDirectory() as tempdir:
             temp_path = Path(tempdir)
@@ -1674,6 +1986,7 @@ class PlayerWebAdapterTest(unittest.TestCase):
                         "LogLevel = 'info'",
                         "Host = '0.0.0.0'",
                         "Port = 43210",
+                        "AccentColor = 'cyan'",
                     )
                 ),
                 encoding="utf-8",
@@ -1693,12 +2006,15 @@ class PlayerWebAdapterTest(unittest.TestCase):
             self.assertIn(b"<code>0.0.0.0</code>", response.data)
             self.assertIn(b"<code>Port</code>", response.data)
             self.assertIn(b"<code>43210</code>", response.data)
+            self.assertIn(b"<code>AccentColor</code>", response.data)
+            self.assertIn(b"<code>cyan</code>", response.data)
+            self.assertIn(b"--accent: cyan;", response.data)
             self.assertIn(b'<span class="config-source configured">configured</span>', response.data)
             self.assertIn(b"<code>FFmpegPath</code>", response.data)
             self.assertIn(b"<code>&lt;unset&gt;</code>", response.data)
             self.assertIn(b'<span class="config-source default">default</span>', response.data)
 
-    def test_settings_pages_render_roots_artist_split_rules_and_cache(self) -> None:
+    def test_settings_pages_render_roots_artist_split_rules_musicbrainz_and_cache(self) -> None:
         with TemporaryDirectory() as tempdir:
             temp_path = Path(tempdir)
             database = temp_path / "kukicha.sqlite"
@@ -1762,6 +2078,52 @@ class PlayerWebAdapterTest(unittest.TestCase):
                     """,
                     ("Brian Eno & Robert Fripp", "Brian Eno\nRobert Fripp"),
                 )
+                ambient_album_id = str(
+                    connection.execute(
+                        """
+                        SELECT album_id
+                        FROM library_albums
+                        WHERE album = ?
+                        """,
+                        ("Ambient 1",),
+                    ).fetchone()["album_id"]
+                )
+                exposure_album_id = str(
+                    connection.execute(
+                        """
+                        SELECT album_id
+                        FROM library_albums
+                        WHERE album = ?
+                        """,
+                        ("Exposure",),
+                    ).fetchone()["album_id"]
+                )
+                connection.executemany(
+                    """
+                    INSERT INTO album_musicbrainz_links (
+                        album_id,
+                        release_mbid,
+                        release_group_mbid
+                    ) VALUES (?, ?, ?)
+                    """,
+                    (
+                        (
+                            ambient_album_id,
+                            "33333333-3333-3333-3333-333333333333",
+                            "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+                        ),
+                        (
+                            exposure_album_id,
+                            "11111111-1111-1111-1111-111111111111",
+                            None,
+                        ),
+                        (
+                            "stale-album-id",
+                            None,
+                            "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+                        ),
+                    ),
+                )
                 connection.commit()
             finally:
                 connection.close()
@@ -1772,12 +2134,15 @@ class PlayerWebAdapterTest(unittest.TestCase):
                 client = app.test_client()
                 roots_response = client.get("/roots")
                 split_rules_response = client.get("/artist-split-rules")
+                musicbrainz_response = client.get("/musicbrainz-overrides")
                 cache_response = client.get("/cache")
 
             self.assertEqual(roots_response.status_code, 200)
             self.assertIn(b"<h1>Roots</h1>", roots_response.data)
             self.assertIn(b"<h2>Add Root</h2>", roots_response.data)
             self.assertIn(b"<h2>Current Roots</h2>", roots_response.data)
+            self.assertIn(b"data-rescan-library", roots_response.data)
+            self.assertNotIn(b"data-rescan-root", roots_response.data)
             self.assertIn(b"/music/a", roots_response.data)
             self.assertIn(b"Tracks scanned</dt>\n                <dd>3</dd>", roots_response.data)
             self.assertIn(b"Albums scanned</dt>\n                <dd>2</dd>", roots_response.data)
@@ -1794,6 +2159,43 @@ class PlayerWebAdapterTest(unittest.TestCase):
             self.assertIn(b"Brian Eno &amp; Robert Fripp", split_rules_response.data)
             self.assertIn(b"Brian Eno\nRobert Fripp", split_rules_response.data)
             self.assertNotIn(b"<h2>Add Root</h2>", split_rules_response.data)
+
+            self.assertEqual(musicbrainz_response.status_code, 200)
+            self.assertIn(b"<h1>MusicBrainz Overrides</h1>", musicbrainz_response.data)
+            self.assertIn(b"<h2>MusicBrainz Overrides</h2>", musicbrainz_response.data)
+            self.assertIn(b"3 overrides", musicbrainz_response.data)
+            self.assertIn(b"Ambient 1", musicbrainz_response.data)
+            self.assertIn(b"Brian Eno", musicbrainz_response.data)
+            self.assertIn(
+                b"11111111-1111-1111-1111-111111111111",
+                musicbrainz_response.data,
+            )
+            self.assertIn(
+                b"bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+                musicbrainz_response.data,
+            )
+            self.assertIn(b"stale-album-id", musicbrainz_response.data)
+            self.assertIn(b"Not in current library", musicbrainz_response.data)
+            self.assertIn(
+                b"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+                musicbrainz_response.data,
+            )
+            self.assertLess(
+                musicbrainz_response.data.index(b"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"),
+                musicbrainz_response.data.index(b"bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"),
+            )
+            self.assertLess(
+                musicbrainz_response.data.index(b"bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"),
+                musicbrainz_response.data.index(b"11111111-1111-1111-1111-111111111111"),
+            )
+            self.assertIn(b"Not set", musicbrainz_response.data)
+            self.assertIn(b"data-delete-musicbrainz-override", musicbrainz_response.data)
+            self.assertIn(
+                b'data-delete-url="/api/musicbrainz-overrides/stale-album-id/delete"',
+                musicbrainz_response.data,
+            )
+            self.assertIn(b">Edit</a>", musicbrainz_response.data)
+            self.assertNotIn(b"<h2>Add Root</h2>", musicbrainz_response.data)
 
             self.assertEqual(cache_response.status_code, 200)
             self.assertIn(b"<h1>Cache</h1>", cache_response.data)
@@ -1842,7 +2244,7 @@ class PlayerWebAdapterTest(unittest.TestCase):
                     },
                     "message": (
                         "Saved mapping for Brian Eno & Robert Fripp. "
-                        "Rescan affected roots to update library filters, artists, and stats."
+                        "Rescan the library to update library filters, artists, and stats."
                     ),
                 },
             )
@@ -1891,6 +2293,121 @@ class PlayerWebAdapterTest(unittest.TestCase):
             finally:
                 connection.close()
             self.assertEqual(count, 0)
+
+    def test_musicbrainz_override_route_deletes_only_stale_rows(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            database = temp_path / "kukicha.sqlite"
+            save_library(
+                MusicLibrary(
+                    roots=["/music/a"],
+                    tracks=[
+                        TrackRecord(
+                            path="/music/a/Brian Eno/Ambient 1/01.flac",
+                            root_position=0,
+                            file_type="flac",
+                            artist="Brian Eno",
+                            album_artist="Brian Eno",
+                            album="Ambient 1",
+                            title="1/1",
+                        ),
+                    ],
+                    supported_extensions=[".flac"],
+                    generated_at="2026-04-29T00:00:00+00:00",
+                ),
+                database,
+            )
+            connection = connect_database(database, create=False)
+            try:
+                current_album_id = str(
+                    connection.execute(
+                        "SELECT album_id FROM library_albums WHERE album = ?",
+                        ("Ambient 1",),
+                    ).fetchone()["album_id"]
+                )
+                connection.executemany(
+                    """
+                    INSERT INTO album_musicbrainz_links (
+                        album_id,
+                        release_mbid,
+                        release_group_mbid
+                    ) VALUES (?, ?, ?)
+                    """,
+                    (
+                        (
+                            current_album_id,
+                            "11111111-1111-1111-1111-111111111111",
+                            None,
+                        ),
+                        (
+                            "stale-album-id",
+                            None,
+                            "22222222-2222-2222-2222-222222222222",
+                        ),
+                    ),
+                )
+                connection.commit()
+            finally:
+                connection.close()
+
+            runtime = self.make_runtime(database)
+            with patch("kukicha.player_web_adapter.PlayerRuntime", return_value=runtime):
+                app = create_player_app(self.make_options(temp_path))
+                client = app.test_client()
+                stale_response = client.post(
+                    "/api/musicbrainz-overrides/stale-album-id/delete"
+                )
+                current_response = client.post(
+                    f"/api/musicbrainz-overrides/{current_album_id}/delete"
+                )
+
+            self.assertEqual(stale_response.status_code, 200)
+            self.assertEqual(
+                stale_response.get_json(),
+                {
+                    "album_id": "stale-album-id",
+                    "message": "Deleted MusicBrainz override for stale-album-id.",
+                },
+            )
+            self.assertEqual(current_response.status_code, 409)
+            self.assertEqual(
+                current_response.get_json(),
+                {
+                    "error": (
+                        "MusicBrainz override belongs to a current album; "
+                        "edit it from the album page"
+                    ),
+                },
+            )
+            runtime.enqueue_job.assert_not_called()
+
+            connection = connect_database(database, create=False)
+            try:
+                stale_count = int(
+                    connection.execute(
+                        """
+                        SELECT COUNT(*) AS count
+                        FROM album_musicbrainz_links
+                        WHERE album_id = ?
+                        """,
+                        ("stale-album-id",),
+                    ).fetchone()["count"]
+                )
+                current_count = int(
+                    connection.execute(
+                        """
+                        SELECT COUNT(*) AS count
+                        FROM album_musicbrainz_links
+                        WHERE album_id = ?
+                        """,
+                        (current_album_id,),
+                    ).fetchone()["count"]
+                )
+            finally:
+                connection.close()
+
+            self.assertEqual(stale_count, 0)
+            self.assertEqual(current_count, 1)
 
     def test_post_json_body_is_passed_to_command(self) -> None:
         with TemporaryDirectory() as tempdir:
@@ -2662,7 +3179,7 @@ class PlayerRootMutationTest(unittest.TestCase):
             finally:
                 connection.close()
 
-    def test_rescan_library_root_replaces_only_that_root_and_preserves_other_artwork(self) -> None:
+    def test_rescan_library_scans_all_roots_and_preserves_root_positions(self) -> None:
         with TemporaryDirectory() as tempdir:
             temp_path = Path(tempdir)
             database = temp_path / "kukicha.sqlite"
@@ -2678,112 +3195,28 @@ class PlayerRootMutationTest(unittest.TestCase):
                 )
                 insert_library_album(
                     connection,
-                    "artist::shared",
-                    "Artist",
-                    "Shared",
-                    2001,
-                    2,
-                )
-                insert_library_album(
-                    connection,
-                    "artist::only-a",
-                    "Artist",
-                    "Only A",
-                    2000,
-                    1,
-                )
-                insert_library_album(
-                    connection,
-                    "artist::only-b",
-                    "Artist",
-                    "Only B",
+                    "old::album",
+                    "Old",
+                    "Album",
                     2002,
                     1,
                 )
-                shared_a = int(
-                    connection.execute(
-                        """
-                        INSERT INTO library_tracks (
-                            album_id, root_position, path, album_artist, artist, album, title, date
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                        """,
-                        (
-                            "artist::shared",
-                            0,
-                            "/music/a/Artist/Shared/01.flac",
-                            "Artist",
-                            "Artist",
-                            "Shared",
-                            "One",
-                            "2001",
-                        ),
-                    ).lastrowid
-                )
-                only_a = int(
-                    connection.execute(
-                        """
-                        INSERT INTO library_tracks (
-                            album_id, root_position, path, album_artist, artist, album, title, date
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                        """,
-                        (
-                            "artist::only-a",
-                            0,
-                            "/music/a/Artist/Only A/01.flac",
-                            "Artist",
-                            "Artist",
-                            "Only A",
-                            "Solo",
-                            "2000",
-                        ),
-                    ).lastrowid
-                )
-                shared_b = int(
-                    connection.execute(
-                        """
-                        INSERT INTO library_tracks (
-                            album_id, root_position, path, album_artist, artist, album, title, date
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                        """,
-                        (
-                            "artist::shared",
-                            2,
-                            "/music/b/Artist/Shared/01.flac",
-                            "Artist",
-                            "Artist",
-                            "Shared",
-                            "Two",
-                            "2002",
-                        ),
-                    ).lastrowid
-                )
-                only_b = int(
-                    connection.execute(
-                        """
-                        INSERT INTO library_tracks (
-                            album_id, root_position, path, album_artist, artist, album, title, date
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                        """,
-                        (
-                            "artist::only-b",
-                            2,
-                            "/music/b/Artist/Only B/01.flac",
-                            "Artist",
-                            "Artist",
-                            "Only B",
-                            "Elsewhere",
-                            "2002",
-                        ),
-                    ).lastrowid
-                )
-                connection.executemany(
-                    "INSERT INTO library_track_artwork (track_id, height_px, mime_type, data) VALUES (?, ?, ?, ?)",
-                    [
-                        (shared_a, 32, "image/png", b"old-a"),
-                        (only_a, 32, "image/png", b"old-only-a"),
-                        (shared_b, 32, "image/png", b"keep-shared-b"),
-                        (only_b, 250, "image/png", b"keep-only-b"),
-                    ],
+                connection.execute(
+                    """
+                    INSERT INTO library_tracks (
+                        album_id, root_position, path, album_artist, artist, album, title, date
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        "old::album",
+                        2,
+                        "/music/b/Old/Album/01.flac",
+                        "Old",
+                        "Old",
+                        "Album",
+                        "Old Track",
+                        "2002",
+                    ),
                 )
                 connection.execute(
                     """
@@ -2798,54 +3231,54 @@ class PlayerRootMutationTest(unittest.TestCase):
                 connection.close()
 
             rescanned_library = MusicLibrary(
-                roots=["/music/a"],
+                roots=["/music/a", "/music/b"],
                 tracks=[
                     TrackRecord(
-                        path="/music/a/Artist/Shared/02.flac",
+                        path="/music/a/Artist A/Album A/01.flac",
                         root_position=0,
                         file_type="flac",
-                        artist="Artist",
-                        album_artist="Artist",
-                        album="Shared",
-                        title="Replacement",
+                        artist="Artist A",
+                        album_artist="Artist A",
+                        album="Album A",
+                        title="Track A",
                         date="2003",
                         genres=["Electronic"],
-                        artwork=TrackArtwork(mime_type="image/png", data=b"new-shared"),
                     ),
                     TrackRecord(
-                        path="/music/a/Artist/New Album/01.flac",
-                        root_position=0,
+                        path="/music/b/Artist B/Album B/01.flac",
+                        root_position=1,
                         file_type="flac",
-                        artist="Artist",
-                        album_artist="Artist",
-                        album="New Album",
-                        title="Fresh",
+                        artist="Artist B",
+                        album_artist="Artist B",
+                        album="Album B",
+                        title="Track B",
                         date="2004",
                         genres=["Electronic"],
                     ),
+                ],
+                playlists=[
+                    PlaylistRecord(
+                        path="/music/b/root-b.m3u",
+                        name="Root B Mix",
+                        root_position=1,
+                    )
                 ],
                 supported_extensions=[".flac"],
                 generated_at="2026-04-21T12:00:00+00:00",
             )
 
+            def fake_build_library(roots: object, *_args: object, **_kwargs: object) -> MusicLibrary:
+                self.assertEqual([str(root) for root in roots], ["/music/a", "/music/b"])
+                return rescanned_library
+
             with (
-                patch("kukicha.use_case.commands.roots.build_library", return_value=rescanned_library),
-                patch(
-                    "kukicha.use_case.commands.roots.parse_playlists",
-                    return_value=[
-                        PlaylistRecord(
-                            path="/music/a/root-a.m3u",
-                            name="Root A Mix",
-                            root_position=0,
-                        )
-                    ],
-                ),
+                patch("kukicha.use_case.commands.roots.build_library", side_effect=fake_build_library),
                 patch("kukicha.use_case.commands.roots.resolve_library_genres", return_value=None),
                 patch("kukicha.use_case.commands.roots.resolve_library_cover_art", return_value=None),
             ):
-                result = rescan_library_root(database, 0)
+                result = rescan_library(database)
 
-            self.assertEqual(result.root.position, 0)
+            self.assertEqual(result.roots_scanned, 2)
             self.assertEqual(result.tracks_scanned, 2)
             self.assertEqual(result.albums_scanned, 2)
             self.assertEqual(result.playlists_scanned, 1)
@@ -2866,53 +3299,38 @@ class PlayerRootMutationTest(unittest.TestCase):
                 self.assertEqual(
                     [(int(row["root_position"]), str(row["path"])) for row in tracks],
                     [
-                        (0, "/music/a/Artist/New Album/01.flac"),
-                        (0, "/music/a/Artist/Shared/02.flac"),
-                        (2, "/music/b/Artist/Only B/01.flac"),
-                        (2, "/music/b/Artist/Shared/01.flac"),
+                        (0, "/music/a/Artist A/Album A/01.flac"),
+                        (2, "/music/b/Artist B/Album B/01.flac"),
                     ],
                 )
-                art_paths = {
-                    str(row["path"])
-                    for row in connection.execute(
-                        """
-                        SELECT library_tracks.path
-                        FROM library_track_artwork
-                        JOIN library_tracks
-                            ON library_tracks.track_id = library_track_artwork.track_id
-                        """
-                    )
-                }
-                track_ids_by_path = {
-                    str(row["path"]): int(row["track_id"])
-                    for row in connection.execute(
-                        "SELECT track_id, path FROM library_tracks"
-                    )
-                }
-                self.assertEqual(track_ids_by_path["/music/b/Artist/Shared/01.flac"], shared_b)
-                self.assertEqual(track_ids_by_path["/music/b/Artist/Only B/01.flac"], only_b)
-                self.assertIn("/music/a/Artist/Shared/02.flac", art_paths)
-                self.assertIn("/music/b/Artist/Shared/01.flac", art_paths)
-                self.assertIn("/music/b/Artist/Only B/01.flac", art_paths)
-                self.assertNotIn("/music/a/Artist/Only A/01.flac", art_paths)
+                self.assertIsNone(
+                    connection.execute(
+                        "SELECT 1 FROM library_tracks WHERE path = ?",
+                        ("/music/b/Old/Album/01.flac",),
+                    ).fetchone()
+                )
 
-                shared_album = connection.execute(
-                    "SELECT track_count FROM library_albums WHERE album_id = ?",
-                    ("artist::shared",),
+                album_b = connection.execute(
+                    "SELECT track_count FROM library_albums WHERE album = ?",
+                    ("Album B",),
                 ).fetchone()
-                self.assertIsNotNone(shared_album)
-                self.assertEqual(int(shared_album["track_count"]), 2)
+                self.assertIsNotNone(album_b)
+                self.assertEqual(int(album_b["track_count"]), 1)
                 self.assertIsNotNone(
                     connection.execute(
                         "SELECT 1 FROM library_albums WHERE album = ?",
-                        ("New Album",),
+                        ("Album A",),
                     ).fetchone()
                 )
                 self.assertIsNone(
                     connection.execute(
                         "SELECT 1 FROM library_albums WHERE album_id = ?",
-                        ("artist::only-a",),
+                        ("old::album",),
                     ).fetchone()
+                )
+                self.assertEqual(
+                    int(connection.execute("SELECT COUNT(*) AS count FROM library_album_search").fetchone()["count"]),
+                    2,
                 )
                 stats = list(
                     connection.execute(
@@ -2934,8 +3352,8 @@ class PlayerRootMutationTest(unittest.TestCase):
                         for row in stats
                     ],
                     [
-                        (0, 2, 2, 1),
-                        (2, 2, 2, 1),
+                        (0, 1, 1, 0),
+                        (2, 1, 1, 1),
                     ],
                 )
                 total_stats = connection.execute(
@@ -2952,12 +3370,12 @@ class PlayerRootMutationTest(unittest.TestCase):
                         int(total_stats["albums_scanned"]),
                         int(total_stats["playlists_scanned"]),
                     ),
-                    (4, 4, 2),
+                    (2, 2, 1),
                 )
             finally:
                 connection.close()
 
-    def test_rescan_library_root_rolls_back_all_changes_on_failure(self) -> None:
+    def test_rescan_library_rolls_back_all_changes_on_failure(self) -> None:
         with TemporaryDirectory() as tempdir:
             temp_path = Path(tempdir)
             database = temp_path / "kukicha.sqlite"
@@ -3032,7 +3450,7 @@ class PlayerRootMutationTest(unittest.TestCase):
                 patch("kukicha.use_case.commands.roots.resolve_library_genres", side_effect=failing_resolve),
             ):
                 with self.assertRaisesRegex(RuntimeError, "boom"):
-                    rescan_library_root(database, 0)
+                    rescan_library(database)
 
             connection = connect_database(database)
             try:
@@ -3089,6 +3507,15 @@ class PlayerRootMutationTest(unittest.TestCase):
                 )
             finally:
                 connection.close()
+
+    def test_rescan_library_rejects_empty_root_set(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            database = Path(tempdir) / "kukicha.sqlite"
+            connection = connect_database(database)
+            connection.close()
+
+            with self.assertRaisesRegex(ValueError, "no roots configured"):
+                rescan_library(database)
 
     def test_delete_library_root_rolls_back_on_failure(self) -> None:
         with TemporaryDirectory() as tempdir:
@@ -3308,13 +3735,12 @@ class PlayerJobLogTest(unittest.TestCase):
                 started_at=None,
                 finished_at=None,
                 cancel_requested_at=None,
-                kind="rescan_root",
+                kind="rescan_library",
                 status="succeeded",
-                message="Rescan completed for /music/a.",
+                message="Rescan completed.",
                 reason="",
                 context={
-                    "path": "/music/a",
-                    "root_position": 0,
+                    "roots_scanned": 2,
                     "tracks_scanned": 12,
                     "albums_scanned": 3,
                     "playlists_scanned": 2,
@@ -3324,10 +3750,12 @@ class PlayerJobLogTest(unittest.TestCase):
             )
         )
 
+        self.assertEqual(payload["kind_label"], "Rescan")
+        self.assertEqual(payload["message"], "Rescan completed.")
         self.assertEqual(
             payload["context_items"],
             [
-                {"label": "Root", "value": ".../a"},
+                {"label": "Roots", "value": "2"},
                 {"label": "Tracks", "value": "12"},
                 {"label": "Albums", "value": "3"},
                 {"label": "Playlists", "value": "2"},
@@ -3858,7 +4286,7 @@ class PlayerAlbumTagEditTest(unittest.TestCase):
                 result.message,
                 (
                     "Tags saved for Old Artist - Album. "
-                    "Rescan the affected root to update library filters, artists, and stats."
+                    "Rescan the library to update library filters, artists, and stats."
                 ),
             )
             self.assertEqual(result.context["tracks_updated"], 2)

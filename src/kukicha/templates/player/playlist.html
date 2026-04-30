@@ -1,12 +1,27 @@
+{% from "player/_icons.html" import play_icon, queue_add_icon %}
+
 <div class="view-page album-view playlist-view" data-page="playlist">
   <div class="album-view-nav">
     <a class="back-link" href="{{ playlist_back_url }}" data-history-back data-nav>&larr; back</a>
-    <a class="back-link" href="/" data-nav>&uarr; index</a>
+    <a class="back-link" href="{{ playlist_index_url }}" data-nav>&uarr; index</a>
   </div>
 
   <header class="album-header">
-    <div class="album-identity">
-      <img class="album-hero-cover playlist-cover-image" src="{{ playlist_cover_data_url }}" alt="" loading="lazy">
+    <div class="album-identity" data-album-playback-source data-playlist-id="{{ playlist.playlist_id }}">
+      <div class="album-hero-cover-wrap">
+        <img class="album-hero-cover playlist-cover-image" src="{{ playlist_cover_data_url }}" alt="" loading="lazy">
+        {% if playlist.track_count %}
+          <div class="album-cover-actions">
+            <button class="album-cover-action play-icon-button" type="button" data-play-album
+              aria-label="Play {{ playlist.name }}"
+              title="Play">{{ play_icon() }}</button>
+            <button class="album-cover-action queue-icon-button" type="button" data-queue-album data-queue-append
+              aria-label="Add {{ playlist.name }} to the queue"
+              title="Add to queue"
+              {% if queue_state is not defined or not queue_state.track_ids %}disabled{% endif %}>{{ queue_add_icon() }}</button>
+          </div>
+        {% endif %}
+      </div>
       <div class="album-detail-copy">
         <h2 title="{{ playlist.name }}">{{ playlist.name }}</h2>
         <ul class="meta-list album-genre-meta">

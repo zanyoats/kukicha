@@ -6,7 +6,6 @@ const previousButton = document.getElementById("previous");
 const nextButton = document.getElementById("next");
 const queueLink = document.getElementById("queue-link");
 const nowPlaying = document.getElementById("now-playing");
-const error = document.getElementById("error");
 const toast = document.getElementById("toast");
 const jobToasts = document.getElementById("job-toasts");
 const trackCache = new Map();
@@ -20,7 +19,7 @@ let appHistoryDepth = initialAppHistoryDepth();
 let scrollSaveFrame = 0;
 let isRestoringScroll = false;
 let scrollRestoreToken = 0;
-let toastHideTimeout = 0;
+const toastTimeouts = new WeakMap();
 let jobsSource = null;
 let jobsStreamLoadPending = false;
 let suppressPauseStateUntilPlay = false;
@@ -73,12 +72,12 @@ function initializeHistoryState() {
 function readInitialQueueState() {
   const source = document.getElementById("queue-state");
   if (!source) {
-    return {track_ids: [], position: 0, loaded_track_id: null, paused: true};
+    return {track_ids: [], position: 0, loaded_track_id: null, paused: true, errored_track_ids: []};
   }
   try {
     return normalizeQueueState(JSON.parse(source.textContent));
   } catch {
-    return {track_ids: [], position: 0, loaded_track_id: null, paused: true};
+    return {track_ids: [], position: 0, loaded_track_id: null, paused: true, errored_track_ids: []};
   }
 }
 
@@ -87,8 +86,16 @@ function normalizeQueueState(state) {
     ? state.track_ids.map(Number).filter(Number.isFinite)
     : [];
   if (!trackIds.length) {
-    return {track_ids: [], position: 0, loaded_track_id: null, paused: true};
+    return {track_ids: [], position: 0, loaded_track_id: null, paused: true, errored_track_ids: []};
   }
+  const validTrackIds = new Set(trackIds);
+  const erroredTrackIds = state && Array.isArray(state.errored_track_ids)
+    ? Array.from(new Set(
+        state.errored_track_ids
+          .map(Number)
+          .filter((trackId) => Number.isFinite(trackId) && validTrackIds.has(trackId))
+      ))
+    : [];
   const loadedTrackIdValue = state && state.loaded_track_id === null
     ? null
     : Number(state && state.loaded_track_id);
@@ -106,7 +113,8 @@ function normalizeQueueState(state) {
     track_ids: trackIds,
     position,
     loaded_track_id: loadedTrackId,
-    paused: loadedTrackId === null ? true : !state || state.paused !== false
+    paused: loadedTrackId === null ? true : !state || state.paused !== false,
+    errored_track_ids: erroredTrackIds
   };
 }
 
@@ -238,11 +246,15 @@ function scrollToUrlHash(url) {
 }
 
 function patchLibraryView(nextPageRoot) {
-  if (!(nextPageRoot instanceof HTMLElement) || nextPageRoot.dataset.page !== "library") {
+  if (!(nextPageRoot instanceof HTMLElement)) {
     return false;
   }
-  const currentPageRoot = view.querySelector('[data-page="library"]');
-  if (!(currentPageRoot instanceof HTMLElement)) {
+  const nextPage = nextPageRoot.dataset.page || "";
+  if (nextPage !== "library" && nextPage !== "playlists") {
+    return false;
+  }
+  const currentPageRoot = view.querySelector("[data-page]");
+  if (!(currentPageRoot instanceof HTMLElement) || currentPageRoot.dataset.page !== nextPage) {
     return false;
   }
   const currentResults = currentPageRoot.querySelector("[data-library-results]");
@@ -492,7 +504,7 @@ function checkedInputCount(form, name) {
 
 function selectedPropertyCount(form) {
   let count = 0;
-  for (const name of ["has_cover", "compilation", "work", "playlist"]) {
+  for (const name of ["has_cover", "compilation", "work"]) {
     const input = form.querySelector(`input[name="${name}"]:checked`);
     if (input instanceof HTMLInputElement && input.value) {
       count += 1;
@@ -652,6 +664,12 @@ document.addEventListener("click", (event) => {
   if (!(event.target instanceof Element)) {
     return;
   }
+  const closeToastButton = event.target.closest("[data-close-toast]");
+  if (closeToastButton) {
+    event.preventDefault();
+    closeToast(closeToastButton);
+    return;
+  }
   const closeJobToastButton = event.target.closest("[data-close-job-toast]");
   if (closeJobToastButton) {
     event.preventDefault();
@@ -664,10 +682,10 @@ document.addEventListener("click", (event) => {
     void cancelJob(cancelJobButton);
     return;
   }
-  const rescanRootButton = event.target.closest("[data-rescan-root]");
-  if (rescanRootButton) {
+  const rescanLibraryButton = event.target.closest("[data-rescan-library]");
+  if (rescanLibraryButton) {
     event.preventDefault();
-    rescanRoot(rescanRootButton);
+    rescanLibrary(rescanLibraryButton);
     return;
   }
   const deleteRootButton = event.target.closest("[data-delete-root]");
@@ -676,10 +694,10 @@ document.addEventListener("click", (event) => {
     deleteRoot(deleteRootButton);
     return;
   }
-  const pickRootButton = event.target.closest("[data-pick-root]");
-  if (pickRootButton) {
+  const deleteMusicBrainzOverrideButton = event.target.closest("[data-delete-musicbrainz-override]");
+  if (deleteMusicBrainzOverrideButton) {
     event.preventDefault();
-    pickRootDirectory(pickRootButton);
+    void deleteMusicBrainzOverride(deleteMusicBrainzOverrideButton);
     return;
   }
   const editAlbumArtistMappingButton = event.target.closest("[data-edit-album-artist-mapping]");
@@ -931,7 +949,16 @@ function togglePlayback() {
     audio.pause();
     return;
   }
-  const trackId = loadedId ?? queueState.track_ids[queuePositionForControls()] ?? null;
+  const controlsPosition = queuePositionForControls();
+  const queuedTrackId = queueState.track_ids[controlsPosition] ?? null;
+  const firstPlayablePosition = nextPlayableQueuePosition(-1);
+  const trackId = loadedId !== null && !trackHasPlaybackError(loadedId)
+    ? loadedId
+    : queuedTrackId !== null && !trackHasPlaybackError(queuedTrackId)
+      ? queuedTrackId
+      : firstPlayablePosition === -1
+        ? null
+        : queueState.track_ids[firstPlayablePosition];
   if (trackId === null) {
     return;
   }
@@ -983,7 +1010,8 @@ function playbackPausedForUi() {
 }
 
 function playbackIsActive() {
-  return loadedTrackId() !== null && !playbackPausedForUi();
+  const loadedId = loadedTrackId();
+  return loadedId !== null && !trackHasPlaybackError(loadedId) && !playbackPausedForUi();
 }
 
 previousButton.addEventListener("click", () => {
@@ -1041,8 +1069,7 @@ audio.addEventListener("error", () => {
   clearPendingPauseCommit();
   clearPauseStateSuppression();
   const track = trackById(loadedTrackId());
-  error.textContent = playbackErrorMessage(track);
-  updatePlaybackUi();
+  handlePlaybackFailure(track, playbackErrorMessage(track));
 });
 
 audio.addEventListener("ended", () => {
@@ -1050,13 +1077,18 @@ audio.addEventListener("ended", () => {
   clearPendingPauseCommit();
   clearPauseStateSuppression();
   const position = queuePositionForControls();
-  if (position + 1 < queueState.track_ids.length) {
-    playQueuePosition(position + 1);
+  const nextPosition = nextPlayableQueuePosition(position);
+  if (nextPosition !== -1) {
+    playQueuePosition(nextPosition);
     return;
   }
   queueState.position = queueState.track_ids.length;
   queueState.paused = true;
-  postPlayback({position: queueState.position, paused: true});
+  postPlayback({
+    position: queueState.position,
+    paused: true,
+    errored_track_ids: queueState.errored_track_ids
+  });
   updatePlaybackUi();
 });
 
@@ -1079,45 +1111,6 @@ function formUrl(form) {
     }
   }
   return url;
-}
-
-async function pickRootDirectory(button) {
-  if (!(button instanceof HTMLButtonElement) || button.disabled) {
-    return;
-  }
-  const form = button.closest("form");
-  if (!(form instanceof HTMLFormElement)) {
-    return;
-  }
-  const input = form.querySelector("[data-root-path-input]");
-  const status = form.querySelector("[data-root-form-status]");
-  if (!(input instanceof HTMLInputElement)) {
-    return;
-  }
-
-  setRootFormStatus(status, "");
-  const originalText = button.textContent;
-  button.disabled = true;
-  button.textContent = "Choosing...";
-  try {
-    const response = await fetch("/api/root-picker", {method: "POST"});
-    if (!response.ok) {
-      throw new Error(`root picker request failed: ${response.status}`);
-    }
-    const payload = await response.json();
-    if (payload && typeof payload.path === "string" && payload.path.trim()) {
-      input.value = payload.path;
-      setRootFormStatus(status, "Folder selected.");
-      input.dispatchEvent(new Event("input", {bubbles: true}));
-      return;
-    }
-    setRootFormStatus(status, "Folder selection canceled.");
-  } catch {
-    setRootFormStatus(status, "Unable to open the folder picker.", true);
-  } finally {
-    button.disabled = false;
-    button.textContent = originalText;
-  }
 }
 
 function syncRootFormState(form) {
@@ -1820,7 +1813,7 @@ async function submitAlbumArtistMappingForm(form) {
     }
     const message = payload && typeof payload.message === "string" && payload.message.trim()
       ? payload.message
-      : "Mapping saved. Rescan affected roots to update library filters, artists, and stats.";
+      : "Mapping saved. Rescan the library to update library filters, artists, and stats.";
     finishAlbumArtistMappingEdit(form, albumArtist, mappedArtists);
     showToast(message, {link: rescanSettingsLinkForMessage(message)});
     return;
@@ -1900,25 +1893,62 @@ async function deleteRoot(button) {
   }
 }
 
-async function rescanRoot(button) {
+async function deleteMusicBrainzOverride(button) {
   if (!(button instanceof HTMLButtonElement) || button.disabled) {
     return;
   }
-  const card = button.closest("[data-root-card]");
-  const position = Number(button.dataset.rootPosition || (card instanceof HTMLElement ? card.dataset.rootPosition : ""));
-  if (!Number.isInteger(position)) {
+  const row = button.closest("[data-musicbrainz-override-row]");
+  const albumId = button.dataset.albumId || (row instanceof HTMLElement ? row.dataset.albumId : "");
+  const deleteUrl = button.dataset.deleteUrl;
+  if (!albumId || !deleteUrl) {
+    return;
+  }
+
+  if (!window.confirm(`Delete stale MusicBrainz override for ${albumId}?`)) {
     return;
   }
 
   button.disabled = true;
   button.setAttribute("aria-busy", "true");
   try {
-    const response = await fetch(`/api/roots/${position}/rescan`, {method: "POST"});
+    const response = await fetch(deleteUrl, {method: "POST"});
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) {
       const message = payload && typeof payload.error === "string" && payload.error.trim()
         ? payload.error
-        : "Unable to rescan root.";
+        : "Unable to delete MusicBrainz override.";
+      showToast(message, {error: true});
+      return;
+    }
+    const message = payload && typeof payload.message === "string" && payload.message.trim()
+      ? payload.message
+      : "MusicBrainz override deleted.";
+    showToast(message);
+    await navigate(window.location.href, {replace: true, scroll: false});
+  } catch {
+    showToast("Unable to delete MusicBrainz override.", {error: true});
+  } finally {
+    if (button.isConnected) {
+      button.disabled = false;
+      button.removeAttribute("aria-busy");
+    }
+  }
+}
+
+async function rescanLibrary(button) {
+  if (!(button instanceof HTMLButtonElement) || button.disabled) {
+    return;
+  }
+
+  button.disabled = true;
+  button.setAttribute("aria-busy", "true");
+  try {
+    const response = await fetch("/api/roots/rescan", {method: "POST"});
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const message = payload && typeof payload.error === "string" && payload.error.trim()
+        ? payload.error
+        : "Unable to rescan library.";
       showToast(message, {error: true});
       return;
     }
@@ -1931,7 +1961,7 @@ async function rescanRoot(button) {
       showToast(message);
     }
   } catch {
-    showToast("Unable to rescan root.", {error: true});
+    showToast("Unable to rescan library.", {error: true});
   } finally {
     if (button.isConnected) {
       button.disabled = false;
@@ -1975,10 +2005,10 @@ function showToast(message, options = {}) {
   if (!(toast instanceof HTMLElement) || typeof message !== "string" || !message.trim()) {
     return;
   }
-  if (toastHideTimeout) {
-    clearTimeout(toastHideTimeout);
-    toastHideTimeout = 0;
-  }
+  const toastMessage = document.createElement("div");
+  toastMessage.className = "toast-message";
+  toastMessage.classList.toggle("error", options.error === true);
+
   const copy = document.createElement("div");
   copy.className = "toast-copy";
   copy.textContent = message;
@@ -1989,14 +2019,44 @@ function showToast(message, options = {}) {
     children.push(link);
   }
 
-  toast.replaceChildren(...children);
+  const close = document.createElement("button");
+  close.className = "toast-close";
+  close.type = "button";
+  close.dataset.closeToast = "";
+  close.setAttribute("aria-label", "Dismiss notification");
+  close.textContent = "x";
+  children.push(close);
+
+  toastMessage.replaceChildren(...children);
+  toast.prepend(toastMessage);
   toast.hidden = false;
-  toast.classList.toggle("error", options.error === true);
-  toastHideTimeout = window.setTimeout(() => {
-    toast.hidden = true;
-    toast.classList.remove("error");
-    toastHideTimeout = 0;
+  if (options.persistent === true) {
+    return;
+  }
+
+  const timeout = window.setTimeout(() => {
+    removeToastMessage(toastMessage);
   }, link ? linkedToastHideDelayMs : toastHideDelayMs);
+  toastTimeouts.set(toastMessage, timeout);
+}
+
+function closeToast(button) {
+  const toastMessage = button.closest(".toast-message");
+  if (toastMessage instanceof HTMLElement) {
+    removeToastMessage(toastMessage);
+  }
+}
+
+function removeToastMessage(toastMessage) {
+  const timeout = toastTimeouts.get(toastMessage);
+  if (timeout) {
+    clearTimeout(timeout);
+    toastTimeouts.delete(toastMessage);
+  }
+  toastMessage.remove();
+  if (toast instanceof HTMLElement && !toast.children.length) {
+    toast.hidden = true;
+  }
 }
 
 function createToastLink(link) {
@@ -2203,7 +2263,8 @@ function rescanSettingsLinkForMessage(message) {
   }
   const normalizedMessage = message.toLowerCase();
   if (!normalizedMessage.includes("rescan the affected root")
-    && !normalizedMessage.includes("rescan affected roots")) {
+    && !normalizedMessage.includes("rescan affected roots")
+    && !normalizedMessage.includes("rescan the library")) {
     return null;
   }
   return {
@@ -2265,15 +2326,15 @@ async function tracksForAlbumButton(button) {
 }
 
 function albumPlaybackUrl(button) {
-  const albumCard = button.closest(".album-card");
-  if (!(albumCard instanceof HTMLElement)) {
+  const playbackSource = button.closest("[data-album-playback-source]");
+  if (!(playbackSource instanceof HTMLElement)) {
     return "";
   }
-  const playlistId = albumCard.dataset.playlistId ? albumCard.dataset.playlistId.trim() : "";
+  const playlistId = playbackSource.dataset.playlistId ? playbackSource.dataset.playlistId.trim() : "";
   if (playlistId) {
     return new URL(`/api/playlists/${encodeURIComponent(playlistId)}/playback`, window.location.origin).toString();
   }
-  const albumId = albumCard.dataset.albumId ? albumCard.dataset.albumId.trim() : "";
+  const albumId = playbackSource.dataset.albumId ? playbackSource.dataset.albumId.trim() : "";
   if (!albumId) {
     return "";
   }
@@ -2419,14 +2480,14 @@ function playFromRow(row) {
   }
   if (row.dataset.queuePosition !== undefined) {
     const ids = allRows.map((candidate) => Number(candidate.dataset.trackId)).filter(Number.isFinite);
-    playQueue(ids, Number(row.dataset.queuePosition) || 0);
+    playQueue(ids, Number(row.dataset.queuePosition) || 0, {preserveErrors: true});
     return;
   }
   const ids = allRows.slice(rowIndex).map((candidate) => Number(candidate.dataset.trackId)).filter(Number.isFinite);
   playQueue(ids, 0);
 }
 
-async function playQueue(trackIds, position) {
+async function playQueue(trackIds, position, options = {}) {
   if (!trackIds.length) {
     return;
   }
@@ -2434,7 +2495,8 @@ async function playQueue(trackIds, position) {
     track_ids: trackIds,
     position,
     loaded_track_id: trackIds[position],
-    paused: false
+    paused: false,
+    errored_track_ids: options.preserveErrors ? queueState.errored_track_ids : []
   });
   void postQueue(queueState);
   playQueuePosition(position);
@@ -2459,16 +2521,14 @@ async function playTrack(track, options = {}) {
   clearPauseStateSuppression();
   const unsupported = unsupportedPlaybackMessage(track);
   if (unsupported) {
-    error.textContent = unsupported;
-    updatePlaybackUi();
+    handlePlaybackFailure(track, unsupported);
     return;
-  }
-  error.textContent = "";
-  if (audio.getAttribute("src") !== track.audioUrl) {
-    audio.src = track.audioUrl;
   }
   queueState.loaded_track_id = track.trackId;
   queueState.paused = false;
+  if (audio.getAttribute("src") !== track.audioUrl) {
+    audio.src = track.audioUrl;
+  }
   if (options.restart) {
     try {
       audio.currentTime = 0;
@@ -2480,24 +2540,133 @@ async function playTrack(track, options = {}) {
   postPlayback({
     loaded_track_id: track.trackId,
     position: queueState.position,
-    paused: false
+    paused: false,
+    errored_track_ids: queueState.errored_track_ids
   });
   try {
     await audio.play();
   } catch (err) {
-    queueState.paused = true;
-    postPlayback({paused: true, loaded_track_id: track.trackId});
-    error.textContent = playbackErrorMessage(track, err);
+    if (trackHasPlaybackError(track.trackId) && loadedTrackId() !== track.trackId) {
+      return;
+    }
+    handlePlaybackFailure(track, playbackErrorMessage(track, err));
   }
   updatePlaybackUi();
+}
+
+function handlePlaybackFailure(track, message) {
+  if (!track) {
+    return;
+  }
+  manualPauseRequested = false;
+  clearPendingPauseCommit();
+  clearPauseStateSuppression();
+  const trackId = Number(track.trackId);
+  if (!Number.isFinite(trackId)) {
+    return;
+  }
+
+  const wasAlreadyErrored = trackHasPlaybackError(trackId);
+  addPlaybackError(trackId);
+  const toastMessage = playbackFailureToastMessage(track, message);
+  if (!wasAlreadyErrored) {
+    showToast(toastMessage, {error: true, persistent: true});
+  }
+
+  const failedPosition = failureQueuePosition(trackId);
+  const nextPosition = nextPlayableQueuePosition(failedPosition);
+  if (nextPosition !== -1) {
+    playQueuePosition(nextPosition);
+    return;
+  }
+
+  queueState.position = failedPosition === -1
+    ? queueState.track_ids.length
+    : Math.min(failedPosition + 1, queueState.track_ids.length);
+  queueState.loaded_track_id = null;
+  queueState.paused = true;
+  audio.pause();
+  audio.removeAttribute("src");
+  audio.load();
+  updateNowPlaying(null);
+  postPlayback({
+    position: queueState.position,
+    loaded_track_id: null,
+    paused: true,
+    errored_track_ids: queueState.errored_track_ids
+  });
+  updatePlaybackUi();
+}
+
+function playbackFailureToastMessage(track, message) {
+  const detail = typeof message === "string" && message.trim()
+    ? message.trim()
+    : "Playback failed.";
+  const title = track && typeof track.title === "string" ? track.title.trim() : "";
+  return title ? `Could not play "${title}". ${detail}` : detail;
+}
+
+function addPlaybackError(trackId) {
+  if (!Number.isFinite(Number(trackId))) {
+    return;
+  }
+  const resolvedTrackId = Number(trackId);
+  if (!trackHasPlaybackError(resolvedTrackId)) {
+    queueState.errored_track_ids = [...queueState.errored_track_ids, resolvedTrackId];
+  }
+}
+
+function trackHasPlaybackError(trackId) {
+  const resolvedTrackId = Number(trackId);
+  return Number.isFinite(resolvedTrackId)
+    && queueState.errored_track_ids.includes(resolvedTrackId);
+}
+
+function failureQueuePosition(trackId) {
+  const currentPosition = queueLoadedPosition();
+  if (
+    currentPosition !== -1
+    && queueState.track_ids[currentPosition] === trackId
+  ) {
+    return currentPosition;
+  }
+  if (
+    queueState.position >= 0
+    && queueState.position < queueState.track_ids.length
+    && queueState.track_ids[queueState.position] === trackId
+  ) {
+    return queueState.position;
+  }
+  return queueState.track_ids.indexOf(trackId);
+}
+
+function nextPlayableQueuePosition(position) {
+  for (let index = position + 1; index < queueState.track_ids.length; index += 1) {
+    if (!trackHasPlaybackError(queueState.track_ids[index])) {
+      return index;
+    }
+  }
+  return -1;
+}
+
+function previousPlayableQueuePosition(position) {
+  for (let index = position - 1; index >= 0; index -= 1) {
+    if (!trackHasPlaybackError(queueState.track_ids[index])) {
+      return index;
+    }
+  }
+  return -1;
 }
 
 function moveQueue(delta) {
   if (!queueState.track_ids.length) {
     return;
   }
-  const nextPosition = queuePositionForControls() + delta;
-  if (nextPosition < 0 || nextPosition >= queueState.track_ids.length) {
+  const currentPosition = queuePositionForControls();
+  const nextPosition = delta > 0
+    ? nextPlayableQueuePosition(currentPosition)
+    : previousPlayableQueuePosition(currentPosition);
+  if (nextPosition === -1) {
     return;
   }
   playQueuePosition(nextPosition);
@@ -2646,9 +2815,10 @@ function updatePlaybackUi() {
   const loadedId = loadedTrackId();
   const currentQueuePosition = queueLoadedPosition();
   const playing = playbackIsActive();
+  const hasPlayableQueuedTrack = queueState.track_ids.some((trackId) => !trackHasPlaybackError(trackId));
   playButton.textContent = playing ? "Pause" : "Play";
   playButton.setAttribute("aria-pressed", String(playing));
-  playButton.disabled = loadedId === null && !queueState.track_ids.length;
+  playButton.disabled = loadedId === null && !hasPlayableQueuedTrack;
   previousButton.disabled = !canMove(-1);
   nextButton.disabled = !canMove(1);
   queueLink.classList.toggle("active", document.body.dataset.page === "queue");
@@ -2677,6 +2847,7 @@ function updatePlaybackUi() {
       row.classList.toggle("playing", rowCurrent && playing);
       row.classList.toggle("queue-played", position < queueState.position);
       row.classList.toggle("queue-active", position === queueState.position);
+      row.classList.toggle("queue-error", trackHasPlaybackError(trackId));
       const status = row.querySelector(".queue-status-label");
       if (status) {
         status.textContent = queueStatus(trackId, position);
@@ -2733,11 +2904,17 @@ function canMove(delta) {
   if (!queueState.track_ids.length) {
     return false;
   }
-  const nextPosition = queuePositionForControls() + delta;
-  return nextPosition >= 0 && nextPosition < queueState.track_ids.length;
+  const currentPosition = queuePositionForControls();
+  const nextPosition = delta > 0
+    ? nextPlayableQueuePosition(currentPosition)
+    : previousPlayableQueuePosition(currentPosition);
+  return nextPosition !== -1;
 }
 
 function queueStatus(trackId, position) {
+  if (trackHasPlaybackError(trackId)) {
+    return "Error";
+  }
   if (position < queueState.position) {
     return "Played";
   }
@@ -2761,7 +2938,8 @@ async function postQueue(state) {
         track_ids: state.track_ids,
         position: state.position,
         loaded_track_id: state.loaded_track_id,
-        paused: state.paused
+        paused: state.paused,
+        errored_track_ids: state.errored_track_ids
       })
     });
     if (!response.ok) {
@@ -2835,7 +3013,8 @@ function queueRemovalState(position) {
       track_ids: trackIds,
       position: nextPosition,
       loaded_track_id: nextLoadedTrackId,
-      paused: nextPaused
+      paused: nextPaused,
+      errored_track_ids: queueState.errored_track_ids
     }),
     playNext,
     stopPlayback,
@@ -2849,7 +3028,6 @@ function clearLoadedPlayback() {
   audio.pause();
   audio.removeAttribute("src");
   audio.load();
-  error.textContent = "";
   updateNowPlaying(null);
 }
 

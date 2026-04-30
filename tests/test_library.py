@@ -1346,7 +1346,7 @@ class LibraryPlaylistPersistenceTest(unittest.TestCase):
             "2026-04-25T12:00:00+00:00",
         )
 
-    def test_list_album_page_sorts_by_recently_added_by_default_and_can_sort_by_artist_album(self) -> None:
+    def test_list_album_page_sorts_by_recently_added_by_default_and_can_sort_by_artist_year_album(self) -> None:
         with TemporaryDirectory() as tempdir:
             database = Path(tempdir) / "kukicha.sqlite"
             save_library(
@@ -1361,15 +1361,36 @@ class LibraryPlaylistPersistenceTest(unittest.TestCase):
                             album_artist="Zulu",
                             album="Old",
                             title="Old Track",
+                            date="1970",
                         ),
                         TrackRecord(
-                            path="/music/Alpha/New/01.flac",
+                            path="/music/Alpha/AAA Later/01.flac",
                             file_created_at="2026-04-24T12:00:00+00:00",
                             file_type="flac",
                             artist="Alpha",
                             album_artist="Alpha",
-                            album="New",
-                            title="New Track",
+                            album="AAA Later",
+                            title="Later Track",
+                            date="2001",
+                        ),
+                        TrackRecord(
+                            path="/music/Alpha/ZZZ Original/01.flac",
+                            file_created_at="2026-04-24T12:00:00+00:00",
+                            file_type="flac",
+                            artist="Alpha",
+                            album_artist="Alpha",
+                            album="ZZZ Original",
+                            title="Original Track",
+                            date="1984-10-12",
+                        ),
+                        TrackRecord(
+                            path="/music/Alpha/No Date/01.flac",
+                            file_created_at="2026-04-24T12:00:00+00:00",
+                            file_type="flac",
+                            artist="Alpha",
+                            album_artist="Alpha",
+                            album="No Date",
+                            title="Undated Track",
                         ),
                     ],
                     playlists=[
@@ -1388,14 +1409,142 @@ class LibraryPlaylistPersistenceTest(unittest.TestCase):
             api = LibraryQueries(database)
             recently_added = api.list_album_page(AlbumListQuery()).items
             artist_album = api.list_album_page(AlbumListQuery(sort="artist")).items
+            playlists = api.list_album_page(AlbumListQuery(is_playlist=True)).items
 
         self.assertEqual(
             [item.album for item in recently_added],
-            ["Recent Mix", "New", "Old"],
+            ["ZZZ Original", "AAA Later", "No Date", "Old"],
         )
         self.assertEqual(
             [item.album for item in artist_album],
-            ["New", "Recent Mix", "Old"],
+            ["ZZZ Original", "AAA Later", "No Date", "Old"],
+        )
+        self.assertEqual([item.album for item in playlists], ["Recent Mix"])
+
+    def test_list_album_page_can_sort_by_genre_then_artist_year_album(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            database = Path(tempdir) / "kukicha.sqlite"
+            save_library(
+                MusicLibrary(
+                    roots=[],
+                    tracks=[
+                        TrackRecord(
+                            path="/music/Zed/Multi Genre/01.flac",
+                            file_type="flac",
+                            artist="Zed",
+                            album_artist="Zed",
+                            album="Multi Genre",
+                            title="Multi Genre Track",
+                            date="2020",
+                            genres=["Rock", "Ambient"],
+                        ),
+                        TrackRecord(
+                            path="/music/Beta/AAA Later/01.flac",
+                            file_type="flac",
+                            artist="Beta",
+                            album_artist="Beta",
+                            album="AAA Later",
+                            title="Later Track",
+                            date="2001",
+                            genres=["Jazz"],
+                        ),
+                        TrackRecord(
+                            path="/music/Beta/ZZZ Earlier/01.flac",
+                            file_type="flac",
+                            artist="Beta",
+                            album_artist="Beta",
+                            album="ZZZ Earlier",
+                            title="Earlier Track",
+                            date="1984",
+                            genres=["Jazz"],
+                        ),
+                        TrackRecord(
+                            path="/music/Alpha/Rock Album/01.flac",
+                            file_type="flac",
+                            artist="Alpha",
+                            album_artist="Alpha",
+                            album="Rock Album",
+                            title="Rock Track",
+                            date="1990",
+                            genres=["Rock"],
+                        ),
+                    ],
+                    playlists=[
+                        PlaylistRecord(
+                            path="/music/mix.m3u8",
+                            name="Mix",
+                            file_created_at="2026-04-25T12:00:00+00:00",
+                        )
+                    ],
+                    supported_extensions=[".flac"],
+                    generated_at="2026-04-25T00:00:00+00:00",
+                ),
+                database,
+            )
+
+            api = LibraryQueries(database)
+            genre_sorted = api.list_album_page(AlbumListQuery(sort="genre")).items
+            playlists = api.list_album_page(
+                AlbumListQuery(sort="genre", is_playlist=True)
+            ).items
+
+        self.assertEqual(
+            [item.album for item in genre_sorted],
+            ["Multi Genre", "ZZZ Earlier", "AAA Later", "Rock Album"],
+        )
+        self.assertEqual([item.album for item in playlists], ["Mix"])
+
+    def test_list_album_page_genre_sort_uses_root_scoped_genres(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            database = Path(tempdir) / "kukicha.sqlite"
+            save_library(
+                MusicLibrary(
+                    roots=["/music/a", "/music/b"],
+                    tracks=[
+                        TrackRecord(
+                            path="/music/a/Shared/01.flac",
+                            root_position=0,
+                            file_type="flac",
+                            artist="Root Alpha",
+                            album_artist="Root Alpha",
+                            album="Shared",
+                            title="Root A Track",
+                            genres=["Ambient"],
+                        ),
+                        TrackRecord(
+                            path="/music/b/Shared/01.flac",
+                            root_position=1,
+                            file_type="flac",
+                            artist="Root Alpha",
+                            album_artist="Root Alpha",
+                            album="Shared",
+                            title="Root B Track",
+                            genres=["Zzz"],
+                        ),
+                        TrackRecord(
+                            path="/music/b/Classical/01.flac",
+                            root_position=1,
+                            file_type="flac",
+                            artist="Root Beta",
+                            album_artist="Root Beta",
+                            album="Classical",
+                            title="Classical Track",
+                            genres=["Classical"],
+                        ),
+                    ],
+                    supported_extensions=[".flac"],
+                    generated_at="2026-04-25T00:00:00+00:00",
+                ),
+                database,
+            )
+
+            genre_sorted = LibraryQueries(database).list_album_page(
+                AlbumListQuery(root_positions=(1,), sort="genre")
+            ).items
+
+        self.assertEqual(
+            [item.album for item in genre_sorted],
+            ["Classical", "Shared"],
         )
 
     def test_save_library_stores_playlists_and_links_tracked_items_by_path(self) -> None:
@@ -1457,7 +1606,7 @@ class LibraryPlaylistPersistenceTest(unittest.TestCase):
         self.assertEqual(playlist.items[1].genre, "Electronic")
         self.assertEqual(playlist.items[1].cover_url, "https://example.test/cover.jpg")
 
-    def test_list_album_page_can_filter_playlist_items(self) -> None:
+    def test_list_album_page_separates_album_and_playlist_items(self) -> None:
         with TemporaryDirectory() as tempdir:
             database = Path(tempdir) / "kukicha.sqlite"
             save_library(
@@ -1492,11 +1641,11 @@ class LibraryPlaylistPersistenceTest(unittest.TestCase):
             )
 
             api = LibraryQueries(database)
-            all_items = api.list_album_page(AlbumListQuery()).items
+            default_items = api.list_album_page(AlbumListQuery()).items
             playlists = api.list_album_page(AlbumListQuery(is_playlist=True)).items
             albums = api.list_album_page(AlbumListQuery(is_playlist=False)).items
 
-        self.assertEqual([item.album for item in all_items], ["Album", "Road Mix"])
+        self.assertEqual([item.album for item in default_items], ["Album"])
         self.assertEqual([item.album for item in playlists], ["Road Mix"])
         self.assertTrue(playlists[0].is_playlist)
         self.assertEqual(playlists[0].playlist_id, 1)

@@ -384,6 +384,8 @@ def playlist_item_unsupported_reason(path: str) -> str:
     return audio_unsupported_reason_for_path(Path(path))
 
 def queue_status(state: PlayerQueueState, track_id: int, position: int) -> str:
+    if track_id in state.errored_track_ids:
+        return "Error"
     if position < state.position:
         return "Played"
     if position == state.position:
@@ -626,6 +628,7 @@ def queue_state_payload(state: PlayerQueueState) -> dict[str, object]:
         "position": state.position,
         "loaded_track_id": state.loaded_track_id,
         "paused": state.paused,
+        "errored_track_ids": list(state.errored_track_ids),
     }
 
 def normalized_queue_state(
@@ -634,6 +637,7 @@ def normalized_queue_state(
     position: object = 0,
     loaded_track_id: object = None,
     paused: object = True,
+    errored_track_ids: object = (),
 ) -> PlayerQueueState:
     normalized_track_ids = [int(track_id) for track_id in track_ids]
     if not normalized_track_ids:
@@ -648,11 +652,17 @@ def normalized_queue_state(
             else None
         )
 
+    normalized_errored_track_ids = normalized_queue_error_ids(
+        errored_track_ids,
+        normalized_track_ids,
+    )
+
     return PlayerQueueState(
         track_ids=normalized_track_ids,
         position=normalized_position,
         loaded_track_id=normalized_loaded_track_id,
         paused=bool(paused) if normalized_loaded_track_id is not None else True,
+        errored_track_ids=normalized_errored_track_ids,
     )
 
 def reset_queue_state(state: PlayerQueueState) -> None:
@@ -660,6 +670,31 @@ def reset_queue_state(state: PlayerQueueState) -> None:
     state.position = 0
     state.loaded_track_id = None
     state.paused = True
+    state.errored_track_ids = []
+
+def normalized_queue_error_ids(
+    errored_track_ids: object,
+    valid_track_ids: list[int],
+) -> list[int]:
+    if (
+        isinstance(errored_track_ids, str)
+        or not isinstance(errored_track_ids, Iterable)
+    ):
+        return []
+
+    valid_ids = set(valid_track_ids)
+    seen: set[int] = set()
+    normalized_ids: list[int] = []
+    for track_id in errored_track_ids:
+        try:
+            normalized_track_id = int(track_id)
+        except (TypeError, ValueError):
+            continue
+        if normalized_track_id not in valid_ids or normalized_track_id in seen:
+            continue
+        seen.add(normalized_track_id)
+        normalized_ids.append(normalized_track_id)
+    return normalized_ids
 
 def format_track_number(value: str | None) -> str:
     if not value:

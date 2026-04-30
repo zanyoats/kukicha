@@ -13,6 +13,7 @@ from flask import Flask, Response, abort, current_app, redirect, request, stream
 from werkzeug.serving import make_server
 
 from .use_case import (
+    delete_stale_album_musicbrainz_override,
     mark_stale_player_jobs_canceled,
     playlist_audio_path,
     save_album_artist_split_mapping,
@@ -20,7 +21,7 @@ from .use_case import (
     start_album_musicbrainz_edit,
     start_album_tag_edit,
     start_delete_root,
-    start_rescan_root,
+    start_rescan_library,
     track_artwork,
     track_audio_path,
     update_playback as update_playback_command,
@@ -37,13 +38,13 @@ from .player_config import (
     LOGGER,
     PlayerServerOptions,
     build_template_environment,
+    player_accent_color,
     validate_player_startup,
 )
 from .player_errors import PlayerConfigError, PlayerConflictError, PlayerNotFoundError
 from .player_media import audio_mime_type
 from .player_navigation import PLAYER_PAGE_ROUTE_KEYS
 from .player_platform import (
-    choose_directory_path,
     register_player_signal_handlers,
     restore_signal_handlers,
 )
@@ -58,7 +59,9 @@ from .player_views import (
     build_help_page_context,
     build_index_context,
     build_jobs_page_context,
+    build_musicbrainz_overrides_page_context,
     build_playlist_context,
+    build_playlist_index_context,
     build_queue_context,
     build_roots_page_context,
     build_simple_page_context,
@@ -124,9 +127,9 @@ def create_player_app(options: PlayerServerOptions) -> Flask:
         database=runtime.database,
     )
 
-    @app.errorhandler(NotImplementedError)
-    def handle_not_implemented(error: NotImplementedError) -> Response:
-        return json_response({"error": str(error)}, status=501)
+    @app.context_processor
+    def inject_player_theme() -> dict[str, object]:
+        return {"accent_color": player_accent_color(options.accent_color)}
 
     @app.errorhandler(PlayerConflictError)
     def handle_conflict(error: PlayerConflictError) -> Response:
@@ -245,21 +248,17 @@ def create_player_app(options: PlayerServerOptions) -> Flask:
         result = start_album_musicbrainz_edit(player_context().runtime, album_id, payload)
         return json_response(result, status=202)
 
+    @app.post("/api/musicbrainz-overrides/<path:album_id>/delete")
+    def delete_musicbrainz_override(album_id: str) -> Response:
+        return json_response(
+            delete_stale_album_musicbrainz_override(player_context().runtime, album_id)
+        )
+
     @app.post("/api/albums/<path:album_id>/tags")
     def edit_album_tags(album_id: str) -> Response:
         payload = read_json_body()
         result = start_album_tag_edit(player_context().runtime, album_id, payload)
         return json_response(result, status=202)
-
-    @app.post("/api/root-picker")
-    def pick_root_directory() -> Response:
-        path = choose_directory_path()
-        return json_response(
-            {
-                "path": path or "",
-                "canceled": path is None,
-            }
-        )
 
     @app.post("/api/roots")
     def add_root() -> Response:
@@ -267,9 +266,9 @@ def create_player_app(options: PlayerServerOptions) -> Flask:
         result = start_add_root(player_context().runtime, str(payload.get("path", "")))
         return json_response(result, status=202)
 
-    @app.post("/api/roots/<int:position>/rescan")
-    def rescan_root(position: int) -> Response:
-        return json_response(start_rescan_root(player_context().runtime, position), status=202)
+    @app.post("/api/roots/rescan")
+    def rescan_library() -> Response:
+        return json_response(start_rescan_library(player_context().runtime), status=202)
 
     @app.post("/api/roots/<int:position>/delete")
     def delete_root(position: int) -> Response:
@@ -336,11 +335,25 @@ def create_player_app(options: PlayerServerOptions) -> Flask:
                 lambda page_key=page_key: render_cache_page(),
                 methods=["GET"],
             )
+        elif page_key == "musicbrainz-overrides":
+            app.add_url_rule(
+                route,
+                endpoint,
+                lambda page_key=page_key: render_musicbrainz_overrides_page(),
+                methods=["GET"],
+            )
         elif page_key == "artists":
             app.add_url_rule(
                 route,
                 endpoint,
                 lambda page_key=page_key: render_artists_page(),
+                methods=["GET"],
+            )
+        elif page_key == "playlists":
+            app.add_url_rule(
+                route,
+                endpoint,
+                lambda page_key=page_key: render_playlist_index_page(),
                 methods=["GET"],
             )
         elif page_key == "jobs":
@@ -389,7 +402,7 @@ def serve_player(options: PlayerServerOptions) -> int:
 
     url = f"http://{options.host}:{server.server_port}/"
     LOGGER.info("using config file %s", options.config_path)
-    LOGGER.info("kukicha player listening on %s", url)
+    LOGGER.info("kukicha listening on %s", url)
     stop_reason = {"value": "received interrupt"}
     previous_handlers = register_player_signal_handlers(stop_reason)
     try:
@@ -442,9 +455,23 @@ def render_cache_page() -> Response:
     return rendered_response(build_cache_page_context(player_context().runtime))
 
 
+def render_musicbrainz_overrides_page() -> Response:
+    reset_playback_for_document_load()
+    return rendered_response(
+        build_musicbrainz_overrides_page_context(player_context().runtime)
+    )
+
+
 def render_artists_page() -> Response:
     reset_playback_for_document_load()
     return rendered_response(build_artists_page_context(player_context().runtime))
+
+
+def render_playlist_index_page() -> Response:
+    reset_playback_for_document_load()
+    return rendered_response(
+        build_playlist_index_context(player_context().runtime, query_string())
+    )
 
 
 def render_jobs_page() -> Response:

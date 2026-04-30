@@ -16,13 +16,14 @@ from .album_edits import (
     prepare_album_tag_edit_job,
 )
 from .player import (
+    delete_stale_album_musicbrainz_override,
     playlist_audio_path,
     save_album_artist_split_mapping,
     start_add_root,
     start_album_musicbrainz_edit,
     start_album_tag_edit,
     start_delete_root,
-    start_rescan_root,
+    start_rescan_library,
     track_artwork,
     track_audio_path,
     update_playback,
@@ -42,7 +43,7 @@ from .roots import (
     library_job_detail_lines,
     library_job_summary_text,
     library_scan_progress_text,
-    rescan_library_root,
+    rescan_library,
     scan_library_with_new_root,
 )
 from .startup import prepare_player_database
@@ -50,6 +51,7 @@ from .startup import prepare_player_database
 __all__ = [
     "create_library_root",
     "delete_library_root",
+    "delete_stale_album_musicbrainz_override",
     "edit_library_album_musicbrainz",
     "edit_library_album_tags",
     "library_job_detail_lines",
@@ -68,7 +70,7 @@ __all__ = [
     "prepare_album_tag_edit_job",
     "prepare_player_database",
     "request_cancel_player_job",
-    "rescan_library_root",
+    "rescan_library",
     "scan_library_with_new_root",
     "save_album_artist_split_mapping",
     "set_track_playlist_membership",
@@ -77,7 +79,7 @@ __all__ = [
     "start_album_musicbrainz_edit",
     "start_album_tag_edit",
     "start_delete_root",
-    "start_rescan_root",
+    "start_rescan_library",
     "track_artwork",
     "track_audio_path",
     "update_playback",

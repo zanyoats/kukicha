@@ -7,8 +7,10 @@ from .library import (
 )
 from .models import (
     ALBUM_LIST_SORT_ARTIST,
+    ALBUM_LIST_SORT_GENRE,
     ALBUM_LIST_SORT_RECENTLY_ADDED,
     AlbumArtistSplitMapping,
+    AlbumMusicBrainzOverride,
     AlbumDetails,
     AlbumListQuery,
     AlbumNotFoundError,
@@ -41,8 +43,10 @@ from .musicbrainz import album_musicbrainz_link
 
 __all__ = [
     "ALBUM_LIST_SORT_ARTIST",
+    "ALBUM_LIST_SORT_GENRE",
     "ALBUM_LIST_SORT_RECENTLY_ADDED",
     "AlbumArtistSplitMapping",
+    "AlbumMusicBrainzOverride",
     "AlbumDetails",
     "AlbumListQuery",
     "AlbumNotFoundError",

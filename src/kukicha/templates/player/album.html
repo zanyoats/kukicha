@@ -1,3 +1,5 @@
+{% from "player/_icons.html" import play_icon, queue_add_icon %}
+
 <div class="view-page album-view" data-page="album">
   <div class="album-view-nav">
     <a class="back-link" href="{{ album_back_url }}" data-history-back data-nav>&larr; back</a>
@@ -7,12 +9,25 @@
 
   <header class="album-header">
     {% set art_url = album|album_art_url %}
-    <div class="album-identity">
-      {% if art_url %}
-        <img class="album-hero-cover" src="{{ art_url }}" alt="" loading="lazy">
-      {% else %}
-        <span class="album-hero-cover album-hero-cover-placeholder" aria-hidden="true"></span>
-      {% endif %}
+    <div class="album-identity" data-album-playback-source data-album-id="{{ album.album_id }}">
+      <div class="album-hero-cover-wrap">
+        {% if art_url %}
+          <img class="album-hero-cover" src="{{ art_url }}" alt="" loading="lazy">
+        {% else %}
+          <span class="album-hero-cover album-hero-cover-placeholder" aria-hidden="true"></span>
+        {% endif %}
+        {% if album.track_count %}
+          <div class="album-cover-actions">
+            <button class="album-cover-action play-icon-button" type="button" data-play-album
+              aria-label="Play {{ album.artist }} - {{ album.album|display_album_title }}"
+              title="Play">{{ play_icon() }}</button>
+            <button class="album-cover-action queue-icon-button" type="button" data-queue-album data-queue-append
+              aria-label="Add {{ album.artist }} - {{ album.album|display_album_title }} to the queue"
+              title="Add to queue"
+              {% if queue_state is not defined or not queue_state.track_ids %}disabled{% endif %}>{{ queue_add_icon() }}</button>
+          </div>
+        {% endif %}
+      </div>
       <div class="album-detail-copy">
         <h2 title="{{ album.album }}">
           {{ album.album|display_album_title }}{% if album_root_links %} <span class="album-title-root-links">({%- for item in album_root_links -%}<a class="album-detail-meta-link" href="{{ item.url }}" data-nav>{{ item.label }}</a>{% if not loop.last %}, {% endif %}{%- endfor -%})</span>{% endif %}
@@ -31,30 +46,30 @@
             {% endif %}
           </ul>
         {% endif %}
-        {% if album_genre_links %}
+        {% if album_genre_links or album_style_links %}
           <ul class="meta-list album-genre-meta">
-            <li>
-              {% for item in album_genre_links %}
-                {% if item.url %}
-                  <a class="album-detail-meta-link" href="{{ item.url }}" data-nav>{{ item.label }}</a>
-                {% else %}
-                  <span class="album-detail-meta-link">{{ item.label }}</span>
-                {% endif %}{% if not loop.last %}, {% endif %}
-              {% endfor %}
-            </li>
-          </ul>
-        {% endif %}
-        {% if album_style_links %}
-          <ul class="meta-list album-style-meta">
-            <li>
-              {% for item in album_style_links %}
-                {% if item.url %}
-                  <a class="album-detail-meta-link" href="{{ item.url }}" data-nav>{{ item.label }}</a>
-                {% else %}
-                  <span class="album-detail-meta-link">{{ item.label }}</span>
-                {% endif %}{% if not loop.last %}, {% endif %}
-              {% endfor %}
-            </li>
+            {% if album_genre_links %}
+              <li>
+                {% for item in album_genre_links %}
+                  {% if item.url %}
+                    <a class="album-detail-meta-link" href="{{ item.url }}" data-nav>{{ item.label }}</a>
+                  {% else %}
+                    <span class="album-detail-meta-link">{{ item.label }}</span>
+                  {% endif %}{% if not loop.last %}, {% endif %}
+                {% endfor %}
+              </li>
+            {% endif %}
+            {% if album_style_links %}
+              <li class="album-style-meta">
+                {% for item in album_style_links %}
+                  {% if item.url %}
+                    <a class="album-detail-meta-link" href="{{ item.url }}" data-nav>{{ item.label }}</a>
+                  {% else %}
+                    <span class="album-detail-meta-link">{{ item.label }}</span>
+                  {% endif %}{% if not loop.last %}, {% endif %}
+                {% endfor %}
+              </li>
+            {% endif %}
           </ul>
         {% endif %}
       </div>
@@ -63,6 +78,7 @@
 
   {% set is_queue = false %}
   {% set show_track_artist = true %}
+  {% set show_track_play_button = false %}
   <div class="album-track-sections">
     {% for section in track_sections %}
       <section class="album-track-section">

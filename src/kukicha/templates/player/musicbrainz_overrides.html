@@ -1,0 +1,73 @@
+<div class="view-page settings-page" data-page="{{ page_key }}">
+  <header class="view-header">
+    {% include "player/_page_title.html" %}
+  </header>
+
+  <section class="settings-panel">
+    <div class="settings-panel-header">
+      <h2>MusicBrainz Overrides</h2>
+    </div>
+
+    <div class="config-table-wrap" {% if not musicbrainz_overrides %}hidden{% endif %}>
+      <table class="config-table musicbrainz-overrides-table">
+        <thead>
+          <tr>
+            <th scope="col">Album</th>
+            <th scope="col">Release ID</th>
+            <th scope="col">Release Group ID</th>
+            <th scope="col">Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for override in musicbrainz_overrides %}
+            <tr data-musicbrainz-override-row data-album-id="{{ override.album_id }}">
+              <td>
+                <div class="musicbrainz-override-album">
+                  {% if override.is_current_album %}
+                    <a class="settings-link musicbrainz-override-title" href="{{ override.album_url }}" data-nav>{{ override.album|display_album_title }}</a>
+                    <div class="musicbrainz-override-meta">
+                      {% if override.artist %}{{ override.artist }}{% endif %}{% if override.artist and override.year %} &bull; {% endif %}{% if override.year %}{{ override.year }}{% endif %}
+                    </div>
+                  {% else %}
+                    <div class="musicbrainz-override-title">{{ override.album_id }}</div>
+                    <div class="musicbrainz-override-meta">Not in current library</div>
+                  {% endif %}
+                  <div class="musicbrainz-override-id"><code>{{ override.album_id }}</code></div>
+                </div>
+              </td>
+              <td>
+                {% if override.release_mbid %}
+                  <code>{{ override.release_mbid }}</code>
+                {% else %}
+                  <span class="musicbrainz-id-empty">Not set</span>
+                {% endif %}
+              </td>
+              <td>
+                {% if override.release_group_mbid %}
+                  <code>{{ override.release_group_mbid }}</code>
+                {% else %}
+                  <span class="musicbrainz-id-empty">Not set</span>
+                {% endif %}
+              </td>
+              <td>
+                {% if override.album_edit_url %}
+                  <a class="button-link" href="{{ override.album_edit_url }}" data-nav
+                    aria-label="Edit MusicBrainz IDs for {{ override.album }}">Edit</a>
+                {% elif override.delete_url %}
+                  <button
+                    class="danger"
+                    type="button"
+                    data-delete-musicbrainz-override
+                    data-album-id="{{ override.album_id }}"
+                    data-delete-url="{{ override.delete_url }}"
+                  >Delete</button>
+                {% endif %}
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <div class="empty" {% if musicbrainz_overrides %}hidden{% endif %}>No MusicBrainz overrides saved.</div>
+  </section>
+</div>

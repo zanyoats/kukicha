@@ -25,6 +25,7 @@ DEFAULT_PLAYER_HOST = "127.0.0.1"
 DEFAULT_PLAYER_PORT = 65042
 DEFAULT_TOAST_TIMEOUT_MS = 10000
 DEFAULT_LINKED_TOAST_TIMEOUT_MS = 25000
+DEFAULT_ACCENT_COLOR = "sienna"
 PLAYER_CONFIG_FILENAME = "kukicha.toml"
 PLAYER_DATABASE_FILENAME = "kukicha.sqlite"
 PLAYER_CONFIG_KEY_ORDER = (
@@ -33,6 +34,7 @@ PLAYER_CONFIG_KEY_ORDER = (
     "FFmpegPath",
     "Host",
     "Port",
+    "AccentColor",
     "ToastTimeoutMs",
     "LinkedToastTimeoutMs",
     "AlbumArtistSplitPatterns",
@@ -56,6 +58,7 @@ class PlayerServerOptions:
     host: str = DEFAULT_PLAYER_HOST
     port: int = DEFAULT_PLAYER_PORT
     log_level: str = DEFAULT_PLAYER_LOG_LEVEL
+    accent_color: str = DEFAULT_ACCENT_COLOR
     toast_timeout_ms: int = DEFAULT_TOAST_TIMEOUT_MS
     linked_toast_timeout_ms: int = DEFAULT_LINKED_TOAST_TIMEOUT_MS
     album_artist_split_patterns: tuple[str, ...] = DEFAULT_ALBUM_ARTIST_SPLIT_PATTERNS
@@ -75,6 +78,44 @@ class PlayerConfigSummary:
     values: tuple[PlayerConfigValue, ...] = ()
     supported_keys: tuple[str, ...] = PLAYER_CONFIG_KEY_ORDER
     error: str = ""
+
+
+CSS_NAMED_COLORS = frozenset(
+    (
+        "aliceblue", "antiquewhite", "aqua", "aquamarine", "azure",
+        "beige", "bisque", "black", "blanchedalmond", "blue", "blueviolet",
+        "brown", "burlywood", "cadetblue", "chartreuse", "chocolate",
+        "coral", "cornflowerblue", "cornsilk", "crimson", "cyan",
+        "darkblue", "darkcyan", "darkgoldenrod", "darkgray", "darkgreen",
+        "darkgrey", "darkkhaki", "darkmagenta", "darkolivegreen",
+        "darkorange", "darkorchid", "darkred", "darksalmon",
+        "darkseagreen", "darkslateblue", "darkslategray", "darkslategrey",
+        "darkturquoise", "darkviolet", "deeppink", "deepskyblue",
+        "dimgray", "dimgrey", "dodgerblue", "firebrick", "floralwhite",
+        "forestgreen", "fuchsia", "gainsboro", "ghostwhite", "gold",
+        "goldenrod", "gray", "green", "greenyellow", "grey", "honeydew",
+        "hotpink", "indianred", "indigo", "ivory", "khaki", "lavender",
+        "lavenderblush", "lawngreen", "lemonchiffon", "lightblue",
+        "lightcoral", "lightcyan", "lightgoldenrodyellow", "lightgray",
+        "lightgreen", "lightgrey", "lightpink", "lightsalmon",
+        "lightseagreen", "lightskyblue", "lightslategray",
+        "lightslategrey", "lightsteelblue", "lightyellow", "lime",
+        "limegreen", "linen", "magenta", "maroon", "mediumaquamarine",
+        "mediumblue", "mediumorchid", "mediumpurple", "mediumseagreen",
+        "mediumslateblue", "mediumspringgreen", "mediumturquoise",
+        "mediumvioletred", "midnightblue", "mintcream", "mistyrose",
+        "moccasin", "navajowhite", "navy", "oldlace", "olive",
+        "olivedrab", "orange", "orangered", "orchid", "palegoldenrod",
+        "palegreen", "paleturquoise", "palevioletred", "papayawhip",
+        "peachpuff", "peru", "pink", "plum", "powderblue", "purple",
+        "rebeccapurple", "red", "rosybrown", "royalblue", "saddlebrown",
+        "salmon", "sandybrown", "seagreen", "seashell", "sienna",
+        "silver", "skyblue", "slateblue", "slategray", "slategrey",
+        "snow", "springgreen", "steelblue", "tan", "teal", "thistle",
+        "tomato", "turquoise", "violet", "wheat", "white", "whitesmoke",
+        "yellow", "yellowgreen",
+    )
+)
 
 
 def default_player_config_dir() -> Path:
@@ -105,6 +146,7 @@ def load_player_options(config_path: str | Path | None = None) -> PlayerServerOp
     )
     host = parse_player_host(config.get("Host", DEFAULT_PLAYER_HOST))
     port = parse_player_port(config.get("Port", DEFAULT_PLAYER_PORT))
+    accent_color = parse_accent_color(config.get("AccentColor", DEFAULT_ACCENT_COLOR))
     toast_timeout_ms = parse_positive_milliseconds(
         config.get("ToastTimeoutMs", DEFAULT_TOAST_TIMEOUT_MS),
         key="ToastTimeoutMs",
@@ -124,6 +166,7 @@ def load_player_options(config_path: str | Path | None = None) -> PlayerServerOp
         host=host,
         port=port,
         log_level=log_level,
+        accent_color=accent_color,
         toast_timeout_ms=toast_timeout_ms,
         linked_toast_timeout_ms=linked_toast_timeout_ms,
         album_artist_split_patterns=album_artist_split_patterns,
@@ -154,6 +197,7 @@ def player_config_help_text(config_path: str | Path | None = None) -> str:
 
     lines.extend(("", "Supported keys:"))
     lines.extend(f"  {key}" for key in summary.supported_keys)
+    lines.extend(("", "AccentColor accepts any valid CSS named color."))
     return "\n".join(lines)
 
 def player_config_summary(
@@ -205,6 +249,7 @@ def player_config_values(
         "FFmpegPath": format_player_config_optional_path(options.ffmpeg_path),
         "Host": options.host,
         "Port": str(options.port),
+        "AccentColor": options.accent_color,
         "ToastTimeoutMs": str(options.toast_timeout_ms),
         "LinkedToastTimeoutMs": str(options.linked_toast_timeout_ms),
         "AlbumArtistSplitPatterns": format_player_config_string_list(
@@ -305,6 +350,21 @@ def parse_player_port(value: object) -> int:
     if value < 1 or value > 65535:
         raise PlayerConfigError("Port must be between 1 and 65535")
     return value
+
+def parse_accent_color(value: object) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise PlayerConfigError("AccentColor must be a non-empty string")
+    name = normalize_accent_color_name(value)
+    if name not in CSS_NAMED_COLORS:
+        raise PlayerConfigError(f"AccentColor must be a valid CSS named color: {value}")
+    return name
+
+def normalize_accent_color_name(value: str) -> str:
+    return value.strip().lower()
+
+def player_accent_color(name: str) -> str:
+    color = normalize_accent_color_name(name)
+    return color if color in CSS_NAMED_COLORS else DEFAULT_ACCENT_COLOR
 
 def parse_positive_milliseconds(value: object, *, key: str) -> int:
     if type(value) is not int:

@@ -30,7 +30,9 @@
   <td class="track-duration">{{ track.duration }}</td>
   <td class="track-actions-cell">
     <div class="track-actions">
-      <button type="button" data-play-track="{{ track.track_id }}">Play</button>
+      {% if show_track_play_button %}
+        <button type="button" data-play-track="{{ track.track_id }}">Play</button>
+      {% endif %}
       <button class="queue-icon-button" type="button" data-queue-track data-queue-append
         aria-label="Add {{ track.display_title }} by {{ track.artist or track.album_artist or 'unknown artist' }} to the queue"
         title="Add to queue"
@@ -69,6 +71,7 @@
 {%- endmacro %}
 
 {% set show_track_artist = show_track_artist|default(false) %}
+{% set show_track_play_button = show_track_play_button|default(true) %}
 {% set column_count = 6 if show_track_artist else 5 %}
 
 <div class="table-wrap">

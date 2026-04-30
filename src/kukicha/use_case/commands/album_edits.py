@@ -790,7 +790,7 @@ def run_edit_album_job(
     return PlayerJobResult(
         message=(
             f"Tags saved for {job.album_label}. "
-            "Rescan the affected root to update library filters, artists, and stats."
+            "Rescan the library to update library filters, artists, and stats."
         ),
         context={
             "album": job.album_name,

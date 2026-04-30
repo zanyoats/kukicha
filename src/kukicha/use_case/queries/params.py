@@ -23,7 +23,6 @@ def album_list_query_from_params(params: dict[str, list[str]]) -> AlbumListQuery
         has_cover=optional_bool(first_value(params.get("has_cover", ()))),
         is_compilation=optional_bool(first_value(params.get("compilation", ()))),
         is_work=optional_bool(first_value(params.get("work", ()))),
-        is_playlist=optional_bool(first_value(params.get("playlist", ()))),
         page=parse_positive_int(first_value(params.get("page", ())), default=1),
         per_page=parse_positive_int(
             first_value(params.get("per_page", ())),
@@ -105,8 +104,6 @@ def album_query_params(
         params.append(("compilation", int(query.is_compilation)))
     if query.is_work is not None:
         params.append(("work", int(query.is_work)))
-    if query.is_playlist is not None:
-        params.append(("playlist", int(query.is_playlist)))
     if query.sort != ALBUM_LIST_SORT_RECENTLY_ADDED:
         params.append(("sort", query.sort))
     resolved_page = query.page if page is None else max(1, page)

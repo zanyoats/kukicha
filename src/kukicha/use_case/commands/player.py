@@ -26,13 +26,14 @@ def update_queue(runtime: PlayerRuntime, payload: dict[str, Any]) -> dict[str, o
             position=payload.get("position", 0),
             loaded_track_id=payload.get("loaded_track_id"),
             paused=payload.get("paused", True),
+            errored_track_ids=payload.get("errored_track_ids", ()),
         )
         return queue_state_payload(runtime.queue_state)
 
 
 def update_playback(runtime: PlayerRuntime, payload: dict[str, Any]) -> dict[str, object]:
     from ...player_common import clamp_int, optional_int
-    from ...player_presenters import queue_state_payload
+    from ...player_presenters import normalized_queue_error_ids, queue_state_payload
 
     with runtime.queue_lock:
         state = runtime.queue_state
@@ -49,6 +50,11 @@ def update_playback(runtime: PlayerRuntime, payload: dict[str, Any]) -> dict[str
                 state.position = state.track_ids.index(loaded_track_id)
         if "paused" in payload:
             state.paused = bool(payload.get("paused"))
+        if "errored_track_ids" in payload:
+            state.errored_track_ids = normalized_queue_error_ids(
+                payload.get("errored_track_ids"),
+                state.track_ids,
+            )
         return queue_state_payload(state)
 
 
@@ -113,12 +119,62 @@ def save_album_artist_split_mapping(
     return {
         "message": (
             f"Saved mapping for {album_artist}. "
-            "Rescan affected roots to update library filters, artists, and stats."
+            "Rescan the library to update library filters, artists, and stats."
         ),
         "mapping": {
             "album_artist": album_artist,
             "mapped_artists": mapped_artists,
         },
+    }
+
+
+def delete_stale_album_musicbrainz_override(
+    runtime: PlayerRuntime,
+    album_id: str,
+) -> dict[str, object]:
+    from ...player_errors import PlayerConflictError, PlayerNotFoundError
+
+    album_id = str(album_id or "").strip()
+    if not album_id:
+        raise ValueError("album id is required")
+
+    with connect_database(runtime.database) as connection:
+        current_album = connection.execute(
+            """
+            SELECT 1
+            FROM library_albums
+            WHERE album_id = ?
+            """,
+            (album_id,),
+        ).fetchone()
+        if current_album is not None:
+            raise PlayerConflictError(
+                "MusicBrainz override belongs to a current album; edit it from the album page"
+            )
+
+        override = connection.execute(
+            """
+            SELECT 1
+            FROM album_musicbrainz_links
+            WHERE album_id = ?
+                AND (
+                    COALESCE(TRIM(release_mbid), '') != ''
+                    OR COALESCE(TRIM(release_group_mbid), '') != ''
+                )
+            """,
+            (album_id,),
+        ).fetchone()
+        if override is None:
+            raise PlayerNotFoundError(f"MusicBrainz override does not exist: {album_id}")
+
+        connection.execute(
+            "DELETE FROM album_musicbrainz_links WHERE album_id = ?",
+            (album_id,),
+        )
+
+    return {
+        "album_id": album_id,
+        "message": f"Deleted MusicBrainz override for {album_id}.",
     }
 
 
@@ -161,34 +217,32 @@ def start_add_root(runtime: PlayerRuntime, path: str) -> dict[str, object]:
     }
 
 
-def start_rescan_root(runtime: PlayerRuntime, position: int) -> dict[str, object]:
+def start_rescan_library(runtime: PlayerRuntime) -> dict[str, object]:
     from ...player_jobs import job_payload
     from .roots import (
-        library_root_by_position,
-        root_display_label,
-        root_payload,
-        run_rescan_root_job,
+        library_root_count,
+        run_rescan_library_job,
     )
 
-    root = library_root_by_position(runtime.database, position)
-    root_label = root_display_label(root)
+    root_count = library_root_count(runtime.database)
+    if root_count <= 0:
+        raise ValueError("no roots configured")
+
     queued_job = runtime.enqueue_job(
-        kind="rescan_root",
-        queued_message=f"Rescan queued for {root_label}.",
-        running_message=f"Rescan running for {root_label}.",
-        canceled_message=f"Rescan canceled for {root_label}.",
-        failed_message=f"Rescan failed for {root_label}.",
+        kind="rescan_library",
+        queued_message="Rescan queued.",
+        running_message="Rescan running.",
+        canceled_message="Rescan canceled.",
+        failed_message="Rescan failed.",
         context={
-            "path": root.path,
-            "root_position": root.position,
+            "roots_scanned": root_count,
         },
-        runner=lambda cancel_token: run_rescan_root_job(runtime, root, cancel_token),
+        runner=lambda cancel_token: run_rescan_library_job(runtime, cancel_token),
     )
 
     return {
-        "message": f"Rescan queued for {root_label}.",
+        "message": "Rescan queued.",
         "job": job_payload(queued_job),
-        "root": root_payload(root),
     }
 
 

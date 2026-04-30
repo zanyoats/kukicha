@@ -8,6 +8,7 @@ from urllib.parse import quote, urlencode
 
 from .use_case import (
     ALBUM_LIST_SORT_ARTIST,
+    ALBUM_LIST_SORT_GENRE,
     ALBUM_LIST_SORT_RECENTLY_ADDED,
     AlbumDetails,
     AlbumListQuery,
@@ -29,13 +30,16 @@ PLAYLIST_COVER_SVG = playlist_cover_svg("Playlist")
 PLAYLIST_COVER_DATA_URL = playlist_cover_data_url(PLAYLIST_COVER_SVG)
 ALBUM_SORT_OPTIONS = (
     (ALBUM_LIST_SORT_RECENTLY_ADDED, "Recently Added"),
-    (ALBUM_LIST_SORT_ARTIST, "Artist, Album"),
+    (ALBUM_LIST_SORT_ARTIST, "Artist, Year, Album"),
+    (ALBUM_LIST_SORT_GENRE, "Genre"),
 )
 PLAYER_PAGE_LINKS = (
     ("library", "Albums", "/"),
     ("artists", "Artists", "/artists"),
+    ("playlists", "Playlist", "/playlists"),
     ("roots", "Roots", "/roots"),
     ("artist-split-rules", "Artists Split Rules", "/artist-split-rules"),
+    ("musicbrainz-overrides", "MusicBrainz Overrides", "/musicbrainz-overrides"),
     ("cache", "Cache", "/cache"),
     ("jobs", "Jobs", "/jobs"),
     ("help", "Help", "/help"),
@@ -56,6 +60,7 @@ PLAYER_PAGE_MENU_ITEMS = (
     PlayerPageLink(kind="heading", title="LIBRARY"),
     PlayerPageLink(kind="link", key="library", title="Albums", url="/"),
     PlayerPageLink(kind="link", key="artists", title="Artists", url="/artists"),
+    PlayerPageLink(kind="link", key="playlists", title="Playlist", url="/playlists"),
     PlayerPageLink(kind="divider"),
     PlayerPageLink(kind="heading", title="SETTINGS"),
     PlayerPageLink(kind="link", key="roots", title="Roots", url="/roots"),
@@ -64,6 +69,12 @@ PLAYER_PAGE_MENU_ITEMS = (
         key="artist-split-rules",
         title="Artists Split Rules",
         url="/artist-split-rules",
+    ),
+    PlayerPageLink(
+        kind="link",
+        key="musicbrainz-overrides",
+        title="MusicBrainz Overrides",
+        url="/musicbrainz-overrides",
     ),
     PlayerPageLink(kind="link", key="cache", title="Cache", url="/cache"),
     PlayerPageLink(kind="divider"),
@@ -115,6 +126,11 @@ def album_index_url(query: AlbumListQuery, *, page: int | None = None) -> str:
     params = album_query_params(query, page=page)
     encoded = urlencode(params, doseq=True, safe="[]")
     return f"/?{encoded}" if encoded else "/"
+
+def playlist_index_url(query: AlbumListQuery, *, page: int | None = None) -> str:
+    params = album_query_params(query, page=page)
+    encoded = urlencode(params, doseq=True, safe="[]")
+    return f"/playlists?{encoded}" if encoded else "/playlists"
 
 def artist_index_url(artist: str) -> str:
     return album_index_url(AlbumListQuery(artists=(artist,)))
@@ -357,12 +373,10 @@ def genre_filter_group_for_style(
 def filter_match_key(value: str) -> str:
     return " ".join(value.casefold().strip().split())
 
-def album_genre_year_parts(album: AlbumDetails) -> tuple[str, ...]:
+def album_genre_parts(album: AlbumDetails) -> tuple[str, ...]:
     parts: list[str] = []
     if album.genres:
         parts.append(", ".join(album.genres))
-    if album.year:
-        parts.append(str(album.year))
     return tuple(parts)
 
 def album_style_parts(album: AlbumDetails) -> tuple[str, ...]:
@@ -378,7 +392,6 @@ def property_filter_count(query: AlbumListQuery) -> int:
             query.has_cover,
             query.is_compilation,
             query.is_work,
-            query.is_playlist,
         )
     )
 
