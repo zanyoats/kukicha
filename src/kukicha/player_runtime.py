@@ -1,9 +1,16 @@
 from __future__ import annotations
 
+from collections import deque
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from queue import Queue
-from threading import Lock
+from threading import Event, Lock, Thread
+import logging
+
+from .album_artists import DEFAULT_ALBUM_ARTIST_SPLIT_PATTERNS
+
+LOGGER = logging.getLogger("kukicha.player")
 
 
 @dataclass(slots=True)
@@ -14,14 +21,55 @@ class PlayerQueueState:
     paused: bool = True
 
 
+class PlayerJobCanceled(Exception):
+    """Raised by cooperative jobs when cancellation is requested."""
+
+
+class PlayerJobCancelToken:
+    def __init__(self) -> None:
+        self._event = Event()
+
+    def request_cancel(self) -> None:
+        self._event.set()
+
+    @property
+    def canceled(self) -> bool:
+        return self._event.is_set()
+
+    def raise_if_canceled(self) -> None:
+        if self.canceled:
+            raise PlayerJobCanceled("Canceled by user.")
+
+
 @dataclass(frozen=True, slots=True)
-class PlayerActionRecord:
-    action_id: int
+class PlayerJobRecord:
+    job_id: int
     created_at: str
+    updated_at: str
+    started_at: str | None
+    finished_at: str | None
+    cancel_requested_at: str | None
     kind: str
     status: str
     message: str
+    reason: str
     context: dict[str, object]
+
+
+@dataclass(frozen=True, slots=True)
+class PlayerJobResult:
+    message: str
+    context: dict[str, object] | None = None
+
+
+@dataclass(slots=True)
+class QueuedPlayerJob:
+    record: PlayerJobRecord
+    running_message: str
+    canceled_message: str
+    failed_message: str
+    runner: Callable[[PlayerJobCancelToken], PlayerJobResult]
+    cancel_token: PlayerJobCancelToken
 
 
 class PlayerRuntime:
@@ -41,39 +89,175 @@ class PlayerRuntime:
         self.queue_state = PlayerQueueState(track_ids=[])
         self.queue_lock = Lock()
         self.missing_artwork_keys: set[tuple[int, int]] = set()
-        self.notification_lock = Lock()
-        self.notification_subscribers: set[Queue[dict[str, object]]] = set()
+        self.job_event_lock = Lock()
+        self.job_event_subscribers: set[Queue[dict[str, object]]] = set()
         self.playlist_file_lock = Lock()
         self.job_lock = Lock()
-        self.active_library_job: str | None = None
+        self.job_queue: deque[QueuedPlayerJob] = deque()
+        self.job_worker_thread: Thread | None = None
+        self.job_cancel_tokens: dict[int, PlayerJobCancelToken] = {}
 
-    def publish_notification(self, notification: PlayerActionRecord) -> None:
-        from .player_actions import action_payload
+    def enqueue_job(
+        self,
+        *,
+        kind: str,
+        queued_message: str,
+        running_message: str,
+        canceled_message: str,
+        failed_message: str,
+        context: dict[str, object],
+        runner: Callable[[PlayerJobCancelToken], PlayerJobResult],
+    ) -> PlayerJobRecord:
+        from .use_case import create_player_job
 
-        payload = action_payload(notification)
-        with self.notification_lock:
-            subscribers = tuple(self.notification_subscribers)
+        record = create_player_job(
+            self.database,
+            kind=kind,
+            message=queued_message,
+            context=context,
+        )
+        token = PlayerJobCancelToken()
+        queued = QueuedPlayerJob(
+            record=record,
+            running_message=running_message,
+            canceled_message=canceled_message,
+            failed_message=failed_message,
+            runner=runner,
+            cancel_token=token,
+        )
+        with self.job_lock:
+            self.job_queue.append(queued)
+            self.job_cancel_tokens[record.job_id] = token
+            thread_to_start = self.ensure_job_worker_locked()
+        self.publish_job(record)
+        if thread_to_start is not None:
+            thread_to_start.start()
+        return record
+
+    def ensure_job_worker_locked(self) -> Thread | None:
+        if self.job_worker_thread is not None:
+            return None
+        self.job_worker_thread = Thread(target=self.run_job_worker, daemon=True)
+        return self.job_worker_thread
+
+    def run_job_worker(self) -> None:
+        while True:
+            with self.job_lock:
+                if not self.job_queue:
+                    self.job_worker_thread = None
+                    return
+                queued = self.job_queue.popleft()
+            self.run_queued_job(queued)
+
+    def run_queued_job(self, queued: QueuedPlayerJob) -> None:
+        from .use_case import get_player_job, update_player_job
+        from .use_case.commands.jobs import utc_now_iso
+
+        job_id = queued.record.job_id
+        try:
+            current = get_player_job(self.database, job_id)
+        except Exception:
+            LOGGER.exception("failed to load queued job %s", job_id)
+            self.discard_job_token(job_id)
+            return
+
+        if current.status == "canceled" or current.cancel_requested_at:
+            self.discard_job_token(job_id)
+            return
+
+        try:
+            running_job = update_player_job(
+                self.database,
+                job_id,
+                status="running",
+                message=queued.running_message,
+                started_at=utc_now_iso(),
+            )
+            self.publish_job(running_job)
+            result = queued.runner(queued.cancel_token)
+            succeeded_job = update_player_job(
+                self.database,
+                job_id,
+                status="succeeded",
+                message=result.message,
+                context=result.context if result.context is not None else running_job.context,
+                finished_at=utc_now_iso(),
+            )
+            self.publish_job(succeeded_job)
+        except PlayerJobCanceled as error:
+            canceled_job = update_player_job(
+                self.database,
+                job_id,
+                status="canceled",
+                message=queued.canceled_message,
+                reason=str(error) or "Canceled by user.",
+                finished_at=utc_now_iso(),
+            )
+            self.publish_job(canceled_job)
+        except Exception as error:
+            LOGGER.exception("job %s failed", job_id)
+            failed_job = update_player_job(
+                self.database,
+                job_id,
+                status="failed",
+                message=queued.failed_message,
+                reason=brief_error_reason(error),
+                finished_at=utc_now_iso(),
+            )
+            self.publish_job(failed_job)
+        finally:
+            self.discard_job_token(job_id)
+
+    def discard_job_token(self, job_id: int) -> None:
+        with self.job_lock:
+            self.job_cancel_tokens.pop(job_id, None)
+
+    def publish_job(self, job: PlayerJobRecord) -> None:
+        from .player_jobs import job_payload
+
+        payload = job_payload(job)
+        with self.job_event_lock:
+            subscribers = tuple(self.job_event_subscribers)
         for subscriber in subscribers:
             subscriber.put_nowait(payload)
 
-    def subscribe_notifications(self, subscriber: Queue[dict[str, object]]) -> None:
-        with self.notification_lock:
-            self.notification_subscribers.add(subscriber)
+    def subscribe_jobs(self, subscriber: Queue[dict[str, object]]) -> None:
+        with self.job_event_lock:
+            self.job_event_subscribers.add(subscriber)
 
-    def unsubscribe_notifications(self, subscriber: Queue[dict[str, object]]) -> None:
-        with self.notification_lock:
-            self.notification_subscribers.discard(subscriber)
+    def unsubscribe_jobs(self, subscriber: Queue[dict[str, object]]) -> None:
+        with self.job_event_lock:
+            self.job_event_subscribers.discard(subscriber)
 
-    def begin_library_job(self, job_kind: str) -> bool:
+    def cancel_job(self, job_id: int) -> PlayerJobRecord:
+        from .use_case import request_cancel_player_job
+
+        canceled_message = None
         with self.job_lock:
-            if self.active_library_job is not None:
-                return False
-            self.active_library_job = job_kind
-            return True
+            token = self.job_cancel_tokens.get(job_id)
+            if token is not None:
+                token.request_cancel()
+            for queued in self.job_queue:
+                if queued.record.job_id == job_id:
+                    canceled_message = queued.canceled_message
+                    break
+        job = request_cancel_player_job(
+            self.database,
+            job_id,
+            message=canceled_message,
+        )
+        self.publish_job(job)
+        return job
 
-    def finish_library_job(self) -> None:
-        with self.job_lock:
-            self.active_library_job = None
+    @property
+    def album_artist_split_patterns(self) -> tuple[str, ...]:
+        return tuple(
+            getattr(
+                self.options,
+                "album_artist_split_patterns",
+                DEFAULT_ALBUM_ARTIST_SPLIT_PATTERNS,
+            )
+        )
 
     def queue_state_copy(self) -> PlayerQueueState:
         with self.queue_lock:
@@ -90,8 +274,15 @@ class PlayerRuntime:
         with self.queue_lock:
             reset_queue_state(self.queue_state)
 
-    def notification_payloads(self) -> list[dict[str, object]]:
-        from .player_actions import action_payload
-        from .use_case import list_player_actions
+    def job_payloads(self) -> list[dict[str, object]]:
+        from .player_jobs import job_payload
+        from .use_case import list_player_jobs
 
-        return [action_payload(action) for action in list_player_actions(self.database)]
+        return [job_payload(job) for job in list_player_jobs(self.database)]
+
+
+def brief_error_reason(error: BaseException) -> str:
+    reason = str(error).strip()
+    if not reason:
+        return error.__class__.__name__
+    return reason.splitlines()[0][:240]

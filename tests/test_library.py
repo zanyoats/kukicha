@@ -118,10 +118,602 @@ class LibraryAlbumPathQueryTest(unittest.TestCase):
         self.assertFalse(album.has_cover)
         self.assertFalse(album.is_compilation)
         self.assertFalse(album.is_work)
-        self.assertEqual(album.art_track_id, root_b_track.track_id)
+        self.assertIsNone(album.art_track_id)
         self.assertEqual(album.track_ids, (root_b_track.track_id,))
         self.assertEqual([track.path for track in album.tracks], [root_b_track.path])
         self.assertEqual([track.has_cover for track in album.tracks], [False])
+
+    def test_album_page_uses_root_scoped_rollups(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            database = Path(tempdir) / "kukicha.sqlite"
+            root_a_track = TrackRecord(
+                path="/music/a/Artist/Album/01.flac",
+                root_position=0,
+                file_type="flac",
+                artist="Artist",
+                album_artist="Artist",
+                album="Album",
+                title="Root A",
+                work="Root A Work",
+                genres=["Electronic"],
+                styles=["Ambient"],
+                album_artwork=TrackArtwork(mime_type="image/png", data=b"cover"),
+            )
+            root_b_track = TrackRecord(
+                path="/music/b/Artist/Album/01.flac",
+                root_position=1,
+                file_type="flac",
+                artist="Artist",
+                album_artist="Artist",
+                album="Album",
+                title="Root B",
+                genres=["Jazz"],
+                styles=["Modal"],
+            )
+            save_library(
+                MusicLibrary(
+                    roots=["/music/a", "/music/b"],
+                    tracks=[root_a_track, root_b_track],
+                    supported_extensions=[".flac"],
+                    generated_at="2026-04-22T00:00:00+00:00",
+                ),
+                database,
+            )
+
+            api = LibraryQueries(database)
+            root_b_page = api.list_album_page(
+                AlbumListQuery(root_positions=(1,))
+            )
+            root_b_cover_page = api.list_album_page(
+                AlbumListQuery(root_positions=(1,), has_cover=True)
+            )
+            root_a_cover_page = api.list_album_page(
+                AlbumListQuery(root_positions=(0,), has_cover=True)
+            )
+            root_b_genre_page = api.list_album_page(
+                AlbumListQuery(root_positions=(1,), genres=("Jazz",))
+            )
+
+        self.assertEqual([album.album for album in root_b_page.items], ["Album"])
+        self.assertEqual(root_b_page.items[0].track_count, 1)
+        self.assertIsNone(root_b_page.items[0].art_track_id)
+        self.assertFalse(hasattr(root_b_page.items[0], "track_ids"))
+        self.assertEqual(root_b_cover_page.items, ())
+        self.assertEqual([album.album for album in root_a_cover_page.items], ["Album"])
+        self.assertEqual([album.album for album in root_b_genre_page.items], ["Album"])
+
+    def test_album_art_track_id_uses_track_that_has_album_artwork(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            database = Path(tempdir) / "kukicha.sqlite"
+            first_track = TrackRecord(
+                path="/music/Artist/Album/01.flac",
+                root_position=0,
+                file_type="flac",
+                artist="Artist",
+                album_artist="Artist",
+                album="Album",
+                title="No Cover",
+            )
+            cover_track = TrackRecord(
+                path="/music/Artist/Album/02.flac",
+                root_position=0,
+                file_type="flac",
+                artist="Artist",
+                album_artist="Artist",
+                album="Album",
+                title="Cover",
+                album_artwork=TrackArtwork(mime_type="image/png", data=b"cover"),
+            )
+            save_library(
+                MusicLibrary(
+                    roots=["/music"],
+                    tracks=[first_track, cover_track],
+                    supported_extensions=[".flac"],
+                    generated_at="2026-04-29T00:00:00+00:00",
+                ),
+                database,
+            )
+
+            api = LibraryQueries(database)
+            album = api.get_album("artist::album")
+            page = api.list_album_page(AlbumListQuery())
+
+        self.assertTrue(album.has_cover)
+        self.assertEqual(album.art_track_id, cover_track.track_id)
+        self.assertEqual(page.items[0].art_track_id, cover_track.track_id)
+
+    def test_save_library_writes_root_scan_stats(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            database = Path(tempdir) / "kukicha.sqlite"
+            first_track = TrackRecord(
+                path="/music/a/Artist A/First/01.flac",
+                root_position=0,
+                file_type="flac",
+                artist="Artist A",
+                album_artist="Album Artist A",
+                album="First",
+                title="One",
+            )
+            save_library(
+                MusicLibrary(
+                    roots=["/music/a", "/music/b", "/music/empty"],
+                    tracks=[
+                        first_track,
+                        TrackRecord(
+                            path="/music/a/Artist A/First/02.flac",
+                            root_position=0,
+                            file_type="flac",
+                            artist="Artist A",
+                            album_artist="Album Artist A",
+                            album="First",
+                            title="Two",
+                        ),
+                        TrackRecord(
+                            path="/music/a/Artist B/Second/01.flac",
+                            root_position=0,
+                            file_type="flac",
+                            artist="Artist B",
+                            album_artist="Album Artist B",
+                            album="Second",
+                            title="Three",
+                        ),
+                        TrackRecord(
+                            path="/music/b/Artist A/Third/01.flac",
+                            root_position=1,
+                            file_type="flac",
+                            artist="Artist A",
+                            album_artist="Album Artist A",
+                            album="Third",
+                            title="Four",
+                        ),
+                    ],
+                    supported_extensions=[".flac"],
+                    generated_at="2026-04-22T00:00:00+00:00",
+                    playlists=[
+                        PlaylistRecord(
+                            path="/music/a/mix.m3u",
+                            name="Root A Mix",
+                            root_position=0,
+                            items=[PlaylistItemRecord(path=first_track.path)],
+                        ),
+                        PlaylistRecord(
+                            path="/music/b/mix.m3u",
+                            name="Root B Mix",
+                            root_position=1,
+                        ),
+                    ],
+                ),
+                database,
+            )
+
+            stats = LibraryQueries(database).library_root_stats()
+            total_stats = LibraryQueries(database).library_stats()
+
+        self.assertEqual(
+            [
+                (
+                    stat.root_position,
+                    stat.tracks_scanned,
+                    stat.albums_scanned,
+                    stat.playlists_scanned,
+                )
+                for stat in stats
+            ],
+            [
+                (0, 3, 2, 1),
+                (1, 1, 1, 1),
+                (2, 0, 0, 0),
+            ],
+        )
+        self.assertEqual(
+            [
+                (
+                    artist.album_artist,
+                    artist.tracks_scanned,
+                    artist.albums_scanned,
+                )
+                for artist in stats[0].album_artists
+            ],
+            [
+                ("Album Artist A", 2, 1),
+                ("Album Artist B", 1, 1),
+            ],
+        )
+        self.assertEqual(
+            [
+                (
+                    artist.album_artist,
+                    artist.tracks_scanned,
+                    artist.albums_scanned,
+                )
+                for artist in stats[1].album_artists
+            ],
+            [("Album Artist A", 1, 1)],
+        )
+        self.assertEqual(stats[2].album_artists, ())
+        self.assertEqual(total_stats.tracks_scanned, 4)
+        self.assertEqual(total_stats.albums_scanned, 3)
+        self.assertEqual(total_stats.playlists_scanned, 2)
+        self.assertEqual(
+            [
+                (
+                    artist.album_artist,
+                    artist.tracks_scanned,
+                    artist.albums_scanned,
+                )
+                for artist in total_stats.album_artists
+            ],
+            [
+                ("Album Artist A", 3, 2),
+                ("Album Artist B", 1, 1),
+            ],
+        )
+
+    def test_album_artist_stats_group_case_variants_like_filters(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            database = Path(tempdir) / "kukicha.sqlite"
+            save_library(
+                MusicLibrary(
+                    roots=["/music"],
+                    tracks=[
+                        TrackRecord(
+                            path="/music/The Sea And Cake/First/01.flac",
+                            root_position=0,
+                            file_type="flac",
+                            artist="The Sea And Cake",
+                            album_artist="The Sea And Cake",
+                            album="First",
+                            title="One",
+                        ),
+                        TrackRecord(
+                            path="/music/The Sea and Cake/Second/01.flac",
+                            root_position=0,
+                            file_type="flac",
+                            artist="The Sea and Cake",
+                            album_artist="The Sea and Cake",
+                            album="Second",
+                            title="Two",
+                        ),
+                    ],
+                    supported_extensions=[".flac"],
+                    generated_at="2026-04-29T00:00:00+00:00",
+                ),
+                database,
+            )
+
+            api = LibraryQueries(database)
+            filters = api.filter_options()
+            root_stats = api.library_root_stats()
+            total_stats = api.library_stats()
+            expanded_query = api.expand_album_list_query(
+                AlbumListQuery(artists=("The Sea and Cake",))
+            )
+            filtered_page = api.list_album_page(
+                AlbumListQuery(artists=("The Sea and Cake",))
+            )
+            second_album = api.get_album("the-sea-and-cake::second")
+            connection = connect_database(database, create=False)
+            try:
+                stored_album_artists = tuple(
+                    str(row["artist"])
+                    for row in connection.execute(
+                        """
+                        SELECT artist
+                        FROM library_album_artists
+                        ORDER BY album_id, position
+                        """
+                    )
+                )
+                stored_track_album_artists = tuple(
+                    str(row["album_artist"])
+                    for row in connection.execute(
+                        """
+                        SELECT album_artist
+                        FROM library_tracks
+                        ORDER BY album_id
+                        """
+                    )
+                )
+            finally:
+                connection.close()
+
+        self.assertEqual(filters.artists, ("The Sea And Cake",))
+        self.assertEqual(
+            stored_album_artists,
+            ("The Sea And Cake", "The Sea And Cake"),
+        )
+        self.assertEqual(
+            stored_track_album_artists,
+            ("The Sea And Cake", "The Sea and Cake"),
+        )
+        self.assertEqual(expanded_query.artists, ("The Sea And Cake",))
+        self.assertEqual(
+            [album.artist for album in filtered_page.items],
+            ["The Sea And Cake", "The Sea And Cake"],
+        )
+        self.assertEqual(second_album.artist, "The Sea And Cake")
+        self.assertEqual(second_album.album_artists, ("The Sea And Cake",))
+        self.assertEqual(
+            [
+                (
+                    artist.album_artist,
+                    artist.tracks_scanned,
+                    artist.albums_scanned,
+                )
+                for artist in root_stats[0].album_artists
+            ],
+            [("The Sea And Cake", 2, 2)],
+        )
+        self.assertEqual(
+            [
+                (
+                    artist.album_artist,
+                    artist.tracks_scanned,
+                    artist.albums_scanned,
+                )
+                for artist in total_stats.album_artists
+            ],
+            [("The Sea And Cake", 2, 2)],
+        )
+
+
+class LibraryAlbumArtistMappingTest(unittest.TestCase):
+    def save_single_album_artist_mapping(
+        self,
+        album_artist: str,
+        *,
+        album_artist_split_patterns: tuple[str | None, ...] | None = None,
+    ) -> tuple[str | None, list[str]]:
+        with TemporaryDirectory() as tempdir:
+            database = Path(tempdir) / "kukicha.sqlite"
+            save_kwargs = {}
+            if album_artist_split_patterns is not None:
+                save_kwargs["album_artist_split_patterns"] = album_artist_split_patterns
+            save_library(
+                MusicLibrary(
+                    roots=["/music"],
+                    tracks=[
+                        TrackRecord(
+                            path="/music/mapping-test/01.flac",
+                            root_position=0,
+                            file_type="flac",
+                            artist=album_artist,
+                            album_artist=album_artist,
+                            album="Mapping Test",
+                            title="One",
+                        )
+                    ],
+                    supported_extensions=[".flac"],
+                    generated_at="2026-04-22T00:00:00+00:00",
+                ),
+                database,
+                **save_kwargs,
+            )
+
+            connection = connect_database(database, create=False)
+            try:
+                mapping_row = connection.execute(
+                    """
+                    SELECT mapped_artists
+                    FROM album_artist_split_mappings
+                    WHERE album_artist = ?
+                    """,
+                    (album_artist,),
+                ).fetchone()
+                album_artists = [
+                    str(row["artist"])
+                    for row in connection.execute(
+                        """
+                        SELECT artist
+                        FROM library_album_artists
+                        ORDER BY album_id, position
+                        """
+                    )
+                ]
+            finally:
+                connection.close()
+
+        mapping_text = (
+            str(mapping_row["mapped_artists"]) if mapping_row is not None else None
+        )
+        return mapping_text, album_artists
+
+    def test_save_library_maps_split_album_artists_for_queries(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            database = Path(tempdir) / "kukicha.sqlite"
+            save_library(
+                MusicLibrary(
+                    roots=["/music"],
+                    tracks=[
+                        TrackRecord(
+                            path="/music/foo/01.flac",
+                            root_position=0,
+                            file_type="flac",
+                            artist="Track Artist",
+                            album_artist="Berlin Philharmonic, Bell & Karajan",
+                            album="Foo",
+                            title="One",
+                        )
+                    ],
+                    supported_extensions=[".flac"],
+                    generated_at="2026-04-22T00:00:00+00:00",
+                ),
+                database,
+            )
+
+            connection = connect_database(database, create=False)
+            try:
+                mapping_row = connection.execute(
+                    """
+                    SELECT mapped_artists
+                    FROM album_artist_split_mappings
+                    WHERE album_artist = ?
+                    """,
+                    ("Berlin Philharmonic, Bell & Karajan",),
+                ).fetchone()
+                album_artist_rows = [
+                    str(row["artist"])
+                    for row in connection.execute(
+                        """
+                        SELECT artist
+                        FROM library_album_artists
+                        WHERE album_id = ?
+                        ORDER BY position
+                        """,
+                        ("berlin-philharmonic-bell-karajan::foo",),
+                    )
+                ]
+            finally:
+                connection.close()
+
+            api = LibraryQueries(database)
+            filtered_page = api.list_album_page(AlbumListQuery(artists=("Bell",)))
+            search_page = api.list_album_page(AlbumListQuery(search="Karajan"))
+            stats = api.library_stats()
+            root_stats = api.library_root_stats()
+            album = api.get_album("berlin-philharmonic-bell-karajan::foo")
+
+        self.assertIsNotNone(mapping_row)
+        self.assertEqual(
+            str(mapping_row["mapped_artists"]),
+            "Berlin Philharmonic\nBell\nKarajan",
+        )
+        self.assertEqual(
+            album_artist_rows,
+            ["Berlin Philharmonic", "Bell", "Karajan"],
+        )
+        self.assertEqual([item.album for item in filtered_page.items], ["Foo"])
+        self.assertEqual([item.album for item in search_page.items], ["Foo"])
+        self.assertEqual(album.artist, "Berlin Philharmonic, Bell, Karajan")
+        self.assertEqual(album.album_artists, ("Berlin Philharmonic", "Bell", "Karajan"))
+        self.assertIn(
+            "Bell",
+            {artist.album_artist for artist in stats.album_artists},
+        )
+        self.assertIn(
+            "Karajan",
+            {artist.album_artist for artist in root_stats[0].album_artists},
+        )
+
+    def test_save_library_preserves_user_album_artist_mapping(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            database = Path(tempdir) / "kukicha.sqlite"
+            connection = connect_database(database)
+            try:
+                connection.execute(
+                    """
+                    INSERT INTO album_artist_split_mappings (
+                        album_artist,
+                        mapped_artists
+                    ) VALUES (?, ?)
+                    """,
+                    ("Brian Eno & Robert Fripp", "Robert Fripp\nBrian Eno"),
+                )
+                connection.commit()
+            finally:
+                connection.close()
+
+            save_library(
+                MusicLibrary(
+                    roots=["/music"],
+                    tracks=[
+                        TrackRecord(
+                            path="/music/no-pussyfooting/01.flac",
+                            root_position=0,
+                            file_type="flac",
+                            artist="Brian Eno",
+                            album_artist="Brian Eno & Robert Fripp",
+                            album="No Pussyfooting",
+                            title="The Heavenly Music Corporation",
+                        )
+                    ],
+                    supported_extensions=[".flac"],
+                    generated_at="2026-04-22T00:00:00+00:00",
+                ),
+                database,
+            )
+
+            connection = connect_database(database, create=False)
+            try:
+                mapping_text = str(
+                    connection.execute(
+                        """
+                        SELECT mapped_artists
+                        FROM album_artist_split_mappings
+                        WHERE album_artist = ?
+                        """,
+                        ("Brian Eno & Robert Fripp",),
+                    ).fetchone()["mapped_artists"]
+                )
+            finally:
+                connection.close()
+
+            album = LibraryQueries(database).get_album(
+                "robert-fripp-brian-eno::no-pussyfooting"
+            )
+
+        self.assertEqual(mapping_text, "Robert Fripp\nBrian Eno")
+        self.assertEqual(album.album_artists, ("Robert Fripp", "Brian Eno"))
+
+    def test_save_library_does_not_map_unsplit_album_artist(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            database = Path(tempdir) / "kukicha.sqlite"
+            save_library(
+                MusicLibrary(
+                    roots=["/music"],
+                    tracks=[
+                        TrackRecord(
+                            path="/music/radiohead/01.flac",
+                            root_position=0,
+                            file_type="flac",
+                            artist="Radiohead",
+                            album_artist="Radiohead",
+                            album="Kid A",
+                            title="Everything in Its Right Place",
+                        )
+                    ],
+                    supported_extensions=[".flac"],
+                    generated_at="2026-04-22T00:00:00+00:00",
+                ),
+                database,
+            )
+
+            connection = connect_database(database, create=False)
+            try:
+                mapping_count = int(
+                    connection.execute(
+                        "SELECT COUNT(*) AS count FROM album_artist_split_mappings"
+                    ).fetchone()["count"]
+                )
+            finally:
+                connection.close()
+
+        self.assertEqual(mapping_count, 0)
+
+    def test_save_library_records_default_comma_mapping_unchanged(self) -> None:
+        mapping_text, album_artists = self.save_single_album_artist_mapping(
+            "Earth, Wind"
+        )
+
+        self.assertEqual(mapping_text, "Earth, Wind")
+        self.assertEqual(album_artists, ["Earth, Wind"])
+
+    def test_save_library_records_default_word_pattern_mapping_unchanged(self) -> None:
+        mapping_text, album_artists = self.save_single_album_artist_mapping(
+            "Brian Eno And Roger Eno"
+        )
+
+        self.assertEqual(mapping_text, "Brian Eno And Roger Eno")
+        self.assertEqual(album_artists, ["Brian Eno And Roger Eno"])
+
+    def test_save_library_records_custom_pattern_mapping_unchanged(self) -> None:
+        mapping_text, album_artists = self.save_single_album_artist_mapping(
+            "Alice feat. Bob",
+            album_artist_split_patterns=("feat.",),
+        )
+
+        self.assertEqual(mapping_text, "Alice feat. Bob")
+        self.assertEqual(album_artists, ["Alice feat. Bob"])
 
 
 class LibraryMusicBrainzPersistenceTest(unittest.TestCase):
@@ -133,10 +725,10 @@ class LibraryMusicBrainzPersistenceTest(unittest.TestCase):
                 connection.execute(
                     """
                     INSERT INTO library_albums (
-                        album_id, artist, album, year, track_count
-                    ) VALUES (?, ?, ?, ?, ?)
+                        album_id, album, year, track_count
+                    ) VALUES (?, ?, ?, ?)
                     """,
-                    ("artist::album", "Artist", "Album", 2000, 1),
+                    ("artist::album", "Album", 2000, 1),
                 )
                 connection.execute(
                     """
@@ -255,10 +847,10 @@ class LibraryMusicBrainzPersistenceTest(unittest.TestCase):
                 connection.execute(
                     """
                     INSERT INTO library_albums (
-                        album_id, artist, album, year, track_count
-                    ) VALUES (?, ?, ?, ?, ?)
+                        album_id, album, year, track_count
+                    ) VALUES (?, ?, ?, ?)
                     """,
-                    ("artist::album", "Artist", "Album", 2000, 1),
+                    ("artist::album", "Album", 2000, 1),
                 )
                 connection.execute(
                     """
@@ -333,10 +925,10 @@ class LibraryMusicBrainzPersistenceTest(unittest.TestCase):
                 connection.execute(
                     """
                     INSERT INTO library_albums (
-                        album_id, artist, album, year, track_count
-                    ) VALUES (?, ?, ?, ?, ?)
+                        album_id, album, year, track_count
+                    ) VALUES (?, ?, ?, ?)
                     """,
-                    ("artist::album", "Artist", "Album", 2000, 1),
+                    ("artist::album", "Album", 2000, 1),
                 )
                 connection.execute(
                     """
@@ -457,6 +1049,7 @@ class LibraryMusicBrainzPersistenceTest(unittest.TestCase):
                     str(row["name"])
                     for row in connection.execute("PRAGMA table_info(library_albums)")
                 }
+                self.assertNotIn("artist", album_columns)
                 self.assertNotIn("musicbrainz_release_mbid", album_columns)
                 self.assertNotIn("musicbrainz_release_group_mbid", album_columns)
                 self.assertIsNone(
@@ -488,6 +1081,19 @@ class LibraryMusicBrainzPersistenceTest(unittest.TestCase):
                 self.assertIsNotNone(row)
                 self.assertEqual(str(row["release_mbid"]), "release-1")
                 self.assertEqual(str(row["release_group_mbid"]), "group-1")
+                artist_rows = [
+                    str(row["artist"])
+                    for row in connection.execute(
+                        """
+                        SELECT artist
+                        FROM library_album_artists
+                        WHERE album_id = ?
+                        ORDER BY position
+                        """,
+                        ("artist::album",),
+                    )
+                ]
+                self.assertEqual(artist_rows, ["Artist"])
             finally:
                 connection.close()
 
@@ -645,6 +1251,7 @@ class LibraryMusicBrainzPersistenceTest(unittest.TestCase):
 
         self.assertIn("file_created_at", track_columns)
         self.assertIn("file_created_at", album_columns)
+        self.assertNotIn("artist", album_columns)
         self.assertIn("file_created_at", playlist_columns)
         self.assertEqual(str(track_date), "2026-04-20T12:00:00+00:00")
         self.assertEqual(str(album_date), "2026-04-20T12:00:00+00:00")
@@ -899,6 +1506,41 @@ class LibraryPlaylistPersistenceTest(unittest.TestCase):
 
 
 class LibraryGenreResolutionTest(unittest.TestCase):
+    def test_resolve_library_genres_uses_supplied_connection_for_taxonomy(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            database = Path(tempdir) / "kukicha.sqlite"
+            connection = connect_database(database)
+            try:
+                library = MusicLibrary(
+                    roots=[],
+                    tracks=[
+                        TrackRecord(
+                            path="/music/track.flac",
+                            artist="Artist",
+                            album_artist="Artist",
+                            album="Album",
+                            title="Track",
+                            genres=["Electronic"],
+                        )
+                    ],
+                    supported_extensions=[".flac"],
+                    generated_at="2026-04-29T00:00:00+00:00",
+                )
+
+                with patch(
+                    "kukicha.use_case.library.connect_database",
+                    side_effect=AssertionError("unexpected nested connection"),
+                ):
+                    stats = resolve_library_genres(
+                        library,
+                        database,
+                        connection=connection,
+                    )
+            finally:
+                connection.close()
+
+        self.assertEqual(stats.exact_genre_matches, 1)
+
     def test_musicbrainz_empty_genres_fall_back_to_audio_tags(self) -> None:
         with TemporaryDirectory() as tempdir:
             database = Path(tempdir) / "kukicha.sqlite"
@@ -1130,6 +1772,89 @@ class LibraryCoverArtResolutionTest(unittest.TestCase):
                 self.assertEqual(stats.album_cover_overrides, 1)
                 self.assertEqual(stats.tracks_updated, 1)
                 caa_lookup.assert_called_once()
+            finally:
+                connection.close()
+
+    def test_resolve_library_cover_art_reuses_legacy_split_artist_musicbrainz_link(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            database = Path(tempdir) / "kukicha.sqlite"
+            connection = connect_database(database)
+            try:
+                old_album_id = (
+                    "academy-of-st-martin-in-the-fields-and-sir-neville-marriner"
+                    "::handel-music-for-the-royal-fireworks-and-water-music"
+                )
+                new_album_id = (
+                    "academy-of-st-martin-in-the-fields-sir-neville-marriner"
+                    "::handel-music-for-the-royal-fireworks-and-water-music"
+                )
+                connection.execute(
+                    """
+                    INSERT INTO album_musicbrainz_links (
+                        album_id, release_mbid, release_group_mbid
+                    ) VALUES (?, ?, ?)
+                    """,
+                    (old_album_id, "release-1", "group-1"),
+                )
+                connection.commit()
+
+                library = MusicLibrary(
+                    roots=[],
+                    tracks=[
+                        TrackRecord(
+                            path="/music/Academy/Handel/01.m4a",
+                            file_type="m4a",
+                            album_artist=(
+                                "Academy of St Martin in the Fields "
+                                "& Sir Neville Marriner"
+                            ),
+                            album="Handel: Music for the Royal Fireworks & Water Music",
+                            title="Track",
+                        )
+                    ],
+                    supported_extensions=[],
+                    generated_at="2026-04-23T00:00:00+00:00",
+                )
+                mb_artwork = TrackArtwork(mime_type="image/jpeg", data=b"musicbrainz-art")
+                artwork_by_height = {
+                    32: TrackArtwork(mime_type="image/jpeg", data=b"track-art"),
+                    250: TrackArtwork(mime_type="image/jpeg", data=b"album-art"),
+                }
+
+                with (
+                    patch(
+                        "kukicha.use_case.library.cover_art_archive_artworks_for_album",
+                        return_value={"release": mb_artwork},
+                    ) as caa_lookup,
+                    patch(
+                        "kukicha.use_case.library.thumbnail_artworks",
+                        return_value=artwork_by_height,
+                    ),
+                ):
+                    stats = resolve_library_cover_art(
+                        library,
+                        database,
+                        connection=connection,
+                    )
+
+                self.assertEqual(library.tracks[0].artwork, artwork_by_height[32])
+                self.assertEqual(library.tracks[0].album_artwork, artwork_by_height[250])
+                self.assertEqual(stats.album_cover_overrides, 1)
+                self.assertEqual(stats.tracks_updated, 1)
+                caa_lookup.assert_called_once()
+                self.assertEqual(caa_lookup.call_args.args[1].album_id, new_album_id)
+
+                row = connection.execute(
+                    """
+                    SELECT release_mbid, release_group_mbid
+                    FROM album_musicbrainz_links
+                    WHERE album_id = ?
+                    """,
+                    (new_album_id,),
+                ).fetchone()
+                self.assertIsNotNone(row)
+                self.assertEqual(str(row["release_mbid"]), "release-1")
+                self.assertEqual(str(row["release_group_mbid"]), "group-1")
             finally:
                 connection.close()
 

@@ -562,7 +562,43 @@ class AlbumGroupedGenreSelectionTest(unittest.TestCase):
 
 
 class AlbumTrackIdsTest(unittest.TestCase):
-    def test_list_album_page_includes_album_track_ids_in_playback_order(self) -> None:
+    def test_get_album_includes_album_track_ids_in_playback_order(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            database = Path(tempdir) / "library.sqlite"
+            save_library(
+                MusicLibrary(
+                    roots=[],
+                    tracks=[
+                        TrackRecord(
+                            path="/music/ordered-album/02.m4a",
+                            file_type="m4a",
+                            artist="Test Artist",
+                            album_artist="Test Artist",
+                            album="Ordered Album",
+                            title="Second",
+                            track_number="2",
+                        ),
+                        TrackRecord(
+                            path="/music/ordered-album/01.m4a",
+                            file_type="m4a",
+                            artist="Test Artist",
+                            album_artist="Test Artist",
+                            album="Ordered Album",
+                            title="First",
+                            track_number="1",
+                        ),
+                    ],
+                    supported_extensions=[".m4a"],
+                    generated_at="test",
+                ),
+                database,
+            )
+
+            album = LibraryQueries(database).get_album("test-artist::ordered-album")
+
+        self.assertEqual(album.track_ids, (2, 1))
+
+    def test_list_album_page_does_not_include_album_track_ids(self) -> None:
         with TemporaryDirectory() as tempdir:
             database = Path(tempdir) / "library.sqlite"
             save_library(
@@ -596,46 +632,7 @@ class AlbumTrackIdsTest(unittest.TestCase):
 
             page = LibraryQueries(database).list_album_page(AlbumListQuery())
 
-        self.assertEqual(page.items[0].track_ids, (2, 1))
-
-    def test_list_album_page_can_skip_album_track_ids(self) -> None:
-        with TemporaryDirectory() as tempdir:
-            database = Path(tempdir) / "library.sqlite"
-            save_library(
-                MusicLibrary(
-                    roots=[],
-                    tracks=[
-                        TrackRecord(
-                            path="/music/ordered-album/02.m4a",
-                            file_type="m4a",
-                            artist="Test Artist",
-                            album_artist="Test Artist",
-                            album="Ordered Album",
-                            title="Second",
-                            track_number="2",
-                        ),
-                        TrackRecord(
-                            path="/music/ordered-album/01.m4a",
-                            file_type="m4a",
-                            artist="Test Artist",
-                            album_artist="Test Artist",
-                            album="Ordered Album",
-                            title="First",
-                            track_number="1",
-                        ),
-                    ],
-                    supported_extensions=[".m4a"],
-                    generated_at="test",
-                ),
-                database,
-            )
-
-            page = LibraryQueries(database).list_album_page(
-                AlbumListQuery(),
-                include_track_ids=False,
-            )
-
-        self.assertEqual(page.items[0].track_ids, ())
+        self.assertFalse(hasattr(page.items[0], "track_ids"))
 
 
 class AlbumGenreFilterOptionsTest(unittest.TestCase):

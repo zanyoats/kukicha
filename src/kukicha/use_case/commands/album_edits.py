@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import logging
@@ -10,9 +11,20 @@ from typing import Any
 
 from ..queries import AlbumNotFoundError, TrackNotFoundError
 from ..database import connect_database, rebuild_album_search_index
-from ...discogs import most_common_value, most_common_year, parse_year
+from ...discogs import (
+    most_common_artist_values,
+    most_common_value,
+    most_common_year,
+    parse_year,
+)
+from ...album_artists import (
+    DEFAULT_ALBUM_ARTIST_SPLIT_PATTERNS,
+    display_album_artists,
+    track_album_artist_values,
+)
 from ...display import display_album_title
 from ..library import (
+    apply_album_artist_mappings,
     CoverArtResolutionStats,
     GenreResolutionStats,
     resolve_library_cover_art,
@@ -31,14 +43,13 @@ from ..musicbrainz import (
     normalize_musicbrainz_mbid,
     store_album_musicbrainz_link,
 )
-from .actions import record_player_action
 from ...player_common import optional_int, placeholders_for
 from .roots import (
     library_job_detail_lines,
     library_job_summary_text,
     reconcile_library_albums,
 )
-from ...player_runtime import PlayerRuntime
+from ...player_runtime import PlayerJobCancelToken, PlayerJobResult, PlayerRuntime
 from ...scanner import missing_required_tags, scan_track, write_track_audio_tags
 
 LOGGER = logging.getLogger("kukicha.player")
@@ -139,12 +150,13 @@ def prepare_album_musicbrainz_edit_request(
     try:
         album_row = connection.execute(
             """
-            SELECT artist, album
+            SELECT album
             FROM library_albums
             WHERE album_id = ?
             """,
             (album_id,),
         ).fetchone()
+        artist_label = album_artist_display_text(connection, album_id)
     finally:
         connection.close()
 
@@ -155,7 +167,7 @@ def prepare_album_musicbrainz_edit_request(
     return AlbumMusicBrainzEditRequest(
         album_id=album_id,
         album_label=album_display_label(
-            str(album_row["artist"]) if album_row["artist"] else None,
+            artist_label,
             album_name,
         ),
         album_name=album_name,
@@ -315,7 +327,7 @@ def prepare_album_tag_edit_job(
     try:
         album_row = connection.execute(
             """
-            SELECT artist, album
+            SELECT album
             FROM library_albums
             WHERE album_id = ?
             """,
@@ -323,6 +335,7 @@ def prepare_album_tag_edit_job(
         ).fetchone()
         if album_row is None:
             raise AlbumNotFoundError(album_id)
+        artist_label = album_artist_display_text(connection, album_id)
 
         placeholders = placeholders_for(requested_track_ids)
         track_rows = list(
@@ -432,7 +445,7 @@ def prepare_album_tag_edit_job(
     return AlbumTagEditJob(
         request=request,
         album_label=album_display_label(
-            str(album_row["artist"]) if album_row and album_row["artist"] else None,
+            artist_label,
             album_name,
         ),
         album_name=album_name,
@@ -440,12 +453,37 @@ def prepare_album_tag_edit_job(
     )
 
 
+def album_artist_display_text(
+    connection: sqlite3.Connection,
+    album_id: str,
+) -> str | None:
+    artists = [
+        str(row["artist"])
+        for row in connection.execute(
+            """
+            SELECT artist
+            FROM library_album_artists
+            WHERE album_id = ?
+            ORDER BY position
+            """,
+            (album_id,),
+        )
+        if row["artist"]
+    ]
+    return display_album_artists(artists) or None
+
+
 def edit_library_album_musicbrainz(
     database: Path,
     job: AlbumMusicBrainzEditJob,
+    *,
+    album_artist_split_patterns: Iterable[str | None] = DEFAULT_ALBUM_ARTIST_SPLIT_PATTERNS,
+    cancel_check: Callable[[], None] | None = None,
 ) -> AlbumMusicBrainzEditResult:
     rescanned_tracks: list[TrackRecord] = []
     for snapshot in job.tracks:
+        if cancel_check is not None:
+            cancel_check()
         track = scan_track(Path(snapshot.path))
         if track.scan_error:
             raise OSError(f"failed to rescan {snapshot.path}: {track.scan_error}")
@@ -457,37 +495,46 @@ def edit_library_album_musicbrainz(
         track.root_position = snapshot.root_position
         rescanned_tracks.append(track)
 
-    grouped_new_tracks: dict[str, list[TrackRecord]] = {}
-    for track in rescanned_tracks:
-        album_id = track_album_id(track)
-        if album_id:
-            grouped_new_tracks.setdefault(album_id, []).append(track)
-    albums_scanned = len(grouped_new_tracks)
-    if albums_scanned != 1:
-        raise ValueError(
-            "MusicBrainz IDs can only be edited when the rescanned tracks remain a single album"
-        )
-
-    targeted_library = MusicLibrary(
-        roots=[],
-        tracks=rescanned_tracks,
-        supported_extensions=[],
-        generated_at=datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
-    )
-    affected_album_ids = tuple(
-        sorted(
-            {
-                *(snapshot.album_id for snapshot in job.tracks if snapshot.album_id),
-                *grouped_new_tracks.keys(),
-            }
-        )
-    )
-    target_album_id = next(iter(grouped_new_tracks))
-
     connection = connect_database(database, create=False)
     try:
+        if cancel_check is not None:
+            cancel_check()
+        apply_album_artist_mappings(
+            connection,
+            rescanned_tracks,
+            split_patterns=album_artist_split_patterns,
+        )
+        grouped_new_tracks: dict[str, list[TrackRecord]] = {}
+        for track in rescanned_tracks:
+            album_id = track_album_id(track)
+            if album_id:
+                grouped_new_tracks.setdefault(album_id, []).append(track)
+        albums_scanned = len(grouped_new_tracks)
+        if albums_scanned != 1:
+            raise ValueError(
+                "MusicBrainz IDs can only be edited when the rescanned tracks remain a single album"
+            )
+
+        targeted_library = MusicLibrary(
+            roots=[],
+            tracks=rescanned_tracks,
+            supported_extensions=[],
+            generated_at=datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
+        )
+        affected_album_ids = tuple(
+            sorted(
+                {
+                    *(snapshot.album_id for snapshot in job.tracks if snapshot.album_id),
+                    *grouped_new_tracks.keys(),
+                }
+            )
+        )
+        target_album_id = next(iter(grouped_new_tracks))
+
         connection.execute("SAVEPOINT edit_album_musicbrainz")
         try:
+            if cancel_check is not None:
+                cancel_check()
             store_album_musicbrainz_link(
                 connection,
                 target_album_id,
@@ -498,16 +545,24 @@ def edit_library_album_musicbrainz(
                 targeted_library,
                 database,
                 connection=connection,
+                album_artist_split_patterns=album_artist_split_patterns,
             ) or GenreResolutionStats()
             cover_art_resolution = resolve_library_cover_art(
                 targeted_library,
                 database,
                 connection=connection,
+                album_artist_split_patterns=album_artist_split_patterns,
             ) or CoverArtResolutionStats()
             ensure_album_rows_exist(connection, grouped_new_tracks)
             replace_library_tracks(connection, rescanned_tracks)
-            reconcile_library_albums(connection, list(affected_album_ids))
+            reconcile_library_albums(
+                connection,
+                list(affected_album_ids),
+                album_artist_split_patterns=album_artist_split_patterns,
+            )
             rebuild_album_search_index(connection)
+            if cancel_check is not None:
+                cancel_check()
             connection.execute("RELEASE SAVEPOINT edit_album_musicbrainz")
             connection.commit()
         except Exception:
@@ -531,13 +586,19 @@ def edit_library_album_musicbrainz(
 def edit_library_album_tags(
     database: Path,
     job: AlbumTagEditJob,
+    *,
+    album_artist_split_patterns: Iterable[str | None] = DEFAULT_ALBUM_ARTIST_SPLIT_PATTERNS,
+    cancel_check: Callable[[], None] | None = None,
 ) -> AlbumTagEditResult:
+    del database, album_artist_split_patterns
     snapshots_by_track_id = {
         snapshot.track_id: snapshot
         for snapshot in job.tracks
     }
 
     for track_edit in job.request.tracks:
+        if cancel_check is not None:
+            cancel_check()
         snapshot = snapshots_by_track_id[track_edit.track_id]
         write_track_audio_tags(
             Path(snapshot.path),
@@ -547,96 +608,13 @@ def edit_library_album_tags(
             genre=job.request.genre,
         )
 
-    rescanned_tracks: list[TrackRecord] = []
-    for track_edit in job.request.tracks:
-        snapshot = snapshots_by_track_id[track_edit.track_id]
-        track = scan_track(Path(snapshot.path))
-        if track.scan_error:
-            raise OSError(f"failed to rescan {snapshot.path}: {track.scan_error}")
-        missing_fields = missing_required_tags(track)
-        if missing_fields:
-            joined = ", ".join(missing_fields)
-            raise ValueError(f"edited tags are missing required fields for {snapshot.path}: {joined}")
-
-        track.track_id = snapshot.track_id
-        track.root_position = snapshot.root_position
-        track.genres = [job.request.genre] if job.request.genre else []
-        track.styles = []
-        track.artwork = snapshot.track_artwork or track.artwork
-        track.album_artwork = snapshot.album_artwork or track.album_artwork
-        rescanned_tracks.append(track)
-
-    grouped_new_tracks: dict[str, list[TrackRecord]] = {}
-    for track in rescanned_tracks:
-        album_id = track_album_id(track)
-        if album_id:
-            grouped_new_tracks.setdefault(album_id, []).append(track)
-    albums_scanned = len(grouped_new_tracks)
-
-    targeted_library = MusicLibrary(
-        roots=[],
-        tracks=rescanned_tracks,
-        supported_extensions=[],
-        generated_at=datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
-    )
-
-    affected_album_ids = tuple(
-        sorted(
-            {
-                *(snapshot.album_id for snapshot in job.tracks if snapshot.album_id),
-                *grouped_new_tracks.keys(),
-            }
-        )
-    )
-    connection = connect_database(database, create=False)
-    try:
-        connection.execute("SAVEPOINT edit_album_tags")
-        try:
-            musicbrainz_links = load_album_musicbrainz_links(connection)
-            source_link = musicbrainz_links.get(job.request.album_id)
-            if source_link is not None and source_link.has_identifier and albums_scanned == 1:
-                target_album_id = next(iter(grouped_new_tracks))
-                target_link = musicbrainz_links.get(target_album_id)
-                if target_album_id != job.request.album_id:
-                    if target_link is None or not target_link.has_identifier:
-                        store_album_musicbrainz_link(
-                            connection,
-                            target_album_id,
-                            release_mbid=source_link.release_mbid,
-                            release_group_mbid=source_link.release_group_mbid,
-                        )
-            genre_resolution = resolve_library_genres(
-                targeted_library,
-                database,
-                ignore_musicbrainz=True,
-                connection=connection,
-            ) or GenreResolutionStats()
-            cover_art_resolution = resolve_library_cover_art(
-                targeted_library,
-                database,
-                connection=connection,
-            ) or CoverArtResolutionStats()
-            ensure_album_rows_exist(connection, grouped_new_tracks)
-            replace_library_tracks(connection, rescanned_tracks)
-            reconcile_library_albums(connection, list(affected_album_ids))
-            rebuild_album_search_index(connection)
-            connection.execute("RELEASE SAVEPOINT edit_album_tags")
-            connection.commit()
-        except Exception:
-            connection.execute("ROLLBACK TO SAVEPOINT edit_album_tags")
-            connection.execute("RELEASE SAVEPOINT edit_album_tags")
-            connection.rollback()
-            raise
-    finally:
-        connection.close()
-
     return AlbumTagEditResult(
         album_label=job.album_label,
-        tracks_updated=len(rescanned_tracks),
-        albums_scanned=albums_scanned,
-        affected_album_ids=affected_album_ids,
-        genre_resolution=genre_resolution,
-        cover_art_resolution=cover_art_resolution,
+        tracks_updated=len(job.request.tracks),
+        albums_scanned=0,
+        affected_album_ids=(),
+        genre_resolution=GenreResolutionStats(),
+        cover_art_resolution=CoverArtResolutionStats(),
     )
 
 
@@ -645,7 +623,11 @@ def ensure_album_rows_exist(
     grouped_tracks: dict[str, list[TrackRecord]],
 ) -> None:
     for album_id, tracks in grouped_tracks.items():
-        artist = most_common_value(track.album_artist or track.artist for track in tracks) or "<unknown artist>"
+        artists = most_common_artist_values(
+            track_album_artist_values(track)
+            for track in tracks
+        )
+        artist = display_album_artists(artists) or "<unknown artist>"
         album = most_common_value(track.album for track in tracks) or "<unknown album>"
         year = most_common_year(parse_year(track.date) for track in tracks)
         file_created_at = min(
@@ -656,15 +638,22 @@ def ensure_album_rows_exist(
             """
             INSERT OR IGNORE INTO library_albums (
                 album_id,
-                artist,
                 album,
                 year,
                 track_count,
                 file_created_at
-            ) VALUES (?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?)
             """,
-            (album_id, artist, album, year, len(tracks), file_created_at),
+            (album_id, album, year, len(tracks), file_created_at),
         )
+        for position, album_artist in enumerate(artists or (artist,)):
+            connection.execute(
+                """
+                INSERT OR IGNORE INTO library_album_artists (album_id, position, artist)
+                VALUES (?, ?, ?)
+                """,
+                (album_id, position, album_artist),
+            )
 
 
 def replace_library_tracks(
@@ -780,126 +769,77 @@ def replace_library_tracks(
             )
 
 
-def run_edit_album_job(runtime: PlayerRuntime, job: AlbumTagEditJob) -> None:
+def run_edit_album_job(
+    runtime: PlayerRuntime,
+    job: AlbumTagEditJob,
+    cancel_token: PlayerJobCancelToken,
+) -> PlayerJobResult:
     started_at = perf_counter()
-    try:
-        result = edit_library_album_tags(runtime.database, job)
-        duration_seconds = perf_counter() - started_at
-        LOGGER.info(
-            "%s",
-            library_job_summary_text(
-                "tag edit",
-                result.album_label,
-                tracks_scanned=result.tracks_updated,
-                albums_scanned=result.albums_scanned,
-                files_missing_required_tags=0,
-                duration_seconds=duration_seconds,
-            ),
-        )
-        for line in library_job_detail_lines(
-            tracks_scanned=result.tracks_updated,
-            albums_scanned=result.albums_scanned,
-            files_missing_required_tags=0,
-            genre_resolution=result.genre_resolution,
-            cover_art_resolution=result.cover_art_resolution,
-        ):
-            LOGGER.info("%s", line)
-        action = record_player_action(
-            runtime.database,
-            kind="edit_album",
-            status="succeeded",
-            message=f"Tag edit completed for {job.album_label}.",
-            context={
-                "album": job.album_name,
-                "album_artist": job.request.album_artist,
-                "tracks_updated": result.tracks_updated,
-                "albums_scanned": result.albums_scanned,
-                "duration_seconds": duration_seconds,
-            },
-        )
-        runtime.publish_notification(action)
-    except Exception as error:
-        LOGGER.exception("tag edit failed for %s", job.album_label)
-        try:
-            action = record_player_action(
-                runtime.database,
-                kind="edit_album",
-                status="failed",
-                message=f"Tag edit failed for {job.album_label}.",
-                context={
-                    "album": job.album_name,
-                    "album_artist": job.request.album_artist,
-                    "tracks_updated": len(job.request.tracks),
-                    "duration_seconds": perf_counter() - started_at,
-                    "error": str(error),
-                },
-            )
-        except Exception:
-            LOGGER.exception("failed to record tag-edit failure for %s", job.album_label)
-        else:
-            runtime.publish_notification(action)
-    finally:
-        runtime.finish_library_job()
+    result = edit_library_album_tags(
+        runtime.database,
+        job,
+        cancel_check=cancel_token.raise_if_canceled,
+    )
+    duration_seconds = perf_counter() - started_at
+    LOGGER.info(
+        "tag edit completed for %s (tracks_updated=%s, duration=%.2fs)",
+        result.album_label,
+        result.tracks_updated,
+        duration_seconds,
+    )
+    return PlayerJobResult(
+        message=(
+            f"Tags saved for {job.album_label}. "
+            "Rescan the affected root to update library filters, artists, and stats."
+        ),
+        context={
+            "album": job.album_name,
+            "album_artist": job.request.album_artist,
+            "tracks_updated": result.tracks_updated,
+            "duration_seconds": duration_seconds,
+            "rescan_recommended": True,
+        },
+    )
 
 
 def run_edit_album_musicbrainz_job(
     runtime: PlayerRuntime,
     job: AlbumMusicBrainzEditJob,
-) -> None:
+    cancel_token: PlayerJobCancelToken,
+) -> PlayerJobResult:
     started_at = perf_counter()
-    try:
-        result = edit_library_album_musicbrainz(runtime.database, job)
-        duration_seconds = perf_counter() - started_at
-        LOGGER.info(
-            "%s",
-            library_job_summary_text(
-                "MusicBrainz ID edit",
-                result.album_label,
-                tracks_scanned=result.tracks_scanned,
-                albums_scanned=result.albums_scanned,
-                files_missing_required_tags=0,
-                duration_seconds=duration_seconds,
-            ),
-        )
-        for line in library_job_detail_lines(
+    result = edit_library_album_musicbrainz(
+        runtime.database,
+        job,
+        album_artist_split_patterns=runtime.album_artist_split_patterns,
+        cancel_check=cancel_token.raise_if_canceled,
+    )
+    duration_seconds = perf_counter() - started_at
+    LOGGER.info(
+        "%s",
+        library_job_summary_text(
+            "MusicBrainz ID edit",
+            result.album_label,
             tracks_scanned=result.tracks_scanned,
             albums_scanned=result.albums_scanned,
             files_missing_required_tags=0,
-            genre_resolution=result.genre_resolution,
-            cover_art_resolution=result.cover_art_resolution,
-        ):
-            LOGGER.info("%s", line)
-        action = record_player_action(
-            runtime.database,
-            kind="edit_album_musicbrainz",
-            status="succeeded",
-            message=f"MusicBrainz ID edit completed for {job.request.album_label}.",
-            context={
-                "album": job.request.album_name,
-                "tracks_scanned": result.tracks_scanned,
-                "albums_scanned": result.albums_scanned,
-                "duration_seconds": duration_seconds,
-            },
-        )
-        runtime.publish_notification(action)
-    except Exception as error:
-        LOGGER.exception("MusicBrainz ID edit failed for %s", job.request.album_label)
-        try:
-            action = record_player_action(
-                runtime.database,
-                kind="edit_album_musicbrainz",
-                status="failed",
-                message=f"MusicBrainz ID edit failed for {job.request.album_label}.",
-                context={
-                    "album": job.request.album_name,
-                    "tracks_scanned": len(job.tracks),
-                    "duration_seconds": perf_counter() - started_at,
-                    "error": str(error),
-                },
-            )
-        except Exception:
-            LOGGER.exception("failed to record MusicBrainz edit failure for %s", job.request.album_label)
-        else:
-            runtime.publish_notification(action)
-    finally:
-        runtime.finish_library_job()
+            duration_seconds=duration_seconds,
+        ),
+    )
+    for line in library_job_detail_lines(
+        tracks_scanned=result.tracks_scanned,
+        albums_scanned=result.albums_scanned,
+        files_missing_required_tags=0,
+        genre_resolution=result.genre_resolution,
+        cover_art_resolution=result.cover_art_resolution,
+    ):
+        LOGGER.info("%s", line)
+    return PlayerJobResult(
+        message=f"MusicBrainz ID edit completed for {job.request.album_label}.",
+        context={
+            "album": job.request.album_name,
+            "tracks_scanned": result.tracks_scanned,
+            "albums_scanned": result.albums_scanned,
+            "duration_seconds": duration_seconds,
+        },
+    )

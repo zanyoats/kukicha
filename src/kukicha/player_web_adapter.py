@@ -13,7 +13,9 @@ from flask import Flask, Response, abort, current_app, request, stream_with_cont
 from werkzeug.serving import make_server
 
 from .use_case import (
+    mark_stale_player_jobs_canceled,
     playlist_audio_path,
+    save_album_artist_split_mapping,
     start_add_root,
     start_album_musicbrainz_edit,
     start_album_tag_edit,
@@ -50,11 +52,13 @@ from .player_views import (
     album_playback_payload,
     build_album_context,
     build_album_edit_context,
+    build_artists_page_context,
     build_index_context,
-    build_notifications_page_context,
+    build_jobs_page_context,
     build_playlist_context,
     build_queue_context,
     build_roots_page_context,
+    build_settings_page_context,
     build_simple_page_context,
     playlist_playback_payload,
 )
@@ -111,6 +115,7 @@ def create_player_app(options: PlayerServerOptions) -> Flask:
     template_environment = build_template_environment()
     app.jinja_env.filters.update(template_environment.filters)
     runtime = PlayerRuntime(options)
+    mark_stale_player_jobs_canceled(runtime.database)
     app.extensions[PLAYER_CONTEXT_KEY] = PlayerWebContext(
         options=options,
         runtime=runtime,
@@ -154,9 +159,9 @@ def create_player_app(options: PlayerServerOptions) -> Flask:
         reset_playback_for_document_load()
         return rendered_response(build_index_context(player_context().runtime, query_string()))
 
-    @app.get("/api/notifications/events")
-    def notification_events() -> Response:
-        return notification_events_response(player_context().runtime)
+    @app.get("/api/jobs/events")
+    def job_events() -> Response:
+        return job_events_response(player_context().runtime)
 
     @app.get("/api/albums/<path:album_id>/playback")
     def album_playback(album_id: str) -> Response:
@@ -268,6 +273,14 @@ def create_player_app(options: PlayerServerOptions) -> Flask:
     def delete_root(position: int) -> Response:
         return json_response(start_delete_root(player_context().runtime, position), status=202)
 
+    @app.post("/api/album-artist-mappings")
+    def edit_album_artist_split_mapping() -> Response:
+        result = save_album_artist_split_mapping(
+            player_context().runtime,
+            read_json_body(),
+        )
+        return json_response(result)
+
     @app.post("/api/tracks/<int:track_id>/playlists/<int:playlist_id>")
     def update_track_playlist_membership(track_id: int, playlist_id: int) -> Response:
         payload = read_json_body()
@@ -287,20 +300,34 @@ def create_player_app(options: PlayerServerOptions) -> Flask:
     def update_playback() -> Response:
         return json_response(update_playback_command(player_context().runtime, read_json_body()))
 
+    @app.post("/api/jobs/<int:job_id>/cancel")
+    def cancel_job(job_id: int) -> Response:
+        from .player_jobs import job_payload
+
+        job = player_context().runtime.cancel_job(job_id)
+        return json_response({"job": job_payload(job)})
+
     for route, page_key in PLAYER_PAGE_ROUTE_KEYS.items():
         endpoint = f"page_{page_key}"
-        if page_key == "roots":
+        if page_key == "settings":
             app.add_url_rule(
                 route,
                 endpoint,
-                lambda page_key=page_key: render_roots_page(),
+                lambda page_key=page_key: render_settings_page(),
                 methods=["GET"],
             )
-        elif page_key == "notifications":
+        elif page_key == "artists":
             app.add_url_rule(
                 route,
                 endpoint,
-                lambda page_key=page_key: render_notifications_page(),
+                lambda page_key=page_key: render_artists_page(),
+                methods=["GET"],
+            )
+        elif page_key == "jobs":
+            app.add_url_rule(
+                route,
+                endpoint,
+                lambda page_key=page_key: render_jobs_page(),
                 methods=["GET"],
             )
         else:
@@ -378,9 +405,19 @@ def render_roots_page() -> Response:
     return rendered_response(build_roots_page_context(player_context().runtime))
 
 
-def render_notifications_page() -> Response:
+def render_settings_page() -> Response:
     reset_playback_for_document_load()
-    return rendered_response(build_notifications_page_context(player_context().runtime))
+    return rendered_response(build_settings_page_context(player_context().runtime))
+
+
+def render_artists_page() -> Response:
+    reset_playback_for_document_load()
+    return rendered_response(build_artists_page_context(player_context().runtime))
+
+
+def render_jobs_page() -> Response:
+    reset_playback_for_document_load()
+    return rendered_response(build_jobs_page_context(player_context().runtime))
 
 
 def render_simple_page(page_key: str) -> Response:
@@ -506,10 +543,10 @@ def static_response(name: str) -> Response:
     return response
 
 
-def notification_events_response(runtime: PlayerRuntime) -> Response:
+def job_events_response(runtime: PlayerRuntime) -> Response:
     def generate() -> Any:
         subscriber: Queue[dict[str, object]] = Queue()
-        runtime.subscribe_notifications(subscriber)
+        runtime.subscribe_jobs(subscriber)
         try:
             yield b"retry: 1000\n\n"
             while True:
@@ -519,14 +556,14 @@ def notification_events_response(runtime: PlayerRuntime) -> Response:
                     yield b": keepalive\n\n"
                     continue
 
-                yield b"event: notification\n"
+                yield b"event: job\n"
                 yield b"data: "
                 yield json.dumps(payload, sort_keys=True).encode("utf-8")
                 yield b"\n\n"
         except (BrokenPipeError, ConnectionResetError, GeneratorExit):
             return
         finally:
-            runtime.unsubscribe_notifications(subscriber)
+            runtime.unsubscribe_jobs(subscriber)
 
     response = Response(
         stream_with_context(generate()),

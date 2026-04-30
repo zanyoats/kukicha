@@ -13,6 +13,9 @@
         {% for item in page_menu_items %}
           <a class="page-menu-link{% if item.current %} active{% endif %}" href="{{ item.url }}" data-nav
             {% if item.current %}aria-current="page"{% endif %}>{{ item.title }}</a>
+          {% if item.key == "artists" %}
+            <hr class="page-menu-divider">
+          {% endif %}
         {% endfor %}
       </div>
     </details>

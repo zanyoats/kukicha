@@ -1,8 +1,12 @@
 from __future__ import annotations
 
-from .actions import (
-    list_player_actions,
-    record_player_action,
+from .jobs import (
+    create_player_job,
+    get_player_job,
+    list_player_jobs,
+    mark_stale_player_jobs_canceled,
+    request_cancel_player_job,
+    update_player_job,
 )
 from .album_edits import (
     edit_library_album_musicbrainz,
@@ -13,6 +17,7 @@ from .album_edits import (
 )
 from .player import (
     playlist_audio_path,
+    save_album_artist_split_mapping,
     start_add_root,
     start_album_musicbrainz_edit,
     start_album_tag_edit,
@@ -54,14 +59,18 @@ __all__ = [
     "PlaylistFileUpdateJob",
     "PlaylistMenuOption",
     "playlist_menu_options_by_track_id",
-    "list_player_actions",
-    "record_player_action",
+    "create_player_job",
+    "get_player_job",
+    "list_player_jobs",
+    "mark_stale_player_jobs_canceled",
     "prepare_album_musicbrainz_edit_job",
     "prepare_album_musicbrainz_edit_request",
     "prepare_album_tag_edit_job",
     "prepare_player_database",
+    "request_cancel_player_job",
     "rescan_library_root",
     "scan_library_with_new_root",
+    "save_album_artist_split_mapping",
     "set_track_playlist_membership",
     "set_track_playlist_membership_database",
     "start_add_root",
@@ -72,6 +81,7 @@ __all__ = [
     "track_artwork",
     "track_audio_path",
     "update_playback",
+    "update_player_job",
     "update_queue",
     "update_track_playlist_membership",
 ]

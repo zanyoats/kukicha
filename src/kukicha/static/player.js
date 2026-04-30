@@ -8,9 +8,12 @@ const queueLink = document.getElementById("queue-link");
 const nowPlaying = document.getElementById("now-playing");
 const error = document.getElementById("error");
 const toast = document.getElementById("toast");
+const jobToasts = document.getElementById("job-toasts");
 const trackCache = new Map();
 const albumPlaybackCache = new Map();
 const dropdownMenuSelector = "details[data-dropdown-menu]";
+const toastHideDelayMs = readToastDelayMs("toastTimeoutMs", 10000);
+const linkedToastHideDelayMs = readToastDelayMs("linkedToastTimeoutMs", 25000);
 
 let queueState = readInitialQueueState();
 let appHistoryDepth = initialAppHistoryDepth();
@@ -18,8 +21,8 @@ let scrollSaveFrame = 0;
 let isRestoringScroll = false;
 let scrollRestoreToken = 0;
 let toastHideTimeout = 0;
-let notificationsSource = null;
-let notificationsStreamLoadPending = false;
+let jobsSource = null;
+let jobsStreamLoadPending = false;
 let suppressPauseStateUntilPlay = false;
 let pendingPauseCommitTimeout = 0;
 let manualPauseRequested = false;
@@ -27,12 +30,21 @@ let activePlaylistMenu = null;
 let activePlaylistOptions = null;
 let activePlaylistSourceOptions = null;
 
+function readToastDelayMs(datasetKey, fallback) {
+  if (!(toast instanceof HTMLElement)) {
+    return fallback;
+  }
+  const value = Number(toast.dataset[datasetKey]);
+  return Number.isInteger(value) && value > 0 ? value : fallback;
+}
+
 initializeHistoryState();
 focusInitialSearch();
 syncFilterSummaries();
 syncRootForms();
-localizeNotificationTimes();
-syncNotificationsStream();
+syncAlbumArtistMappingForms();
+localizeJobTimes();
+syncJobsStream();
 
 function initialAppHistoryDepth() {
   const depth = Number(history.state && history.state.kukichaDepth);
@@ -183,19 +195,46 @@ function renderFragment(html, url, options = {}) {
   updatePlaybackUi();
   syncFilterSummaries();
   syncRootForms();
-  localizeNotificationTimes();
-  syncNotificationsStream();
+  syncAlbumArtistMappingForms();
+  localizeJobTimes();
+  syncJobsStream();
   if (options.restoreScroll) {
     restoreScrollAfterRender(options.restoreScroll);
   } else if (options.scroll !== false) {
     scrollRestoreToken += 1;
     isRestoringScroll = false;
-    window.scrollTo(0, 0);
+    if (!scrollToUrlHash(url)) {
+      window.scrollTo(0, 0);
+    }
     saveCurrentScrollState({anchor: null});
   } else {
     scrollRestoreToken += 1;
     isRestoringScroll = false;
   }
+}
+
+function scrollToUrlHash(url) {
+  let hash = "";
+  try {
+    hash = new URL(url, window.location.href).hash;
+  } catch {
+    return false;
+  }
+  if (!hash || hash === "#") {
+    return false;
+  }
+  let id = "";
+  try {
+    id = decodeURIComponent(hash.slice(1));
+  } catch {
+    return false;
+  }
+  const target = document.getElementById(id);
+  if (!(target instanceof HTMLElement)) {
+    return false;
+  }
+  target.scrollIntoView({block: "start"});
+  return true;
 }
 
 function patchLibraryView(nextPageRoot) {
@@ -613,6 +652,18 @@ document.addEventListener("click", (event) => {
   if (!(event.target instanceof Element)) {
     return;
   }
+  const closeJobToastButton = event.target.closest("[data-close-job-toast]");
+  if (closeJobToastButton) {
+    event.preventDefault();
+    closeJobToast(closeJobToastButton);
+    return;
+  }
+  const cancelJobButton = event.target.closest("[data-cancel-job]");
+  if (cancelJobButton) {
+    event.preventDefault();
+    void cancelJob(cancelJobButton);
+    return;
+  }
   const rescanRootButton = event.target.closest("[data-rescan-root]");
   if (rescanRootButton) {
     event.preventDefault();
@@ -629,6 +680,12 @@ document.addEventListener("click", (event) => {
   if (pickRootButton) {
     event.preventDefault();
     pickRootDirectory(pickRootButton);
+    return;
+  }
+  const editAlbumArtistMappingButton = event.target.closest("[data-edit-album-artist-mapping]");
+  if (editAlbumArtistMappingButton) {
+    event.preventDefault();
+    editAlbumArtistMapping(editAlbumArtistMappingButton);
     return;
   }
   const queueAlbum = event.target.closest("[data-queue-album]");
@@ -742,6 +799,12 @@ document.addEventListener("submit", (event) => {
     submitRootForm(rootForm);
     return;
   }
+  const albumArtistMappingForm = event.target.closest("form[data-album-artist-mapping-form]");
+  if (albumArtistMappingForm) {
+    event.preventDefault();
+    submitAlbumArtistMappingForm(albumArtistMappingForm);
+    return;
+  }
   const form = event.target.closest("form[data-filter-form]");
   if (!form) {
     return;
@@ -775,11 +838,16 @@ document.addEventListener("change", (event) => {
 });
 
 document.addEventListener("input", (event) => {
-  if (!(event.target instanceof HTMLInputElement)) {
+  if (!(event.target instanceof Element)) {
+    return;
+  }
+  const albumArtistMappingForm = event.target.closest("form[data-album-artist-mapping-form]");
+  if (albumArtistMappingForm) {
+    syncAlbumArtistMappingFormState(albumArtistMappingForm);
     return;
   }
   const form = event.target.closest("form[data-root-form]");
-  if (!form) {
+  if (!form || !(event.target instanceof HTMLInputElement)) {
     return;
   }
   syncRootFormState(form);
@@ -839,15 +907,15 @@ window.addEventListener("resize", () => {
 
 window.addEventListener("pagehide", () => {
   saveCurrentScrollState();
-  closeNotificationsStream();
+  closeJobsStream();
 });
 
 window.addEventListener("pageshow", () => {
-  syncNotificationsStream();
+  syncJobsStream();
 });
 
 window.addEventListener("beforeunload", () => {
-  closeNotificationsStream();
+  closeJobsStream();
 });
 
 playButton.addEventListener("click", () => {
@@ -1070,6 +1138,148 @@ function syncRootForms() {
   });
 }
 
+function normalizedAlbumArtistMappingText(value) {
+  return String(value || "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .join("\n");
+}
+
+function syncAlbumArtistMappingFormState(form) {
+  if (!(form instanceof HTMLFormElement)) {
+    return;
+  }
+  const sourceInput = form.querySelector("[data-album-artist-mapping-source]");
+  const artistsInput = form.querySelector("[data-album-artist-mapping-artists]");
+  const button = form.querySelector("[data-save-album-artist-mapping]");
+  if (!(sourceInput instanceof HTMLInputElement)
+    || !(artistsInput instanceof HTMLTextAreaElement)
+    || !(button instanceof HTMLButtonElement)) {
+    return;
+  }
+  button.disabled = !sourceInput.value.trim()
+    || !normalizedAlbumArtistMappingText(artistsInput.value);
+}
+
+function syncAlbumArtistMappingForms() {
+  view.querySelectorAll("form[data-album-artist-mapping-form]").forEach((form) => {
+    syncAlbumArtistMappingFormState(form);
+  });
+}
+
+function editAlbumArtistMapping(button) {
+  if (!(button instanceof Element)) {
+    return;
+  }
+  const card = button.closest("[data-mapping-card]");
+  if (!(card instanceof HTMLElement)) {
+    return;
+  }
+  const source = card.querySelector(".mapping-card-source");
+  const artists = card.querySelector(".mapping-card-artists");
+  const copy = card.querySelector(".mapping-card-copy");
+  if (!(source instanceof HTMLElement) || !(artists instanceof HTMLElement) || !(copy instanceof HTMLElement)) {
+    return;
+  }
+
+  const albumArtist = source.textContent ? source.textContent.trim() : "";
+  const mappedArtists = normalizedAlbumArtistMappingText(artists.textContent || "");
+  if (!albumArtist) {
+    return;
+  }
+
+  view.querySelectorAll("[data-mapping-card].active").forEach((activeCard) => {
+    if (activeCard !== card && activeCard instanceof HTMLElement) {
+      restoreAlbumArtistMappingCard(activeCard);
+    }
+  });
+  const existingForm = card.querySelector("form[data-album-artist-mapping-form]");
+  if (existingForm instanceof HTMLFormElement) {
+    const existingTextarea = existingForm.querySelector("[data-album-artist-mapping-artists]");
+    if (existingTextarea instanceof HTMLTextAreaElement) {
+      existingTextarea.focus();
+    }
+    return;
+  }
+
+  const form = albumArtistMappingEditorForm(albumArtist, mappedArtists);
+  artists.hidden = true;
+  copy.append(form);
+  card.classList.add("active");
+  syncAlbumArtistMappingFormState(form);
+  const artistsInput = form.querySelector("[data-album-artist-mapping-artists]");
+  if (!(artistsInput instanceof HTMLTextAreaElement)) {
+    return;
+  }
+  try {
+    artistsInput.focus({preventScroll: true});
+  } catch {
+    artistsInput.focus();
+  }
+}
+
+function albumArtistMappingEditorForm(albumArtist, mappedArtists) {
+  const form = document.createElement("form");
+  form.className = "mapping-edit-form";
+  form.action = "/api/album-artist-mappings";
+  form.method = "post";
+  form.dataset.albumArtistMappingForm = "";
+
+  const sourceInput = document.createElement("input");
+  sourceInput.type = "hidden";
+  sourceInput.name = "album_artist";
+  sourceInput.value = albumArtist;
+  sourceInput.dataset.albumArtistMappingSource = "";
+
+  const field = document.createElement("label");
+  field.className = "settings-field settings-field-wide mapping-edit-field";
+
+  const label = document.createElement("span");
+  label.className = "settings-label";
+  label.textContent = "Mapped artists";
+
+  const textarea = document.createElement("textarea");
+  textarea.className = "settings-input settings-textarea";
+  textarea.name = "mapped_artists";
+  textarea.rows = 6;
+  textarea.spellcheck = false;
+  textarea.value = mappedArtists;
+  textarea.dataset.albumArtistMappingArtists = "";
+
+  field.append(label, textarea);
+
+  const actions = document.createElement("div");
+  actions.className = "settings-actions";
+
+  const submit = document.createElement("button");
+  submit.className = "primary";
+  submit.type = "submit";
+  submit.textContent = "Save Mapping";
+  submit.dataset.saveAlbumArtistMapping = "";
+  actions.append(submit);
+
+  const status = document.createElement("div");
+  status.className = "settings-status";
+  status.dataset.albumArtistMappingStatus = "";
+  status.setAttribute("aria-live", "polite");
+
+  form.append(sourceInput, field, actions, status);
+  return form;
+}
+
+function restoreAlbumArtistMappingCard(card) {
+  const artists = card.querySelector(".mapping-card-artists");
+  const form = card.querySelector("form[data-album-artist-mapping-form]");
+  if (artists instanceof HTMLElement) {
+    artists.hidden = false;
+  }
+  if (form instanceof HTMLFormElement) {
+    form.remove();
+  }
+  card.classList.remove("active");
+}
+
 function openPlaylistMenu(menu) {
   if (!(menu instanceof HTMLDetailsElement)) {
     return;
@@ -1190,6 +1400,9 @@ async function toggleTrackPlaylist(input) {
     input.checked = payload && payload.checked === true;
     syncPlaylistToggleState(input);
     updatePlaylistBookmarkFromToggle(input);
+    if (payload && payload.job) {
+      showJobToast(payload.job);
+    }
     input.dispatchEvent(new CustomEvent("kukicha:playlist-updated", {bubbles: true}));
     await refreshVisiblePlaylistPage(playlistId);
   } catch (error) {
@@ -1289,47 +1502,47 @@ async function refreshVisiblePlaylistPage(playlistId) {
   }
 }
 
-function syncNotificationsStream() {
-  if (typeof EventSource !== "function" || notificationsSource) {
+function syncJobsStream() {
+  if (typeof EventSource !== "function" || jobsSource) {
     return;
   }
   if (document.readyState !== "complete") {
-    if (!notificationsStreamLoadPending) {
-      notificationsStreamLoadPending = true;
+    if (!jobsStreamLoadPending) {
+      jobsStreamLoadPending = true;
       window.addEventListener("load", () => {
-        notificationsStreamLoadPending = false;
-        syncNotificationsStream();
+        jobsStreamLoadPending = false;
+        syncJobsStream();
       }, {once: true});
     }
     return;
   }
-  notificationsSource = new EventSource("/api/notifications/events");
-  notificationsSource.addEventListener("notification", (event) => {
+  jobsSource = new EventSource("/api/jobs/events");
+  jobsSource.addEventListener("job", (event) => {
     let payload = null;
     try {
       payload = JSON.parse(event.data);
     } catch {
       return;
     }
-    showNotificationToast(payload);
+    showJobToast(payload);
   });
-  notificationsSource.addEventListener("error", () => {
-    if (notificationsSource && notificationsSource.readyState === EventSource.CLOSED) {
-      closeNotificationsStream();
+  jobsSource.addEventListener("error", () => {
+    if (jobsSource && jobsSource.readyState === EventSource.CLOSED) {
+      closeJobsStream();
     }
   });
 }
 
-function closeNotificationsStream() {
-  if (!notificationsSource) {
+function closeJobsStream() {
+  if (!jobsSource) {
     return;
   }
-  notificationsSource.close();
-  notificationsSource = null;
+  jobsSource.close();
+  jobsSource = null;
 }
 
-function localizeNotificationTimes() {
-  view.querySelectorAll("[data-notification-time]").forEach((element) => {
+function localizeJobTimes() {
+  view.querySelectorAll("[data-job-time]").forEach((element) => {
     if (!(element instanceof HTMLTimeElement)) {
       return;
     }
@@ -1396,14 +1609,13 @@ async function submitAlbumMusicBrainzForm(form) {
     }
     const message = payload && typeof payload.message === "string" && payload.message.trim()
       ? payload.message
-      : "MusicBrainz ID edit accepted. See Notifications for updates.";
+      : "MusicBrainz ID edit queued.";
     setAlbumMusicBrainzStatus(form, message);
-    showToast(message, {
-      link: {
-        href: "/notifications",
-        label: "Open Notifications"
-      }
-    });
+    if (payload && payload.job) {
+      showJobToast(payload.job);
+    } else {
+      showToast(message);
+    }
   } catch {
     setAlbumMusicBrainzStatus(form, "Unable to save MusicBrainz IDs.", true);
     showToast("Unable to save MusicBrainz IDs.", {error: true});
@@ -1485,14 +1697,13 @@ async function submitAlbumTagForm(form) {
     }
     const message = payload && typeof payload.message === "string" && payload.message.trim()
       ? payload.message
-      : "Tag edit accepted. See Notifications for updates.";
+      : "Tag edit queued.";
     setAlbumTagStatus(form, message);
-    showToast(message, {
-      link: {
-        href: "/notifications",
-        label: "Open Notifications"
-      }
-    });
+    if (payload && payload.job) {
+      showJobToast(payload.job);
+    } else {
+      showToast(message);
+    }
   } catch {
     setAlbumTagStatus(form, "Unable to edit tags.", true);
     showToast("Unable to edit tags.", {error: true});
@@ -1549,13 +1760,12 @@ async function submitRootForm(form) {
     setRootFormStatus(status, "");
     const message = payload && typeof payload.message === "string" && payload.message.trim()
       ? payload.message
-      : "Add and scan accepted. See Notifications for updates.";
-    showToast(message, {
-      link: {
-        href: "/notifications",
-        label: "Open Notifications"
-      }
-    });
+      : "Add and scan queued.";
+    if (payload && payload.job) {
+      showJobToast(payload.job);
+    } else {
+      showToast(message);
+    }
   } catch {
     setRootFormStatus(status, "Unable to add and scan root.", true);
     showToast("Unable to add and scan root.", {error: true});
@@ -1563,6 +1773,84 @@ async function submitRootForm(form) {
     submitButton.removeAttribute("aria-busy");
     syncRootFormState(form);
   }
+}
+
+async function submitAlbumArtistMappingForm(form) {
+  if (!(form instanceof HTMLFormElement)) {
+    return;
+  }
+  const sourceInput = form.querySelector("[data-album-artist-mapping-source]");
+  const artistsInput = form.querySelector("[data-album-artist-mapping-artists]");
+  const submitButton = form.querySelector("[data-save-album-artist-mapping]");
+  if (!(sourceInput instanceof HTMLInputElement)
+    || !(artistsInput instanceof HTMLTextAreaElement)
+    || !(submitButton instanceof HTMLButtonElement)) {
+    return;
+  }
+
+  const albumArtist = sourceInput.value.trim();
+  const mappedArtists = normalizedAlbumArtistMappingText(artistsInput.value);
+  if (!albumArtist || !mappedArtists) {
+    syncAlbumArtistMappingFormState(form);
+    return;
+  }
+
+  artistsInput.value = mappedArtists;
+  setAlbumArtistMappingStatus(form, "Saving mapping...");
+  artistsInput.disabled = true;
+  submitButton.disabled = true;
+  submitButton.setAttribute("aria-busy", "true");
+  try {
+    const response = await fetch(form.action, {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({
+        album_artist: albumArtist,
+        mapped_artists: mappedArtists
+      })
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const message = payload && typeof payload.error === "string" && payload.error.trim()
+        ? payload.error
+        : "Unable to save mapping.";
+      setAlbumArtistMappingStatus(form, message, true);
+      showToast(message, {error: true});
+      return;
+    }
+    const message = payload && typeof payload.message === "string" && payload.message.trim()
+      ? payload.message
+      : "Mapping saved. Rescan affected roots to update library filters, artists, and stats.";
+    finishAlbumArtistMappingEdit(form, albumArtist, mappedArtists);
+    showToast(message, {link: rescanSettingsLinkForMessage(message)});
+    return;
+  } catch {
+    setAlbumArtistMappingStatus(form, "Unable to save mapping.", true);
+    showToast("Unable to save mapping.", {error: true});
+  } finally {
+    if (form.isConnected) {
+      artistsInput.disabled = false;
+      submitButton.removeAttribute("aria-busy");
+      syncAlbumArtistMappingFormState(form);
+    }
+  }
+}
+
+function finishAlbumArtistMappingEdit(form, albumArtist, mappedArtists) {
+  const card = form.closest("[data-mapping-card]");
+  if (!(card instanceof HTMLElement)) {
+    return;
+  }
+  const source = card.querySelector(".mapping-card-source");
+  const artists = card.querySelector(".mapping-card-artists");
+  if (!(source instanceof HTMLElement) || !(artists instanceof HTMLElement)) {
+    return;
+  }
+  if ((source.textContent || "").trim() !== albumArtist) {
+    return;
+  }
+  artists.textContent = mappedArtists;
+  restoreAlbumArtistMappingCard(card);
 }
 
 async function deleteRoot(button) {
@@ -1582,9 +1870,8 @@ async function deleteRoot(button) {
     return;
   }
 
-  const originalText = button.textContent;
   button.disabled = true;
-  button.textContent = "Submitting...";
+  button.setAttribute("aria-busy", "true");
   try {
     const response = await fetch(`/api/roots/${position}/delete`, {method: "POST"});
     const payload = await response.json().catch(() => ({}));
@@ -1597,19 +1884,18 @@ async function deleteRoot(button) {
     }
     const message = payload && typeof payload.message === "string" && payload.message.trim()
       ? payload.message
-      : "Delete accepted. See Notifications for updates.";
-    showToast(message, {
-      link: {
-        href: "/notifications",
-        label: "Open Notifications"
-      }
-    });
+      : "Delete queued.";
+    if (payload && payload.job) {
+      showJobToast(payload.job);
+    } else {
+      showToast(message);
+    }
   } catch {
     showToast("Unable to delete root.", {error: true});
   } finally {
     if (button.isConnected) {
       button.disabled = false;
-      button.textContent = originalText;
+      button.removeAttribute("aria-busy");
     }
   }
 }
@@ -1624,9 +1910,8 @@ async function rescanRoot(button) {
     return;
   }
 
-  const originalText = button.textContent;
   button.disabled = true;
-  button.textContent = "Submitting...";
+  button.setAttribute("aria-busy", "true");
   try {
     const response = await fetch(`/api/roots/${position}/rescan`, {method: "POST"});
     const payload = await response.json().catch(() => ({}));
@@ -1639,19 +1924,18 @@ async function rescanRoot(button) {
     }
     const message = payload && typeof payload.message === "string" && payload.message.trim()
       ? payload.message
-      : "Rescan accepted. See Notifications for updates.";
-    showToast(message, {
-      link: {
-        href: "/notifications",
-        label: "Open Notifications"
-      }
-    });
+      : "Rescan queued.";
+    if (payload && payload.job) {
+      showJobToast(payload.job);
+    } else {
+      showToast(message);
+    }
   } catch {
     showToast("Unable to rescan root.", {error: true});
   } finally {
     if (button.isConnected) {
       button.disabled = false;
-      button.textContent = originalText;
+      button.removeAttribute("aria-busy");
     }
   }
 }
@@ -1673,6 +1957,10 @@ function setAlbumMusicBrainzStatus(formOrElement, message, isError = false) {
 
 function setAlbumTagStatus(formOrElement, message, isError = false) {
   setStatusMessage(formOrElement, "[data-album-tag-status]", message, isError);
+}
+
+function setAlbumArtistMappingStatus(formOrElement, message, isError = false) {
+  setStatusMessage(formOrElement, "[data-album-artist-mapping-status]", message, isError);
 }
 
 function setRootFormStatus(element, message, isError = false) {
@@ -1708,7 +1996,7 @@ function showToast(message, options = {}) {
     toast.hidden = true;
     toast.classList.remove("error");
     toastHideTimeout = 0;
-  }, link ? 5200 : 3200);
+  }, link ? linkedToastHideDelayMs : toastHideDelayMs);
 }
 
 function createToastLink(link) {
@@ -1729,25 +2017,199 @@ function createToastLink(link) {
   return anchor;
 }
 
-function showNotificationToast(notification) {
-  if (!notification || typeof notification !== "object") {
+function showJobToast(job) {
+  if (!(jobToasts instanceof HTMLElement) || !job || typeof job !== "object") {
     return;
   }
-  const status = typeof notification.status === "string" ? notification.status : "";
-  if (!status || status === "accepted") {
+  const jobId = Number(job.job_id);
+  if (!Number.isInteger(jobId) || jobId <= 0) {
     return;
   }
-  const message = typeof notification.message === "string" ? notification.message.trim() : "";
+  const status = typeof job.status === "string" ? job.status : "";
+  const message = typeof job.message === "string" ? job.message.trim() : "";
   if (!message) {
     return;
   }
-  showToast(message, {
-    error: status === "failed",
-    link: {
-      href: "/notifications",
-      label: "Open Notifications"
+  const toastElement = jobToastElement(jobId);
+  toastElement.className = `job-toast ${status}`;
+  toastElement.dataset.jobToastId = String(jobId);
+  toastElement.replaceChildren(...jobToastChildren(job));
+  jobToasts.prepend(toastElement);
+  updateVisibleJobCard(job);
+}
+
+function jobToastElement(jobId) {
+  const existing = jobToasts.querySelector(`[data-job-toast-id="${jobId}"]`);
+  if (existing instanceof HTMLElement) {
+    return existing;
+  }
+  const element = document.createElement("div");
+  element.className = "job-toast";
+  return element;
+}
+
+function jobToastChildren(job) {
+  const status = typeof job.status === "string" ? job.status : "";
+  const statusLabel = typeof job.status_label === "string" ? job.status_label : status;
+  const kindLabel = typeof job.kind_label === "string" ? job.kind_label : "Job";
+  const message = typeof job.message === "string" ? job.message : "";
+  const reason = typeof job.reason === "string" ? job.reason.trim() : "";
+
+  const top = document.createElement("div");
+  top.className = "job-toast-top";
+  const badges = document.createElement("div");
+  badges.className = "job-toast-badges";
+  badges.append(jobBadge("job-status", status, statusLabel));
+  badges.append(jobBadge("job-kind", "", kindLabel));
+  top.append(badges);
+
+  const copy = document.createElement("div");
+  copy.className = "job-toast-message";
+  copy.textContent = message;
+
+  const children = [top, copy];
+  if (reason && (status === "failed" || status === "canceled")) {
+    const reasonElement = document.createElement("div");
+    reasonElement.className = "job-toast-reason";
+    reasonElement.textContent = reason;
+    children.push(reasonElement);
+  }
+
+  const actions = document.createElement("div");
+  actions.className = "job-toast-actions";
+  if (status === "queued" || status === "running") {
+    const cancelButton = document.createElement("button");
+    cancelButton.type = "button";
+    cancelButton.dataset.cancelJob = "";
+    cancelButton.dataset.jobId = String(job.job_id);
+    cancelButton.textContent = job.cancel_requested_at ? "Canceling..." : "Cancel";
+    cancelButton.disabled = Boolean(job.cancel_requested_at);
+    actions.append(cancelButton);
+  } else if (status === "succeeded") {
+    const refresh = document.createElement("a");
+    refresh.className = "toast-link";
+    refresh.href = window.location.href;
+    refresh.dataset.nav = "";
+    refresh.textContent = "Refresh Page";
+    actions.append(refresh);
+    actions.append(closeJobToastButton(job.job_id));
+  } else if (status === "failed" || status === "canceled") {
+    actions.append(closeJobToastButton(job.job_id));
+  }
+  if (actions.childNodes.length) {
+    children.push(actions);
+  }
+  return children;
+}
+
+function jobBadge(className, status, label) {
+  const badge = document.createElement("span");
+  badge.className = status ? `${className} ${status}` : className;
+  badge.textContent = label;
+  return badge;
+}
+
+function closeJobToastButton(jobId) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.dataset.closeJobToast = "";
+  button.dataset.jobId = String(jobId);
+  button.textContent = "Close";
+  return button;
+}
+
+function closeJobToast(button) {
+  const jobId = Number(button.dataset.jobId || "");
+  const toastElement = Number.isInteger(jobId)
+    ? jobToasts?.querySelector(`[data-job-toast-id="${jobId}"]`)
+    : button.closest("[data-job-toast-id]");
+  if (toastElement instanceof HTMLElement) {
+    toastElement.remove();
+  }
+}
+
+async function cancelJob(button) {
+  if (!(button instanceof HTMLButtonElement) || button.disabled) {
+    return;
+  }
+  const jobId = Number(button.dataset.jobId || "");
+  if (!Number.isInteger(jobId) || jobId <= 0) {
+    return;
+  }
+  button.disabled = true;
+  button.textContent = "Canceling...";
+  try {
+    const response = await fetch(`/api/jobs/${jobId}/cancel`, {method: "POST"});
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const message = payload && typeof payload.error === "string" && payload.error.trim()
+        ? payload.error
+        : "Unable to cancel job.";
+      showToast(message, {error: true});
+      button.disabled = false;
+      button.textContent = "Cancel";
+      return;
     }
-  });
+    if (payload && payload.job) {
+      showJobToast(payload.job);
+    }
+  } catch {
+    showToast("Unable to cancel job.", {error: true});
+    button.disabled = false;
+    button.textContent = "Cancel";
+  }
+}
+
+function updateVisibleJobCard(job) {
+  const jobId = Number(job.job_id);
+  if (!Number.isInteger(jobId)) {
+    return;
+  }
+  const card = view.querySelector(`[data-job-id="${jobId}"]`);
+  if (!(card instanceof HTMLElement)) {
+    return;
+  }
+  const status = typeof job.status === "string" ? job.status : "";
+  const statusLabel = typeof job.status_label === "string" ? job.status_label : status;
+  const statusElement = card.querySelector(".job-status");
+  if (statusElement instanceof HTMLElement) {
+    statusElement.className = `job-status ${status}`;
+    statusElement.textContent = statusLabel;
+  }
+  const messageElement = card.querySelector(".job-message");
+  if (messageElement instanceof HTMLElement && typeof job.message === "string") {
+    messageElement.textContent = job.message;
+  }
+  let reasonElement = card.querySelector(".job-reason");
+  const reason = typeof job.reason === "string" ? job.reason.trim() : "";
+  if (reason && (status === "failed" || status === "canceled")) {
+    if (!(reasonElement instanceof HTMLElement)) {
+      reasonElement = document.createElement("div");
+      reasonElement.className = "job-reason";
+      messageElement?.after(reasonElement);
+    }
+    reasonElement.textContent = reason;
+  } else if (reasonElement instanceof HTMLElement) {
+    reasonElement.remove();
+  }
+  if (status !== "queued" && status !== "running") {
+    card.querySelector(".job-card-actions")?.remove();
+  }
+}
+
+function rescanSettingsLinkForMessage(message) {
+  if (typeof message !== "string") {
+    return null;
+  }
+  const normalizedMessage = message.toLowerCase();
+  if (!normalizedMessage.includes("rescan the affected root")
+    && !normalizedMessage.includes("rescan affected roots")) {
+    return null;
+  }
+  return {
+    href: "/settings#roots",
+    label: "Open Roots"
+  };
 }
 
 async function playAlbumFromGrid(button) {
@@ -2215,7 +2677,7 @@ function updatePlaybackUi() {
       row.classList.toggle("playing", rowCurrent && playing);
       row.classList.toggle("queue-played", position < queueState.position);
       row.classList.toggle("queue-active", position === queueState.position);
-      const status = row.querySelector(".queue-status");
+      const status = row.querySelector(".queue-status-label");
       if (status) {
         status.textContent = queueStatus(trackId, position);
       }

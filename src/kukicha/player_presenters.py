@@ -9,7 +9,6 @@ from urllib.parse import urlsplit
 
 from .use_case import (
     AlbumDetails,
-    AlbumSummary,
     LibraryQueries,
     LibraryRootFilterOption,
     PlaylistDetails,
@@ -110,7 +109,7 @@ def playlist_track_meta(
 
 def album_playback_track_payloads(
     api: LibraryQueries,
-    albums: tuple[AlbumSummary, ...],
+    albums: tuple[AlbumDetails, ...],
 ) -> dict[str, tuple[dict[str, object], ...]]:
     requested_track_ids = list(
         dict.fromkeys(

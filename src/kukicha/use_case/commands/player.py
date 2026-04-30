@@ -1,18 +1,14 @@
 from __future__ import annotations
 
 from pathlib import Path
-import logging
-from threading import Thread
 from typing import TYPE_CHECKING, Any
 
+from ..database import connect_database
 from ..queries import LibraryQueries
 
 if TYPE_CHECKING:
     from ...models import TrackArtwork
     from ...player_runtime import PlayerRuntime
-
-
-LOGGER = logging.getLogger("kukicha.player")
 
 
 def update_queue(runtime: PlayerRuntime, payload: dict[str, Any]) -> dict[str, object]:
@@ -73,180 +69,156 @@ def update_track_playlist_membership(
         checked,
     )
     if job is not None:
-        start_playlist_file_update_job(runtime, job)
+        queued_job = start_playlist_file_update_job(runtime, job)
+        from ...player_jobs import job_payload
+
+        response["job"] = job_payload(queued_job)
     return response
 
 
+def save_album_artist_split_mapping(
+    runtime: PlayerRuntime,
+    payload: dict[str, Any],
+) -> dict[str, object]:
+    from ...player_errors import PlayerNotFoundError
+
+    album_artist = str(payload.get("album_artist", "")).strip()
+    if not album_artist:
+        raise ValueError("album artist is required")
+
+    mapped_artists = mapped_artists_text_from_payload(payload.get("mapped_artists", ""))
+    if not mapped_artists:
+        raise ValueError("at least one mapped artist is required")
+
+    with connect_database(runtime.database) as connection:
+        row = connection.execute(
+            """
+            SELECT 1
+            FROM album_artist_split_mappings
+            WHERE album_artist = ?
+            """,
+            (album_artist,),
+        ).fetchone()
+        if row is None:
+            raise PlayerNotFoundError(f"mapping does not exist: {album_artist}")
+        connection.execute(
+            """
+            UPDATE album_artist_split_mappings
+            SET mapped_artists = ?
+            WHERE album_artist = ?
+            """,
+            (mapped_artists, album_artist),
+        )
+
+    return {
+        "message": (
+            f"Saved mapping for {album_artist}. "
+            "Rescan affected roots to update library filters, artists, and stats."
+        ),
+        "mapping": {
+            "album_artist": album_artist,
+            "mapped_artists": mapped_artists,
+        },
+    }
+
+
+def mapped_artists_text_from_payload(value: object) -> str:
+    if isinstance(value, list):
+        lines = (str(item).strip() for item in value)
+    else:
+        lines = (line.strip() for line in str(value or "").splitlines())
+    return "\n".join(line for line in lines if line)
+
+
 def start_add_root(runtime: PlayerRuntime, path: str) -> dict[str, object]:
-    from ...player_errors import PlayerConflictError
+    from ...player_jobs import job_payload
     from .roots import (
         prepare_library_root,
         root_display_label,
         root_payload,
         run_add_root_job,
     )
-    from .actions import record_player_action
 
     root = prepare_library_root(runtime.database, path)
     root_label = root_display_label(root)
-    if not runtime.begin_library_job("add_root"):
-        raise PlayerConflictError("another library job is already running")
-
-    try:
-        accepted_action = record_player_action(
-            runtime.database,
-            kind="add_root",
-            status="accepted",
-            message=f"Add and scan accepted for {root_label}.",
-            context={
-                "path": root.path,
-                "root_position": root.position,
-            },
-        )
-        runtime.publish_notification(accepted_action)
-        scan_thread = Thread(
-            target=run_add_root_job,
-            args=(runtime, root),
-            daemon=True,
-        )
-        scan_thread.start()
-    except Exception:
-        runtime.finish_library_job()
-        try:
-            failed_action = record_player_action(
-                runtime.database,
-                kind="add_root",
-                status="failed",
-                message=f"Add and scan could not start for {root_label}.",
-                context={
-                    "path": root.path,
-                    "root_position": root.position,
-                },
-            )
-        except Exception:
-            LOGGER.exception("failed to record add-root start failure for %s", root.path)
-        else:
-            runtime.publish_notification(failed_action)
-        raise
+    queued_job = runtime.enqueue_job(
+        kind="add_root",
+        queued_message=f"Add and scan queued for {root_label}.",
+        running_message=f"Add and scan running for {root_label}.",
+        canceled_message=f"Add and scan canceled for {root_label}.",
+        failed_message=f"Add and scan failed for {root_label}.",
+        context={
+            "path": root.path,
+            "root_position": root.position,
+        },
+        runner=lambda cancel_token: run_add_root_job(runtime, root, cancel_token),
+    )
 
     return {
-        "message": f"Add and scan accepted for {root_label}. See Notifications for updates.",
+        "message": f"Add and scan queued for {root_label}.",
+        "job": job_payload(queued_job),
         "root": root_payload(root),
     }
 
 
 def start_rescan_root(runtime: PlayerRuntime, position: int) -> dict[str, object]:
-    from ...player_errors import PlayerConflictError
+    from ...player_jobs import job_payload
     from .roots import (
         library_root_by_position,
         root_display_label,
         root_payload,
         run_rescan_root_job,
     )
-    from .actions import record_player_action
 
     root = library_root_by_position(runtime.database, position)
     root_label = root_display_label(root)
-    if not runtime.begin_library_job("rescan_root"):
-        raise PlayerConflictError("another library job is already running")
-
-    try:
-        accepted_action = record_player_action(
-            runtime.database,
-            kind="rescan_root",
-            status="accepted",
-            message=f"Rescan accepted for {root_label}.",
-            context={
-                "path": root.path,
-                "root_position": root.position,
-            },
-        )
-        runtime.publish_notification(accepted_action)
-        rescan_thread = Thread(
-            target=run_rescan_root_job,
-            args=(runtime, root),
-            daemon=True,
-        )
-        rescan_thread.start()
-    except Exception:
-        runtime.finish_library_job()
-        try:
-            failed_action = record_player_action(
-                runtime.database,
-                kind="rescan_root",
-                status="failed",
-                message=f"Rescan could not start for {root_label}.",
-                context={
-                    "path": root.path,
-                    "root_position": root.position,
-                },
-            )
-        except Exception:
-            LOGGER.exception("failed to record rescan start failure for %s", root.path)
-        else:
-            runtime.publish_notification(failed_action)
-        raise
+    queued_job = runtime.enqueue_job(
+        kind="rescan_root",
+        queued_message=f"Rescan queued for {root_label}.",
+        running_message=f"Rescan running for {root_label}.",
+        canceled_message=f"Rescan canceled for {root_label}.",
+        failed_message=f"Rescan failed for {root_label}.",
+        context={
+            "path": root.path,
+            "root_position": root.position,
+        },
+        runner=lambda cancel_token: run_rescan_root_job(runtime, root, cancel_token),
+    )
 
     return {
-        "message": f"Rescan accepted for {root_label}. See Notifications for updates.",
+        "message": f"Rescan queued for {root_label}.",
+        "job": job_payload(queued_job),
         "root": root_payload(root),
     }
 
 
 def start_delete_root(runtime: PlayerRuntime, position: int) -> dict[str, object]:
-    from ...player_errors import PlayerConflictError
+    from ...player_jobs import job_payload
     from .roots import (
         library_root_by_position,
         root_display_label,
         root_payload,
         run_delete_root_job,
     )
-    from .actions import record_player_action
 
     root = library_root_by_position(runtime.database, position)
     root_label = root_display_label(root)
-    if not runtime.begin_library_job("delete_root"):
-        raise PlayerConflictError("another library job is already running")
-
-    try:
-        accepted_action = record_player_action(
-            runtime.database,
-            kind="delete_root",
-            status="accepted",
-            message=f"Delete accepted for {root_label}.",
-            context={
-                "path": root.path,
-                "root_position": root.position,
-            },
-        )
-        runtime.publish_notification(accepted_action)
-        delete_thread = Thread(
-            target=run_delete_root_job,
-            args=(runtime, root),
-            daemon=True,
-        )
-        delete_thread.start()
-    except Exception:
-        runtime.finish_library_job()
-        try:
-            failed_action = record_player_action(
-                runtime.database,
-                kind="delete_root",
-                status="failed",
-                message=f"Delete could not start for {root_label}.",
-                context={
-                    "path": root.path,
-                    "root_position": root.position,
-                },
-            )
-        except Exception:
-            LOGGER.exception("failed to record delete start failure for %s", root.path)
-        else:
-            runtime.publish_notification(failed_action)
-        raise
+    queued_job = runtime.enqueue_job(
+        kind="delete_root",
+        queued_message=f"Delete queued for {root_label}.",
+        running_message=f"Delete running for {root_label}.",
+        canceled_message=f"Delete canceled for {root_label}.",
+        failed_message=f"Delete failed for {root_label}.",
+        context={
+            "path": root.path,
+            "root_position": root.position,
+        },
+        runner=lambda cancel_token: run_delete_root_job(runtime, root, cancel_token),
+    )
 
     return {
-        "message": f"Delete accepted for {root_label}. See Notifications for updates.",
+        "message": f"Delete queued for {root_label}.",
+        "job": job_payload(queued_job),
         "root": root_payload(root),
     }
 
@@ -256,56 +228,29 @@ def start_album_musicbrainz_edit(
     album_id: str,
     payload: dict[str, Any],
 ) -> dict[str, object]:
+    from ...player_jobs import job_payload
     from .album_edits import (
         prepare_album_musicbrainz_edit_job,
         run_edit_album_musicbrainz_job,
     )
-    from ...player_errors import PlayerConflictError
-    from .actions import record_player_action
 
     job = prepare_album_musicbrainz_edit_job(runtime.database, album_id, payload)
-    if not runtime.begin_library_job("edit_album_musicbrainz"):
-        raise PlayerConflictError("another library job is already running")
-
-    try:
-        accepted_action = record_player_action(
-            runtime.database,
-            kind="edit_album_musicbrainz",
-            status="accepted",
-            message=f"MusicBrainz ID edit accepted for {job.request.album_label}.",
-            context={
-                "album": job.request.album_name,
-                "tracks_scanned": len(job.tracks),
-            },
-        )
-        runtime.publish_notification(accepted_action)
-        edit_thread = Thread(
-            target=run_edit_album_musicbrainz_job,
-            args=(runtime, job),
-            daemon=True,
-        )
-        edit_thread.start()
-    except Exception:
-        runtime.finish_library_job()
-        try:
-            failed_action = record_player_action(
-                runtime.database,
-                kind="edit_album_musicbrainz",
-                status="failed",
-                message=f"MusicBrainz ID edit could not start for {job.request.album_label}.",
-                context={
-                    "album": job.request.album_name,
-                    "tracks_scanned": len(job.tracks),
-                },
-            )
-        except Exception:
-            LOGGER.exception("failed to record MusicBrainz edit start failure for %s", album_id)
-        else:
-            runtime.publish_notification(failed_action)
-        raise
+    queued_job = runtime.enqueue_job(
+        kind="edit_album_musicbrainz",
+        queued_message=f"MusicBrainz ID edit queued for {job.request.album_label}.",
+        running_message=f"MusicBrainz ID edit running for {job.request.album_label}.",
+        canceled_message=f"MusicBrainz ID edit canceled for {job.request.album_label}.",
+        failed_message=f"MusicBrainz ID edit failed for {job.request.album_label}.",
+        context={
+            "album": job.request.album_name,
+            "tracks_scanned": len(job.tracks),
+        },
+        runner=lambda cancel_token: run_edit_album_musicbrainz_job(runtime, job, cancel_token),
+    )
 
     return {
-        "message": f"MusicBrainz ID edit accepted for {job.request.album_label}. See Notifications for updates.",
+        "message": f"MusicBrainz ID edit queued for {job.request.album_label}.",
+        "job": job_payload(queued_job),
     }
 
 
@@ -314,55 +259,27 @@ def start_album_tag_edit(
     album_id: str,
     payload: dict[str, Any],
 ) -> dict[str, object]:
+    from ...player_jobs import job_payload
     from .album_edits import prepare_album_tag_edit_job, run_edit_album_job
-    from ...player_errors import PlayerConflictError
-    from .actions import record_player_action
 
     job = prepare_album_tag_edit_job(runtime.database, album_id, payload)
-    if not runtime.begin_library_job("edit_album"):
-        raise PlayerConflictError("another library job is already running")
-
-    try:
-        accepted_action = record_player_action(
-            runtime.database,
-            kind="edit_album",
-            status="accepted",
-            message=f"Tag edit accepted for {job.album_label}.",
-            context={
-                "album": job.album_name,
-                "album_artist": job.request.album_artist,
-                "tracks_updated": len(job.request.tracks),
-            },
-        )
-        runtime.publish_notification(accepted_action)
-        edit_thread = Thread(
-            target=run_edit_album_job,
-            args=(runtime, job),
-            daemon=True,
-        )
-        edit_thread.start()
-    except Exception:
-        runtime.finish_library_job()
-        try:
-            failed_action = record_player_action(
-                runtime.database,
-                kind="edit_album",
-                status="failed",
-                message=f"Tag edit could not start for {job.album_label}.",
-                context={
-                    "album": job.album_name,
-                    "album_artist": job.request.album_artist,
-                    "tracks_updated": len(job.request.tracks),
-                },
-            )
-        except Exception:
-            LOGGER.exception("failed to record tag-edit start failure for %s", album_id)
-        else:
-            runtime.publish_notification(failed_action)
-        raise
+    queued_job = runtime.enqueue_job(
+        kind="edit_album",
+        queued_message=f"Tag edit queued for {job.album_label}.",
+        running_message=f"Tag edit running for {job.album_label}.",
+        canceled_message=f"Tag edit canceled for {job.album_label}.",
+        failed_message=f"Tag edit failed for {job.album_label}.",
+        context={
+            "album": job.album_name,
+            "album_artist": job.request.album_artist,
+            "tracks_updated": len(job.request.tracks),
+        },
+        runner=lambda cancel_token: run_edit_album_job(runtime, job, cancel_token),
+    )
 
     return {
-        "message": f"Tag edit accepted for {job.album_label}. See Notifications for updates.",
+        "message": f"Tag edit queued for {job.album_label}.",
+        "job": job_payload(queued_job),
     }
 
 

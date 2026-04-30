@@ -10,15 +10,35 @@ from .player_runtime import PlayerRuntime
 
 
 def base_player_context(runtime: PlayerRuntime, **context: Any) -> dict[str, Any]:
+    from .player_config import (
+        DEFAULT_LINKED_TOAST_TIMEOUT_MS,
+        DEFAULT_TOAST_TIMEOUT_MS,
+    )
     from .player_presenters import queue_state_payload
 
     base = {
         "app_title": "kukicha player",
         "queue_state": queue_state_payload(runtime.queue_state_copy()),
         "queue_url": "/queue",
+        "toast_timeout_ms": player_option_int(
+            runtime,
+            "toast_timeout_ms",
+            DEFAULT_TOAST_TIMEOUT_MS,
+        ),
+        "linked_toast_timeout_ms": player_option_int(
+            runtime,
+            "linked_toast_timeout_ms",
+            DEFAULT_LINKED_TOAST_TIMEOUT_MS,
+        ),
     }
     base.update(context)
     return base
+
+
+def player_option_int(runtime: PlayerRuntime, name: str, default: int) -> int:
+    options = getattr(runtime, "options", None)
+    value = getattr(options, name, default) if options is not None else default
+    return value if type(value) is int else default
 
 
 def build_index_context(runtime: PlayerRuntime, query_string: str) -> dict[str, Any]:
@@ -39,7 +59,7 @@ def build_index_context(runtime: PlayerRuntime, query_string: str) -> dict[str, 
         album_list_query_from_params(parse_qs(query_string))
     )
     filters = api.filter_options()
-    album_page = api.list_album_page(query, include_track_ids=False)
+    album_page = api.list_album_page(query)
     context = base_player_context(
         runtime,
         view_template="player/index.html",
@@ -109,37 +129,63 @@ def build_simple_page_context(runtime: PlayerRuntime, page_key: str) -> dict[str
     return context
 
 
-def build_roots_page_context(runtime: PlayerRuntime) -> dict[str, Any]:
+def build_artists_page_context(runtime: PlayerRuntime) -> dict[str, Any]:
+    from .player_common import plural
+    from .player_navigation import artist_cloud_links, player_page_context
+
+    stats = LibraryQueries(runtime.database).library_stats()
+    artists = artist_cloud_links(stats.album_artists)
+    context = base_player_context(
+        runtime,
+        view_template="player/artists.html",
+        artists=artists,
+        count_text=f"{len(artists)} {plural(len(artists), 'artist', 'artists')}",
+    )
+    context.update(player_page_context("artists"))
+    return context
+
+
+def build_settings_page_context(runtime: PlayerRuntime) -> dict[str, Any]:
     from .player_common import plural
     from .player_navigation import player_page_context
     from .player_platform import root_picker_supported
 
-    roots = LibraryQueries(runtime.database).library_roots()
+    api = LibraryQueries(runtime.database)
+    roots = api.library_roots()
+    album_artist_mappings = api.album_artist_split_mappings()
     context = base_player_context(
         runtime,
         view_template="player/roots.html",
         roots=roots,
-        count_text=f"{len(roots)} {plural(len(roots), 'root', 'roots')}",
+        album_artist_mappings=album_artist_mappings,
+        count_text=(
+            f"{len(roots)} {plural(len(roots), 'root', 'roots')} - "
+            f"{len(album_artist_mappings)} {plural(len(album_artist_mappings), 'mapping', 'mappings')}"
+        ),
         root_picker_supported=root_picker_supported(),
     )
-    context.update(player_page_context("roots"))
+    context.update(player_page_context("settings"))
     return context
 
 
-def build_notifications_page_context(runtime: PlayerRuntime) -> dict[str, Any]:
-    from .player_actions import group_notification_payloads_by_day
+def build_roots_page_context(runtime: PlayerRuntime) -> dict[str, Any]:
+    return build_settings_page_context(runtime)
+
+
+def build_jobs_page_context(runtime: PlayerRuntime) -> dict[str, Any]:
+    from .player_jobs import group_job_payloads_by_day
     from .player_common import plural
     from .player_navigation import player_page_context
 
-    notifications = runtime.notification_payloads()
-    notification_groups = group_notification_payloads_by_day(notifications)
+    jobs = runtime.job_payloads()
+    job_groups = group_job_payloads_by_day(jobs)
     context = base_player_context(
         runtime,
-        view_template="player/notifications.html",
-        notification_groups=notification_groups,
-        count_text=f"{len(notifications)} {plural(len(notifications), 'notification', 'notifications')}",
+        view_template="player/jobs.html",
+        job_groups=job_groups,
+        count_text=f"{len(jobs)} {plural(len(jobs), 'job', 'jobs')}",
     )
-    context.update(player_page_context("notifications"))
+    context.update(player_page_context("jobs"))
     return context
 
 
@@ -153,6 +199,7 @@ def build_album_context(
         album_edit_url,
         album_genre_links,
         album_index_url,
+        album_root_links,
         album_style_links,
     )
     from .player_presenters import (
@@ -174,7 +221,8 @@ def build_album_context(
         runtime.database,
         [track_view(track) for track in album.tracks],
     )
-    track_sections = album_track_sections(track_views, api.library_roots())
+    roots = api.library_roots()
+    track_sections = album_track_sections(track_views, roots)
     filters = api.filter_options()
     return base_player_context(
         runtime,
@@ -184,6 +232,7 @@ def build_album_context(
         query=query,
         tracks=track_views,
         track_sections=track_sections,
+        album_root_links=album_root_links(album, roots),
         album_artist_links=album_artist_links(album, query),
         album_genre_links=album_genre_links(album, query, filters),
         album_year_text=str(album.year) if album.year else "",
@@ -245,9 +294,10 @@ def build_album_edit_context(
     from .player_navigation import (
         album_edit_album_artist_value,
         album_edit_genre_value,
+        album_artist_parts,
+        album_root_links,
         album_genre_year_parts,
         album_style_parts,
-        album_artist_parts,
         album_url,
     )
     from .player_presenters import (
@@ -264,6 +314,7 @@ def build_album_edit_context(
     )
     track_views = [track_view(track) for track in album.tracks]
     musicbrainz_link = album_musicbrainz_link(runtime.database, album.album_id)
+    roots = api.library_roots()
     return base_player_context(
         runtime,
         page_name="album-edit",
@@ -271,6 +322,7 @@ def build_album_edit_context(
         album=album,
         query=query,
         tracks=track_views,
+        album_root_links=album_root_links(album, roots),
         album_artist_parts=album_artist_parts(album),
         album_genre_year_parts=album_genre_year_parts(album),
         album_style_parts=album_style_parts(album),

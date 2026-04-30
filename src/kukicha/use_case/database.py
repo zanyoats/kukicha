@@ -8,13 +8,23 @@ from types import TracebackType
 from typing import Iterable
 
 from ..file_metadata import file_created_at
+from ..models import ALBUM_ARTWORK_HEIGHT
 from ..taxonomy_data import parse_taxonomy_tsv
 
 TAXONOMY_METADATA_KEY = "taxonomy_tsv_sha256"
 UNKNOWN_GENRE_TAG = "__Unknown"
 ALBUM_SEARCH_METADATA_KEY = "album_search_index_version"
-ALBUM_SEARCH_INDEX_VERSION = "2"
+ALBUM_SEARCH_INDEX_VERSION = "4"
 ALBUM_SEARCH_TRACK_SEPARATOR = " kukichatrackboundarytoken "
+ALBUM_ROLLUP_METADATA_KEY = "album_rollup_version"
+ALBUM_ROLLUP_COUNT_METADATA_KEY = "album_rollup_album_count"
+ALBUM_ROLLUP_VERSION = "2"
+ROOT_SCAN_STATS_METADATA_KEY = "root_scan_stats_version"
+ROOT_SCAN_STATS_ROOT_COUNT_METADATA_KEY = "root_scan_stats_root_count"
+ROOT_SCAN_STATS_TRACK_COUNT_METADATA_KEY = "root_scan_stats_track_count"
+ROOT_SCAN_STATS_ALBUM_ROOT_COUNT_METADATA_KEY = "root_scan_stats_album_root_count"
+ROOT_SCAN_STATS_PLAYLIST_COUNT_METADATA_KEY = "root_scan_stats_playlist_count"
+ROOT_SCAN_STATS_VERSION = "4"
 
 LIBRARY_TRACK_ARTWORK_SCHEMA = """
 CREATE TABLE IF NOT EXISTS library_track_artwork (
@@ -59,27 +69,156 @@ CREATE TABLE IF NOT EXISTS library_roots (
     root_path TEXT NOT NULL UNIQUE
 );
 
-CREATE TABLE IF NOT EXISTS player_actions (
-    action_id INTEGER PRIMARY KEY AUTOINCREMENT,
+CREATE TABLE IF NOT EXISTS library_root_stats (
+    root_position INTEGER PRIMARY KEY,
+    tracks_scanned INTEGER NOT NULL DEFAULT 0,
+    albums_scanned INTEGER NOT NULL DEFAULT 0,
+    playlists_scanned INTEGER NOT NULL DEFAULT 0,
+    FOREIGN KEY (root_position) REFERENCES library_roots (position) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS library_stats (
+    stats_id INTEGER PRIMARY KEY CHECK (stats_id = 1),
+    tracks_scanned INTEGER NOT NULL DEFAULT 0,
+    albums_scanned INTEGER NOT NULL DEFAULT 0,
+    playlists_scanned INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS library_root_album_artist_stats (
+    root_position INTEGER NOT NULL,
+    album_artist TEXT NOT NULL,
+    tracks_scanned INTEGER NOT NULL DEFAULT 0,
+    albums_scanned INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (root_position, album_artist),
+    FOREIGN KEY (root_position) REFERENCES library_roots (position) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_library_root_album_artist_stats_artist
+    ON library_root_album_artist_stats (album_artist, root_position);
+
+CREATE TABLE IF NOT EXISTS library_album_artist_stats (
+    album_artist TEXT PRIMARY KEY,
+    tracks_scanned INTEGER NOT NULL DEFAULT 0,
+    albums_scanned INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS album_artist_split_mappings (
+    album_artist TEXT PRIMARY KEY COLLATE NOCASE,
+    mapped_artists TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS player_jobs (
+    job_id INTEGER PRIMARY KEY AUTOINCREMENT,
     created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    started_at TEXT,
+    finished_at TEXT,
+    cancel_requested_at TEXT,
     kind TEXT NOT NULL,
-    status TEXT NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('queued', 'running', 'succeeded', 'failed', 'canceled')),
     message TEXT NOT NULL,
+    reason TEXT NOT NULL DEFAULT '',
     context_json TEXT NOT NULL DEFAULT '{}'
 );
-CREATE INDEX IF NOT EXISTS idx_player_actions_created_at
-    ON player_actions (created_at DESC, action_id DESC);
+CREATE INDEX IF NOT EXISTS idx_player_jobs_created_at
+    ON player_jobs (created_at DESC, job_id DESC);
+CREATE INDEX IF NOT EXISTS idx_player_jobs_status
+    ON player_jobs (status, created_at, job_id);
 
 CREATE TABLE IF NOT EXISTS library_albums (
     album_id TEXT PRIMARY KEY,
-    artist TEXT NOT NULL,
     album TEXT NOT NULL,
     year INTEGER,
     track_count INTEGER NOT NULL,
-    file_created_at TEXT
+    file_created_at TEXT,
+    has_cover INTEGER NOT NULL DEFAULT 0,
+    is_compilation INTEGER NOT NULL DEFAULT 0,
+    is_work INTEGER NOT NULL DEFAULT 0,
+    art_track_id INTEGER
 );
-CREATE INDEX IF NOT EXISTS idx_library_albums_artist ON library_albums (artist);
 CREATE INDEX IF NOT EXISTS idx_library_albums_album ON library_albums (album);
+
+CREATE TABLE IF NOT EXISTS library_album_artists (
+    album_id TEXT NOT NULL,
+    position INTEGER NOT NULL,
+    artist TEXT NOT NULL,
+    PRIMARY KEY (album_id, position),
+    FOREIGN KEY (album_id) REFERENCES library_albums (album_id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_library_album_artists_artist
+    ON library_album_artists (artist, album_id);
+
+CREATE TABLE IF NOT EXISTS library_album_roots (
+    album_id TEXT NOT NULL,
+    root_position INTEGER NOT NULL,
+    track_count INTEGER NOT NULL,
+    has_cover INTEGER NOT NULL DEFAULT 0,
+    is_compilation INTEGER NOT NULL DEFAULT 0,
+    is_work INTEGER NOT NULL DEFAULT 0,
+    art_track_id INTEGER,
+    PRIMARY KEY (album_id, root_position),
+    FOREIGN KEY (album_id) REFERENCES library_albums (album_id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_library_album_roots_root_position
+    ON library_album_roots (root_position, album_id);
+
+CREATE TABLE IF NOT EXISTS library_album_genres (
+    album_id TEXT NOT NULL,
+    genre TEXT NOT NULL,
+    PRIMARY KEY (album_id, genre),
+    FOREIGN KEY (album_id) REFERENCES library_albums (album_id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_library_album_genres_genre
+    ON library_album_genres (genre, album_id);
+
+CREATE TABLE IF NOT EXISTS library_album_styles (
+    album_id TEXT NOT NULL,
+    style TEXT NOT NULL,
+    PRIMARY KEY (album_id, style),
+    FOREIGN KEY (album_id) REFERENCES library_albums (album_id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_library_album_styles_style
+    ON library_album_styles (style, album_id);
+
+CREATE TABLE IF NOT EXISTS library_album_genre_styles (
+    album_id TEXT NOT NULL,
+    genre TEXT NOT NULL,
+    style TEXT NOT NULL,
+    PRIMARY KEY (album_id, genre, style),
+    FOREIGN KEY (album_id) REFERENCES library_albums (album_id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_library_album_genre_styles_genre_style
+    ON library_album_genre_styles (genre, style, album_id);
+
+CREATE TABLE IF NOT EXISTS library_album_root_genres (
+    album_id TEXT NOT NULL,
+    root_position INTEGER NOT NULL,
+    genre TEXT NOT NULL,
+    PRIMARY KEY (album_id, root_position, genre),
+    FOREIGN KEY (album_id) REFERENCES library_albums (album_id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_library_album_root_genres_genre
+    ON library_album_root_genres (root_position, genre, album_id);
+
+CREATE TABLE IF NOT EXISTS library_album_root_styles (
+    album_id TEXT NOT NULL,
+    root_position INTEGER NOT NULL,
+    style TEXT NOT NULL,
+    PRIMARY KEY (album_id, root_position, style),
+    FOREIGN KEY (album_id) REFERENCES library_albums (album_id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_library_album_root_styles_style
+    ON library_album_root_styles (root_position, style, album_id);
+
+CREATE TABLE IF NOT EXISTS library_album_root_genre_styles (
+    album_id TEXT NOT NULL,
+    root_position INTEGER NOT NULL,
+    genre TEXT NOT NULL,
+    style TEXT NOT NULL,
+    PRIMARY KEY (album_id, root_position, genre, style),
+    FOREIGN KEY (album_id) REFERENCES library_albums (album_id) ON DELETE CASCADE
+);
+CREATE INDEX IF NOT EXISTS idx_library_album_root_genre_styles_genre_style
+    ON library_album_root_genre_styles (root_position, genre, style, album_id);
 
 CREATE TABLE IF NOT EXISTS album_musicbrainz_links (
     album_id TEXT PRIMARY KEY,
@@ -254,11 +393,14 @@ def connect_database(
         connection.execute("PRAGMA journal_mode=WAL")
         connection.execute("PRAGMA synchronous=NORMAL")
         connection.executescript(DATABASE_SCHEMA)
+        migrate_player_jobs_schema(connection)
         migrate_library_schema(connection)
         migrate_album_musicbrainz_schema(connection)
         migrate_album_search_schema(connection)
         migrate_itunes_lookup_cache_schema(connection)
         ensure_album_search_index(connection)
+        ensure_album_rollups(connection)
+        ensure_root_scan_stats(connection)
         seed_runtime_taxonomy(connection)
     except Exception:
         connection.close()
@@ -266,34 +408,51 @@ def connect_database(
     return connection
 
 
+def migrate_player_jobs_schema(connection: sqlite3.Connection) -> None:
+    connection.execute("DROP TABLE IF EXISTS player_actions")
+
+
 def migrate_library_schema(connection: sqlite3.Connection) -> None:
-    columns = {
-        str(row["name"])
-        for row in connection.execute("PRAGMA table_info(library_tracks)")
-    }
+    columns = table_columns(connection, "library_tracks")
     created_track_file_created_at = False
     if "root_position" not in columns:
         connection.execute("ALTER TABLE library_tracks ADD COLUMN root_position INTEGER")
         backfill_library_track_roots(connection)
     if "composer" not in columns:
         connection.execute("ALTER TABLE library_tracks ADD COLUMN composer TEXT")
+    if "work" not in columns:
+        connection.execute("ALTER TABLE library_tracks ADD COLUMN work TEXT")
+    if "grouping" not in columns:
+        connection.execute("ALTER TABLE library_tracks ADD COLUMN grouping TEXT")
+    if "is_compilation" not in columns:
+        connection.execute(
+            "ALTER TABLE library_tracks ADD COLUMN is_compilation INTEGER NOT NULL DEFAULT 0"
+        )
     if "file_created_at" not in columns:
         connection.execute("ALTER TABLE library_tracks ADD COLUMN file_created_at TEXT")
         created_track_file_created_at = True
 
-    album_columns = {
-        str(row["name"])
-        for row in connection.execute("PRAGMA table_info(library_albums)")
-    }
+    album_columns = table_columns(connection, "library_albums")
     created_album_file_created_at = False
     if album_columns and "file_created_at" not in album_columns:
         connection.execute("ALTER TABLE library_albums ADD COLUMN file_created_at TEXT")
         created_album_file_created_at = True
+    if album_columns and "has_cover" not in album_columns:
+        connection.execute(
+            "ALTER TABLE library_albums ADD COLUMN has_cover INTEGER NOT NULL DEFAULT 0"
+        )
+    if album_columns and "is_compilation" not in album_columns:
+        connection.execute(
+            "ALTER TABLE library_albums ADD COLUMN is_compilation INTEGER NOT NULL DEFAULT 0"
+        )
+    if album_columns and "is_work" not in album_columns:
+        connection.execute(
+            "ALTER TABLE library_albums ADD COLUMN is_work INTEGER NOT NULL DEFAULT 0"
+        )
+    if album_columns and "art_track_id" not in album_columns:
+        connection.execute("ALTER TABLE library_albums ADD COLUMN art_track_id INTEGER")
 
-    playlist_columns = {
-        str(row["name"])
-        for row in connection.execute("PRAGMA table_info(library_playlists)")
-    }
+    playlist_columns = table_columns(connection, "library_playlists")
     created_playlist_file_created_at = False
     if playlist_columns and "cover_svg" not in playlist_columns:
         connection.execute(
@@ -340,11 +499,39 @@ def migrate_library_schema(connection: sqlite3.Connection) -> None:
     )
     connection.execute(
         """
+        CREATE INDEX IF NOT EXISTS idx_library_albums_has_cover
+            ON library_albums (has_cover)
+        """
+    )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_library_albums_is_compilation
+            ON library_albums (is_compilation)
+        """
+    )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_library_albums_is_work
+            ON library_albums (is_work)
+        """
+    )
+    connection.execute(
+        """
         CREATE INDEX IF NOT EXISTS idx_library_playlists_file_created_at
             ON library_playlists (file_created_at)
         """
     )
+    backfill_library_album_artists(connection)
+    migrate_library_album_artist_column(connection)
+    canonicalize_library_album_artists(connection)
     connection.execute("DROP TABLE IF EXISTS library_album_paths")
+
+
+def table_columns(connection: sqlite3.Connection, table_name: str) -> set[str]:
+    return {
+        str(row["name"])
+        for row in connection.execute(f"PRAGMA table_info({table_name})")
+    }
 
 
 def backfill_library_file_created_at(connection: sqlite3.Connection) -> None:
@@ -382,11 +569,33 @@ def backfill_library_album_file_created_at(connection: sqlite3.Connection) -> No
     )
 
 
+def backfill_library_album_artists(connection: sqlite3.Connection) -> None:
+    if "artist" not in table_columns(connection, "library_albums"):
+        return
+    connection.execute(
+        """
+        INSERT OR IGNORE INTO library_album_artists (album_id, position, artist)
+        SELECT albums.album_id, 0, albums.artist
+        FROM library_albums AS albums
+        WHERE COALESCE(albums.artist, '') != ''
+            AND NOT EXISTS (
+                SELECT 1
+                FROM library_album_artists AS artists
+                WHERE artists.album_id = albums.album_id
+            )
+        """
+    )
+
+
+def migrate_library_album_artist_column(connection: sqlite3.Connection) -> None:
+    if "artist" not in table_columns(connection, "library_albums"):
+        return
+    connection.execute("DROP INDEX IF EXISTS idx_library_albums_artist")
+    connection.execute("ALTER TABLE library_albums DROP COLUMN artist")
+
+
 def migrate_album_musicbrainz_schema(connection: sqlite3.Connection) -> None:
-    columns = {
-        str(row["name"])
-        for row in connection.execute("PRAGMA table_info(library_albums)")
-    }
+    columns = table_columns(connection, "library_albums")
     has_release_mbid = "musicbrainz_release_mbid" in columns
     has_release_group_mbid = "musicbrainz_release_group_mbid" in columns
     if not has_release_mbid and not has_release_group_mbid:
@@ -436,10 +645,7 @@ def migrate_album_musicbrainz_schema(connection: sqlite3.Connection) -> None:
 
 
 def migrate_album_search_schema(connection: sqlite3.Connection) -> None:
-    columns = {
-        str(row["name"])
-        for row in connection.execute("PRAGMA table_info(library_album_search)")
-    }
+    columns = table_columns(connection, "library_album_search")
     if "composer" in columns:
         return
     connection.execute("DROP TABLE IF EXISTS library_album_search")
@@ -462,10 +668,7 @@ def migrate_album_search_schema(connection: sqlite3.Connection) -> None:
 
 
 def migrate_itunes_lookup_cache_schema(connection: sqlite3.Connection) -> None:
-    columns = {
-        str(row["name"])
-        for row in connection.execute("PRAGMA table_info(itunes_lookup_image_cache)")
-    }
+    columns = table_columns(connection, "itunes_lookup_image_cache")
     if not columns or "result_kind" in columns:
         return
     connection.execute(
@@ -609,7 +812,20 @@ def rebuild_album_search_index(connection: sqlite3.Connection) -> None:
     connection.execute("DELETE FROM library_album_search")
     connection.execute(
         """
-        WITH ordered_track_titles AS (
+        WITH ordered_album_artists AS (
+            SELECT album_id, artist
+            FROM library_album_artists
+            WHERE COALESCE(artist, '') != ''
+            ORDER BY album_id, position
+        ),
+        album_artists AS (
+            SELECT
+                album_id,
+                group_concat(artist, ' ') AS artist
+            FROM ordered_album_artists
+            GROUP BY album_id
+        ),
+        ordered_track_titles AS (
             SELECT album_id, title
             FROM library_tracks
             WHERE album_id IS NOT NULL
@@ -642,11 +858,13 @@ def rebuild_album_search_index(connection: sqlite3.Connection) -> None:
         INSERT INTO library_album_search (album_id, artist, album, title, composer)
         SELECT
             albums.album_id,
-            albums.artist,
+            COALESCE(album_artists.artist, ''),
             albums.album,
             COALESCE(track_titles.title, ''),
             COALESCE(track_composers.composer, '')
         FROM library_albums AS albums
+        LEFT JOIN album_artists
+            ON album_artists.album_id = albums.album_id
         LEFT JOIN track_titles
             ON track_titles.album_id = albums.album_id
         LEFT JOIN track_composers
@@ -659,6 +877,513 @@ def rebuild_album_search_index(connection: sqlite3.Connection) -> None:
         connection,
         ALBUM_SEARCH_METADATA_KEY,
         ALBUM_SEARCH_INDEX_VERSION,
+    )
+
+
+ALBUM_ROLLUP_TABLES = (
+    "library_album_roots",
+    "library_album_genres",
+    "library_album_styles",
+    "library_album_genre_styles",
+    "library_album_root_genres",
+    "library_album_root_styles",
+    "library_album_root_genre_styles",
+)
+
+
+def ensure_album_rollups(connection: sqlite3.Connection) -> None:
+    album_count = library_album_count(connection)
+    rollup_count = int(get_metadata(connection, ALBUM_ROLLUP_COUNT_METADATA_KEY, "-1"))
+    rollup_version = get_metadata(connection, ALBUM_ROLLUP_METADATA_KEY)
+    if rollup_version != ALBUM_ROLLUP_VERSION or rollup_count != album_count:
+        rebuild_album_rollups(connection)
+
+
+def canonicalize_library_album_artists(connection: sqlite3.Connection) -> None:
+    rows = list(
+        connection.execute(
+            """
+            SELECT album_id, position, artist
+            FROM library_album_artists
+            ORDER BY album_id, position
+            """
+        )
+    )
+    canonical_by_key: dict[str, str] = {}
+    for row in rows:
+        artist = normalized_album_artist_text(str(row["artist"]))
+        if not artist:
+            continue
+        key = normalized_album_artist_key(artist)
+        canonical = canonical_by_key.get(key)
+        if canonical is None or artist < canonical:
+            canonical_by_key[key] = artist
+
+    artists_by_album: dict[str, list[str]] = {}
+    seen_by_album: dict[str, set[str]] = {}
+    for row in rows:
+        album_id = str(row["album_id"])
+        key = normalized_album_artist_key(str(row["artist"]))
+        artist = canonical_by_key.get(key)
+        if not artist:
+            continue
+        seen = seen_by_album.setdefault(album_id, set())
+        if key in seen:
+            continue
+        seen.add(key)
+        artists_by_album.setdefault(album_id, []).append(artist)
+
+    desired_rows = tuple(
+        (album_id, position, artist)
+        for album_id, artists in artists_by_album.items()
+        for position, artist in enumerate(artists)
+    )
+    current_rows = tuple(
+        (str(row["album_id"]), int(row["position"]), str(row["artist"]))
+        for row in rows
+    )
+    if current_rows == desired_rows:
+        return
+
+    connection.execute("DELETE FROM library_album_artists")
+    for album_id, artists in artists_by_album.items():
+        for position, artist in enumerate(artists):
+            connection.execute(
+                """
+                INSERT INTO library_album_artists (album_id, position, artist)
+                VALUES (?, ?, ?)
+                """,
+                (album_id, position, artist),
+            )
+
+
+def normalized_album_artist_text(value: str) -> str:
+    return " ".join(value.strip().split())
+
+
+def normalized_album_artist_key(value: str) -> str:
+    return normalized_album_artist_text(value).casefold()
+
+
+def rebuild_album_rollups(
+    connection: sqlite3.Connection,
+    album_ids: Iterable[str] | None = None,
+) -> None:
+    scoped_album_ids = None
+    if album_ids is not None:
+        scoped_album_ids = tuple(
+            dict.fromkeys(album_id for album_id in album_ids if album_id)
+        )
+        if not scoped_album_ids:
+            return
+
+    if scoped_album_ids is None:
+        for table_name in ALBUM_ROLLUP_TABLES:
+            connection.execute(f"DELETE FROM {table_name}")
+        album_scope_sql = ""
+        album_scope_params: list[object] = []
+        track_scope_sql = """
+            WHERE tracks.album_id IS NOT NULL
+                AND tracks.album_id != ''
+        """
+        track_scope_params: list[object] = []
+    else:
+        placeholders = ", ".join("?" for _ in scoped_album_ids)
+        for table_name in ALBUM_ROLLUP_TABLES:
+            connection.execute(
+                f"DELETE FROM {table_name} WHERE album_id IN ({placeholders})",
+                scoped_album_ids,
+            )
+        album_scope_sql = f"WHERE album_id IN ({placeholders})"
+        album_scope_params = list(scoped_album_ids)
+        track_scope_sql = f"""
+            WHERE tracks.album_id IN ({placeholders})
+        """
+        track_scope_params = list(scoped_album_ids)
+
+    connection.execute(
+        f"""
+        UPDATE library_albums
+        SET track_count = COALESCE(
+                (
+                    SELECT COUNT(*)
+                    FROM library_tracks AS tracks
+                    WHERE tracks.album_id = library_albums.album_id
+                ),
+                0
+            ),
+            has_cover = CASE
+                WHEN EXISTS (
+                    SELECT 1
+                    FROM library_tracks AS tracks
+                    JOIN library_track_artwork AS artwork
+                        ON artwork.track_id = tracks.track_id
+                    WHERE tracks.album_id = library_albums.album_id
+                        AND artwork.height_px = {ALBUM_ARTWORK_HEIGHT}
+                )
+                THEN 1
+                ELSE 0
+            END,
+            is_compilation = CASE
+                WHEN EXISTS (
+                    SELECT 1
+                    FROM library_tracks AS tracks
+                    WHERE tracks.album_id = library_albums.album_id
+                        AND tracks.is_compilation = 1
+                )
+                THEN 1
+                ELSE 0
+            END,
+            is_work = CASE
+                WHEN EXISTS (
+                    SELECT 1
+                    FROM library_tracks AS tracks
+                    WHERE tracks.album_id = library_albums.album_id
+                        AND (
+                            COALESCE(tracks.work, '') != ''
+                            OR COALESCE(tracks.grouping, '') != ''
+                        )
+                )
+                THEN 1
+                ELSE 0
+            END,
+            art_track_id = (
+                SELECT MIN(tracks.track_id)
+                FROM library_tracks AS tracks
+                JOIN library_track_artwork AS artwork
+                    ON artwork.track_id = tracks.track_id
+                WHERE tracks.album_id = library_albums.album_id
+                    AND artwork.height_px = {ALBUM_ARTWORK_HEIGHT}
+            )
+        {album_scope_sql}
+        """,
+        album_scope_params,
+    )
+    connection.execute(
+        f"""
+        INSERT INTO library_album_roots (
+            album_id,
+            root_position,
+            track_count,
+            has_cover,
+            is_compilation,
+            is_work,
+            art_track_id
+        )
+        SELECT
+            tracks.album_id,
+            tracks.root_position,
+            COUNT(*) AS track_count,
+            MAX(CASE WHEN artwork.track_id IS NULL THEN 0 ELSE 1 END) AS has_cover,
+            MAX(tracks.is_compilation) AS is_compilation,
+            MAX(
+                CASE
+                    WHEN COALESCE(tracks.work, '') != ''
+                        OR COALESCE(tracks.grouping, '') != ''
+                    THEN 1
+                    ELSE 0
+                END
+            ) AS is_work,
+            MIN(artwork.track_id) AS art_track_id
+        FROM library_tracks AS tracks
+        LEFT JOIN (
+            SELECT DISTINCT track_id
+            FROM library_track_artwork
+            WHERE height_px = {ALBUM_ARTWORK_HEIGHT}
+        ) AS artwork
+            ON artwork.track_id = tracks.track_id
+        {track_scope_sql}
+            AND tracks.root_position IS NOT NULL
+        GROUP BY tracks.album_id, tracks.root_position
+        """,
+        track_scope_params,
+    )
+    connection.execute(
+        f"""
+        INSERT INTO library_album_genres (album_id, genre)
+        SELECT DISTINCT tracks.album_id, genres.genre
+        FROM library_tracks AS tracks
+        JOIN library_track_genres AS genres
+            ON genres.track_id = tracks.track_id
+        {track_scope_sql}
+        """,
+        track_scope_params,
+    )
+    connection.execute(
+        f"""
+        INSERT INTO library_album_styles (album_id, style)
+        SELECT DISTINCT tracks.album_id, styles.style
+        FROM library_tracks AS tracks
+        JOIN library_track_styles AS styles
+            ON styles.track_id = tracks.track_id
+        {track_scope_sql}
+        """,
+        track_scope_params,
+    )
+    connection.execute(
+        f"""
+        INSERT INTO library_album_genre_styles (album_id, genre, style)
+        SELECT DISTINCT tracks.album_id, genres.genre, styles.style
+        FROM library_tracks AS tracks
+        JOIN library_track_genres AS genres
+            ON genres.track_id = tracks.track_id
+        JOIN library_track_styles AS styles
+            ON styles.track_id = tracks.track_id
+        {track_scope_sql}
+        """,
+        track_scope_params,
+    )
+    connection.execute(
+        f"""
+        INSERT INTO library_album_root_genres (album_id, root_position, genre)
+        SELECT DISTINCT tracks.album_id, tracks.root_position, genres.genre
+        FROM library_tracks AS tracks
+        JOIN library_track_genres AS genres
+            ON genres.track_id = tracks.track_id
+        {track_scope_sql}
+            AND tracks.root_position IS NOT NULL
+        """,
+        track_scope_params,
+    )
+    connection.execute(
+        f"""
+        INSERT INTO library_album_root_styles (album_id, root_position, style)
+        SELECT DISTINCT tracks.album_id, tracks.root_position, styles.style
+        FROM library_tracks AS tracks
+        JOIN library_track_styles AS styles
+            ON styles.track_id = tracks.track_id
+        {track_scope_sql}
+            AND tracks.root_position IS NOT NULL
+        """,
+        track_scope_params,
+    )
+    connection.execute(
+        f"""
+        INSERT INTO library_album_root_genre_styles (
+            album_id,
+            root_position,
+            genre,
+            style
+        )
+        SELECT DISTINCT
+            tracks.album_id,
+            tracks.root_position,
+            genres.genre,
+            styles.style
+        FROM library_tracks AS tracks
+        JOIN library_track_genres AS genres
+            ON genres.track_id = tracks.track_id
+        JOIN library_track_styles AS styles
+            ON styles.track_id = tracks.track_id
+        {track_scope_sql}
+            AND tracks.root_position IS NOT NULL
+        """,
+        track_scope_params,
+    )
+    set_metadata(connection, ALBUM_ROLLUP_METADATA_KEY, ALBUM_ROLLUP_VERSION)
+    set_metadata(
+        connection,
+        ALBUM_ROLLUP_COUNT_METADATA_KEY,
+        str(library_album_count(connection)),
+    )
+
+
+def library_album_count(connection: sqlite3.Connection) -> int:
+    return int(
+        connection.execute(
+            "SELECT COUNT(*) AS count FROM library_albums"
+        ).fetchone()["count"]
+    )
+
+
+def ensure_root_scan_stats(connection: sqlite3.Connection) -> None:
+    source_counts = root_scan_stats_source_counts(connection)
+    stats_count = int(
+        connection.execute(
+            "SELECT COUNT(*) AS count FROM library_root_stats"
+        ).fetchone()["count"]
+    )
+    total_stats_count = int(
+        connection.execute(
+            "SELECT COUNT(*) AS count FROM library_stats"
+        ).fetchone()["count"]
+    )
+    metadata_count_keys = {
+        "roots": ROOT_SCAN_STATS_ROOT_COUNT_METADATA_KEY,
+        "tracks": ROOT_SCAN_STATS_TRACK_COUNT_METADATA_KEY,
+        "album_roots": ROOT_SCAN_STATS_ALBUM_ROOT_COUNT_METADATA_KEY,
+        "playlists": ROOT_SCAN_STATS_PLAYLIST_COUNT_METADATA_KEY,
+    }
+    if (
+        get_metadata(connection, ROOT_SCAN_STATS_METADATA_KEY) != ROOT_SCAN_STATS_VERSION
+        or stats_count != source_counts["roots"]
+        or total_stats_count != 1
+        or any(
+            get_metadata(connection, metadata_key, "-1") != str(source_counts[count_key])
+            for count_key, metadata_key in metadata_count_keys.items()
+        )
+    ):
+        rebuild_root_scan_stats(connection, source_counts=source_counts)
+
+
+def rebuild_root_scan_stats(
+    connection: sqlite3.Connection,
+    *,
+    source_counts: dict[str, int] | None = None,
+) -> None:
+    connection.execute("DELETE FROM library_album_artist_stats")
+    connection.execute("DELETE FROM library_stats")
+    connection.execute("DELETE FROM library_root_album_artist_stats")
+    connection.execute("DELETE FROM library_root_stats")
+    connection.execute(
+        """
+        INSERT INTO library_root_stats (
+            root_position,
+            tracks_scanned,
+            albums_scanned,
+            playlists_scanned
+        )
+        SELECT
+            roots.position,
+            COALESCE(track_counts.tracks_scanned, 0) AS tracks_scanned,
+            COALESCE(album_counts.albums_scanned, 0) AS albums_scanned,
+            COALESCE(playlist_counts.playlists_scanned, 0) AS playlists_scanned
+        FROM library_roots AS roots
+        LEFT JOIN (
+            SELECT root_position, COUNT(*) AS tracks_scanned
+            FROM library_tracks
+            WHERE root_position IS NOT NULL
+            GROUP BY root_position
+        ) AS track_counts
+            ON track_counts.root_position = roots.position
+        LEFT JOIN (
+            SELECT root_position, COUNT(*) AS albums_scanned
+            FROM library_album_roots
+            WHERE root_position IS NOT NULL
+            GROUP BY root_position
+        ) AS album_counts
+            ON album_counts.root_position = roots.position
+        LEFT JOIN (
+            SELECT root_position, COUNT(*) AS playlists_scanned
+            FROM library_playlists
+            WHERE root_position IS NOT NULL
+            GROUP BY root_position
+        ) AS playlist_counts
+            ON playlist_counts.root_position = roots.position
+        ORDER BY roots.position
+        """
+    )
+    connection.execute(
+        """
+        INSERT INTO library_root_album_artist_stats (
+            root_position,
+            album_artist,
+            tracks_scanned,
+            albums_scanned
+        )
+        SELECT
+            album_roots.root_position,
+            MIN(artists.artist) AS album_artist,
+            SUM(album_roots.track_count) AS tracks_scanned,
+            COUNT(*) AS albums_scanned
+        FROM library_album_roots AS album_roots
+        JOIN library_roots AS roots
+            ON roots.position = album_roots.root_position
+        JOIN library_album_artists AS artists
+            ON artists.album_id = album_roots.album_id
+        WHERE album_roots.root_position IS NOT NULL
+            AND COALESCE(artists.artist, '') != ''
+        GROUP BY album_roots.root_position, artists.artist COLLATE NOCASE
+        ORDER BY album_roots.root_position, album_artist COLLATE NOCASE
+        """
+    )
+    connection.execute(
+        """
+        INSERT INTO library_stats (
+            stats_id,
+            tracks_scanned,
+            albums_scanned,
+            playlists_scanned
+        )
+        SELECT
+            1 AS stats_id,
+            COALESCE(SUM(tracks_scanned), 0) AS tracks_scanned,
+            COALESCE(SUM(albums_scanned), 0) AS albums_scanned,
+            COALESCE(SUM(playlists_scanned), 0) AS playlists_scanned
+        FROM library_root_stats
+        """
+    )
+    connection.execute(
+        """
+        INSERT INTO library_album_artist_stats (
+            album_artist,
+            tracks_scanned,
+            albums_scanned
+        )
+        SELECT
+            MIN(album_artist) AS album_artist,
+            SUM(tracks_scanned) AS tracks_scanned,
+            SUM(albums_scanned) AS albums_scanned
+        FROM library_root_album_artist_stats
+        GROUP BY album_artist COLLATE NOCASE
+        ORDER BY album_artist COLLATE NOCASE
+        """
+    )
+    set_root_scan_stats_metadata(connection, source_counts=source_counts)
+
+
+def root_scan_stats_source_counts(connection: sqlite3.Connection) -> dict[str, int]:
+    return {
+        "roots": int(
+            connection.execute(
+                "SELECT COUNT(*) AS count FROM library_roots"
+            ).fetchone()["count"]
+        ),
+        "tracks": int(
+            connection.execute(
+                "SELECT COUNT(*) AS count FROM library_tracks"
+            ).fetchone()["count"]
+        ),
+        "album_roots": int(
+            connection.execute(
+                "SELECT COUNT(*) AS count FROM library_album_roots"
+            ).fetchone()["count"]
+        ),
+        "playlists": int(
+            connection.execute(
+                "SELECT COUNT(*) AS count FROM library_playlists"
+            ).fetchone()["count"]
+        ),
+    }
+
+
+def set_root_scan_stats_metadata(
+    connection: sqlite3.Connection,
+    *,
+    source_counts: dict[str, int] | None = None,
+) -> None:
+    if source_counts is None:
+        source_counts = root_scan_stats_source_counts(connection)
+    set_metadata(connection, ROOT_SCAN_STATS_METADATA_KEY, ROOT_SCAN_STATS_VERSION)
+    set_metadata(
+        connection,
+        ROOT_SCAN_STATS_ROOT_COUNT_METADATA_KEY,
+        str(source_counts["roots"]),
+    )
+    set_metadata(
+        connection,
+        ROOT_SCAN_STATS_TRACK_COUNT_METADATA_KEY,
+        str(source_counts["tracks"]),
+    )
+    set_metadata(
+        connection,
+        ROOT_SCAN_STATS_ALBUM_ROOT_COUNT_METADATA_KEY,
+        str(source_counts["album_roots"]),
+    )
+    set_metadata(
+        connection,
+        ROOT_SCAN_STATS_PLAYLIST_COUNT_METADATA_KEY,
+        str(source_counts["playlists"]),
     )
 
 
@@ -677,6 +1402,13 @@ def get_metadata(connection: sqlite3.Connection, key: str, default: str = "") ->
 def clear_library(connection: sqlite3.Connection) -> None:
     connection.execute("DELETE FROM library_playlist_items")
     connection.execute("DELETE FROM library_playlists")
+    connection.execute("DELETE FROM library_album_artist_stats")
+    connection.execute("DELETE FROM library_stats")
+    connection.execute("DELETE FROM library_root_album_artist_stats")
+    connection.execute("DELETE FROM library_root_stats")
+    for table_name in ALBUM_ROLLUP_TABLES:
+        connection.execute(f"DELETE FROM {table_name}")
+    connection.execute("DELETE FROM library_album_artists")
     connection.execute("DELETE FROM library_track_artwork")
     connection.execute("DELETE FROM library_track_styles")
     connection.execute("DELETE FROM library_track_genres")

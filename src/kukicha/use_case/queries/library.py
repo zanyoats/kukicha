@@ -6,7 +6,7 @@ from sqlite3 import Connection, Row
 
 from ..database import connect_database
 from ..library import split_genres_and_styles
-from ...models import TrackArtwork, normalize_genre_values
+from ...models import ALBUM_ARTWORK_HEIGHT, TrackArtwork, normalize_genre_values
 from .filters import (
     album_where_clause,
     expanded_album_list_query,
@@ -17,6 +17,7 @@ from .filters import (
 from .models import (
     ALBUM_LIST_SORT_ARTIST,
     ALBUM_LIST_SORT_RECENTLY_ADDED,
+    AlbumArtistSplitMapping,
     AlbumDetails,
     AlbumListQuery,
     AlbumNotFoundError,
@@ -25,7 +26,11 @@ from .models import (
     GenreFilterGroup,
     GenreStyleFilter,
     LibraryFilterOptions,
+    LibraryAlbumArtistStats,
+    LibraryRootAlbumArtistStats,
     LibraryRootFilterOption,
+    LibraryRootStats,
+    LibraryStats,
     PlaylistDetails,
     PlaylistItem,
     PlaylistItemNotFoundError,
@@ -54,8 +59,6 @@ class LibraryQueries:
     def list_album_page(
         self,
         query: AlbumListQuery,
-        *,
-        include_track_ids: bool = True,
     ) -> AlbumPage:
         with connect_database(self.database, create=False) as connection:
             query = expanded_album_list_query(connection, query)
@@ -66,7 +69,6 @@ class LibraryQueries:
                     *self._album_list_items(
                         connection,
                         query,
-                        include_track_ids=include_track_ids,
                     ),
                     *self._playlist_list_items(connection, query),
                 ),
@@ -85,34 +87,58 @@ class LibraryQueries:
         self,
         connection: Connection,
         query: AlbumListQuery,
-        *,
-        include_track_ids: bool,
     ) -> tuple[AlbumSummary, ...]:
         if query.is_playlist is True:
             return ()
         where_sql, params = album_where_clause(query)
+        if query.root_positions:
+            root_placeholders = placeholders_for(query.root_positions)
+            rows = list(
+                connection.execute(
+                    f"""
+                    WITH selected_album_roots AS (
+                        SELECT
+                            album_id,
+                            SUM(track_count) AS track_count,
+                            MIN(art_track_id) AS art_track_id
+                        FROM library_album_roots
+                        WHERE root_position IN ({root_placeholders})
+                        GROUP BY album_id
+                    )
+                    SELECT
+                        albums.album_id,
+                        albums.album,
+                        albums.year,
+                        selected_album_roots.track_count,
+                        albums.file_created_at,
+                        selected_album_roots.art_track_id
+                    FROM library_albums AS albums
+                    JOIN selected_album_roots
+                        ON selected_album_roots.album_id = albums.album_id
+                    {where_sql}
+                    """,
+                    [*query.root_positions, *params],
+                )
+            )
+            return self._album_summaries_from_rows(connection, rows)
+
         rows = list(
             connection.execute(
                 f"""
                 SELECT
                     albums.album_id,
-                    albums.artist,
                     albums.album,
                     albums.year,
                     albums.track_count,
-                    albums.file_created_at
+                    albums.file_created_at,
+                    albums.art_track_id
                 FROM library_albums AS albums
                 {where_sql}
                 """,
                 params,
             )
         )
-        return self._album_summaries_from_rows(
-            connection,
-            rows,
-            root_positions=query.root_positions,
-            include_track_ids=include_track_ids,
-        )
+        return self._album_summaries_from_rows(connection, rows)
 
     def _playlist_list_items(
         self,
@@ -176,7 +202,7 @@ class LibraryQueries:
         with connect_database(self.database, create=False) as connection:
             row = connection.execute(
                 """
-                SELECT album_id, artist, album, year, track_count, file_created_at
+                SELECT album_id, album, year, track_count, file_created_at
                 FROM library_albums
                 WHERE album_id = ?
                 """,
@@ -212,6 +238,11 @@ class LibraryQueries:
                 column="style",
             )
             track_ids_with_cover = track_ids_with_artwork(connection, track_ids)
+            track_ids_with_album_artwork = track_ids_with_artwork(
+                connection,
+                track_ids,
+                height_px=ALBUM_ARTWORK_HEIGHT,
+            )
             tracks = tuple(
                 sorted(
                     self._playlist_tracks_from_rows(
@@ -237,22 +268,32 @@ class LibraryQueries:
                     ),
                 )
             )
+            album_artists = album_artists_by_album(connection, (album_id,)).get(
+                album_id,
+                (),
+            )
+            artist = album_artist_display_text(album_artists)
         return AlbumDetails(
             album_id=str(row["album_id"]),
-            artist=str(row["artist"]),
+            artist=artist,
             album=str(row["album"]),
             year=int(row["year"]) if row["year"] is not None else None,
             track_count=len(track_rows) if root_positions else int(row["track_count"]),
+            album_artists=album_artists,
             file_created_at=row["file_created_at"],
             genres=album_values_from_track_values(genres_by_track),
             styles=album_values_from_track_values(styles_by_track),
-            has_cover=bool(track_ids_with_cover),
+            has_cover=bool(track_ids_with_album_artwork),
             is_compilation=any(bool(track_row["is_compilation"]) for track_row in track_rows),
             is_work=any(
                 bool(track_row["work"] or track_row["grouping"])
                 for track_row in track_rows
             ),
-            art_track_id=min(track_ids) if track_ids else None,
+            art_track_id=(
+                min(track_ids_with_album_artwork)
+                if track_ids_with_album_artwork
+                else None
+            ),
             track_ids=tuple(track.track_id for track in tracks if track.track_id is not None),
             paths=paths,
             tracks=tracks,
@@ -415,7 +456,7 @@ class LibraryQueries:
                 for row in connection.execute(
                     """
                     SELECT DISTINCT artist
-                    FROM library_albums
+                    FROM library_album_artists
                     WHERE artist != ''
                     ORDER BY artist COLLATE NOCASE
                     """
@@ -426,7 +467,7 @@ class LibraryQueries:
                 for row in connection.execute(
                     """
                     SELECT DISTINCT genre
-                    FROM library_track_genres
+                    FROM library_album_genres
                     ORDER BY genre COLLATE NOCASE
                     """
                 )
@@ -436,12 +477,12 @@ class LibraryQueries:
             for row in connection.execute(
                 """
                 SELECT DISTINCT
-                    library_track_styles.style,
+                    library_album_styles.style,
                     taxonomy_styles.parent_genre
-                FROM library_track_styles
+                FROM library_album_styles
                 LEFT JOIN taxonomy_styles
-                    ON taxonomy_styles.style = library_track_styles.style
-                ORDER BY library_track_styles.style COLLATE NOCASE
+                    ON taxonomy_styles.style = library_album_styles.style
+                ORDER BY library_album_styles.style COLLATE NOCASE
                 """
             ):
                 style = str(row["style"])
@@ -476,6 +517,126 @@ class LibraryQueries:
     def library_roots(self) -> tuple[LibraryRootFilterOption, ...]:
         with connect_database(self.database, create=False) as connection:
             return library_root_options(connection)
+
+    def album_artist_split_mappings(self) -> tuple[AlbumArtistSplitMapping, ...]:
+        with connect_database(self.database, create=False) as connection:
+            rows = list(
+                connection.execute(
+                    """
+                    SELECT album_artist, mapped_artists
+                    FROM album_artist_split_mappings
+                    ORDER BY album_artist COLLATE NOCASE
+                    """
+                )
+            )
+        return tuple(
+            AlbumArtistSplitMapping(
+                album_artist=str(row["album_artist"]),
+                mapped_artists=mapped_artist_lines(str(row["mapped_artists"])),
+            )
+            for row in rows
+        )
+
+    def library_stats(self) -> LibraryStats:
+        with connect_database(self.database, create=False) as connection:
+            stats_row = connection.execute(
+                """
+                SELECT
+                    tracks_scanned,
+                    albums_scanned,
+                    playlists_scanned
+                FROM library_stats
+                WHERE stats_id = 1
+                """
+            ).fetchone()
+            artist_rows = list(
+                connection.execute(
+                    """
+                    SELECT
+                        album_artist,
+                        tracks_scanned,
+                        albums_scanned
+                    FROM library_album_artist_stats
+                    ORDER BY album_artist COLLATE NOCASE
+                    """
+                )
+            )
+
+        album_artists = tuple(
+            LibraryAlbumArtistStats(
+                album_artist=str(row["album_artist"]),
+                tracks_scanned=int(row["tracks_scanned"]),
+                albums_scanned=int(row["albums_scanned"]),
+            )
+            for row in artist_rows
+        )
+        if stats_row is None:
+            return LibraryStats(
+                tracks_scanned=0,
+                albums_scanned=0,
+                playlists_scanned=0,
+                album_artists=album_artists,
+            )
+        return LibraryStats(
+            tracks_scanned=int(stats_row["tracks_scanned"]),
+            albums_scanned=int(stats_row["albums_scanned"]),
+            playlists_scanned=int(stats_row["playlists_scanned"]),
+            album_artists=album_artists,
+        )
+
+    def library_root_stats(self) -> tuple[LibraryRootStats, ...]:
+        with connect_database(self.database, create=False) as connection:
+            stats_rows = list(
+                connection.execute(
+                    """
+                    SELECT
+                        root_position,
+                        tracks_scanned,
+                        albums_scanned,
+                        playlists_scanned
+                    FROM library_root_stats
+                    ORDER BY root_position
+                    """
+                )
+            )
+            artist_rows = list(
+                connection.execute(
+                    """
+                    SELECT
+                        root_position,
+                        album_artist,
+                        tracks_scanned,
+                        albums_scanned
+                    FROM library_root_album_artist_stats
+                    ORDER BY root_position, album_artist COLLATE NOCASE
+                    """
+                )
+            )
+
+        artist_stats_by_root: dict[int, list[LibraryRootAlbumArtistStats]] = {}
+        for row in artist_rows:
+            root_position = int(row["root_position"])
+            artist_stats_by_root.setdefault(root_position, []).append(
+                LibraryRootAlbumArtistStats(
+                    root_position=root_position,
+                    album_artist=str(row["album_artist"]),
+                    tracks_scanned=int(row["tracks_scanned"]),
+                    albums_scanned=int(row["albums_scanned"]),
+                )
+            )
+
+        return tuple(
+            LibraryRootStats(
+                root_position=int(row["root_position"]),
+                tracks_scanned=int(row["tracks_scanned"]),
+                albums_scanned=int(row["albums_scanned"]),
+                playlists_scanned=int(row["playlists_scanned"]),
+                album_artists=tuple(
+                    artist_stats_by_root.get(int(row["root_position"]), ())
+                ),
+            )
+            for row in stats_rows
+        )
 
     def _playlist_items(
         self,
@@ -601,74 +762,33 @@ class LibraryQueries:
         self,
         connection: Connection,
         rows: Iterable[Row],
-        *,
-        root_positions: tuple[int, ...] = (),
-        include_track_ids: bool = True,
     ) -> tuple[AlbumSummary, ...]:
         album_rows = list(rows)
-        album_ids = [str(row["album_id"]) for row in album_rows]
-        genres_by_album = album_values_by_album(
+        artists_by_album = album_artists_by_album(
             connection,
-            album_ids,
-            table="library_track_genres",
-            column="genre",
-            root_positions=root_positions,
+            (str(row["album_id"]) for row in album_rows if row["album_id"]),
         )
-        styles_by_album = album_values_by_album(
-            connection,
-            album_ids,
-            table="library_track_styles",
-            column="style",
-            root_positions=root_positions,
-        )
-        flags_by_album = album_flags_by_album(
-            connection,
-            album_ids,
-            root_positions=root_positions,
-        )
-        art_track_ids = album_art_track_ids(
-            connection,
-            album_ids,
-            root_positions=root_positions,
-        )
-        track_ids_by_album = (
-            album_track_ids_by_album(
-                connection,
-                album_ids,
-                root_positions=root_positions,
+        summaries: list[AlbumSummary] = []
+        for row in album_rows:
+            album_id = str(row["album_id"])
+            album_artists = artists_by_album.get(album_id, ())
+            summaries.append(
+                AlbumSummary(
+                    album_id=album_id,
+                    artist=album_artist_display_text(album_artists),
+                    album=str(row["album"]),
+                    year=int(row["year"]) if row["year"] is not None else None,
+                    track_count=int(row["track_count"]),
+                    album_artists=album_artists,
+                    file_created_at=row["file_created_at"],
+                    art_track_id=(
+                        int(row["art_track_id"])
+                        if row["art_track_id"] is not None
+                        else None
+                    ),
+                )
             )
-            if include_track_ids
-            else {}
-        )
-        track_counts = album_track_counts_by_album(
-            connection,
-            album_ids,
-            root_positions=root_positions,
-        )
-        return tuple(
-            AlbumSummary(
-                album_id=str(row["album_id"]),
-                artist=str(row["artist"]),
-                album=str(row["album"]),
-                year=int(row["year"]) if row["year"] is not None else None,
-                track_count=track_counts.get(
-                    str(row["album_id"]),
-                    int(row["track_count"]),
-                ),
-                file_created_at=row["file_created_at"],
-                genres=genres_by_album.get(str(row["album_id"]), ()),
-                styles=styles_by_album.get(str(row["album_id"]), ()),
-                has_cover=flags_by_album.get(str(row["album_id"]), {}).get("has_cover", False),
-                is_compilation=flags_by_album.get(str(row["album_id"]), {}).get(
-                    "is_compilation",
-                    False,
-                ),
-                is_work=flags_by_album.get(str(row["album_id"]), {}).get("is_work", False),
-                art_track_id=art_track_ids.get(str(row["album_id"])),
-                track_ids=track_ids_by_album.get(str(row["album_id"]), ()),
-            )
-            for row in album_rows
-        )
+        return tuple(summaries)
 
     def _playlist_tracks_from_rows(
         self,
@@ -783,190 +903,49 @@ class LibraryQueries:
         return tracks
 
 
-def album_values_by_album(
-    connection: Connection,
-    album_ids: list[str],
-    *,
-    table: str,
-    column: str,
-    root_positions: tuple[int, ...] = (),
-) -> dict[str, tuple[str, ...]]:
-    if not album_ids:
-        return {}
-    placeholders = placeholders_for(album_ids)
-    root_sql, root_params = root_scope_clause("tracks", root_positions)
-    values: dict[str, list[str]] = {}
-    for row in connection.execute(
-        f"""
-        SELECT tracks.album_id, track_values.{column}
-        FROM library_tracks AS tracks
-        JOIN {table} AS track_values
-            ON track_values.track_id = tracks.track_id
-        WHERE tracks.album_id IN ({placeholders}){root_sql}
-        ORDER BY tracks.album_id, track_values.position
-        """,
-        [*album_ids, *root_params],
-    ):
-        values.setdefault(str(row["album_id"]), []).append(str(row[column]))
-    return {
-        album_id: unique_sorted(album_values)
-        for album_id, album_values in values.items()
-    }
-
-
-def album_flags_by_album(
-    connection: Connection,
-    album_ids: list[str],
-    *,
-    root_positions: tuple[int, ...] = (),
-) -> dict[str, dict[str, bool]]:
-    if not album_ids:
-        return {}
-    placeholders = placeholders_for(album_ids)
-    root_sql, root_params = root_scope_clause("library_tracks", root_positions)
-    flags = {
-        str(row["album_id"]): {
-            "is_compilation": bool(row["is_compilation"]),
-            "is_work": bool(row["is_work"]),
-            "has_cover": False,
-        }
-        for row in connection.execute(
-            f"""
-            SELECT
-                album_id,
-                MAX(is_compilation) AS is_compilation,
-                MAX(
-                    CASE
-                        WHEN COALESCE(work, '') != '' OR COALESCE(grouping, '') != ''
-                        THEN 1
-                        ELSE 0
-                    END
-                ) AS is_work
-            FROM library_tracks
-            WHERE album_id IN ({placeholders}){root_sql}
-            GROUP BY album_id
-            """,
-            [*album_ids, *root_params],
-        )
-    }
-    root_sql, root_params = root_scope_clause("tracks", root_positions)
-    for row in connection.execute(
-        f"""
-        SELECT DISTINCT tracks.album_id
-        FROM library_tracks AS tracks
-        JOIN library_track_artwork AS artwork
-            ON artwork.track_id = tracks.track_id
-        WHERE tracks.album_id IN ({placeholders}){root_sql}
-        """,
-        [*album_ids, *root_params],
-    ):
-        flags.setdefault(str(row["album_id"]), {})["has_cover"] = True
-    return flags
-
-
-def album_art_track_ids(
-    connection: Connection,
-    album_ids: list[str],
-    *,
-    root_positions: tuple[int, ...] = (),
-) -> dict[str, int]:
-    if not album_ids:
-        return {}
-    placeholders = placeholders_for(album_ids)
-    root_sql, root_params = root_scope_clause("library_tracks", root_positions)
-    return {
-        str(row["album_id"]): int(row["track_id"])
-        for row in connection.execute(
-            f"""
-            SELECT album_id, MIN(track_id) AS track_id
-            FROM library_tracks
-            WHERE album_id IN ({placeholders}){root_sql}
-            GROUP BY album_id
-            """,
-            [*album_ids, *root_params],
-        )
-    }
-
-
-def album_track_counts_by_album(
-    connection: Connection,
-    album_ids: list[str],
-    *,
-    root_positions: tuple[int, ...] = (),
-) -> dict[str, int]:
-    if not album_ids or not root_positions:
-        return {}
-    placeholders = placeholders_for(album_ids)
-    root_sql, root_params = root_scope_clause("library_tracks", root_positions)
-    return {
-        str(row["album_id"]): int(row["track_count"])
-        for row in connection.execute(
-            f"""
-            SELECT album_id, COUNT(*) AS track_count
-            FROM library_tracks
-            WHERE album_id IN ({placeholders}){root_sql}
-            GROUP BY album_id
-            """,
-            [*album_ids, *root_params],
-        )
-    }
-
-
-def album_track_ids_by_album(
-    connection: Connection,
-    album_ids: list[str],
-    *,
-    root_positions: tuple[int, ...] = (),
-) -> dict[str, tuple[int, ...]]:
-    if not album_ids:
-        return {}
-    placeholders = placeholders_for(album_ids)
-    root_sql, root_params = root_scope_clause("library_tracks", root_positions)
-    tracks_by_album: dict[str, list[PlaylistTrack]] = {}
-    for row in connection.execute(
-        f"""
-        SELECT
-            track_id,
-            album_id,
-            path,
-            artist,
-            album_artist,
-            album,
-            title,
-            track_number,
-            disc_number
-        FROM library_tracks
-        WHERE album_id IN ({placeholders}){root_sql}
-        ORDER BY album_id, track_id
-        """,
-        [*album_ids, *root_params],
-    ):
-        album_id = str(row["album_id"])
-        tracks_by_album.setdefault(album_id, []).append(
-            PlaylistTrack(
-                track_id=int(row["track_id"]),
-                album_id=album_id,
-                path=str(row["path"]),
-                artist=row["artist"],
-                album_artist=row["album_artist"],
-                album=row["album"],
-                title=row["title"],
-                track_number=row["track_number"],
-                disc_number=row["disc_number"],
-            )
-        )
-    return {
-        album_id: tuple(
-            track.track_id
-            for track in sorted(album_tracks, key=playlist_track_sort_key)
-            if track.track_id is not None
-        )
-        for album_id, album_tracks in tracks_by_album.items()
-    }
-
-
 def playlist_album_id(playlist_id: int) -> str:
     return f"playlist:{playlist_id}"
+
+
+def album_artists_by_album(
+    connection: Connection,
+    album_ids: Iterable[str],
+) -> dict[str, tuple[str, ...]]:
+    requested_ids = tuple(dict.fromkeys(album_id for album_id in album_ids if album_id))
+    if not requested_ids:
+        return {}
+    placeholders = placeholders_for(requested_ids)
+    artists: dict[str, list[str]] = {}
+    for row in connection.execute(
+        f"""
+        SELECT album_id, artist
+        FROM library_album_artists
+        WHERE album_id IN ({placeholders})
+        ORDER BY album_id, position
+        """,
+        requested_ids,
+    ):
+        artists.setdefault(str(row["album_id"]), []).append(str(row["artist"]))
+    return {
+        album_id: unique_artist_values(values)
+        for album_id, values in artists.items()
+    }
+
+
+def album_artist_display_text(artists: Iterable[str]) -> str:
+    return ", ".join(artists) or "<unknown artist>"
+
+
+def unique_artist_values(values: Iterable[str]) -> tuple[str, ...]:
+    artists: list[str] = []
+    seen: set[str] = set()
+    for value in values:
+        key = normalize_match(value)
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        artists.append(value)
+    return tuple(artists)
 
 
 def track_values_by_track(
@@ -993,19 +972,29 @@ def track_values_by_track(
     return values
 
 
-def track_ids_with_artwork(connection: Connection, track_ids: list[int]) -> set[int]:
+def track_ids_with_artwork(
+    connection: Connection,
+    track_ids: list[int],
+    *,
+    height_px: int | None = None,
+) -> set[int]:
     if not track_ids:
         return set()
     placeholders = placeholders_for(track_ids)
+    height_sql = ""
+    params: list[object] = list(track_ids)
+    if height_px is not None:
+        height_sql = " AND height_px = ?"
+        params.append(height_px)
     return {
         int(row["track_id"])
         for row in connection.execute(
             f"""
             SELECT DISTINCT track_id
             FROM library_track_artwork
-            WHERE track_id IN ({placeholders})
+            WHERE track_id IN ({placeholders}){height_sql}
             """,
-            track_ids,
+            params,
         )
     }
 
@@ -1030,6 +1019,10 @@ def taxonomy_sets(connection: Connection) -> tuple[set[str], set[str]]:
         for row in connection.execute("SELECT style FROM taxonomy_styles")
     }
     return genres, styles
+
+
+def mapped_artist_lines(value: str) -> tuple[str, ...]:
+    return tuple(line.strip() for line in value.splitlines() if line.strip())
 
 
 def unique_sorted(values: Iterable[object]) -> tuple[str, ...]:
@@ -1072,6 +1065,7 @@ def library_root_options(connection: Connection) -> tuple[LibraryRootFilterOptio
 __all__ = [
     "ALBUM_LIST_SORT_ARTIST",
     "ALBUM_LIST_SORT_RECENTLY_ADDED",
+    "AlbumArtistSplitMapping",
     "AlbumDetails",
     "AlbumListQuery",
     "AlbumNotFoundError",
@@ -1079,9 +1073,13 @@ __all__ = [
     "AlbumSummary",
     "GenreFilterGroup",
     "GenreStyleFilter",
+    "LibraryAlbumArtistStats",
     "LibraryQueries",
     "LibraryFilterOptions",
+    "LibraryRootAlbumArtistStats",
     "LibraryRootFilterOption",
+    "LibraryRootStats",
+    "LibraryStats",
     "PlaylistDetails",
     "PlaylistItem",
     "PlaylistItemNotFoundError",

@@ -26,10 +26,10 @@
     </form>
   </section>
 
-  <section class="settings-panel">
+  <section class="settings-panel" id="roots">
     <div class="settings-panel-header">
       <h2>Current Roots</h2>
-      <div class="settings-panel-meta">Add and scan, delete, and rescan run in the background. Check Notifications for progress.</div>
+      <div class="settings-panel-meta">Add and scan, delete, and rescan run in the background. Check Jobs for progress.</div>
     </div>
     <div class="roots-list" data-root-list {% if not roots %}hidden{% endif %}>
       {% for root in roots %}
@@ -48,5 +48,25 @@
       {% endfor %}
     </div>
     <div class="empty" data-roots-empty {% if roots %}hidden{% endif %}>No roots configured.</div>
+  </section>
+
+  <section class="settings-panel">
+    <div class="settings-panel-header">
+      <h2>Custom Album Artist Split Rules</h2>
+    </div>
+    <div class="mappings-list" {% if not album_artist_mappings %}hidden{% endif %}>
+      {% for mapping in album_artist_mappings %}
+        <article class="mapping-card" data-mapping-card>
+          <div class="mapping-card-copy">
+            <div class="mapping-card-source">{{ mapping.album_artist }}</div>
+            <div class="mapping-card-artists">{{ mapping.mapped_artists|join("\n") }}</div>
+          </div>
+          <div class="mapping-card-actions">
+            <button type="button" data-edit-album-artist-mapping>Edit</button>
+          </div>
+        </article>
+      {% endfor %}
+    </div>
+    <div class="empty" {% if album_artist_mappings %}hidden{% endif %}>No mappings saved.</div>
   </section>
 </div>

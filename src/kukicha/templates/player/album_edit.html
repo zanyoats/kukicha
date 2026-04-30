@@ -13,7 +13,9 @@
         <span class="album-hero-cover album-hero-cover-placeholder" aria-hidden="true"></span>
       {% endif %}
       <div class="album-detail-copy">
-        <h2 title="{{ album.album }}">{{ album.album|display_album_title }}</h2>
+        <h2 title="{{ album.album }}">
+          {{ album.album|display_album_title }}{% if album_root_links %} <span class="album-title-root-links">({%- for item in album_root_links -%}<a class="album-detail-meta-link" href="{{ item.url }}" data-nav>{{ item.label }}</a>{% if not loop.last %}, {% endif %}{%- endfor -%})</span>{% endif %}
+        </h2>
         <ul class="meta-list album-artist-meta">
           {% for part in album_artist_parts %}
             <li>{{ part }}</li>
@@ -73,7 +75,7 @@
   <section class="album-edit-panel settings-panel">
     <div class="settings-panel-header">
       <h3>Update Audio Tags</h3>
-      <div class="settings-panel-meta">Writes genre, album title, album artist, and artist tags to the files, then updates the library in the background. Applies to all visible tracks.</div>
+      <div class="settings-panel-meta">Writes genre, album title, album artist, and artist tags to the files in the background. Rescan the root afterward to update library filters, artists, and stats.</div>
     </div>
     <form class="album-edit-form" action="{{ album_tag_edit_action_url }}" method="post" data-album-tag-form>
       <label class="album-edit-field">

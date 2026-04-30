@@ -1,93 +1,47 @@
 from __future__ import annotations
 
-import logging
 from pathlib import Path
 import sqlite3
-from threading import Thread
 from time import perf_counter
 from typing import Any
 
-from .player_runtime import PlayerRuntime
+from .player_runtime import PlayerJobCancelToken, PlayerJobResult, PlayerJobRecord, PlayerRuntime
 from .scanner import normalize_playlist_resource
-from .use_case import record_player_action
-
-LOGGER = logging.getLogger("kukicha.player")
 
 
 def start_playlist_file_update_job(
     runtime: PlayerRuntime,
     job: Any,
-) -> None:
-    try:
-        accepted_action = record_player_action(
-            runtime.database,
-            kind="update_playlist_file",
-            status="accepted",
-            message=f"Update playlist file accepted for {job.playlist_name}.",
-            context=playlist_file_update_context(job),
-        )
-    except Exception:
-        LOGGER.exception("failed to record playlist file update acceptance")
-    else:
-        runtime.publish_notification(accepted_action)
-    try:
-        update_thread = Thread(
-            target=run_playlist_file_update_job,
-            args=(runtime, job),
-            daemon=True,
-        )
-        update_thread.start()
-    except Exception:
-        try:
-            failed_action = record_player_action(
-                runtime.database,
-                kind="update_playlist_file",
-                status="failed",
-                message=f"Update playlist file could not start for {job.playlist_name}.",
-                context=playlist_file_update_context(job),
-            )
-        except Exception:
-            LOGGER.exception("failed to record playlist file job start failure")
-        else:
-            runtime.publish_notification(failed_action)
+) -> PlayerJobRecord:
+    context = playlist_file_update_context(job)
+    return runtime.enqueue_job(
+        kind="update_playlist_file",
+        queued_message=f"Update playlist file queued for {job.playlist_name}.",
+        running_message=f"Update playlist file running for {job.playlist_name}.",
+        canceled_message=f"Update playlist file canceled for {job.playlist_name}.",
+        failed_message=f"Update playlist file failed for {job.playlist_name}.",
+        context=context,
+        runner=lambda cancel_token: run_playlist_file_update_job(runtime, job, cancel_token),
+    )
 
 
 def run_playlist_file_update_job(
     runtime: PlayerRuntime,
     job: Any,
-) -> None:
+    cancel_token: PlayerJobCancelToken,
+) -> PlayerJobResult:
     started_at = perf_counter()
-    try:
-        with runtime.playlist_file_lock:
-            update_playlist_file_for_membership(job)
-        record_player_action(
-            runtime.database,
-            kind="update_playlist_file",
-            status="succeeded",
-            message=f"Update playlist file completed for {job.playlist_name}.",
-            context=playlist_file_update_context(
-                job,
-                duration_seconds=perf_counter() - started_at,
-            ),
-        )
-    except Exception as error:
-        LOGGER.exception("playlist file update failed for %s", job.playlist_path)
-        try:
-            action = record_player_action(
-                runtime.database,
-                kind="update_playlist_file",
-                status="failed",
-                message=f"Update playlist file failed for {job.playlist_name}.",
-                context=playlist_file_update_context(
-                    job,
-                    duration_seconds=perf_counter() - started_at,
-                    error=str(error),
-                ),
-            )
-        except Exception:
-            LOGGER.exception("failed to record playlist file update failure")
-        else:
-            runtime.publish_notification(action)
+    with runtime.playlist_file_lock:
+        cancel_token.raise_if_canceled()
+        update_playlist_file_for_membership(job)
+    duration_seconds = perf_counter() - started_at
+    return PlayerJobResult(
+        message=f"Update playlist file completed for {job.playlist_name}.",
+        context=playlist_file_update_context(
+            job,
+            duration_seconds=duration_seconds,
+        ),
+    )
 
 
 def update_playlist_file_for_membership(job: Any) -> None:

@@ -1,0 +1,17 @@
+<div class="view-page artists-page" data-page="{{ page_key }}">
+  <header class="view-header artists-header">
+    {% include "player/_page_title.html" %}
+  </header>
+
+  {% if artists %}
+    <nav class="artist-cloud" aria-label="Album artists">
+      {% for artist in artists %}
+        <a class="artist-cloud-link" href="{{ artist.url }}" data-nav
+          title="{{ artist.title }}"
+          style="--artist-size: {{ artist.font_size_rem }}rem">{{ artist.label }}</a>
+      {% endfor %}
+    </nav>
+  {% else %}
+    <div class="empty">No artists found.</div>
+  {% endif %}
+</div>

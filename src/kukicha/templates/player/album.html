@@ -14,12 +14,16 @@
         <span class="album-hero-cover album-hero-cover-placeholder" aria-hidden="true"></span>
       {% endif %}
       <div class="album-detail-copy">
-        <h2 title="{{ album.album }}">{{ album.album|display_album_title }}</h2>
+        <h2 title="{{ album.album }}">
+          {{ album.album|display_album_title }}{% if album_root_links %} <span class="album-title-root-links">({%- for item in album_root_links -%}<a class="album-detail-meta-link" href="{{ item.url }}" data-nav>{{ item.label }}</a>{% if not loop.last %}, {% endif %}{%- endfor -%})</span>{% endif %}
+        </h2>
         {% if album_artist_links %}
           <ul class="meta-list album-artist-meta">
-            {% for item in album_artist_links %}
-              <li><a class="album-detail-meta-link" href="{{ item.url }}" data-nav>{{ item.label }}</a></li>
-            {% endfor %}
+            <li>
+              {% for item in album_artist_links %}
+                <a class="album-detail-meta-link" href="{{ item.url }}" data-nav>{{ item.label }}</a>{% if not loop.last %}, {% endif %}
+              {% endfor %}
+            </li>
           </ul>
         {% endif %}
         {% if album_genre_links or album_year_text %}

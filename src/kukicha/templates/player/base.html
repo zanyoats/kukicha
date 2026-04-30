@@ -25,7 +25,10 @@
       <div id="error" aria-live="polite"></div>
     </section>
   </main>
-  <div id="toast" class="toast" hidden aria-live="polite"></div>
+  <div id="toast" class="toast" hidden aria-live="polite"
+    data-toast-timeout-ms="{{ toast_timeout_ms }}"
+    data-linked-toast-timeout-ms="{{ linked_toast_timeout_ms }}"></div>
+  <div id="job-toasts" class="job-toasts" aria-live="polite"></div>
   <script type="application/json" id="queue-state">{{ queue_state|tojson }}</script>
   <script src="/static/player.js"></script>
 </body>

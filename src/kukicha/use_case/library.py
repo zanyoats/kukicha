@@ -17,14 +17,27 @@ from .coverartarchive import (
 )
 from .database import (
     UNKNOWN_GENRE_TAG,
+    canonicalize_library_album_artists,
     clear_library,
     connect_database,
     get_metadata,
     library_root_position_for_path,
+    rebuild_album_rollups,
     rebuild_album_search_index,
+    rebuild_root_scan_stats,
     set_metadata,
 )
-from ..discogs import group_library_albums
+from ..discogs import LocalAlbum, group_library_albums
+from ..album_artists import (
+    DEFAULT_ALBUM_ARTIST_SPLIT_PATTERNS,
+    album_artist_has_mapping_pattern,
+    default_album_artist_mapping,
+    mapped_album_artist_text,
+    mapped_album_artists_from_text,
+    normalize_album_artist_split_patterns,
+    track_album_artist_source,
+    track_album_artist_values,
+)
 from .itunes import (
     ItunesLookupCandidate,
     ItunesLookupClient,
@@ -45,6 +58,7 @@ from .musicbrainz import (
     MusicBrainzAlbumLink,
     MusicBrainzClient,
     MusicBrainzLookupStats,
+    clean_mbid,
     get_musicbrainz_entity,
     load_album_musicbrainz_links,
     musicbrainz_genres,
@@ -206,8 +220,77 @@ class TaxonomyGenreMatcher:
         )
 
 
-def save_library(library: MusicLibrary, destination: Path) -> None:
-    save_library_with_options(library, destination)
+class AlbumArtistMappingResolver:
+    def __init__(
+        self,
+        connection: sqlite3.Connection,
+        split_patterns: Iterable[str | None] = DEFAULT_ALBUM_ARTIST_SPLIT_PATTERNS,
+    ) -> None:
+        self.connection = connection
+        self.split_patterns = normalize_album_artist_split_patterns(split_patterns)
+        self.cache: dict[str, tuple[str, ...]] = {}
+
+    def resolve(self, value: str | None) -> tuple[str, ...]:
+        album_artist = (value or "").strip()
+        if not album_artist:
+            return ()
+
+        key = album_artist.casefold()
+        cached = self.cache.get(key)
+        if cached is not None:
+            return cached
+
+        row = self.connection.execute(
+            """
+            SELECT mapped_artists
+            FROM album_artist_split_mappings
+            WHERE album_artist = ?
+            """,
+            (album_artist,),
+        ).fetchone()
+        if row is not None:
+            artists = mapped_album_artists_from_text(row["mapped_artists"]) or (
+                album_artist,
+            )
+        elif album_artist_has_mapping_pattern(album_artist, self.split_patterns):
+            artists = default_album_artist_mapping(album_artist) or (album_artist,)
+            self.connection.execute(
+                """
+                INSERT OR IGNORE INTO album_artist_split_mappings (
+                    album_artist,
+                    mapped_artists
+                ) VALUES (?, ?)
+                """,
+                (album_artist, mapped_album_artist_text(artists)),
+            )
+        else:
+            artists = (album_artist,)
+
+        self.cache[key] = artists
+        return artists
+
+
+def apply_album_artist_mappings(
+    connection: sqlite3.Connection,
+    tracks: Iterable[TrackRecord],
+    split_patterns: Iterable[str | None] = DEFAULT_ALBUM_ARTIST_SPLIT_PATTERNS,
+) -> None:
+    resolver = AlbumArtistMappingResolver(connection, split_patterns)
+    for track in tracks:
+        track.album_artists = resolver.resolve(track_album_artist_source(track))
+
+
+def save_library(
+    library: MusicLibrary,
+    destination: Path,
+    *,
+    album_artist_split_patterns: Iterable[str | None] = DEFAULT_ALBUM_ARTIST_SPLIT_PATTERNS,
+) -> None:
+    save_library_with_options(
+        library,
+        destination,
+        album_artist_split_patterns=album_artist_split_patterns,
+    )
 
 
 def save_library_with_options(
@@ -216,12 +299,8 @@ def save_library_with_options(
     *,
     connection: sqlite3.Connection | None = None,
     root_rows: Iterable[tuple[int, str]] | None = None,
+    album_artist_split_patterns: Iterable[str | None] = DEFAULT_ALBUM_ARTIST_SPLIT_PATTERNS,
 ) -> None:
-    albums = group_library_albums(library)
-    album_ids_by_key = {
-        (normalize_text(album.artist), normalize_text(album.album)): album.album_id
-        for album in albums
-    }
     library_roots = (
         [(int(position), str(root_path)) for position, root_path in root_rows]
         if root_rows is not None
@@ -233,6 +312,17 @@ def save_library_with_options(
     if connection is None:
         connection = connect_database(destination)
     try:
+        apply_album_artist_mappings(
+            connection,
+            library.tracks,
+            split_patterns=album_artist_split_patterns,
+        )
+        albums = group_library_albums(library)
+        copy_album_musicbrainz_links_from_legacy_album_ids(connection, albums)
+        album_ids_by_key = {
+            (normalize_text(album.artist_id_text), normalize_text(album.album)): album.album_id
+            for album in albums
+        }
         existing_track_ids_by_path = {
             str(row["path"]): int(row["track_id"])
             for row in connection.execute(
@@ -256,22 +346,29 @@ def save_library_with_options(
                 """
                 INSERT INTO library_albums (
                     album_id,
-                    artist,
                     album,
                     year,
                     track_count,
                     file_created_at
-                ) VALUES (?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?)
                 """,
                 (
                     album.album_id,
-                    album.artist,
                     album.album,
                     album.year,
                     album.track_count,
                     album.file_created_at,
                 ),
             )
+            for position, artist in enumerate(album.artists):
+                connection.execute(
+                    """
+                    INSERT INTO library_album_artists (album_id, position, artist)
+                    VALUES (?, ?, ?)
+                    """,
+                    (album.album_id, position, artist),
+                )
+        canonicalize_library_album_artists(connection)
 
         track_ids_by_path: dict[str, int] = {}
         for track in library.tracks:
@@ -469,12 +566,87 @@ def save_library_with_options(
             "library_supported_extensions_json",
             json.dumps(library.supported_extensions),
         )
+        rebuild_album_rollups(connection)
+        rebuild_root_scan_stats(connection)
         rebuild_album_search_index(connection)
         if owns_connection:
             connection.commit()
     finally:
         if owns_connection:
             connection.close()
+
+
+def copy_album_musicbrainz_links_from_legacy_album_ids(
+    connection: sqlite3.Connection,
+    albums: Iterable[LocalAlbum],
+) -> None:
+    for album in albums:
+        for legacy_album_id in legacy_album_musicbrainz_album_ids(album):
+            row = connection.execute(
+                """
+                SELECT release_mbid, release_group_mbid
+                FROM album_musicbrainz_links
+                WHERE album_id = ?
+                """,
+                (legacy_album_id,),
+            ).fetchone()
+            if row is None:
+                continue
+
+            release_mbid = clean_mbid(row["release_mbid"])
+            release_group_mbid = clean_mbid(row["release_group_mbid"])
+            if not release_mbid and not release_group_mbid:
+                continue
+
+            connection.execute(
+                """
+                INSERT INTO album_musicbrainz_links (
+                    album_id,
+                    release_mbid,
+                    release_group_mbid
+                ) VALUES (?, ?, ?)
+                ON CONFLICT(album_id) DO UPDATE SET
+                    release_mbid = CASE
+                        WHEN COALESCE(album_musicbrainz_links.release_mbid, '') = ''
+                        THEN excluded.release_mbid
+                        ELSE album_musicbrainz_links.release_mbid
+                    END,
+                    release_group_mbid = CASE
+                        WHEN COALESCE(album_musicbrainz_links.release_group_mbid, '') = ''
+                        THEN excluded.release_group_mbid
+                        ELSE album_musicbrainz_links.release_group_mbid
+                    END
+                """,
+                (album.album_id, release_mbid, release_group_mbid),
+            )
+
+
+def legacy_album_musicbrainz_album_ids(album: LocalAlbum) -> tuple[str, ...]:
+    artists = tuple(artist for artist in album.artists if artist)
+    if len(artists) < 2:
+        return ()
+
+    album_slug = normalize_slug_text(album.album)
+    if not album_slug:
+        return ()
+
+    legacy_ids: list[str] = []
+    seen: set[str] = set()
+    for artist_text in legacy_album_artist_id_texts(artists):
+        artist_slug = normalize_slug_text(artist_text)
+        if not artist_slug:
+            continue
+        album_id = f"{artist_slug}::{album_slug}"
+        if album_id == album.album_id or album_id in seen:
+            continue
+        seen.add(album_id)
+        legacy_ids.append(album_id)
+    return tuple(legacy_ids)
+
+
+def legacy_album_artist_id_texts(artists: tuple[str, ...]) -> tuple[str, ...]:
+    joined = (" and ".join(artists), " with ".join(artists))
+    return tuple(dict.fromkeys(joined))
 
 
 def resolve_library_genres(
@@ -484,17 +656,27 @@ def resolve_library_genres(
     ignore_musicbrainz: bool = False,
     log: Callable[[str], None] | None = None,
     connection: sqlite3.Connection | None = None,
+    album_artist_split_patterns: Iterable[str | None] = DEFAULT_ALBUM_ARTIST_SPLIT_PATTERNS,
 ) -> GenreResolutionStats:
-    matcher = load_taxonomy_genre_matcher(source)
-    stats = GenreResolutionStats()
-    if not matcher.candidates:
-        return stats
-
-    mb_lookup_stats = MusicBrainzLookupStats()
     owns_connection = connection is None
     if connection is None:
         connection = connect_database(source, create=False)
     try:
+        matcher = load_taxonomy_genre_matcher_from_connection(connection)
+        stats = GenreResolutionStats()
+        if not matcher.candidates:
+            return stats
+
+        mb_lookup_stats = MusicBrainzLookupStats()
+        apply_album_artist_mappings(
+            connection,
+            library.tracks,
+            split_patterns=album_artist_split_patterns,
+        )
+        copy_album_musicbrainz_links_from_legacy_album_ids(
+            connection,
+            group_library_albums(library),
+        )
         musicbrainz_links = load_album_musicbrainz_links(connection)
         musicbrainz_client = MusicBrainzClient(stats=mb_lookup_stats, log=log)
 
@@ -728,6 +910,7 @@ def resolve_library_cover_art(
     *,
     log: Callable[[str], None] | None = None,
     connection: sqlite3.Connection | None = None,
+    album_artist_split_patterns: Iterable[str | None] = DEFAULT_ALBUM_ARTIST_SPLIT_PATTERNS,
 ) -> CoverArtResolutionStats:
     stats = CoverArtResolutionStats()
     caa_stats = CoverArtArchiveStats()
@@ -736,6 +919,15 @@ def resolve_library_cover_art(
     if connection is None:
         connection = connect_database(source, create=False)
     try:
+        apply_album_artist_mappings(
+            connection,
+            library.tracks,
+            split_patterns=album_artist_split_patterns,
+        )
+        copy_album_musicbrainz_links_from_legacy_album_ids(
+            connection,
+            group_library_albums(library),
+        )
         musicbrainz_links = load_album_musicbrainz_links(connection)
         caa_client = CoverArtArchiveClient(stats=caa_stats, log=log)
         itunes_client = ItunesLookupClient(stats=itunes_stats, log=log)
@@ -895,6 +1087,21 @@ def load_library(source: Path, *, include_artwork: bool = False) -> MusicLibrary
         ):
             styles_by_track[int(row["track_id"])].append(str(row["style"]))
 
+        album_artists_by_album: dict[str, tuple[str, ...]] = {}
+        rows_by_album: dict[str, list[str]] = defaultdict(list)
+        for row in connection.execute(
+            """
+            SELECT album_id, artist
+            FROM library_album_artists
+            ORDER BY album_id, position
+            """
+        ):
+            rows_by_album[str(row["album_id"])].append(str(row["artist"]))
+        album_artists_by_album = {
+            album_id: tuple(artists)
+            for album_id, artists in rows_by_album.items()
+        }
+
         taxonomy_genres = {
             str(row["genre"]).casefold()
             for row in connection.execute("SELECT genre FROM taxonomy_genres")
@@ -986,6 +1193,7 @@ def load_library(source: Path, *, include_artwork: bool = False) -> MusicLibrary
                     scan_error=row["scan_error"],
                     artist=row["artist"],
                     album_artist=row["album_artist"],
+                    album_artists=album_artists_by_album.get(album_id, ()),
                     composer=row["composer"],
                     album=row["album"],
                     title=row["title"],
@@ -1109,6 +1317,7 @@ def store_track_artwork_by_path(
         ).fetchone()
         if row is None:
             return
+        track_id = int(row["track_id"])
         connection.execute(
             """
             INSERT OR REPLACE INTO library_track_artwork (
@@ -1119,8 +1328,14 @@ def store_track_artwork_by_path(
             )
             VALUES (?, ?, ?, ?)
             """,
-            (int(row["track_id"]), height_px, artwork.mime_type, artwork.data),
+            (track_id, height_px, artwork.mime_type, artwork.data),
         )
+        album_row = connection.execute(
+            "SELECT album_id FROM library_tracks WHERE track_id = ?",
+            (track_id,),
+        ).fetchone()
+        if album_row is not None and album_row["album_id"]:
+            rebuild_album_rollups(connection, [str(album_row["album_id"])])
         connection.commit()
 
 
@@ -1133,7 +1348,7 @@ def track_album_id(
     track: TrackRecord,
     album_ids_by_key: dict[tuple[str, str], str] | None = None,
 ) -> str | None:
-    artist = track.album_artist or track.artist
+    artist = "\n".join(track_album_artist_values(track))
     album = track.album
     if not artist or not album:
         return None
@@ -1147,39 +1362,44 @@ def track_album_id(
 
 def load_taxonomy_genre_matcher(source: Path) -> TaxonomyGenreMatcher:
     with connect_database(source, create=False) as connection:
-        genres = [
-            str(row["genre"])
-            for row in connection.execute(
-                "SELECT genre FROM taxonomy_genres ORDER BY lower(genre)"
-            )
-        ]
-        styles = [
-            str(row["style"])
-            for row in connection.execute(
-                "SELECT style FROM taxonomy_styles ORDER BY lower(style)"
-            )
-        ]
-        alias_rows = [
-            (str(row["alias"]), str(row["canonical_kind"]), str(row["canonical"]))
-            for row in connection.execute(
-                """
-                SELECT alias, canonical_kind, canonical
-                FROM taxonomy_aliases
-                ORDER BY lower(alias), lower(canonical_kind)
-                """
-            )
-        ]
-        style_parents = {
-            str(row["style"]): str(row["parent_genre"])
-            for row in connection.execute(
-                """
-                SELECT style, parent_genre
-                FROM taxonomy_styles
-                ORDER BY lower(style)
-                """
-            )
-        }
+        return load_taxonomy_genre_matcher_from_connection(connection)
 
+
+def load_taxonomy_genre_matcher_from_connection(
+    connection: sqlite3.Connection,
+) -> TaxonomyGenreMatcher:
+    genres = [
+        str(row["genre"])
+        for row in connection.execute(
+            "SELECT genre FROM taxonomy_genres ORDER BY lower(genre)"
+        )
+    ]
+    styles = [
+        str(row["style"])
+        for row in connection.execute(
+            "SELECT style FROM taxonomy_styles ORDER BY lower(style)"
+        )
+    ]
+    alias_rows = [
+        (str(row["alias"]), str(row["canonical_kind"]), str(row["canonical"]))
+        for row in connection.execute(
+            """
+            SELECT alias, canonical_kind, canonical
+            FROM taxonomy_aliases
+            ORDER BY lower(alias), lower(canonical_kind)
+            """
+        )
+    ]
+    style_parents = {
+        str(row["style"]): str(row["parent_genre"])
+        for row in connection.execute(
+            """
+            SELECT style, parent_genre
+            FROM taxonomy_styles
+            ORDER BY lower(style)
+            """
+        )
+    }
     exact_styles = build_exact_lookup(styles)
     exact_genres = build_exact_lookup(genres)
     for alias, canonical_kind, canonical in alias_rows:

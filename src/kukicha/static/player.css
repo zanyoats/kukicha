@@ -262,6 +262,65 @@ button:disabled,
   color: var(--danger);
 }
 
+.job-toasts {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 45;
+  display: grid;
+  gap: 10px;
+  width: min(420px, calc(100vw - 36px));
+  pointer-events: none;
+}
+
+.job-toast {
+  display: grid;
+  gap: 9px;
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.16);
+  padding: 12px;
+  pointer-events: auto;
+}
+
+.job-toast.failed,
+.job-toast.canceled {
+  border-color: var(--danger);
+}
+
+.job-toast-top,
+.job-toast-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.job-toast-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.job-toast-message,
+.job-toast-reason {
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.job-toast-reason {
+  color: var(--danger);
+  font-size: 0.92rem;
+}
+
+.job-toast-actions {
+  justify-content: flex-start;
+}
+
 .back-link {
   display: inline-block;
   color: var(--accent-strong);
@@ -477,6 +536,12 @@ button:disabled,
   font-weight: 650;
 }
 
+.page-menu-divider {
+  border: 0;
+  border-top: 1px solid var(--line);
+  margin: 6px 4px;
+}
+
 .filter-group + .filter-group {
   border-top: 1px solid var(--line);
   margin-top: 4px;
@@ -579,6 +644,19 @@ button:disabled,
   min-width: min(100%, 260px);
 }
 
+.settings-field-wide {
+  flex-basis: 100%;
+}
+
+.settings-label {
+  display: block;
+  margin-bottom: 6px;
+  color: var(--muted);
+  font-size: 0.88rem;
+  font-weight: 650;
+  line-height: 1.3;
+}
+
 .settings-actions {
   display: flex;
   flex-wrap: wrap;
@@ -598,6 +676,11 @@ button:disabled,
   padding: 8px 12px;
 }
 
+.settings-textarea {
+  min-height: 132px;
+  resize: vertical;
+}
+
 .settings-status {
   min-height: 20px;
   color: var(--muted);
@@ -615,6 +698,11 @@ button:disabled,
   gap: 12px;
 }
 
+.mappings-list {
+  display: grid;
+  gap: 10px;
+}
+
 .root-card {
   display: flex;
   flex-wrap: wrap;
@@ -626,11 +714,66 @@ button:disabled,
   padding: 14px;
 }
 
+.mapping-card {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 14px;
+  align-items: center;
+  border: 1px solid var(--line);
+  background: var(--bg);
+  padding: 14px;
+}
+
+.mapping-card.active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
 .root-card-copy {
   display: grid;
   gap: 4px;
   min-width: 0;
   flex: 1 1 320px;
+}
+
+.mapping-card-copy {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  flex: 1 1 320px;
+}
+
+.mapping-card-source {
+  overflow-wrap: anywhere;
+  font-weight: 650;
+}
+
+.mapping-card-artists {
+  color: var(--muted);
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+  white-space: pre-line;
+}
+
+.mapping-card-artists[hidden] {
+  display: none;
+}
+
+.mapping-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.mapping-edit-form {
+  display: grid;
+  gap: 10px;
+}
+
+.mapping-edit-field {
+  min-width: 0;
 }
 
 .root-card-path {
@@ -652,17 +795,25 @@ button:disabled,
   align-items: center;
 }
 
-.notifications-groups {
+.root-card-actions button {
+  min-width: 72px;
+}
+
+.root-card-actions button:disabled {
+  opacity: 1;
+}
+
+.job-groups {
   display: grid;
   gap: 18px;
 }
 
-.notification-day-group {
+.job-day-group {
   display: grid;
   gap: 10px;
 }
 
-.notification-day-heading {
+.job-day-heading {
   margin: 0;
   color: var(--muted);
   font-size: 0.94rem;
@@ -670,12 +821,12 @@ button:disabled,
   line-height: 1.3;
 }
 
-.notifications-list {
+.job-list {
   display: grid;
   gap: 12px;
 }
 
-.notification-card {
+.job-card {
   display: grid;
   gap: 10px;
   border: 1px solid var(--line);
@@ -683,7 +834,7 @@ button:disabled,
   padding: 14px;
 }
 
-.notification-card-top {
+.job-card-top {
   display: flex;
   flex-wrap: wrap;
   justify-content: space-between;
@@ -691,15 +842,15 @@ button:disabled,
   align-items: center;
 }
 
-.notification-badges {
+.job-badges {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
   align-items: center;
 }
 
-.notification-status,
-.notification-kind {
+.job-status,
+.job-kind {
   display: inline-flex;
   align-items: center;
   min-height: 28px;
@@ -709,48 +860,57 @@ button:disabled,
   padding: 6px 10px;
 }
 
-.notification-status {
+.job-status {
   border: 1px solid var(--line);
   background: var(--surface);
   font-weight: 650;
 }
 
-.notification-status.accepted {
+.job-status.queued,
+.job-status.running {
   border-color: #b7ddd8;
   background: var(--accent-soft);
   color: var(--accent-strong);
 }
 
-.notification-status.succeeded {
+.job-status.succeeded {
   border-color: #bbf7d0;
   background: #f0fdf4;
   color: #166534;
 }
 
-.notification-status.failed {
+.job-status.failed,
+.job-status.canceled {
   border-color: #f3c4d2;
   background: #fff1f4;
   color: var(--danger);
 }
 
-.notification-kind {
+.job-kind {
   border: 1px solid var(--line);
   background: var(--surface);
   color: var(--muted);
 }
 
-.notification-time {
+.job-time {
   color: var(--muted);
   font-size: 0.88rem;
   line-height: 1.35;
 }
 
-.notification-message {
+.job-message {
   line-height: 1.4;
   overflow-wrap: anywhere;
 }
 
-.notification-meta {
+.job-reason {
+  color: var(--danger);
+  font-size: 0.9rem;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.job-meta {
   display: flex;
   flex-wrap: wrap;
   gap: 8px 14px;
@@ -759,12 +919,52 @@ button:disabled,
   line-height: 1.35;
 }
 
-.notification-meta-item {
+.job-meta-item {
   overflow-wrap: anywhere;
 }
 
-.notification-meta-label {
+.job-meta-label {
   font-weight: 650;
+}
+
+.job-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.artists-page {
+  justify-items: center;
+}
+
+.artists-header {
+  justify-self: stretch;
+  width: 100%;
+}
+
+.artist-cloud {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: baseline;
+  gap: 10px 16px;
+  width: min(920px, 100%);
+  margin: 16px auto 0;
+  line-height: 1.2;
+  text-align: center;
+}
+
+.artist-cloud-link {
+  color: var(--accent-strong);
+  font-size: var(--artist-size, 1rem);
+  font-weight: 650;
+  overflow-wrap: anywhere;
+  text-decoration: none;
+}
+
+.artist-cloud-link:hover {
+  text-decoration: underline;
 }
 
 .album-grid {
@@ -975,6 +1175,12 @@ button:disabled,
 
 .album-detail-copy h2 {
   overflow-wrap: anywhere;
+}
+
+.album-title-root-links {
+  color: var(--muted);
+  font-size: 0.68em;
+  font-weight: 500;
 }
 
 .album-view-nav .back-link {
@@ -1341,8 +1547,23 @@ tbody tr.playing {
 .track-actions-cell,
 .track-actions-head,
 .queue-action-cell,
+.queue-status-head,
 .queue-status {
   white-space: nowrap;
+}
+
+.queue-status-head,
+.queue-status {
+  width: 1%;
+}
+
+.queue-status-col {
+  width: 7ch;
+}
+
+.queue-status-label {
+  display: inline-block;
+  width: 7ch;
 }
 
 .track-actions-head,

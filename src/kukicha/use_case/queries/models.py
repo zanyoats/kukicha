@@ -124,14 +124,9 @@ class AlbumSummary:
     album: str
     year: int | None
     track_count: int
+    album_artists: tuple[str, ...] = ()
     file_created_at: str | None = None
-    genres: tuple[str, ...] = ()
-    styles: tuple[str, ...] = ()
-    has_cover: bool = False
-    is_compilation: bool = False
-    is_work: bool = False
     art_track_id: int | None = None
-    track_ids: tuple[int, ...] = ()
     is_playlist: bool = False
     playlist_id: int | None = None
     path: str = ""
@@ -140,6 +135,12 @@ class AlbumSummary:
 
 @dataclass(frozen=True, slots=True)
 class AlbumDetails(AlbumSummary):
+    genres: tuple[str, ...] = ()
+    styles: tuple[str, ...] = ()
+    has_cover: bool = False
+    is_compilation: bool = False
+    is_work: bool = False
+    track_ids: tuple[int, ...] = ()
     paths: tuple[str, ...] = ()
     tracks: tuple[PlaylistTrack, ...] = ()
 
@@ -205,6 +206,44 @@ class LibraryRootFilterOption:
     position: int
     path: str
     label: str
+
+
+@dataclass(frozen=True, slots=True)
+class AlbumArtistSplitMapping:
+    album_artist: str
+    mapped_artists: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class LibraryRootAlbumArtistStats:
+    root_position: int
+    album_artist: str
+    tracks_scanned: int
+    albums_scanned: int
+
+
+@dataclass(frozen=True, slots=True)
+class LibraryAlbumArtistStats:
+    album_artist: str
+    tracks_scanned: int
+    albums_scanned: int
+
+
+@dataclass(frozen=True, slots=True)
+class LibraryStats:
+    tracks_scanned: int
+    albums_scanned: int
+    playlists_scanned: int
+    album_artists: tuple[LibraryAlbumArtistStats, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class LibraryRootStats:
+    root_position: int
+    tracks_scanned: int
+    albums_scanned: int
+    playlists_scanned: int
+    album_artists: tuple[LibraryRootAlbumArtistStats, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

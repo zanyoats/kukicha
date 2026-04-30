@@ -11,6 +11,10 @@ from typing import Any
 
 from jinja2 import Environment, PackageLoader, select_autoescape
 
+from .album_artists import (
+    DEFAULT_ALBUM_ARTIST_SPLIT_PATTERNS,
+    normalize_album_artist_split_patterns,
+)
 from .display import display_album_title
 from .player_errors import PlayerConfigError
 from .player_navigation import album_art_url, album_summary_text, album_url
@@ -19,6 +23,8 @@ from .use_case import prepare_player_database
 DEFAULT_PLAYER_LOG_LEVEL = "DEBUG"
 DEFAULT_PLAYER_HOST = "127.0.0.1"
 DEFAULT_PLAYER_PORT = 65042
+DEFAULT_TOAST_TIMEOUT_MS = 10000
+DEFAULT_LINKED_TOAST_TIMEOUT_MS = 25000
 PLAYER_CONFIG_FILENAME = "kukicha.toml"
 PLAYER_DATABASE_FILENAME = "kukicha.sqlite"
 PLAYER_CONFIG_KEY_ORDER = (
@@ -27,6 +33,9 @@ PLAYER_CONFIG_KEY_ORDER = (
     "FFmpegPath",
     "Host",
     "Port",
+    "ToastTimeoutMs",
+    "LinkedToastTimeoutMs",
+    "AlbumArtistSplitPatterns",
 )
 PLAYER_CONFIG_KEYS = frozenset(PLAYER_CONFIG_KEY_ORDER)
 LOGGER = logging.getLogger("kukicha.player")
@@ -47,6 +56,9 @@ class PlayerServerOptions:
     host: str = DEFAULT_PLAYER_HOST
     port: int = DEFAULT_PLAYER_PORT
     log_level: str = DEFAULT_PLAYER_LOG_LEVEL
+    toast_timeout_ms: int = DEFAULT_TOAST_TIMEOUT_MS
+    linked_toast_timeout_ms: int = DEFAULT_LINKED_TOAST_TIMEOUT_MS
+    album_artist_split_patterns: tuple[str, ...] = DEFAULT_ALBUM_ARTIST_SPLIT_PATTERNS
 
 def default_player_config_dir() -> Path:
     config_home = os.environ.get("XDG_CONFIG_HOME")
@@ -76,6 +88,17 @@ def load_player_options(config_path: str | Path | None = None) -> PlayerServerOp
     )
     host = parse_player_host(config.get("Host", DEFAULT_PLAYER_HOST))
     port = parse_player_port(config.get("Port", DEFAULT_PLAYER_PORT))
+    toast_timeout_ms = parse_positive_milliseconds(
+        config.get("ToastTimeoutMs", DEFAULT_TOAST_TIMEOUT_MS),
+        key="ToastTimeoutMs",
+    )
+    linked_toast_timeout_ms = parse_positive_milliseconds(
+        config.get("LinkedToastTimeoutMs", DEFAULT_LINKED_TOAST_TIMEOUT_MS),
+        key="LinkedToastTimeoutMs",
+    )
+    album_artist_split_patterns = parse_album_artist_split_patterns(
+        config.get("AlbumArtistSplitPatterns", DEFAULT_ALBUM_ARTIST_SPLIT_PATTERNS)
+    )
 
     return PlayerServerOptions(
         config_path=resolved_config_path,
@@ -84,6 +107,9 @@ def load_player_options(config_path: str | Path | None = None) -> PlayerServerOp
         host=host,
         port=port,
         log_level=log_level,
+        toast_timeout_ms=toast_timeout_ms,
+        linked_toast_timeout_ms=linked_toast_timeout_ms,
+        album_artist_split_patterns=album_artist_split_patterns,
     )
 
 def player_config_help_text(config_path: str | Path | None = None) -> str:
@@ -112,6 +138,9 @@ def player_config_help_text(config_path: str | Path | None = None) -> str:
                 f"  FFmpegPath: {format_player_config_optional_path(options.ffmpeg_path)} ({player_config_value_source(raw_config, 'FFmpegPath')})",
                 f"  Host: {options.host} ({player_config_value_source(raw_config, 'Host')})",
                 f"  Port: {options.port} ({player_config_value_source(raw_config, 'Port')})",
+                f"  ToastTimeoutMs: {options.toast_timeout_ms} ({player_config_value_source(raw_config, 'ToastTimeoutMs')})",
+                f"  LinkedToastTimeoutMs: {options.linked_toast_timeout_ms} ({player_config_value_source(raw_config, 'LinkedToastTimeoutMs')})",
+                f"  AlbumArtistSplitPatterns: {format_player_config_string_list(options.album_artist_split_patterns)} ({player_config_value_source(raw_config, 'AlbumArtistSplitPatterns')})",
             )
         )
 
@@ -131,6 +160,9 @@ def player_config_value_source(config: dict[str, object], key: str) -> str:
 
 def format_player_config_optional_path(path: Path | None) -> str:
     return str(path) if path is not None else "<unset>"
+
+def format_player_config_string_list(values: tuple[str, ...]) -> str:
+    return "[" + ", ".join(repr(value) for value in values) + "]"
 
 def configure_player_logging(log_level: str) -> None:
     level_name = parse_player_log_level(log_level)
@@ -201,6 +233,21 @@ def parse_player_port(value: object) -> int:
     if value < 1 or value > 65535:
         raise PlayerConfigError("Port must be between 1 and 65535")
     return value
+
+def parse_positive_milliseconds(value: object, *, key: str) -> int:
+    if type(value) is not int:
+        raise PlayerConfigError(f"{key} must be an integer")
+    if value <= 0:
+        raise PlayerConfigError(f"{key} must be greater than 0")
+    return value
+
+def parse_album_artist_split_patterns(value: object) -> tuple[str, ...]:
+    if not isinstance(value, (list, tuple)):
+        raise PlayerConfigError("AlbumArtistSplitPatterns must be an array of strings")
+    for item in value:
+        if not isinstance(item, str):
+            raise PlayerConfigError("AlbumArtistSplitPatterns must be an array of strings")
+    return normalize_album_artist_split_patterns(value)
 
 def parse_config_path(
     value: object,

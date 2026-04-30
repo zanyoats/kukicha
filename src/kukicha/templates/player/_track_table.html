@@ -19,7 +19,7 @@
   <td class="track-number">{{ track.track_number }}</td>
   <td>{{ track.queue_title }}</td>
   <td class="track-duration">{{ track.duration }}</td>
-  <td class="queue-status">{{ row.queue_status }}</td>
+  <td class="queue-status"><span class="queue-status-label">{{ row.queue_status }}</span></td>
 {%- endmacro %}
 
 {% macro track_cells(track) -%}
@@ -73,6 +73,16 @@
 
 <div class="table-wrap">
   <table>
+    {% if is_queue %}
+      <colgroup>
+        <col>
+        {% if show_track_artist %}<col>{% endif %}
+        <col>
+        <col>
+        <col>
+        <col class="queue-status-col">
+      </colgroup>
+    {% endif %}
     <thead>
       <tr>
         <th>Cover</th>
@@ -81,7 +91,7 @@
         <th>Title</th>
         <th>Duration</th>
         {% if not is_queue %}<th class="track-actions-head"></th>{% endif %}
-        {% if is_queue %}<th>Queue</th>{% endif %}
+        {% if is_queue %}<th class="queue-status-head">Queue</th>{% endif %}
       </tr>
     </thead>
     <tbody>

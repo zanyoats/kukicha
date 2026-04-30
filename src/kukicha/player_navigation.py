@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from dataclasses import dataclass
+from math import log1p
 from typing import Any
 from urllib.parse import quote, urlencode
 
@@ -13,7 +14,9 @@ from .use_case import (
     AlbumSummary,
     GenreFilterGroup,
     GenreStyleFilter,
+    LibraryAlbumArtistStats,
     LibraryFilterOptions,
+    LibraryRootFilterOption,
 )
 from .use_case import DEFAULT_ALBUMS_PER_PAGE, album_query_params
 from .discogs import most_common_value
@@ -29,9 +32,10 @@ ALBUM_SORT_OPTIONS = (
     (ALBUM_LIST_SORT_ARTIST, "Artist, Album"),
 )
 PLAYER_PAGE_LINKS = (
-    ("library", "Library", "/"),
-    ("roots", "Roots", "/roots"),
-    ("notifications", "Notifications", "/notifications"),
+    ("library", "Albums", "/"),
+    ("artists", "Artists", "/artists"),
+    ("settings", "Settings", "/settings"),
+    ("jobs", "Jobs", "/jobs"),
     ("cache", "Cache", "/cache"),
     ("logs", "Logs", "/logs"),
     ("help", "Help", "/help"),
@@ -50,6 +54,13 @@ class PlayerPageLink:
 class MetaLink:
     label: str
     url: str
+
+@dataclass(frozen=True, slots=True)
+class ArtistCloudLink:
+    label: str
+    url: str
+    font_size_rem: float
+    title: str
 
 def player_page_heading(page_key: str) -> str:
     try:
@@ -81,6 +92,52 @@ def album_index_url(query: AlbumListQuery, *, page: int | None = None) -> str:
     params = album_query_params(query, page=page)
     encoded = urlencode(params, doseq=True, safe="[]")
     return f"/?{encoded}" if encoded else "/"
+
+def artist_index_url(artist: str) -> str:
+    return album_index_url(AlbumListQuery(artists=(artist,)))
+
+def artist_cloud_links(
+    stats: Iterable[LibraryAlbumArtistStats],
+) -> tuple[ArtistCloudLink, ...]:
+    rows = tuple(
+        stat
+        for stat in stats
+        if stat.album_artist.strip()
+    )
+    if not rows:
+        return ()
+
+    scores = tuple(artist_cloud_score(stat) for stat in rows)
+    log_scores = tuple(log1p(score) for score in scores)
+    min_score = min(log_scores)
+    max_score = max(log_scores)
+    return tuple(
+        ArtistCloudLink(
+            label=stat.album_artist,
+            url=artist_index_url(stat.album_artist),
+            font_size_rem=artist_cloud_font_size(log_score, min_score, max_score),
+            title=artist_cloud_title(stat),
+        )
+        for stat, log_score in zip(rows, log_scores)
+    )
+
+def artist_cloud_score(stat: LibraryAlbumArtistStats) -> int:
+    return stat.albums_scanned * 12 + stat.tracks_scanned
+
+def artist_cloud_font_size(log_score: float, min_score: float, max_score: float) -> float:
+    min_size = 0.95
+    max_size = 2.20
+    if max_score == min_score:
+        normalized = 0.5
+    else:
+        normalized = (log_score - min_score) / (max_score - min_score)
+    return round(min_size + normalized * (max_size - min_size), 2)
+
+def artist_cloud_title(stat: LibraryAlbumArtistStats) -> str:
+    return (
+        f"{stat.albums_scanned} {plural(stat.albums_scanned, 'album', 'albums')} - "
+        f"{stat.tracks_scanned} {plural(stat.tracks_scanned, 'track', 'tracks')}"
+    )
 
 def album_url(album: AlbumSummary, query: AlbumListQuery | None = None) -> str:
     if album.is_playlist and album.playlist_id is not None:
@@ -114,14 +171,18 @@ def album_summary_text(album: AlbumSummary) -> str:
     parts: list[str] = []
     if album.year:
         parts.append(str(album.year))
-    if album.genres:
-        parts.append(f"Genres: {', '.join(album.genres)}")
-    if album.styles:
-        parts.append(f"Styles: {', '.join(album.styles)}")
+    genres = getattr(album, "genres", ())
+    styles = getattr(album, "styles", ())
+    if genres:
+        parts.append(f"Genres: {', '.join(genres)}")
+    if styles:
+        parts.append(f"Styles: {', '.join(styles)}")
     parts.append(f"{album.track_count} {plural(album.track_count, 'track', 'tracks')}")
     return " - ".join(parts)
 
 def album_artist_parts(album: AlbumDetails) -> tuple[str, ...]:
+    if album.album_artists:
+        return album.album_artists
     return (album.artist,) if album.artist else ()
 
 def album_edit_album_artist_value(album: AlbumDetails) -> str:
@@ -159,6 +220,11 @@ def album_meta_query(
         sort=query.sort,
     )
 
+def album_root_query(root_position: int) -> AlbumListQuery:
+    return AlbumListQuery(
+        root_positions=(root_position,),
+    )
+
 def unique_meta_values(values: Iterable[str]) -> tuple[str, ...]:
     items: list[str] = []
     seen: set[str] = set()
@@ -173,13 +239,34 @@ def unique_meta_values(values: Iterable[str]) -> tuple[str, ...]:
         items.append(text)
     return tuple(items)
 
+def album_root_links(
+    album: AlbumDetails,
+    roots: Iterable[LibraryRootFilterOption],
+) -> tuple[MetaLink, ...]:
+    root_labels = {root.position: root.label for root in roots}
+    root_positions: list[int] = []
+    seen: set[int] = set()
+    for track in album.tracks:
+        position = track.root_position
+        if position is None or position in seen:
+            continue
+        seen.add(position)
+        root_positions.append(position)
+    return tuple(
+        MetaLink(
+            label=root_labels.get(position, f"Root {position}"),
+            url=album_index_url(album_root_query(position)),
+        )
+        for position in root_positions
+    )
+
 def album_artist_links(album: AlbumDetails, query: AlbumListQuery) -> tuple[MetaLink, ...]:
     return tuple(
         MetaLink(
             label=artist,
             url=album_index_url(album_meta_query(query, artists=(artist,))),
         )
-        for artist in unique_meta_values((album.artist,))
+        for artist in unique_meta_values(album.album_artists or (album.artist,))
     )
 
 def album_genre_links(

@@ -5,6 +5,11 @@ from collections import Counter, defaultdict
 from collections.abc import Iterable
 from dataclasses import dataclass
 
+from .album_artists import (
+    album_artist_id_text,
+    display_album_artists,
+    track_album_artist_values,
+)
 from .models import MusicLibrary, TrackRecord
 from .text import normalize_slug_text, normalize_text
 
@@ -15,6 +20,8 @@ YEAR_PATTERN = re.compile(r"(\d{4})")
 class LocalAlbum:
     album_id: str
     artist: str
+    artists: tuple[str, ...]
+    artist_id_text: str
     album: str
     year: int | None
     track_count: int
@@ -34,7 +41,8 @@ def group_library_albums(library: MusicLibrary) -> list[LocalAlbum]:
     for track in library.tracks:
         if track.scan_error:
             continue
-        artist = track.album_artist or track.artist
+        artists = track_album_artist_values(track)
+        artist = album_artist_id_text(artists)
         album = track.album
         if not artist or not album:
             continue
@@ -45,17 +53,18 @@ def group_library_albums(library: MusicLibrary) -> list[LocalAlbum]:
 
     albums: list[LocalAlbum] = []
     for tracks in grouped_tracks.values():
-        artist = (
-            most_common_value(track.album_artist or track.artist for track in tracks)
-            or "<unknown artist>"
-        )
+        artists = most_common_artist_values(track_album_artist_values(track) for track in tracks)
+        artist = display_album_artists(artists) or "<unknown artist>"
+        artist_id = album_artist_id_text(artists) or artist
         album = most_common_value(track.album for track in tracks) or "<unknown album>"
         year = most_common_year(parse_year(track.date) for track in tracks)
-        album_id = f"{normalize_slug_text(artist)}::{normalize_slug_text(album)}"
+        album_id = f"{normalize_slug_text(artist_id)}::{normalize_slug_text(album)}"
         albums.append(
             LocalAlbum(
                 album_id=album_id,
                 artist=artist,
+                artists=artists,
+                artist_id_text=artist_id,
                 album=album,
                 year=year,
                 track_count=len(tracks),
@@ -75,6 +84,11 @@ def parse_year(value: str | None) -> int | None:
 def most_common_value(values: Iterable[str | None]) -> str | None:
     counter = Counter(value for value in values if value)
     return counter.most_common(1)[0][0] if counter else None
+
+
+def most_common_artist_values(values: Iterable[tuple[str, ...]]) -> tuple[str, ...]:
+    counter = Counter(value for value in values if value)
+    return counter.most_common(1)[0][0] if counter else ()
 
 
 def most_common_year(values: Iterable[int | None]) -> int | None:
