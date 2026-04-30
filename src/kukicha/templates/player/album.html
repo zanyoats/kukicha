@@ -17,31 +17,31 @@
         <h2 title="{{ album.album }}">
           {{ album.album|display_album_title }}{% if album_root_links %} <span class="album-title-root-links">({%- for item in album_root_links -%}<a class="album-detail-meta-link" href="{{ item.url }}" data-nav>{{ item.label }}</a>{% if not loop.last %}, {% endif %}{%- endfor -%})</span>{% endif %}
         </h2>
-        {% if album_artist_links %}
+        {% if album_artist_links or album_year_text %}
           <ul class="meta-list album-artist-meta">
-            <li>
-              {% for item in album_artist_links %}
-                <a class="album-detail-meta-link" href="{{ item.url }}" data-nav>{{ item.label }}</a>{% if not loop.last %}, {% endif %}
-              {% endfor %}
-            </li>
-          </ul>
-        {% endif %}
-        {% if album_genre_links or album_year_text %}
-          <ul class="meta-list album-genre-meta">
-            {% if album_genre_links %}
+            {% if album_artist_links %}
               <li>
-                {% for item in album_genre_links %}
-                  {% if item.url %}
-                    <a class="album-detail-meta-link" href="{{ item.url }}" data-nav>{{ item.label }}</a>
-                  {% else %}
-                    <span class="album-detail-meta-link">{{ item.label }}</span>
-                  {% endif %}{% if not loop.last %}, {% endif %}
+                {% for item in album_artist_links %}
+                  <a class="album-detail-meta-link" href="{{ item.url }}" data-nav>{{ item.label }}</a>{% if not loop.last %}, {% endif %}
                 {% endfor %}
               </li>
             {% endif %}
             {% if album_year_text %}
-              <li>{{ album_year_text }}</li>
+              <li class="album-year-meta">{{ album_year_text }}</li>
             {% endif %}
+          </ul>
+        {% endif %}
+        {% if album_genre_links %}
+          <ul class="meta-list album-genre-meta">
+            <li>
+              {% for item in album_genre_links %}
+                {% if item.url %}
+                  <a class="album-detail-meta-link" href="{{ item.url }}" data-nav>{{ item.label }}</a>
+                {% else %}
+                  <span class="album-detail-meta-link">{{ item.label }}</span>
+                {% endif %}{% if not loop.last %}, {% endif %}
+              {% endfor %}
+            </li>
           </ul>
         {% endif %}
         {% if album_style_links %}

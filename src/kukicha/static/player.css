@@ -1430,6 +1430,10 @@ button:disabled,
   font-size: 1.05rem;
 }
 
+.album-year-meta {
+  font-size: 0.9rem;
+}
+
 .album-genre-meta {
   font-size: 0.9rem;
 }

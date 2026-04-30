@@ -1390,6 +1390,40 @@ class PlayerAlbumDetailLinksTest(unittest.TestCase):
             html,
         )
 
+    def test_album_template_renders_year_with_album_artist_separator(self) -> None:
+        album = AlbumDetails(
+            album_id="brian-eno::ambient-1",
+            artist="Brian Eno",
+            album_artists=("Brian Eno",),
+            album="Ambient 1",
+            year=1978,
+            track_count=0,
+        )
+        template = build_template_environment().get_template("player/album.html")
+
+        html = template.render(
+            album=album,
+            album_back_url="/",
+            album_edit_page_url="/albums/brian-eno::ambient-1/edit",
+            album_root_links=(),
+            album_artist_links=album_artist_links(album, AlbumListQuery()),
+            album_genre_links=({"label": "Ambient", "url": "/?genre=Ambient"},),
+            album_year_text="1978",
+            album_style_links=(),
+            track_sections=(),
+        )
+
+        self.assertIn('<ul class="meta-list album-artist-meta">', html)
+        self.assertIn('<li class="album-year-meta">1978</li>', html)
+        self.assertLess(
+            html.index("album-artist-meta"),
+            html.index('<li class="album-year-meta">1978</li>'),
+        )
+        self.assertLess(
+            html.index('<li class="album-year-meta">1978</li>'),
+            html.index("album-genre-meta"),
+        )
+
     def test_album_templates_render_comma_separated_root_filter_links_in_title(self) -> None:
         album = AlbumDetails(
             album_id="brian-eno-robert-fripp::no-pussyfooting",
