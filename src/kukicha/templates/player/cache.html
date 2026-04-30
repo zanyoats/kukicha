@@ -1,0 +1,19 @@
+<div class="view-page settings-page" data-page="{{ page_key }}">
+  <header class="view-header">
+    {% include "player/_page_title.html" %}
+  </header>
+
+  <section class="settings-panel">
+    <div class="settings-panel-header">
+      <h2>Cache</h2>
+    </div>
+    <div class="cache-stat-grid">
+      {% for stat in cache_stats %}
+        <article class="cache-stat-card">
+          <div class="cache-stat-count">{{ stat.count }}</div>
+          <div class="cache-stat-label">{{ stat.label }}</div>
+        </article>
+      {% endfor %}
+    </div>
+  </section>
+</div>

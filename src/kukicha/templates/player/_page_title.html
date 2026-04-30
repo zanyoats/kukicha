@@ -11,10 +11,13 @@
       </summary>
       <div class="filter-options page-menu-options">
         {% for item in page_menu_items %}
-          <a class="page-menu-link{% if item.current %} active{% endif %}" href="{{ item.url }}" data-nav
-            {% if item.current %}aria-current="page"{% endif %}>{{ item.title }}</a>
-          {% if item.key == "artists" %}
+          {% if item.kind == "heading" %}
+            <div class="page-menu-heading">{{ item.title }}</div>
+          {% elif item.kind == "divider" %}
             <hr class="page-menu-divider">
+          {% else %}
+            <a class="page-menu-link{% if item.current %} active{% endif %}" href="{{ item.url }}" data-nav
+              {% if item.current %}aria-current="page"{% endif %}>{{ item.title }}</a>
           {% endif %}
         {% endfor %}
       </div>

@@ -1,0 +1,48 @@
+<div class="view-page settings-page help-page" data-page="{{ page_key }}">
+  <header class="view-header">
+    {% include "player/_page_title.html" %}
+  </header>
+
+  <section class="settings-panel">
+    <div class="settings-panel-header">
+      <h2>Config</h2>
+      <div class="settings-panel-meta">Current values for this player session.</div>
+    </div>
+
+    <dl class="config-file-summary">
+      <div>
+        <dt>Status</dt>
+        <dd>{{ config_summary.status }}</dd>
+      </div>
+      <div>
+        <dt>Path</dt>
+        <dd><code>{{ config_summary.path }}</code></dd>
+      </div>
+    </dl>
+
+    {% if config_summary.error %}
+      <div class="settings-status error">{{ config_summary.error }}</div>
+    {% else %}
+      <div class="config-table-wrap">
+        <table class="config-table">
+          <thead>
+            <tr>
+              <th scope="col">Key</th>
+              <th scope="col">Current Value</th>
+              <th scope="col">Source</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for item in config_summary.values %}
+              <tr>
+                <td><code>{{ item.key }}</code></td>
+                <td><code>{{ item.value }}</code></td>
+                <td><span class="config-source {{ item.source }}">{{ item.source }}</span></td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% endif %}
+  </section>
+</div>

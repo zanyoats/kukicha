@@ -1061,29 +1061,44 @@ class PlayerPageMenuTest(unittest.TestCase):
         items = player_page_menu_items("jobs")
 
         self.assertEqual(
-            [(item.title, item.url) for item in items],
+            [(item.kind, item.title, item.url) for item in items],
             [
-                ("Albums", "/"),
-                ("Artists", "/artists"),
-                ("Settings", "/settings"),
-                ("Jobs", "/jobs"),
-                ("Help", "/help"),
+                ("heading", "LIBRARY", ""),
+                ("link", "Albums", "/"),
+                ("link", "Artists", "/artists"),
+                ("divider", "", ""),
+                ("heading", "SETTINGS", ""),
+                ("link", "Roots", "/roots"),
+                ("link", "Artists Split Rules", "/artist-split-rules"),
+                ("link", "Cache", "/cache"),
+                ("divider", "", ""),
+                ("link", "Jobs", "/jobs"),
+                ("link", "Help", "/help"),
             ],
         )
-        self.assertEqual([item.current for item in items], [False, False, False, True, False])
+        self.assertEqual(
+            [item.title for item in items if item.current],
+            ["Jobs"],
+        )
 
-    def test_player_page_menu_template_separates_library_links_from_settings(self) -> None:
+    def test_player_page_menu_template_groups_library_and_settings_links(self) -> None:
         template = build_template_environment().get_template("player/_page_title.html")
 
         html = template.render(
-            page_heading="Settings",
-            page_menu_items=player_page_menu_items("settings"),
+            page_heading="Roots",
+            page_menu_items=player_page_menu_items("roots"),
             count_text="",
         )
 
+        self.assertIn('class="page-menu-heading">LIBRARY</div>', html)
+        self.assertIn('class="page-menu-heading">SETTINGS</div>', html)
+        self.assertEqual(html.count('class="page-menu-divider"'), 2)
         self.assertIn('class="page-menu-divider"', html)
+        self.assertLess(html.index("LIBRARY"), html.index("Albums"))
         self.assertLess(html.index("Artists"), html.index('class="page-menu-divider"'))
-        self.assertLess(html.index('class="page-menu-divider"'), html.index("Settings"))
+        self.assertLess(html.index("SETTINGS"), html.index("Roots"))
+        self.assertLess(html.index("Roots"), html.index("Artists Split Rules"))
+        self.assertLess(html.index("Artists Split Rules"), html.index("Cache"))
 
     def test_player_page_heading_rejects_unknown_page(self) -> None:
         with self.assertRaisesRegex(ValueError, "unknown player page"):
@@ -1498,8 +1513,9 @@ class PlayerWebAdapterTest(unittest.TestCase):
                 client = app.test_client()
 
             self.assertEqual(client.get("/notifications").status_code, 404)
-            self.assertEqual(client.get("/cache").status_code, 404)
             self.assertEqual(client.get("/logs").status_code, 404)
+            self.assertEqual(client.get("/settings").status_code, 302)
+            self.assertEqual(client.get("/settings").headers["Location"], "/roots")
 
     def test_cancel_job_route_returns_job_payload(self) -> None:
         with TemporaryDirectory() as tempdir:
@@ -1614,10 +1630,93 @@ class PlayerWebAdapterTest(unittest.TestCase):
             self.assertNotIn(b"<!doctype html>", fragment_response.data)
             self.assertIn(b"<h1>Artists</h1>", fragment_response.data)
 
-    def test_settings_page_renders_roots_and_album_artist_mappings(self) -> None:
+    def test_help_page_renders_config_values_and_sources(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            config_path = temp_path / "kukicha.toml"
+            config_path.write_text(
+                "\n".join(
+                    (
+                        "LogLevel = 'info'",
+                        "Host = '0.0.0.0'",
+                        "Port = 43210",
+                    )
+                ),
+                encoding="utf-8",
+            )
+            options = load_player_options(config_path)
+            app = create_player_app(options)
+
+            response = app.test_client().get("/help")
+
+            self.assertEqual(response.status_code, 200)
+            self.assertIn(b"<h1>Help</h1>", response.data)
+            self.assertIn(b"<h2>Config</h2>", response.data)
+            self.assertIn(f"<code>{config_path.resolve()}</code>".encode(), response.data)
+            self.assertIn(b"<code>LogLevel</code>", response.data)
+            self.assertIn(b"<code>INFO</code>", response.data)
+            self.assertIn(b"<code>Host</code>", response.data)
+            self.assertIn(b"<code>0.0.0.0</code>", response.data)
+            self.assertIn(b"<code>Port</code>", response.data)
+            self.assertIn(b"<code>43210</code>", response.data)
+            self.assertIn(b'<span class="config-source configured">configured</span>', response.data)
+            self.assertIn(b"<code>FFmpegPath</code>", response.data)
+            self.assertIn(b"<code>&lt;unset&gt;</code>", response.data)
+            self.assertIn(b'<span class="config-source default">default</span>', response.data)
+
+    def test_settings_pages_render_roots_artist_split_rules_and_cache(self) -> None:
         with TemporaryDirectory() as tempdir:
             temp_path = Path(tempdir)
             database = temp_path / "kukicha.sqlite"
+            save_library(
+                MusicLibrary(
+                    roots=["/music/a"],
+                    tracks=[
+                        TrackRecord(
+                            path="/music/a/Brian Eno/Ambient 1/01.flac",
+                            root_position=0,
+                            file_type="flac",
+                            artist="Brian Eno",
+                            album_artist="Brian Eno",
+                            album="Ambient 1",
+                            title="1/1",
+                        ),
+                        TrackRecord(
+                            path="/music/a/Brian Eno/Ambient 1/02.flac",
+                            root_position=0,
+                            file_type="flac",
+                            artist="Brian Eno",
+                            album_artist="Brian Eno",
+                            album="Ambient 1",
+                            title="2/1",
+                        ),
+                        TrackRecord(
+                            path="/music/a/Robert Fripp/Exposure/01.flac",
+                            root_position=0,
+                            file_type="flac",
+                            artist="Robert Fripp",
+                            album_artist="Robert Fripp",
+                            album="Exposure",
+                            title="Preface",
+                        ),
+                    ],
+                    playlists=[
+                        PlaylistRecord(
+                            path="/music/a/mix.m3u8",
+                            root_position=0,
+                            name="Mix",
+                            items=[
+                                PlaylistItemRecord(
+                                    path="/music/a/Brian Eno/Ambient 1/01.flac"
+                                )
+                            ],
+                        ),
+                    ],
+                    supported_extensions=[".flac"],
+                    generated_at="2026-04-29T00:00:00+00:00",
+                ),
+                database,
+            )
             connection = connect_database(database)
             try:
                 connection.execute(
@@ -1636,19 +1735,39 @@ class PlayerWebAdapterTest(unittest.TestCase):
             runtime = self.make_runtime(database)
             with patch("kukicha.player_web_adapter.PlayerRuntime", return_value=runtime):
                 app = create_player_app(self.make_options(temp_path))
-                response = app.test_client().get("/settings")
+                client = app.test_client()
+                roots_response = client.get("/roots")
+                split_rules_response = client.get("/artist-split-rules")
+                cache_response = client.get("/cache")
 
-            self.assertEqual(response.status_code, 200)
-            self.assertIn(b"<h1>Settings</h1>", response.data)
-            self.assertLess(
-                response.data.index(b"<h2>Add Root</h2>"),
-                response.data.index(b"<h2>Custom Album Artist Split Rules</h2>"),
-            )
-            self.assertNotIn(b"<h2>Custom Mappings</h2>", response.data)
-            self.assertNotIn(b"data-album-artist-mapping-form", response.data)
-            self.assertIn(b"data-edit-album-artist-mapping", response.data)
-            self.assertIn(b"Brian Eno &amp; Robert Fripp", response.data)
-            self.assertIn(b"Brian Eno\nRobert Fripp", response.data)
+            self.assertEqual(roots_response.status_code, 200)
+            self.assertIn(b"<h1>Roots</h1>", roots_response.data)
+            self.assertIn(b"<h2>Add Root</h2>", roots_response.data)
+            self.assertIn(b"<h2>Current Roots</h2>", roots_response.data)
+            self.assertIn(b"/music/a", roots_response.data)
+            self.assertIn(b"Tracks scanned</dt>\n                <dd>3</dd>", roots_response.data)
+            self.assertIn(b"Albums scanned</dt>\n                <dd>2</dd>", roots_response.data)
+            self.assertIn(b"Playlists scanned</dt>\n                <dd>1</dd>", roots_response.data)
+            self.assertNotIn(b"<h2>Artists Split Rules</h2>", roots_response.data)
+            self.assertNotIn(b"<h2>Cache</h2>", roots_response.data)
+
+            self.assertEqual(split_rules_response.status_code, 200)
+            self.assertIn(b"<h1>Artists Split Rules</h1>", split_rules_response.data)
+            self.assertIn(b"<h2>Artists Split Rules</h2>", split_rules_response.data)
+            self.assertNotIn(b"<h2>Custom Album Artist Split Rules</h2>", split_rules_response.data)
+            self.assertNotIn(b"data-album-artist-mapping-form", split_rules_response.data)
+            self.assertIn(b"data-edit-album-artist-mapping", split_rules_response.data)
+            self.assertIn(b"Brian Eno &amp; Robert Fripp", split_rules_response.data)
+            self.assertIn(b"Brian Eno\nRobert Fripp", split_rules_response.data)
+            self.assertNotIn(b"<h2>Add Root</h2>", split_rules_response.data)
+
+            self.assertEqual(cache_response.status_code, 200)
+            self.assertIn(b"<h1>Cache</h1>", cache_response.data)
+            self.assertIn(b"<h2>Cache</h2>", cache_response.data)
+            self.assertIn(b"MusicBrainz", cache_response.data)
+            self.assertIn(b"iTunes Artwork", cache_response.data)
+            self.assertNotIn(b"<h2>Add Root</h2>", cache_response.data)
+            self.assertNotIn(b"data-edit-album-artist-mapping", cache_response.data)
 
     def test_album_artist_mapping_route_updates_mapping_without_starting_job(self) -> None:
         with TemporaryDirectory() as tempdir:

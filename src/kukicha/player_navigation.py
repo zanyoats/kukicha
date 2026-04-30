@@ -34,7 +34,9 @@ ALBUM_SORT_OPTIONS = (
 PLAYER_PAGE_LINKS = (
     ("library", "Albums", "/"),
     ("artists", "Artists", "/artists"),
-    ("settings", "Settings", "/settings"),
+    ("roots", "Roots", "/roots"),
+    ("artist-split-rules", "Artists Split Rules", "/artist-split-rules"),
+    ("cache", "Cache", "/cache"),
     ("jobs", "Jobs", "/jobs"),
     ("help", "Help", "/help"),
 )
@@ -43,10 +45,32 @@ PLAYER_PAGE_ROUTE_KEYS = {url: key for key, _title, url in PLAYER_PAGE_LINKS[1:]
 
 @dataclass(frozen=True, slots=True)
 class PlayerPageLink:
-    key: str
-    title: str
-    url: str
+    kind: str
+    key: str = ""
+    title: str = ""
+    url: str = ""
     current: bool = False
+
+
+PLAYER_PAGE_MENU_ITEMS = (
+    PlayerPageLink(kind="heading", title="LIBRARY"),
+    PlayerPageLink(kind="link", key="library", title="Albums", url="/"),
+    PlayerPageLink(kind="link", key="artists", title="Artists", url="/artists"),
+    PlayerPageLink(kind="divider"),
+    PlayerPageLink(kind="heading", title="SETTINGS"),
+    PlayerPageLink(kind="link", key="roots", title="Roots", url="/roots"),
+    PlayerPageLink(
+        kind="link",
+        key="artist-split-rules",
+        title="Artists Split Rules",
+        url="/artist-split-rules",
+    ),
+    PlayerPageLink(kind="link", key="cache", title="Cache", url="/cache"),
+    PlayerPageLink(kind="divider"),
+    PlayerPageLink(kind="link", key="jobs", title="Jobs", url="/jobs"),
+    PlayerPageLink(kind="link", key="help", title="Help", url="/help"),
+)
+
 
 @dataclass(frozen=True, slots=True)
 class MetaLink:
@@ -70,12 +94,13 @@ def player_page_menu_items(current_page: str) -> tuple[PlayerPageLink, ...]:
     player_page_heading(current_page)
     return tuple(
         PlayerPageLink(
-            key=key,
-            title=title,
-            url=url,
-            current=key == current_page,
+            kind=item.kind,
+            key=item.key,
+            title=item.title,
+            url=item.url,
+            current=item.key == current_page,
         )
-        for key, title, url in PLAYER_PAGE_LINKS
+        for item in PLAYER_PAGE_MENU_ITEMS
     )
 
 def player_page_context(page_key: str) -> dict[str, Any]:

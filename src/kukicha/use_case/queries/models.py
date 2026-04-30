@@ -215,6 +215,12 @@ class AlbumArtistSplitMapping:
 
 
 @dataclass(frozen=True, slots=True)
+class CacheStat:
+    label: str
+    count: int
+
+
+@dataclass(frozen=True, slots=True)
 class LibraryRootAlbumArtistStats:
     root_position: int
     album_artist: str

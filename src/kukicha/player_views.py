@@ -129,6 +129,19 @@ def build_simple_page_context(runtime: PlayerRuntime, page_key: str) -> dict[str
     return context
 
 
+def build_help_page_context(runtime: PlayerRuntime, options: Any) -> dict[str, Any]:
+    from .player_config import player_config_summary
+    from .player_navigation import player_page_context
+
+    context = base_player_context(
+        runtime,
+        view_template="player/help.html",
+        config_summary=player_config_summary(options=options),
+    )
+    context.update(player_page_context("help"))
+    return context
+
+
 def build_artists_page_context(runtime: PlayerRuntime) -> dict[str, Any]:
     from .player_common import plural
     from .player_navigation import artist_cloud_links, player_page_context
@@ -145,31 +158,61 @@ def build_artists_page_context(runtime: PlayerRuntime) -> dict[str, Any]:
     return context
 
 
-def build_settings_page_context(runtime: PlayerRuntime) -> dict[str, Any]:
+def build_roots_page_context(runtime: PlayerRuntime) -> dict[str, Any]:
     from .player_common import plural
     from .player_navigation import player_page_context
     from .player_platform import root_picker_supported
 
     api = LibraryQueries(runtime.database)
     roots = api.library_roots()
-    album_artist_mappings = api.album_artist_split_mappings()
+    root_stats_by_position = {
+        stat.root_position: stat
+        for stat in api.library_root_stats()
+    }
     context = base_player_context(
         runtime,
         view_template="player/roots.html",
         roots=roots,
-        album_artist_mappings=album_artist_mappings,
-        count_text=(
-            f"{len(roots)} {plural(len(roots), 'root', 'roots')} - "
-            f"{len(album_artist_mappings)} {plural(len(album_artist_mappings), 'mapping', 'mappings')}"
-        ),
+        root_stats_by_position=root_stats_by_position,
+        count_text=f"{len(roots)} {plural(len(roots), 'root', 'roots')}",
         root_picker_supported=root_picker_supported(),
     )
-    context.update(player_page_context("settings"))
+    context.update(player_page_context("roots"))
     return context
 
 
-def build_roots_page_context(runtime: PlayerRuntime) -> dict[str, Any]:
-    return build_settings_page_context(runtime)
+def build_artist_split_rules_page_context(runtime: PlayerRuntime) -> dict[str, Any]:
+    from .player_common import plural
+    from .player_navigation import player_page_context
+
+    album_artist_mappings = LibraryQueries(runtime.database).album_artist_split_mappings()
+    context = base_player_context(
+        runtime,
+        view_template="player/artist_split_rules.html",
+        album_artist_mappings=album_artist_mappings,
+        count_text=(
+            f"{len(album_artist_mappings)} "
+            f"{plural(len(album_artist_mappings), 'mapping', 'mappings')}"
+        ),
+    )
+    context.update(player_page_context("artist-split-rules"))
+    return context
+
+
+def build_cache_page_context(runtime: PlayerRuntime) -> dict[str, Any]:
+    from .player_common import plural
+    from .player_navigation import player_page_context
+
+    cache_stats = LibraryQueries(runtime.database).cache_stats()
+    total_entries = sum(stat.count for stat in cache_stats)
+    context = base_player_context(
+        runtime,
+        view_template="player/cache.html",
+        cache_stats=cache_stats,
+        count_text=f"{total_entries} {plural(total_entries, 'entry', 'entries')}",
+    )
+    context.update(player_page_context("cache"))
+    return context
 
 
 def build_jobs_page_context(runtime: PlayerRuntime) -> dict[str, Any]:

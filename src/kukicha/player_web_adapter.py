@@ -9,7 +9,7 @@ import re
 import sqlite3
 from typing import Any
 
-from flask import Flask, Response, abort, current_app, request, stream_with_context
+from flask import Flask, Response, abort, current_app, redirect, request, stream_with_context
 from werkzeug.serving import make_server
 
 from .use_case import (
@@ -52,13 +52,15 @@ from .player_views import (
     album_playback_payload,
     build_album_context,
     build_album_edit_context,
+    build_artist_split_rules_page_context,
     build_artists_page_context,
+    build_cache_page_context,
+    build_help_page_context,
     build_index_context,
     build_jobs_page_context,
     build_playlist_context,
     build_queue_context,
     build_roots_page_context,
-    build_settings_page_context,
     build_simple_page_context,
     playlist_playback_payload,
 )
@@ -307,13 +309,31 @@ def create_player_app(options: PlayerServerOptions) -> Flask:
         job = player_context().runtime.cancel_job(job_id)
         return json_response({"job": job_payload(job)})
 
+    @app.get("/settings")
+    def legacy_settings_page() -> Response:
+        return redirect("/roots")
+
     for route, page_key in PLAYER_PAGE_ROUTE_KEYS.items():
         endpoint = f"page_{page_key}"
-        if page_key == "settings":
+        if page_key == "roots":
             app.add_url_rule(
                 route,
                 endpoint,
-                lambda page_key=page_key: render_settings_page(),
+                lambda page_key=page_key: render_roots_page(),
+                methods=["GET"],
+            )
+        elif page_key == "artist-split-rules":
+            app.add_url_rule(
+                route,
+                endpoint,
+                lambda page_key=page_key: render_artist_split_rules_page(),
+                methods=["GET"],
+            )
+        elif page_key == "cache":
+            app.add_url_rule(
+                route,
+                endpoint,
+                lambda page_key=page_key: render_cache_page(),
                 methods=["GET"],
             )
         elif page_key == "artists":
@@ -328,6 +348,13 @@ def create_player_app(options: PlayerServerOptions) -> Flask:
                 route,
                 endpoint,
                 lambda page_key=page_key: render_jobs_page(),
+                methods=["GET"],
+            )
+        elif page_key == "help":
+            app.add_url_rule(
+                route,
+                endpoint,
+                lambda page_key=page_key: render_help_page(),
                 methods=["GET"],
             )
         else:
@@ -405,9 +432,14 @@ def render_roots_page() -> Response:
     return rendered_response(build_roots_page_context(player_context().runtime))
 
 
-def render_settings_page() -> Response:
+def render_artist_split_rules_page() -> Response:
     reset_playback_for_document_load()
-    return rendered_response(build_settings_page_context(player_context().runtime))
+    return rendered_response(build_artist_split_rules_page_context(player_context().runtime))
+
+
+def render_cache_page() -> Response:
+    reset_playback_for_document_load()
+    return rendered_response(build_cache_page_context(player_context().runtime))
 
 
 def render_artists_page() -> Response:
@@ -418,6 +450,12 @@ def render_artists_page() -> Response:
 def render_jobs_page() -> Response:
     reset_playback_for_document_load()
     return rendered_response(build_jobs_page_context(player_context().runtime))
+
+
+def render_help_page() -> Response:
+    reset_playback_for_document_load()
+    context = player_context()
+    return rendered_response(build_help_page_context(context.runtime, context.options))
 
 
 def render_simple_page(page_key: str) -> Response:

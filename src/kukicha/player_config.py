@@ -60,6 +60,23 @@ class PlayerServerOptions:
     linked_toast_timeout_ms: int = DEFAULT_LINKED_TOAST_TIMEOUT_MS
     album_artist_split_patterns: tuple[str, ...] = DEFAULT_ALBUM_ARTIST_SPLIT_PATTERNS
 
+
+@dataclass(frozen=True, slots=True)
+class PlayerConfigValue:
+    key: str
+    value: str
+    source: str
+
+
+@dataclass(frozen=True, slots=True)
+class PlayerConfigSummary:
+    path: Path
+    status: str
+    values: tuple[PlayerConfigValue, ...] = ()
+    supported_keys: tuple[str, ...] = PLAYER_CONFIG_KEY_ORDER
+    error: str = ""
+
+
 def default_player_config_dir() -> Path:
     config_home = os.environ.get("XDG_CONFIG_HOME")
     if config_home:
@@ -113,40 +130,95 @@ def load_player_options(config_path: str | Path | None = None) -> PlayerServerOp
     )
 
 def player_config_help_text(config_path: str | Path | None = None) -> str:
-    resolved_config_path, config_required = resolve_player_config_path(config_path)
-    raw_config: dict[str, object] = {}
+    summary = player_config_summary(config_path)
     lines = [
         "Config file:",
-        f"  status: {player_config_status_label(resolved_config_path, required=config_required)}",
-        f"  path: {resolved_config_path}",
+        f"  status: {summary.status}",
+        f"  path: {summary.path}",
     ]
 
-    try:
-        if config_required and not resolved_config_path.exists():
-            raise PlayerConfigError(f"config file does not exist: {resolved_config_path}")
-        raw_config = read_player_config(resolved_config_path, required=False)
-        options = load_player_options(resolved_config_path if config_path is not None else None)
-    except PlayerConfigError as error:
-        lines.append(f"  error: {error}")
+    if summary.error:
+        lines.append(f"  error: {summary.error}")
     else:
+        values = {item.key: item for item in summary.values}
         lines.extend(
             (
                 "",
                 "Current values:",
-                f"  LogLevel: {options.log_level} ({player_config_value_source(raw_config, 'LogLevel')})",
-                f"  DatabasePath: {options.database} ({player_config_value_source(raw_config, 'DatabasePath')})",
-                f"  FFmpegPath: {format_player_config_optional_path(options.ffmpeg_path)} ({player_config_value_source(raw_config, 'FFmpegPath')})",
-                f"  Host: {options.host} ({player_config_value_source(raw_config, 'Host')})",
-                f"  Port: {options.port} ({player_config_value_source(raw_config, 'Port')})",
-                f"  ToastTimeoutMs: {options.toast_timeout_ms} ({player_config_value_source(raw_config, 'ToastTimeoutMs')})",
-                f"  LinkedToastTimeoutMs: {options.linked_toast_timeout_ms} ({player_config_value_source(raw_config, 'LinkedToastTimeoutMs')})",
-                f"  AlbumArtistSplitPatterns: {format_player_config_string_list(options.album_artist_split_patterns)} ({player_config_value_source(raw_config, 'AlbumArtistSplitPatterns')})",
+                *(
+                    f"  {key}: {values[key].value} ({values[key].source})"
+                    for key in PLAYER_CONFIG_KEY_ORDER
+                ),
             )
         )
 
     lines.extend(("", "Supported keys:"))
-    lines.extend(f"  {key}" for key in PLAYER_CONFIG_KEY_ORDER)
+    lines.extend(f"  {key}" for key in summary.supported_keys)
     return "\n".join(lines)
+
+def player_config_summary(
+    config_path: str | Path | None = None,
+    *,
+    options: PlayerServerOptions | None = None,
+) -> PlayerConfigSummary:
+    if options is None:
+        resolved_config_path, config_required = resolve_player_config_path(config_path)
+        try:
+            if config_required and not resolved_config_path.exists():
+                raise PlayerConfigError(f"config file does not exist: {resolved_config_path}")
+            raw_config = read_player_config(resolved_config_path, required=False)
+            resolved_options = load_player_options(
+                resolved_config_path if config_path is not None else None
+            )
+        except PlayerConfigError as error:
+            return PlayerConfigSummary(
+                path=resolved_config_path,
+                status=player_config_status_label(
+                    resolved_config_path,
+                    required=config_required,
+                ),
+                error=str(error),
+            )
+        return PlayerConfigSummary(
+            path=resolved_config_path,
+            status=player_config_status_label(
+                resolved_config_path,
+                required=config_required,
+            ),
+            values=player_config_values(resolved_options, raw_config),
+        )
+
+    raw_config = read_player_config(options.config_path, required=False)
+    return PlayerConfigSummary(
+        path=options.config_path,
+        status=player_config_status_label(options.config_path, required=False),
+        values=player_config_values(options, raw_config),
+    )
+
+def player_config_values(
+    options: PlayerServerOptions,
+    raw_config: dict[str, object],
+) -> tuple[PlayerConfigValue, ...]:
+    values = {
+        "LogLevel": options.log_level,
+        "DatabasePath": str(options.database),
+        "FFmpegPath": format_player_config_optional_path(options.ffmpeg_path),
+        "Host": options.host,
+        "Port": str(options.port),
+        "ToastTimeoutMs": str(options.toast_timeout_ms),
+        "LinkedToastTimeoutMs": str(options.linked_toast_timeout_ms),
+        "AlbumArtistSplitPatterns": format_player_config_string_list(
+            options.album_artist_split_patterns
+        ),
+    }
+    return tuple(
+        PlayerConfigValue(
+            key=key,
+            value=values[key],
+            source=player_config_value_source(raw_config, key),
+        )
+        for key in PLAYER_CONFIG_KEY_ORDER
+    )
 
 def player_config_status_label(path: Path, *, required: bool) -> str:
     if path.exists():

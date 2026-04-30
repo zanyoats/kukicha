@@ -3,7 +3,7 @@
     {% include "player/_page_title.html" %}
   </header>
 
-  <section class="settings-panel">
+  <section class="settings-panel" id="roots">
     <div class="settings-panel-header">
       <h2>Add Root</h2>
       <div class="settings-panel-meta">Choose a folder path to add and scan into the library.</div>
@@ -26,19 +26,34 @@
     </form>
   </section>
 
-  <section class="settings-panel" id="roots">
+  <section class="settings-panel">
     <div class="settings-panel-header">
       <h2>Current Roots</h2>
       <div class="settings-panel-meta">Add and scan, delete, and rescan run in the background. Check Jobs for progress.</div>
     </div>
     <div class="roots-list" data-root-list {% if not roots %}hidden{% endif %}>
       {% for root in roots %}
+        {% set stats = root_stats_by_position.get(root.position) %}
         <article class="root-card" data-root-card data-root-position="{{ root.position }}">
           <div class="root-card-copy">
             <div class="root-card-path">{{ root.path }}</div>
             {% if root.label and root.label != root.path %}
               <div class="root-card-meta">{{ root.label }}</div>
             {% endif %}
+            <dl class="root-card-stats" aria-label="Root scan stats">
+              <div>
+                <dt>Tracks scanned</dt>
+                <dd>{{ stats.tracks_scanned if stats else 0 }}</dd>
+              </div>
+              <div>
+                <dt>Albums scanned</dt>
+                <dd>{{ stats.albums_scanned if stats else 0 }}</dd>
+              </div>
+              <div>
+                <dt>Playlists scanned</dt>
+                <dd>{{ stats.playlists_scanned if stats else 0 }}</dd>
+              </div>
+            </dl>
           </div>
           <div class="root-card-actions">
             <button type="button" data-rescan-root data-root-position="{{ root.position }}">Rescan</button>
@@ -48,25 +63,5 @@
       {% endfor %}
     </div>
     <div class="empty" data-roots-empty {% if roots %}hidden{% endif %}>No roots configured.</div>
-  </section>
-
-  <section class="settings-panel">
-    <div class="settings-panel-header">
-      <h2>Custom Album Artist Split Rules</h2>
-    </div>
-    <div class="mappings-list" {% if not album_artist_mappings %}hidden{% endif %}>
-      {% for mapping in album_artist_mappings %}
-        <article class="mapping-card" data-mapping-card>
-          <div class="mapping-card-copy">
-            <div class="mapping-card-source">{{ mapping.album_artist }}</div>
-            <div class="mapping-card-artists">{{ mapping.mapped_artists|join("\n") }}</div>
-          </div>
-          <div class="mapping-card-actions">
-            <button type="button" data-edit-album-artist-mapping>Edit</button>
-          </div>
-        </article>
-      {% endfor %}
-    </div>
-    <div class="empty" {% if album_artist_mappings %}hidden{% endif %}>No mappings saved.</div>
   </section>
 </div>

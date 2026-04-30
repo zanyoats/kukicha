@@ -2207,7 +2207,7 @@ function rescanSettingsLinkForMessage(message) {
     return null;
   }
   return {
-    href: "/settings#roots",
+    href: "/roots",
     label: "Open Roots"
   };
 }

@@ -23,6 +23,7 @@ from .models import (
     AlbumNotFoundError,
     AlbumPage,
     AlbumSummary,
+    CacheStat,
     GenreFilterGroup,
     GenreStyleFilter,
     LibraryFilterOptions,
@@ -45,6 +46,14 @@ from .sql import (
     TRACK_COLUMNS,
     placeholders_for,
     root_scope_clause,
+)
+
+
+CACHE_STAT_TABLES = (
+    ("MusicBrainz", "musicbrainz_entity_cache"),
+    ("Cover Art Metadata", "cover_art_archive_entity_cache"),
+    ("Cover Art Images", "cover_art_archive_image_cache"),
+    ("iTunes Artwork", "itunes_lookup_image_cache"),
 )
 
 
@@ -536,6 +545,20 @@ class LibraryQueries:
             )
             for row in rows
         )
+
+    def cache_stats(self) -> tuple[CacheStat, ...]:
+        with connect_database(self.database, create=False) as connection:
+            return tuple(
+                CacheStat(
+                    label=label,
+                    count=int(
+                        connection.execute(
+                            f"SELECT COUNT(*) AS count FROM {table_name}"
+                        ).fetchone()["count"]
+                    ),
+                )
+                for label, table_name in CACHE_STAT_TABLES
+            )
 
     def library_stats(self) -> LibraryStats:
         with connect_database(self.database, create=False) as connection:

@@ -1,0 +1,25 @@
+<div class="view-page settings-page" data-page="{{ page_key }}">
+  <header class="view-header">
+    {% include "player/_page_title.html" %}
+  </header>
+
+  <section class="settings-panel">
+    <div class="settings-panel-header">
+      <h2>Artists Split Rules</h2>
+    </div>
+    <div class="mappings-list" {% if not album_artist_mappings %}hidden{% endif %}>
+      {% for mapping in album_artist_mappings %}
+        <article class="mapping-card" data-mapping-card>
+          <div class="mapping-card-copy">
+            <div class="mapping-card-source">{{ mapping.album_artist }}</div>
+            <div class="mapping-card-artists">{{ mapping.mapped_artists|join("\n") }}</div>
+          </div>
+          <div class="mapping-card-actions">
+            <button type="button" data-edit-album-artist-mapping>Edit</button>
+          </div>
+        </article>
+      {% endfor %}
+    </div>
+    <div class="empty" {% if album_artist_mappings %}hidden{% endif %}>No mappings saved.</div>
+  </section>
+</div>
