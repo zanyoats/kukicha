@@ -420,6 +420,7 @@ class PlayerAlbumPlaybackTrackPayloadsTest(unittest.TestCase):
                 file_type="m4a",
                 artist="Artist",
                 album_artist="Artist",
+                album_artists=("Artist One", "Artist Two"),
                 album="Album",
                 title="Second",
                 track_number="2",
@@ -456,6 +457,7 @@ class PlayerAlbumPlaybackTrackPayloadsTest(unittest.TestCase):
         )
         self.assertEqual(payloads["artist::album"][0]["title"], "Second")
         self.assertEqual(payloads["artist::album"][0]["albumArtist"], "Artist")
+        self.assertEqual(payloads["artist::album"][0]["albumArtists"], ("Artist One", "Artist Two"))
         self.assertEqual(payloads["artist::album"][0]["album"], "Album")
         self.assertEqual(payloads["artist::album"][0]["audioUrl"], "/audio/2")
 
@@ -484,6 +486,7 @@ class PlayerAlbumPlaybackTrackPayloadsTest(unittest.TestCase):
         self.assertEqual(payload["title"], "SomaFM: Deep Space One")
         self.assertEqual(payload["album"], "Streams")
         self.assertEqual(payload["albumArtist"], "")
+        self.assertEqual(payload["albumArtists"], ())
         self.assertEqual(payload["albumId"], "playlist:3")
         self.assertEqual(payload["artUrl"], playlist_cover_data_url(playlist_cover_svg("Streams")))
 
@@ -4710,6 +4713,7 @@ def make_track_view(
     path: str,
     album_id: str = "aphex-twin::selected-ambient-works-volume-ii",
     album_artist: str = "Aphex Twin",
+    album_artists: tuple[str, ...] | None = None,
     artist: str | None = None,
     album: str = "Selected Ambient Works Volume II",
     duration_seconds: float | None = None,
@@ -4730,6 +4734,7 @@ def make_track_view(
         audio_unsupported_reason="",
         file_type="mp3",
         album_artist=album_artist,
+        album_artists=album_artists or ((album_artist,) if album_artist else ()),
         album=album,
         display_album=album,
         artist=resolved_artist,

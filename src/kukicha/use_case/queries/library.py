@@ -914,6 +914,7 @@ class LibraryQueries:
             for row in track_rows
             if row["album_id"] is not None and str(row["album_id"])
         ]
+        artists_by_album = album_artists_by_album(connection, album_ids)
         if genres_by_track is None:
             genres_by_track = track_values_by_track(
                 connection,
@@ -986,6 +987,7 @@ class LibraryQueries:
                     scan_error=row["scan_error"],
                     artist=row["artist"],
                     album_artist=row["album_artist"],
+                    album_artists=artists_by_album.get(album_id or "", ()),
                     composer=row["composer"],
                     album=row["album"],
                     title=row["title"],

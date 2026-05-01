@@ -46,6 +46,7 @@ class TrackView:
     audio_unsupported_reason: str
     file_type: str
     album_artist: str
+    album_artists: tuple[str, ...]
     album: str
     display_album: str
     artist: str
@@ -143,6 +144,7 @@ def track_playback_payload(track: TrackView) -> dict[str, object]:
         "artUrl": track.art_url,
         "title": track.display_title,
         "albumArtist": track.album_artist,
+        "albumArtists": track.album_artists,
         "album": track.display_album,
         "durationSeconds": track.duration_seconds,
         "fileType": track.file_type,
@@ -253,6 +255,7 @@ def track_view(track: PlaylistTrack) -> TrackView:
         audio_unsupported_reason=audio_unsupported_reason_for_path(path),
         file_type=file_type,
         album_artist=album_artist,
+        album_artists=track.album_artists or ((album_artist,) if album_artist else ()),
         album=album_name,
         display_album=display_album_title(album_name),
         artist=track.artist or "",
@@ -290,6 +293,7 @@ def playlist_item_view(
             album_id=f"playlist:{playlist_id}" if playlist_id else "",
             audio_url=playlist_item_audio_url(item),
             album_artist="",
+            album_artists=(),
             album=album_name,
             display_album=display_album_title(album_name),
             table_title=tracked_playlist_item_table_title(view),
@@ -320,6 +324,7 @@ def playlist_item_view(
         audio_unsupported_reason=playlist_item_unsupported_reason(item_path),
         file_type=file_type,
         album_artist="",
+        album_artists=(),
         album=album_name,
         display_album=display_album_title(album_name),
         artist="",

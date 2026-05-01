@@ -1724,6 +1724,10 @@ audio {
   color: var(--muted);
 }
 
+.now-playing-artist-separator {
+  color: var(--muted);
+}
+
 .table-wrap {
   overflow-x: auto;
   border: 1px solid var(--line);

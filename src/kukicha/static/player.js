@@ -2394,6 +2394,7 @@ function normalizeTrackPayload(payload) {
       ? payload.title
       : `Track ${trackId}`,
     albumArtist: typeof payload.albumArtist === "string" ? payload.albumArtist : "",
+    albumArtists: normalizeAlbumArtists(payload.albumArtists, payload.albumArtist),
     album: typeof payload.album === "string" ? payload.album : "",
     durationSeconds: Number.isFinite(Number(payload.durationSeconds))
       ? Number(payload.durationSeconds)
@@ -2403,6 +2404,38 @@ function normalizeTrackPayload(payload) {
     audioCodec: typeof payload.audioCodec === "string" ? payload.audioCodec : "",
     unsupported: typeof payload.unsupported === "string" ? payload.unsupported : ""
   };
+}
+
+function normalizeAlbumArtists(value, fallback) {
+  const artists = [];
+  const seen = new Set();
+  const values = Array.isArray(value) ? value : [];
+  for (const item of values) {
+    const artist = String(item || "").trim();
+    const key = artist.toLocaleLowerCase();
+    if (!artist || seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    artists.push(artist);
+  }
+  const fallbackArtist = String(fallback || "").trim();
+  const fallbackKey = fallbackArtist.toLocaleLowerCase();
+  if (!artists.length && fallbackArtist && !seen.has(fallbackKey)) {
+    artists.push(fallbackArtist);
+  }
+  return artists;
+}
+
+function albumArtistsFromRow(row) {
+  try {
+    return normalizeAlbumArtists(
+      JSON.parse(row.dataset.albumArtists || "[]"),
+      row.dataset.albumArtist || ""
+    );
+  } catch {
+    return normalizeAlbumArtists([], row.dataset.albumArtist || "");
+  }
 }
 
 function cacheTracks(tracks) {
@@ -2439,6 +2472,7 @@ function trackFromRow(row) {
     artUrl: row.dataset.artUrl || `/art/32/${trackId}`,
     title: row.dataset.title || `Track ${trackId}`,
     albumArtist: row.dataset.albumArtist || "",
+    albumArtists: albumArtistsFromRow(row),
     album: row.dataset.album || "",
     durationSeconds: Number.isFinite(Number(row.dataset.durationSeconds))
       ? Number(row.dataset.durationSeconds)
@@ -2462,6 +2496,7 @@ function trackById(trackId) {
     artUrl: `/art/32/${resolvedId}`,
     title: `Track ${resolvedId}`,
     albumArtist: "",
+    albumArtists: [],
     album: "",
     durationSeconds: null,
     fileType: "",
@@ -2735,12 +2770,7 @@ function updateNowPlaying(track) {
 
   const meta = document.createElement("div");
   meta.className = "now-playing-meta";
-  const artistAdded = appendNowPlayingLabel(
-    meta,
-    track.albumArtist,
-    albumArtistFilterUrl(track),
-    "now-playing-link now-playing-artist"
-  );
+  const artistAdded = appendNowPlayingArtistLabels(meta, track);
   const albumAdded = appendNowPlayingLabel(
     meta,
     track.album,
@@ -2758,6 +2788,30 @@ function updateNowPlaying(track) {
   }
   copy.append(meta);
   nowPlaying.replaceChildren(cover, copy);
+}
+
+function appendNowPlayingArtistLabels(container, track) {
+  const artists = normalizeAlbumArtists(
+    track && track.albumArtists,
+    track && track.albumArtist
+  );
+  let added = false;
+  for (const artist of artists) {
+    if (added) {
+      const separator = document.createElement("span");
+      separator.className = "now-playing-artist-separator";
+      separator.textContent = ", ";
+      container.append(separator);
+    }
+    const artistAdded = appendNowPlayingLabel(
+      container,
+      artist,
+      albumArtistFilterUrl(artist),
+      "now-playing-link now-playing-artist"
+    );
+    added = added || artistAdded;
+  }
+  return added;
 }
 
 function appendNowPlayingLabel(container, label, href, className) {
@@ -2780,8 +2834,8 @@ function appendNowPlayingLabel(container, label, href, className) {
   return true;
 }
 
-function albumArtistFilterUrl(track) {
-  const artist = String(track && track.albumArtist || "").trim();
+function albumArtistFilterUrl(artist) {
+  artist = String(artist || "").trim();
   if (!artist || artist === "<unknown artist>") {
     return "";
   }
