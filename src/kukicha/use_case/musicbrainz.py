@@ -368,7 +368,7 @@ def musicbrainz_genres(payload: dict[str, object]) -> list[str]:
     if not isinstance(raw_genres, list):
         return []
 
-    genres: list[str] = []
+    genres: list[tuple[str, int | None]] = []
     seen: set[str] = set()
     for raw_genre in raw_genres:
         if not isinstance(raw_genre, dict):
@@ -381,8 +381,24 @@ def musicbrainz_genres(payload: dict[str, object]) -> list[str]:
         if not genre or key in seen:
             continue
         seen.add(key)
-        genres.append(genre)
-    return genres
+        genres.append((genre, musicbrainz_genre_count(raw_genre.get("count"))))
+
+    strong_genres = [
+        genre
+        for genre, count in genres
+        if count is None or count > 1
+    ]
+    if strong_genres and len(strong_genres) < len(genres):
+        return strong_genres
+    return [genre for genre, _count in genres]
+
+
+def musicbrainz_genre_count(value: object) -> int | None:
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    return None
 
 
 def musicbrainz_release_group_mbid(payload: dict[str, object]) -> str | None:

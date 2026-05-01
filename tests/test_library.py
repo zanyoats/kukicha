@@ -1730,6 +1730,95 @@ class LibraryGenreResolutionTest(unittest.TestCase):
             finally:
                 connection.close()
 
+    def test_musicbrainz_genres_ignore_count_one_when_stronger_choices_exist(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            database = Path(tempdir) / "kukicha.sqlite"
+            connection = connect_database(database)
+            try:
+                connection.execute(
+                    """
+                    INSERT INTO album_musicbrainz_links (
+                        album_id, release_mbid, release_group_mbid
+                    ) VALUES (?, ?, ?)
+                    """,
+                    ("artist::album", None, "11111111-1111-1111-1111-111111111111"),
+                )
+                connection.commit()
+
+                library = MusicLibrary(
+                    roots=[],
+                    tracks=[
+                        TrackRecord(
+                            path="/music/Artist/Album/01.flac",
+                            album_artist="Artist",
+                            album="Album",
+                            title="Track",
+                            genres=["Electronic"],
+                        )
+                    ],
+                    supported_extensions=[],
+                    generated_at="2026-04-23T00:00:00+00:00",
+                )
+
+                with patch(
+                    "kukicha.use_case.library.get_musicbrainz_entity",
+                    return_value={
+                        "genres": [
+                            {"name": "jazz", "count": 1},
+                            {"name": "rock", "count": 7},
+                        ],
+                    },
+                ):
+                    stats = resolve_library_genres(library, database, connection=connection)
+
+                self.assertEqual(library.tracks[0].genres, ["Rock"])
+                self.assertEqual(library.tracks[0].styles, [])
+                self.assertEqual(stats.musicbrainz_album_overrides, 1)
+            finally:
+                connection.close()
+
+    def test_musicbrainz_genres_keep_count_one_when_they_are_the_only_choices(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            database = Path(tempdir) / "kukicha.sqlite"
+            connection = connect_database(database)
+            try:
+                connection.execute(
+                    """
+                    INSERT INTO album_musicbrainz_links (
+                        album_id, release_mbid, release_group_mbid
+                    ) VALUES (?, ?, ?)
+                    """,
+                    ("artist::album", None, "11111111-1111-1111-1111-111111111111"),
+                )
+                connection.commit()
+
+                library = MusicLibrary(
+                    roots=[],
+                    tracks=[
+                        TrackRecord(
+                            path="/music/Artist/Album/01.flac",
+                            album_artist="Artist",
+                            album="Album",
+                            title="Track",
+                            genres=["Electronic"],
+                        )
+                    ],
+                    supported_extensions=[],
+                    generated_at="2026-04-23T00:00:00+00:00",
+                )
+
+                with patch(
+                    "kukicha.use_case.library.get_musicbrainz_entity",
+                    return_value={"genres": [{"name": "jazz", "count": 1}]},
+                ):
+                    stats = resolve_library_genres(library, database, connection=connection)
+
+                self.assertEqual(library.tracks[0].genres, ["Jazz"])
+                self.assertEqual(library.tracks[0].styles, [])
+                self.assertEqual(stats.musicbrainz_album_overrides, 1)
+            finally:
+                connection.close()
+
 
 class LibraryCoverArtResolutionTest(unittest.TestCase):
     def test_get_itunes_lookup_image_caches_missing_artwork_results(self) -> None:
