@@ -18,7 +18,7 @@ ALBUM_SEARCH_INDEX_VERSION = "4"
 ALBUM_SEARCH_TRACK_SEPARATOR = " kukichatrackboundarytoken "
 ALBUM_ROLLUP_METADATA_KEY = "album_rollup_version"
 ALBUM_ROLLUP_COUNT_METADATA_KEY = "album_rollup_album_count"
-ALBUM_ROLLUP_VERSION = "2"
+ALBUM_ROLLUP_VERSION = "3"
 ROOT_SCAN_STATS_METADATA_KEY = "root_scan_stats_version"
 ROOT_SCAN_STATS_ROOT_COUNT_METADATA_KEY = "root_scan_stats_root_count"
 ROOT_SCAN_STATS_TRACK_COUNT_METADATA_KEY = "root_scan_stats_track_count"
@@ -130,6 +130,9 @@ CREATE TABLE IF NOT EXISTS library_albums (
     year INTEGER,
     track_count INTEGER NOT NULL,
     file_created_at TEXT,
+    artist_sort_key TEXT NOT NULL DEFAULT '',
+    album_sort_key TEXT NOT NULL DEFAULT '',
+    genre_sort_key TEXT NOT NULL DEFAULT '',
     has_cover INTEGER NOT NULL DEFAULT 0,
     is_compilation INTEGER NOT NULL DEFAULT 0,
     is_work INTEGER NOT NULL DEFAULT 0,
@@ -154,6 +157,7 @@ CREATE TABLE IF NOT EXISTS library_album_roots (
     has_cover INTEGER NOT NULL DEFAULT 0,
     is_compilation INTEGER NOT NULL DEFAULT 0,
     is_work INTEGER NOT NULL DEFAULT 0,
+    genre_sort_key TEXT NOT NULL DEFAULT '',
     art_track_id INTEGER,
     PRIMARY KEY (album_id, root_position),
     FOREIGN KEY (album_id) REFERENCES library_albums (album_id) ON DELETE CASCADE
@@ -437,6 +441,18 @@ def migrate_library_schema(connection: sqlite3.Connection) -> None:
     if album_columns and "file_created_at" not in album_columns:
         connection.execute("ALTER TABLE library_albums ADD COLUMN file_created_at TEXT")
         created_album_file_created_at = True
+    if album_columns and "artist_sort_key" not in album_columns:
+        connection.execute(
+            "ALTER TABLE library_albums ADD COLUMN artist_sort_key TEXT NOT NULL DEFAULT ''"
+        )
+    if album_columns and "album_sort_key" not in album_columns:
+        connection.execute(
+            "ALTER TABLE library_albums ADD COLUMN album_sort_key TEXT NOT NULL DEFAULT ''"
+        )
+    if album_columns and "genre_sort_key" not in album_columns:
+        connection.execute(
+            "ALTER TABLE library_albums ADD COLUMN genre_sort_key TEXT NOT NULL DEFAULT ''"
+        )
     if album_columns and "has_cover" not in album_columns:
         connection.execute(
             "ALTER TABLE library_albums ADD COLUMN has_cover INTEGER NOT NULL DEFAULT 0"
@@ -451,6 +467,12 @@ def migrate_library_schema(connection: sqlite3.Connection) -> None:
         )
     if album_columns and "art_track_id" not in album_columns:
         connection.execute("ALTER TABLE library_albums ADD COLUMN art_track_id INTEGER")
+
+    album_root_columns = table_columns(connection, "library_album_roots")
+    if album_root_columns and "genre_sort_key" not in album_root_columns:
+        connection.execute(
+            "ALTER TABLE library_album_roots ADD COLUMN genre_sort_key TEXT NOT NULL DEFAULT ''"
+        )
 
     playlist_columns = table_columns(connection, "library_playlists")
     created_playlist_file_created_at = False
@@ -495,6 +517,57 @@ def migrate_library_schema(connection: sqlite3.Connection) -> None:
         """
         CREATE INDEX IF NOT EXISTS idx_library_albums_file_created_at
             ON library_albums (file_created_at)
+        """
+    )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_library_albums_recently_added_sort
+            ON library_albums (
+                CASE WHEN NULLIF(file_created_at, '') IS NULL THEN 1 ELSE 0 END,
+                file_created_at DESC,
+                artist_sort_key,
+                CASE WHEN year IS NULL THEN 1 ELSE 0 END,
+                year,
+                album_sort_key,
+                album_id
+            )
+        """
+    )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_library_albums_artist_sort
+            ON library_albums (
+                artist_sort_key,
+                CASE WHEN year IS NULL THEN 1 ELSE 0 END,
+                year,
+                album_sort_key,
+                album_id
+            )
+        """
+    )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_library_albums_genre_sort
+            ON library_albums (
+                CASE WHEN NULLIF(genre_sort_key, '') IS NULL THEN 1 ELSE 0 END,
+                genre_sort_key,
+                artist_sort_key,
+                CASE WHEN year IS NULL THEN 1 ELSE 0 END,
+                year,
+                album_sort_key,
+                album_id
+            )
+        """
+    )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_library_album_roots_genre_sort
+            ON library_album_roots (
+                root_position,
+                CASE WHEN NULLIF(genre_sort_key, '') IS NULL THEN 1 ELSE 0 END,
+                genre_sort_key,
+                album_id
+            )
         """
     )
     connection.execute(
@@ -1054,7 +1127,17 @@ def rebuild_album_rollups(
                     ON artwork.track_id = tracks.track_id
                 WHERE tracks.album_id = library_albums.album_id
                     AND artwork.height_px = {ALBUM_ARTWORK_HEIGHT}
-            )
+            ),
+            artist_sort_key = LOWER(TRIM(COALESCE(
+                (
+                    SELECT group_concat(album_artists.artist, ', ')
+                    FROM library_album_artists AS album_artists
+                    WHERE album_artists.album_id = library_albums.album_id
+                        AND COALESCE(album_artists.artist, '') != ''
+                ),
+                '<unknown artist>'
+            ))),
+            album_sort_key = LOWER(TRIM(album))
         {album_scope_sql}
         """,
         album_scope_params,
@@ -1179,6 +1262,37 @@ def rebuild_album_rollups(
             AND tracks.root_position IS NOT NULL
         """,
         track_scope_params,
+    )
+    connection.execute(
+        f"""
+        UPDATE library_albums
+        SET genre_sort_key = COALESCE(
+            (
+                SELECT MIN(LOWER(NULLIF(TRIM(album_genres.genre), '')))
+                FROM library_album_genres AS album_genres
+                WHERE album_genres.album_id = library_albums.album_id
+            ),
+            ''
+        )
+        {album_scope_sql}
+        """,
+        album_scope_params,
+    )
+    connection.execute(
+        f"""
+        UPDATE library_album_roots
+        SET genre_sort_key = COALESCE(
+            (
+                SELECT MIN(LOWER(NULLIF(TRIM(root_genres.genre), '')))
+                FROM library_album_root_genres AS root_genres
+                WHERE root_genres.album_id = library_album_roots.album_id
+                    AND root_genres.root_position = library_album_roots.root_position
+            ),
+            ''
+        )
+        {album_scope_sql}
+        """,
+        album_scope_params,
     )
     set_metadata(connection, ALBUM_ROLLUP_METADATA_KEY, ALBUM_ROLLUP_VERSION)
     set_metadata(

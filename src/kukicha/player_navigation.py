@@ -46,6 +46,7 @@ PLAYER_PAGE_LINKS = (
 )
 PLAYER_PAGE_BY_KEY = {key: {"title": title, "url": url} for key, title, url in PLAYER_PAGE_LINKS}
 PLAYER_PAGE_ROUTE_KEYS = {url: key for key, _title, url in PLAYER_PAGE_LINKS[1:]}
+_URL_CURSOR_UNSET = object()
 
 @dataclass(frozen=True, slots=True)
 class PlayerPageLink:
@@ -122,13 +123,23 @@ def player_page_context(page_key: str) -> dict[str, Any]:
         "page_menu_items": player_page_menu_items(page_key),
     }
 
-def album_index_url(query: AlbumListQuery, *, page: int | None = None) -> str:
-    params = album_query_params(query, page=page)
+def album_index_url(
+    query: AlbumListQuery,
+    *,
+    page: int | None = None,
+    cursor: str | None | object = _URL_CURSOR_UNSET,
+) -> str:
+    if cursor is _URL_CURSOR_UNSET:
+        params = album_query_params(query, page=page)
+    else:
+        params = album_query_params(query, page=page, cursor=cursor)
     encoded = urlencode(params, doseq=True, safe="[]")
     return f"/?{encoded}" if encoded else "/"
 
 def playlist_index_url(query: AlbumListQuery, *, page: int | None = None) -> str:
-    params = album_query_params(query, page=page)
+    params: list[tuple[str, object]] = []
+    if query.search:
+        params.append(("search", query.search))
     encoded = urlencode(params, doseq=True, safe="[]")
     return f"/playlists?{encoded}" if encoded else "/playlists"
 

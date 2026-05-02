@@ -39,6 +39,7 @@ def expanded_album_list_query(
         per_page=query.per_page,
         search=query.search,
         sort=query.sort,
+        cursor=query.cursor,
     )
 
 

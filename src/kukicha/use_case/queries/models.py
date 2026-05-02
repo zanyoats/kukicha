@@ -70,9 +70,11 @@ class AlbumListQuery:
     per_page: int = 200
     search: str | None = None
     sort: str = ALBUM_LIST_SORT_RECENTLY_ADDED
+    cursor: str | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "search", normalized_search(self.search))
+        object.__setattr__(self, "cursor", normalized_search(self.cursor))
         object.__setattr__(self, "artists", normalized_tuple(self.artists))
         object.__setattr__(self, "root_positions", normalized_int_tuple(self.root_positions))
         object.__setattr__(self, "genres", normalized_tuple(self.genres))
@@ -193,10 +195,9 @@ class AlbumPage:
     page: int
     per_page: int
     has_next: bool = False
-
-    @property
-    def has_previous(self) -> bool:
-        return self.page > 1
+    has_previous: bool = False
+    next_cursor: str | None = None
+    previous_cursor: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

@@ -187,15 +187,16 @@
     {% endif %}
   </div>
 
+  {% if show_pagination_controls %}
   <nav class="pagination" aria-label="{{ pagination_label }}">
     <a class="button-link{% if not previous_url %} disabled{% endif %}"
       {% if previous_url %}href="{{ previous_url }}"{% endif %}
       data-nav data-pagination-previous
       {% if not previous_url %}aria-disabled="true" tabindex="-1"{% endif %}>Previous</a>
-    <span data-pagination-status>Page {{ album_page.page }}</span>
     <a class="button-link{% if not next_url %} disabled{% endif %}"
       {% if next_url %}href="{{ next_url }}"{% endif %}
       data-nav data-pagination-next
       {% if not next_url %}aria-disabled="true" tabindex="-1"{% endif %}>Next</a>
   </nav>
+  {% endif %}
 </div>

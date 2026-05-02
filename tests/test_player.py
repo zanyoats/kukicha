@@ -84,6 +84,7 @@ from kukicha.player_navigation import (
     artist_cloud_links,
     player_page_heading,
     player_page_menu_items,
+    playlist_index_url,
 )
 from kukicha.use_case import album_list_query_from_params
 from kukicha.player_playlists import (
@@ -1490,6 +1491,30 @@ class PlayerGenreFilterQueryParamsTest(unittest.TestCase):
         self.assertIsNone(query.is_playlist)
         self.assertEqual(album_index_url(AlbumListQuery(is_playlist=True, search="Road")), "/?search=Road")
 
+    def test_album_cursor_query_param_round_trips_and_playlist_urls_ignore_pagination(self) -> None:
+        query = album_list_query_from_params(parse_qs("cursor=abc123&page=3"))
+
+        self.assertEqual(query.cursor, "abc123")
+        self.assertEqual(
+            album_index_url(AlbumListQuery(cursor="abc123", page=3)),
+            "/?cursor=abc123",
+        )
+        self.assertEqual(
+            album_index_url(
+                AlbumListQuery(cursor="abc123", page=3),
+                page=4,
+                cursor="def456",
+            ),
+            "/?cursor=def456",
+        )
+        self.assertEqual(
+            playlist_index_url(
+                AlbumListQuery(search="Road", page=3, per_page=80, cursor="abc123"),
+                page=4,
+            ),
+            "/playlists?search=Road",
+        )
+
 
 class PlayerAlbumDetailLinksTest(unittest.TestCase):
     def test_album_meta_query_replaces_content_filters_and_preserves_root_and_property_filters(self) -> None:
@@ -2219,6 +2244,8 @@ class PlayerWebAdapterTest(unittest.TestCase):
         self.assertIn(b"Road Mix", playlist_response.data)
         self.assertNotIn(b"Studio Album", playlist_response.data)
         self.assertNotIn(b'name="sort"', playlist_response.data)
+        self.assertNotIn(b'data-pagination-next', playlist_response.data)
+        self.assertNotIn(b'data-pagination-previous', playlist_response.data)
         self.assertNotIn(b'class="filter-menu sort-menu"', playlist_response.data)
         self.assertNotIn(b'data-filter-summary="roots"', playlist_response.data)
         self.assertNotIn(b'data-filter-summary="artists"', playlist_response.data)

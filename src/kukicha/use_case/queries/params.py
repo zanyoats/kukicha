@@ -11,6 +11,7 @@ from .models import (
 
 GENRE_FILTER_PARAM_RE = re.compile(r"^genre\[(\d+)]\[(p|c)](?:\[\])?$")
 DEFAULT_ALBUMS_PER_PAGE = 200
+_UNSET = object()
 
 
 def album_list_query_from_params(params: dict[str, list[str]]) -> AlbumListQuery:
@@ -29,6 +30,7 @@ def album_list_query_from_params(params: dict[str, list[str]]) -> AlbumListQuery
             default=DEFAULT_ALBUMS_PER_PAGE,
         ),
         sort=first_value(params.get("sort", ())) or ALBUM_LIST_SORT_RECENTLY_ADDED,
+        cursor=first_value(params.get("cursor", ())),
     )
 
 
@@ -84,6 +86,7 @@ def album_query_params(
     query: AlbumListQuery,
     *,
     page: int | None = None,
+    cursor: str | None | object = _UNSET,
 ) -> list[tuple[str, object]]:
     params: list[tuple[str, object]] = []
     params.extend(("artist", artist) for artist in query.artists)
@@ -106,9 +109,9 @@ def album_query_params(
         params.append(("work", int(query.is_work)))
     if query.sort != ALBUM_LIST_SORT_RECENTLY_ADDED:
         params.append(("sort", query.sort))
-    resolved_page = query.page if page is None else max(1, page)
-    if resolved_page > 1:
-        params.append(("page", resolved_page))
+    resolved_cursor = query.cursor if cursor is _UNSET else cursor
+    if resolved_cursor:
+        params.append(("cursor", resolved_cursor))
     if query.per_page != DEFAULT_ALBUMS_PER_PAGE:
         params.append(("per_page", query.per_page))
     return params

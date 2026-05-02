@@ -70,6 +70,7 @@ def album_index_query_from_query_string(query_string: str) -> AlbumListQuery:
         per_page=parsed.per_page,
         search=parsed.search,
         sort=parsed.sort,
+        cursor=parsed.cursor,
         is_playlist=False,
     )
 
@@ -116,10 +117,16 @@ def build_index_context(runtime: PlayerRuntime, query_string: str) -> dict[str, 
         selected_styles=selected_style_values(filters, query),
         selected_genre_filter_count=selected_genre_filter_count(filters, query),
         selected_property_count=property_filter_count(query),
-        previous_url=album_index_url(query, page=album_page.page - 1)
+        previous_url=album_index_url(
+            query,
+            cursor=album_page.previous_cursor,
+        )
         if album_page.has_previous
         else "",
-        next_url=album_index_url(query, page=album_page.page + 1)
+        next_url=album_index_url(
+            query,
+            cursor=album_page.next_cursor,
+        )
         if album_page.has_next
         else "",
         clear_url="/",
@@ -129,6 +136,7 @@ def build_index_context(runtime: PlayerRuntime, query_string: str) -> dict[str, 
         search_placeholder="Search albums, artists, tracks",
         empty_message="No albums matched these filters.",
         pagination_label="Album pages",
+        show_pagination_controls=True,
         sort_options=ALBUM_SORT_OPTIONS,
         default_per_page=DEFAULT_ALBUMS_PER_PAGE,
     )
@@ -153,12 +161,8 @@ def build_playlist_index_context(runtime: PlayerRuntime, query_string: str) -> d
         album_page=album_page,
         albums=album_page.items,
         query=query,
-        previous_url=playlist_index_url(query, page=album_page.page - 1)
-        if album_page.has_previous
-        else "",
-        next_url=playlist_index_url(query, page=album_page.page + 1)
-        if album_page.has_next
-        else "",
+        previous_url="",
+        next_url="",
         clear_url="/playlists",
         filter_action_url="/playlists",
         show_filter_controls=False,
@@ -166,6 +170,7 @@ def build_playlist_index_context(runtime: PlayerRuntime, query_string: str) -> d
         search_placeholder="Search playlists",
         empty_message="No playlists matched this search.",
         pagination_label="Playlist pages",
+        show_pagination_controls=False,
         sort_options=ALBUM_SORT_OPTIONS,
         default_per_page=DEFAULT_ALBUMS_PER_PAGE,
     )

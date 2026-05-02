@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import base64
+import json
 from pathlib import Path
 import sqlite3
 from tempfile import TemporaryDirectory
@@ -8,6 +10,12 @@ from unittest.mock import patch
 
 from kukicha.use_case import AlbumListQuery, LibraryQueries
 from kukicha.use_case import connect_database
+from kukicha.use_case import (
+    ALBUM_LIST_SORT_ARTIST,
+    ALBUM_LIST_SORT_GENRE,
+    ALBUM_LIST_SORT_RECENTLY_ADDED,
+    GenreStyleFilter,
+)
 from kukicha.use_case import (
     ItunesLookupCandidate,
     ItunesLookupClient,
@@ -26,6 +34,10 @@ from kukicha.models import (
     PlaylistRecord,
     TrackArtwork,
     TrackRecord,
+)
+from kukicha.use_case.queries.library import (
+    album_sort_columns,
+    decode_album_page_cursor,
 )
 
 
@@ -1656,6 +1668,375 @@ class LibraryPlaylistPersistenceTest(unittest.TestCase):
         self.assertIn("Road Mix", playlists[0].cover_svg)
         self.assertEqual([item.album for item in albums], ["Album"])
         self.assertFalse(albums[0].is_playlist)
+
+
+class LibraryAlbumCursorPaginationTest(unittest.TestCase):
+    def test_album_page_cursor_decodes_valid_values_and_rejects_invalid_values(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            database = Path(tempdir) / "kukicha.sqlite"
+            save_library(album_cursor_library(), database)
+
+            page = LibraryQueries(database).list_album_page(
+                AlbumListQuery(sort=ALBUM_LIST_SORT_ARTIST, per_page=1)
+            )
+
+        self.assertIsNotNone(page.next_cursor)
+        sort_columns = album_sort_columns(AlbumListQuery(sort=ALBUM_LIST_SORT_ARTIST))
+        decoded = decode_album_page_cursor(
+            page.next_cursor,
+            ALBUM_LIST_SORT_ARTIST,
+            sort_columns,
+        )
+        self.assertIsNotNone(decoded)
+        self.assertIsNone(
+            decode_album_page_cursor(
+                "not-a-cursor",
+                ALBUM_LIST_SORT_ARTIST,
+                sort_columns,
+            )
+        )
+        self.assertIsNone(
+            decode_album_page_cursor(
+                page.next_cursor,
+                ALBUM_LIST_SORT_GENRE,
+                album_sort_columns(AlbumListQuery(sort=ALBUM_LIST_SORT_GENRE)),
+            )
+        )
+
+        wrong_version = base64.urlsafe_b64encode(
+            json.dumps(
+                {
+                    "v": 999,
+                    "sort": ALBUM_LIST_SORT_ARTIST,
+                    "direction": "next",
+                    "values": ["artist", 0, 2001, "album"],
+                    "album_id": "artist::album",
+                }
+            ).encode("utf-8")
+        ).decode("ascii").rstrip("=")
+        self.assertIsNone(
+            decode_album_page_cursor(
+                wrong_version,
+                ALBUM_LIST_SORT_ARTIST,
+                sort_columns,
+            )
+        )
+
+    def test_list_album_page_uses_cursor_pagination_for_each_album_sort(self) -> None:
+        expected_by_sort = {
+            ALBUM_LIST_SORT_RECENTLY_ADDED: [
+                "Beta New",
+                "Alpha Original",
+                "Alpha Later",
+                "Alpha No Date",
+                "Zulu Old",
+            ],
+            ALBUM_LIST_SORT_ARTIST: [
+                "Alpha Original",
+                "Alpha Later",
+                "Alpha No Date",
+                "Beta New",
+                "Zulu Old",
+            ],
+            ALBUM_LIST_SORT_GENRE: [
+                "Alpha No Date",
+                "Beta New",
+                "Alpha Original",
+                "Alpha Later",
+                "Zulu Old",
+            ],
+        }
+
+        with TemporaryDirectory() as tempdir:
+            database = Path(tempdir) / "kukicha.sqlite"
+            save_library(album_cursor_library(), database)
+            api = LibraryQueries(database)
+
+            for sort, expected in expected_by_sort.items():
+                with self.subTest(sort=sort):
+                    first = api.list_album_page(AlbumListQuery(sort=sort, per_page=2))
+                    second = api.list_album_page(
+                        AlbumListQuery(
+                            sort=sort,
+                            per_page=2,
+                            page=2,
+                            cursor=first.next_cursor,
+                        )
+                    )
+                    third = api.list_album_page(
+                        AlbumListQuery(
+                            sort=sort,
+                            per_page=2,
+                            page=3,
+                            cursor=second.next_cursor,
+                        )
+                    )
+                    back_to_second = api.list_album_page(
+                        AlbumListQuery(
+                            sort=sort,
+                            per_page=2,
+                            page=2,
+                            cursor=third.previous_cursor,
+                        )
+                    )
+                    back_to_first = api.list_album_page(
+                        AlbumListQuery(
+                            sort=sort,
+                            per_page=2,
+                            page=1,
+                            cursor=second.previous_cursor,
+                        )
+                    )
+
+                    self.assertEqual(
+                        [item.album for item in (*first.items, *second.items, *third.items)],
+                        expected,
+                    )
+                    self.assertFalse(first.has_previous)
+                    self.assertTrue(first.has_next)
+                    self.assertTrue(second.has_previous)
+                    self.assertTrue(second.has_next)
+                    self.assertTrue(third.has_previous)
+                    self.assertFalse(third.has_next)
+                    self.assertEqual(
+                        [item.album for item in back_to_second.items],
+                        [item.album for item in second.items],
+                    )
+                    self.assertEqual(
+                        [item.album for item in back_to_first.items],
+                        [item.album for item in first.items],
+                    )
+
+    def test_album_cursor_pagination_respects_search_root_genre_and_property_filters(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            database = Path(tempdir) / "kukicha.sqlite"
+            save_library(
+                MusicLibrary(
+                    roots=["/music/a", "/music/b"],
+                    tracks=[
+                        TrackRecord(
+                            path="/music/a/Alpha/Ambient One/01.flac",
+                            root_position=0,
+                            file_type="flac",
+                            artist="Alpha",
+                            album_artist="Alpha",
+                            album="Ambient One",
+                            title="First",
+                            genres=["Ambient"],
+                            album_artwork=TrackArtwork(mime_type="image/png", data=b"cover"),
+                        ),
+                        TrackRecord(
+                            path="/music/a/Alpha/Ambient Two/01.flac",
+                            root_position=0,
+                            file_type="flac",
+                            artist="Alpha",
+                            album_artist="Alpha",
+                            album="Ambient Two",
+                            title="Second",
+                            genres=["Ambient"],
+                            album_artwork=TrackArtwork(mime_type="image/png", data=b"cover"),
+                        ),
+                        TrackRecord(
+                            path="/music/b/Alpha/Ambient Three/01.flac",
+                            root_position=1,
+                            file_type="flac",
+                            artist="Alpha",
+                            album_artist="Alpha",
+                            album="Ambient Three",
+                            title="Third",
+                            genres=["Ambient"],
+                        ),
+                        TrackRecord(
+                            path="/music/a/Alpha/Jazz One/01.flac",
+                            root_position=0,
+                            file_type="flac",
+                            artist="Alpha",
+                            album_artist="Alpha",
+                            album="Jazz One",
+                            title="Fourth",
+                            genres=["Jazz"],
+                            album_artwork=TrackArtwork(mime_type="image/png", data=b"cover"),
+                        ),
+                    ],
+                    supported_extensions=[".flac"],
+                    generated_at="2026-04-29T00:00:00+00:00",
+                ),
+                database,
+            )
+            api = LibraryQueries(database)
+
+            search_first = api.list_album_page(
+                AlbumListQuery(search="Ambient", sort=ALBUM_LIST_SORT_ARTIST, per_page=2)
+            )
+            search_second = api.list_album_page(
+                AlbumListQuery(
+                    search="Ambient",
+                    sort=ALBUM_LIST_SORT_ARTIST,
+                    per_page=2,
+                    page=2,
+                    cursor=search_first.next_cursor,
+                )
+            )
+            filtered_first = api.list_album_page(
+                AlbumListQuery(
+                    root_positions=(0,),
+                    genre_filters=(GenreStyleFilter(genre="Ambient"),),
+                    has_cover=True,
+                    sort=ALBUM_LIST_SORT_GENRE,
+                    per_page=1,
+                )
+            )
+            filtered_second = api.list_album_page(
+                AlbumListQuery(
+                    root_positions=(0,),
+                    genre_filters=(GenreStyleFilter(genre="Ambient"),),
+                    has_cover=True,
+                    sort=ALBUM_LIST_SORT_GENRE,
+                    per_page=1,
+                    page=2,
+                    cursor=filtered_first.next_cursor,
+                )
+            )
+
+        self.assertEqual(
+            [item.album for item in (*search_first.items, *search_second.items)],
+            ["Ambient One", "Ambient Three", "Ambient Two"],
+        )
+        self.assertEqual(
+            [item.album for item in (*filtered_first.items, *filtered_second.items)],
+            ["Ambient One", "Ambient Two"],
+        )
+
+    def test_album_sort_key_columns_and_indexes_are_created_and_populated(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            database = Path(tempdir) / "kukicha.sqlite"
+            save_library(album_cursor_library(), database)
+            connection = connect_database(database)
+            try:
+                album_columns = {
+                    str(row["name"])
+                    for row in connection.execute("PRAGMA table_info(library_albums)")
+                }
+                root_columns = {
+                    str(row["name"])
+                    for row in connection.execute("PRAGMA table_info(library_album_roots)")
+                }
+                album_indexes = {
+                    str(row["name"])
+                    for row in connection.execute("PRAGMA index_list(library_albums)")
+                }
+                root_indexes = {
+                    str(row["name"])
+                    for row in connection.execute("PRAGMA index_list(library_album_roots)")
+                }
+                album_row = connection.execute(
+                    """
+                    SELECT artist_sort_key, album_sort_key, genre_sort_key
+                    FROM library_albums
+                    WHERE album = ?
+                    """,
+                    ("Alpha Original",),
+                ).fetchone()
+                root_row = connection.execute(
+                    """
+                    SELECT genre_sort_key
+                    FROM library_album_roots
+                    WHERE album_id = ? AND root_position = 0
+                    """,
+                    ("alpha::alpha-original",),
+                ).fetchone()
+            finally:
+                connection.close()
+
+        self.assertLessEqual(
+            {"artist_sort_key", "album_sort_key", "genre_sort_key"},
+            album_columns,
+        )
+        self.assertIn("genre_sort_key", root_columns)
+        self.assertLessEqual(
+            {
+                "idx_library_albums_recently_added_sort",
+                "idx_library_albums_artist_sort",
+                "idx_library_albums_genre_sort",
+            },
+            album_indexes,
+        )
+        self.assertIn("idx_library_album_roots_genre_sort", root_indexes)
+        self.assertIsNotNone(album_row)
+        self.assertEqual(str(album_row["artist_sort_key"]), "alpha")
+        self.assertEqual(str(album_row["album_sort_key"]), "alpha original")
+        self.assertEqual(str(album_row["genre_sort_key"]), "jazz")
+        self.assertIsNotNone(root_row)
+        self.assertEqual(str(root_row["genre_sort_key"]), "jazz")
+
+
+def album_cursor_library() -> MusicLibrary:
+    return MusicLibrary(
+        roots=["/music"],
+        tracks=[
+            TrackRecord(
+                path="/music/Zulu/Old/01.flac",
+                root_position=0,
+                file_created_at="2026-04-20T12:00:00+00:00",
+                file_type="flac",
+                artist="Zulu",
+                album_artist="Zulu",
+                album="Zulu Old",
+                title="Old Track",
+                date="1970",
+                genres=["Rock"],
+            ),
+            TrackRecord(
+                path="/music/Alpha/Later/01.flac",
+                root_position=0,
+                file_created_at="2026-04-24T12:00:00+00:00",
+                file_type="flac",
+                artist="Alpha",
+                album_artist="Alpha",
+                album="Alpha Later",
+                title="Later Track",
+                date="2001",
+                genres=["Jazz"],
+            ),
+            TrackRecord(
+                path="/music/Alpha/Original/01.flac",
+                root_position=0,
+                file_created_at="2026-04-24T12:00:00+00:00",
+                file_type="flac",
+                artist="Alpha",
+                album_artist="Alpha",
+                album="Alpha Original",
+                title="Original Track",
+                date="1984",
+                genres=["Jazz"],
+            ),
+            TrackRecord(
+                path="/music/Alpha/No Date/01.flac",
+                root_position=0,
+                file_created_at="2026-04-24T12:00:00+00:00",
+                file_type="flac",
+                artist="Alpha",
+                album_artist="Alpha",
+                album="Alpha No Date",
+                title="Undated Track",
+                genres=["Ambient"],
+            ),
+            TrackRecord(
+                path="/music/Beta/New/01.flac",
+                root_position=0,
+                file_created_at="2026-04-26T12:00:00+00:00",
+                file_type="flac",
+                artist="Beta",
+                album_artist="Beta",
+                album="Beta New",
+                title="New Track",
+                date="2020",
+                genres=["Electronic"],
+            ),
+        ],
+        supported_extensions=[".flac"],
+        generated_at="2026-04-29T00:00:00+00:00",
+    )
 
 
 class LibraryGenreResolutionTest(unittest.TestCase):
