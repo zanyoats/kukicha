@@ -1,4 +1,5 @@
 .DS_Store
+build/
 .venv/
 __pycache__/
 *.py[cod]
@@ -6,5 +7,4 @@ __pycache__/
 *.pkl
 *.sqlite*
 *.gz
-README.md
 TODO.md

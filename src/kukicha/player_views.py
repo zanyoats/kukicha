@@ -12,28 +12,30 @@ from .player_runtime import PlayerRuntime
 def base_player_context(runtime: PlayerRuntime, **context: Any) -> dict[str, Any]:
     from .player_config import (
         DEFAULT_ACCENT_COLOR,
-        DEFAULT_LINKED_TOAST_TIMEOUT_MS,
+        DEFAULT_APPEARANCE,
         DEFAULT_TOAST_TIMEOUT_MS,
-        player_accent_color,
+        player_accent_theme,
+        player_appearance_theme,
     )
     from .player_presenters import queue_state_payload
 
+    accent_theme = player_accent_theme(
+        player_option_string(runtime, "accent_color", DEFAULT_ACCENT_COLOR)
+    )
+    appearance_theme = player_appearance_theme(
+        player_option_string(runtime, "appearance", DEFAULT_APPEARANCE)
+    )
     base = {
         "app_title": "kukicha",
         "queue_state": queue_state_payload(runtime.queue_state_copy()),
         "queue_url": "/queue",
-        "accent_color": player_accent_color(
-            player_option_string(runtime, "accent_color", DEFAULT_ACCENT_COLOR)
-        ),
+        "accent_color": accent_theme.accent,
+        "accent_theme": accent_theme,
+        "appearance_theme": appearance_theme,
         "toast_timeout_ms": player_option_int(
             runtime,
             "toast_timeout_ms",
             DEFAULT_TOAST_TIMEOUT_MS,
-        ),
-        "linked_toast_timeout_ms": player_option_int(
-            runtime,
-            "linked_toast_timeout_ms",
-            DEFAULT_LINKED_TOAST_TIMEOUT_MS,
         ),
     }
     base.update(context)

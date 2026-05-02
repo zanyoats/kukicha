@@ -11,8 +11,7 @@ const jobToasts = document.getElementById("job-toasts");
 const trackCache = new Map();
 const albumPlaybackCache = new Map();
 const dropdownMenuSelector = "details[data-dropdown-menu]";
-const toastHideDelayMs = readToastDelayMs("toastTimeoutMs", 10000);
-const linkedToastHideDelayMs = readToastDelayMs("linkedToastTimeoutMs", 25000);
+const toastHideDelayMs = readToastDelayMs("toastTimeoutMs", 5000);
 
 let queueState = readInitialQueueState();
 let appHistoryDepth = initialAppHistoryDepth();
@@ -20,6 +19,7 @@ let scrollSaveFrame = 0;
 let isRestoringScroll = false;
 let scrollRestoreToken = 0;
 const toastTimeouts = new WeakMap();
+const jobToastTimeouts = new WeakMap();
 let jobsSource = null;
 let jobsStreamLoadPending = false;
 let suppressPauseStateUntilPlay = false;
@@ -40,7 +40,6 @@ function readToastDelayMs(datasetKey, fallback) {
 initializeHistoryState();
 focusInitialSearch();
 syncFilterSummaries();
-syncRootForms();
 syncAlbumArtistMappingForms();
 localizeJobTimes();
 syncJobsStream();
@@ -202,7 +201,6 @@ function renderFragment(html, url, options = {}) {
   hydrateVisibleTracks();
   updatePlaybackUi();
   syncFilterSummaries();
-  syncRootForms();
   syncAlbumArtistMappingForms();
   localizeJobTimes();
   syncJobsStream();
@@ -319,12 +317,12 @@ function syncPaginationLink(currentLink, nextLink) {
 function syncFormControls(currentForm, nextForm) {
   const nextControls = new Map();
   for (const control of nextForm.elements) {
-    if (isSyncableFormControl(control) && control.name) {
+    if (shouldSyncFormControl(control)) {
       nextControls.set(formControlKey(control), control);
     }
   }
   for (const control of currentForm.elements) {
-    if (!isSyncableFormControl(control) || !control.name) {
+    if (!shouldSyncFormControl(control)) {
       continue;
     }
     const nextControl = nextControls.get(formControlKey(control));
@@ -345,12 +343,23 @@ function isSyncableFormControl(control) {
     || control instanceof HTMLTextAreaElement;
 }
 
+function shouldSyncFormControl(control) {
+  return isSyncableFormControl(control)
+    && (Boolean(control.name) || isGenreParentControl(control));
+}
+
+function isGenreParentControl(control) {
+  return control instanceof HTMLInputElement
+    && control.matches("[data-genre-parent-control]");
+}
+
 function formControlKey(control) {
+  const name = control.name || (isGenreParentControl(control) ? "data-genre-parent-control" : "");
   const value = control instanceof HTMLInputElement
     && (control.type === "checkbox" || control.type === "radio")
     ? control.value
     : "";
-  return `${control.tagName}:${control.name}:${value}`;
+  return `${control.tagName}:${name}:${value}`;
 }
 
 function genreFilterMenu(form) {
@@ -688,12 +697,6 @@ document.addEventListener("click", (event) => {
     rescanLibrary(rescanLibraryButton);
     return;
   }
-  const deleteRootButton = event.target.closest("[data-delete-root]");
-  if (deleteRootButton) {
-    event.preventDefault();
-    deleteRoot(deleteRootButton);
-    return;
-  }
   const deleteMusicBrainzOverrideButton = event.target.closest("[data-delete-musicbrainz-override]");
   if (deleteMusicBrainzOverrideButton) {
     event.preventDefault();
@@ -811,12 +814,6 @@ document.addEventListener("submit", (event) => {
     submitAlbumTagForm(albumTagForm);
     return;
   }
-  const rootForm = event.target.closest("form[data-root-form]");
-  if (rootForm) {
-    event.preventDefault();
-    submitRootForm(rootForm);
-    return;
-  }
   const albumArtistMappingForm = event.target.closest("form[data-album-artist-mapping-form]");
   if (albumArtistMappingForm) {
     event.preventDefault();
@@ -864,11 +861,6 @@ document.addEventListener("input", (event) => {
     syncAlbumArtistMappingFormState(albumArtistMappingForm);
     return;
   }
-  const form = event.target.closest("form[data-root-form]");
-  if (!form || !(event.target instanceof HTMLInputElement)) {
-    return;
-  }
-  syncRootFormState(form);
 });
 
 document.addEventListener("toggle", (event) => {
@@ -1111,24 +1103,6 @@ function formUrl(form) {
     }
   }
   return url;
-}
-
-function syncRootFormState(form) {
-  if (!(form instanceof HTMLFormElement)) {
-    return;
-  }
-  const input = form.querySelector("[data-root-path-input]");
-  const button = form.querySelector("[data-add-root]");
-  if (!(input instanceof HTMLInputElement) || !(button instanceof HTMLButtonElement)) {
-    return;
-  }
-  button.disabled = !input.value.trim();
-}
-
-function syncRootForms() {
-  view.querySelectorAll("form[data-root-form]").forEach((form) => {
-    syncRootFormState(form);
-  });
 }
 
 function normalizedAlbumArtistMappingText(value) {
@@ -1713,61 +1687,6 @@ async function submitAlbumTagForm(form) {
   }
 }
 
-async function submitRootForm(form) {
-  if (!(form instanceof HTMLFormElement)) {
-    return;
-  }
-  const input = form.querySelector("[data-root-path-input]");
-  const submitButton = form.querySelector("[data-add-root]");
-  const status = form.querySelector("[data-root-form-status]");
-  if (!(input instanceof HTMLInputElement) || !(submitButton instanceof HTMLButtonElement)) {
-    return;
-  }
-
-  const path = input.value.trim();
-  if (!path) {
-    syncRootFormState(form);
-    return;
-  }
-
-  setRootFormStatus(status, "Submitting scan...");
-  submitButton.disabled = true;
-  submitButton.setAttribute("aria-busy", "true");
-  try {
-    const response = await fetch(form.action, {
-      method: "POST",
-      headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({path})
-    });
-    const payload = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      const message = payload && typeof payload.error === "string" && payload.error.trim()
-        ? payload.error
-        : "Unable to add and scan root.";
-      setRootFormStatus(status, message, true);
-      showToast(message, {error: true});
-      return;
-    }
-    input.value = "";
-    syncRootFormState(form);
-    setRootFormStatus(status, "");
-    const message = payload && typeof payload.message === "string" && payload.message.trim()
-      ? payload.message
-      : "Add and scan queued.";
-    if (payload && payload.job) {
-      showJobToast(payload.job);
-    } else {
-      showToast(message);
-    }
-  } catch {
-    setRootFormStatus(status, "Unable to add and scan root.", true);
-    showToast("Unable to add and scan root.", {error: true});
-  } finally {
-    submitButton.removeAttribute("aria-busy");
-    syncRootFormState(form);
-  }
-}
-
 async function submitAlbumArtistMappingForm(form) {
   if (!(form instanceof HTMLFormElement)) {
     return;
@@ -1844,53 +1763,6 @@ function finishAlbumArtistMappingEdit(form, albumArtist, mappedArtists) {
   }
   artists.textContent = mappedArtists;
   restoreAlbumArtistMappingCard(card);
-}
-
-async function deleteRoot(button) {
-  if (!(button instanceof HTMLButtonElement) || button.disabled) {
-    return;
-  }
-  const card = button.closest("[data-root-card]");
-  const position = Number(button.dataset.rootPosition || (card instanceof HTMLElement ? card.dataset.rootPosition : ""));
-  if (!Number.isInteger(position)) {
-    return;
-  }
-
-  const path = card instanceof HTMLElement
-    ? card.querySelector(".root-card-path")?.textContent?.trim() || `Root ${position + 1}`
-    : `Root ${position + 1}`;
-  if (!window.confirm(`Delete ${path}?\n\nThis removes only library data for this root.`)) {
-    return;
-  }
-
-  button.disabled = true;
-  button.setAttribute("aria-busy", "true");
-  try {
-    const response = await fetch(`/api/roots/${position}/delete`, {method: "POST"});
-    const payload = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      const message = payload && typeof payload.error === "string" && payload.error.trim()
-        ? payload.error
-        : "Unable to delete root.";
-      showToast(message, {error: true});
-      return;
-    }
-    const message = payload && typeof payload.message === "string" && payload.message.trim()
-      ? payload.message
-      : "Delete queued.";
-    if (payload && payload.job) {
-      showJobToast(payload.job);
-    } else {
-      showToast(message);
-    }
-  } catch {
-    showToast("Unable to delete root.", {error: true});
-  } finally {
-    if (button.isConnected) {
-      button.disabled = false;
-      button.removeAttribute("aria-busy");
-    }
-  }
 }
 
 async function deleteMusicBrainzOverride(button) {
@@ -1993,14 +1865,6 @@ function setAlbumArtistMappingStatus(formOrElement, message, isError = false) {
   setStatusMessage(formOrElement, "[data-album-artist-mapping-status]", message, isError);
 }
 
-function setRootFormStatus(element, message, isError = false) {
-  if (!(element instanceof HTMLElement)) {
-    return;
-  }
-  element.textContent = message;
-  element.classList.toggle("error", isError);
-}
-
 function showToast(message, options = {}) {
   if (!(toast instanceof HTMLElement) || typeof message !== "string" || !message.trim()) {
     return;
@@ -2036,7 +1900,7 @@ function showToast(message, options = {}) {
 
   const timeout = window.setTimeout(() => {
     removeToastMessage(toastMessage);
-  }, link ? linkedToastHideDelayMs : toastHideDelayMs);
+  }, toastHideDelayMs);
   toastTimeouts.set(toastMessage, timeout);
 }
 
@@ -2091,10 +1955,17 @@ function showJobToast(job) {
     return;
   }
   const toastElement = jobToastElement(jobId);
+  clearJobToastTimeout(toastElement);
   toastElement.className = `job-toast ${status}`;
   toastElement.dataset.jobToastId = String(jobId);
   toastElement.replaceChildren(...jobToastChildren(job));
   jobToasts.prepend(toastElement);
+  if (isTemporaryBookmarkJobToast(job)) {
+    const timeout = window.setTimeout(() => {
+      removeJobToast(toastElement);
+    }, toastHideDelayMs);
+    jobToastTimeouts.set(toastElement, timeout);
+  }
   updateVisibleJobCard(job);
 }
 
@@ -2145,7 +2016,7 @@ function jobToastChildren(job) {
     cancelButton.textContent = job.cancel_requested_at ? "Canceling..." : "Cancel";
     cancelButton.disabled = Boolean(job.cancel_requested_at);
     actions.append(cancelButton);
-  } else if (status === "succeeded") {
+  } else if (status === "succeeded" && !isTemporaryBookmarkJobToast(job)) {
     const refresh = document.createElement("a");
     refresh.className = "toast-link";
     refresh.href = window.location.href;
@@ -2184,7 +2055,24 @@ function closeJobToast(button) {
     ? jobToasts?.querySelector(`[data-job-toast-id="${jobId}"]`)
     : button.closest("[data-job-toast-id]");
   if (toastElement instanceof HTMLElement) {
-    toastElement.remove();
+    removeJobToast(toastElement);
+  }
+}
+
+function isTemporaryBookmarkJobToast(job) {
+  return job.kind === "update_playlist_file" && job.status === "succeeded";
+}
+
+function removeJobToast(toastElement) {
+  clearJobToastTimeout(toastElement);
+  toastElement.remove();
+}
+
+function clearJobToastTimeout(toastElement) {
+  const timeout = jobToastTimeouts.get(toastElement);
+  if (timeout) {
+    clearTimeout(timeout);
+    jobToastTimeouts.delete(toastElement);
   }
 }
 

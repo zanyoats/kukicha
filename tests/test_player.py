@@ -35,8 +35,9 @@ from kukicha.player_jobs import (
 )
 
 from kukicha.player_config import (
+    ACCENT_COLOR_CODES,
     DEFAULT_ACCENT_COLOR,
-    DEFAULT_LINKED_TOAST_TIMEOUT_MS,
+    DEFAULT_APPEARANCE,
     DEFAULT_PLAYER_HOST,
     DEFAULT_PLAYER_LOG_LEVEL,
     DEFAULT_PLAYER_PORT,
@@ -44,14 +45,13 @@ from kukicha.player_config import (
     PlayerServerOptions,
     build_template_environment,
     load_player_options,
+    player_accent_theme,
     player_config_help_text,
     validate_player_startup,
 )
 from kukicha.use_case import (
-    create_library_root,
     edit_library_album_musicbrainz,
     edit_library_album_tags,
-    delete_library_root,
     library_job_detail_lines,
     library_job_summary_text,
     library_scan_progress_text,
@@ -64,7 +64,7 @@ from kukicha.use_case import (
     prepare_album_musicbrainz_edit_request,
     prepare_album_tag_edit_job,
     rescan_library,
-    scan_library_with_new_root,
+    sync_library_roots,
     set_track_playlist_membership,
     set_track_playlist_membership_database,
     start_album_tag_edit,
@@ -103,15 +103,17 @@ from kukicha.player_presenters import (
     track_view,
     valid_playback_ids,
 )
+from kukicha.player_views import base_player_context
 
 from kukicha.player_runtime import (
+    PlayerJobCanceled,
     PlayerJobCancelToken,
     PlayerJobRecord,
     PlayerJobResult,
     PlayerQueueState,
     PlayerRuntime,
 )
-from kukicha.player_web_adapter import create_player_app
+from kukicha.player_web_adapter import create_player_app, start_player_sync
 from kukicha.playlist_art import playlist_cover_data_url, playlist_cover_svg
 
 
@@ -899,6 +901,9 @@ class PlayerPlaylistMembershipTest(unittest.TestCase):
 
 
 class PlayerConfigTest(unittest.TestCase):
+    def test_default_toast_timeout_is_five_seconds(self) -> None:
+        self.assertEqual(DEFAULT_TOAST_TIMEOUT_MS, 5000)
+
     def test_load_player_options_reads_toml_config(self) -> None:
         with TemporaryDirectory() as tempdir:
             temp_path = Path(tempdir)
@@ -908,12 +913,13 @@ class PlayerConfigTest(unittest.TestCase):
                     (
                         "LogLevel = 'info'",
                         "DatabasePath = 'library.sqlite'",
+                        "Roots = ['music-a', 'music-b']",
                         "FFmpegPath = 'bin/ffmpeg'",
                         "Host = '0.0.0.0'",
                         "Port = 43210",
-                        "AccentColor = 'RebeccaPurple'",
+                        "AccentColor = 'Dark-Sky-Blue'",
+                        "Appearance = 'DaRk'",
                         "ToastTimeoutMs = 12000",
-                        "LinkedToastTimeoutMs = 30000",
                         "AlbumArtistSplitPatterns = ['&', '/']",
                     )
                 ),
@@ -924,13 +930,20 @@ class PlayerConfigTest(unittest.TestCase):
 
             self.assertEqual(options.config_path, config_path.resolve())
             self.assertEqual(options.database, (temp_path / "library.sqlite").resolve())
+            self.assertEqual(
+                options.roots,
+                (
+                    (temp_path / "music-a").resolve(),
+                    (temp_path / "music-b").resolve(),
+                ),
+            )
             self.assertEqual(options.ffmpeg_path, (temp_path / "bin" / "ffmpeg").resolve())
             self.assertEqual(options.host, "0.0.0.0")
             self.assertEqual(options.port, 43210)
             self.assertEqual(options.log_level, "INFO")
-            self.assertEqual(options.accent_color, "rebeccapurple")
+            self.assertEqual(options.accent_color, "dark-sky-blue")
+            self.assertEqual(options.appearance, "dark")
             self.assertEqual(options.toast_timeout_ms, 12000)
-            self.assertEqual(options.linked_toast_timeout_ms, 30000)
             self.assertEqual(options.album_artist_split_patterns, ("&", "/"))
 
     def test_load_player_options_uses_default_paths_when_default_config_is_missing(self) -> None:
@@ -942,12 +955,13 @@ class PlayerConfigTest(unittest.TestCase):
             self.assertEqual(options.config_path, (config_home / "kukicha" / "kukicha.toml").resolve())
             self.assertEqual(options.database, (config_home / "kukicha" / "kukicha.sqlite").resolve())
             self.assertIsNone(options.ffmpeg_path)
+            self.assertEqual(options.roots, ())
             self.assertEqual(options.host, DEFAULT_PLAYER_HOST)
             self.assertEqual(options.port, DEFAULT_PLAYER_PORT)
             self.assertEqual(options.log_level, DEFAULT_PLAYER_LOG_LEVEL)
             self.assertEqual(options.accent_color, DEFAULT_ACCENT_COLOR)
+            self.assertEqual(options.appearance, DEFAULT_APPEARANCE)
             self.assertEqual(options.toast_timeout_ms, DEFAULT_TOAST_TIMEOUT_MS)
-            self.assertEqual(options.linked_toast_timeout_ms, DEFAULT_LINKED_TOAST_TIMEOUT_MS)
             self.assertEqual(
                 options.album_artist_split_patterns,
                 DEFAULT_ALBUM_ARTIST_SPLIT_PATTERNS,
@@ -979,23 +993,26 @@ class PlayerConfigTest(unittest.TestCase):
             ):
                 load_player_options(config_path)
 
+    def test_load_player_options_rejects_invalid_roots(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            config_path = Path(tempdir) / "kukicha.toml"
+            for text, message in (
+                ("Roots = 'music'\n", "Roots must be an array of strings"),
+                ("Roots = ['music', 1]\n", "Roots must be an array of non-empty strings"),
+                ("Roots = ['music', '  ']\n", "Roots must be an array of non-empty strings"),
+                ("Roots = ['music', './music']\n", "Roots must not contain duplicate paths"),
+            ):
+                with self.subTest(text=text):
+                    config_path.write_text(text, encoding="utf-8")
+                    with self.assertRaisesRegex(PlayerConfigError, message):
+                        load_player_options(config_path)
+
     def test_load_player_options_rejects_invalid_toast_timeouts(self) -> None:
         with TemporaryDirectory() as tempdir:
             config_path = Path(tempdir) / "kukicha.toml"
-            config_path.write_text(
-                "ToastTimeoutMs = 0\nLinkedToastTimeoutMs = 'slow'\n",
-                encoding="utf-8",
-            )
+            config_path.write_text("ToastTimeoutMs = 0\n", encoding="utf-8")
 
             with self.assertRaisesRegex(PlayerConfigError, "ToastTimeoutMs must be greater than 0"):
-                load_player_options(config_path)
-
-            config_path.write_text(
-                "ToastTimeoutMs = 10000\nLinkedToastTimeoutMs = 'slow'\n",
-                encoding="utf-8",
-            )
-
-            with self.assertRaisesRegex(PlayerConfigError, "LinkedToastTimeoutMs must be an integer"):
                 load_player_options(config_path)
 
     def test_load_player_options_rejects_invalid_accent_color(self) -> None:
@@ -1003,7 +1020,7 @@ class PlayerConfigTest(unittest.TestCase):
             config_path = Path(tempdir) / "kukicha.toml"
             config_path.write_text("AccentColor = 'plaid'\n", encoding="utf-8")
 
-            with self.assertRaisesRegex(PlayerConfigError, "AccentColor must be a valid CSS named color"):
+            with self.assertRaisesRegex(PlayerConfigError, "AccentColor must be a supported palette color"):
                 load_player_options(config_path)
 
             config_path.write_text("AccentColor = 123\n", encoding="utf-8")
@@ -1011,13 +1028,71 @@ class PlayerConfigTest(unittest.TestCase):
             with self.assertRaisesRegex(PlayerConfigError, "AccentColor must be a non-empty string"):
                 load_player_options(config_path)
 
+    def test_load_player_options_rejects_neutral_accent_colors(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            config_path = Path(tempdir) / "kukicha.toml"
+            for value in (
+                "slate",
+                "#334155",
+                "dark-slate",
+                "#1e293b",
+                "soft-white",
+                "#fafafa",
+                "light-border",
+            ):
+                with self.subTest(value=value):
+                    config_path.write_text(f"AccentColor = '{value}'\n", encoding="utf-8")
+
+                    with self.assertRaisesRegex(
+                        PlayerConfigError,
+                        "AccentColor must be a supported palette color",
+                    ):
+                        load_player_options(config_path)
+
+    def test_load_player_options_rejects_invalid_appearance(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            config_path = Path(tempdir) / "kukicha.toml"
+            config_path.write_text("Appearance = 'sepia'\n", encoding="utf-8")
+
+            with self.assertRaisesRegex(PlayerConfigError, "Appearance must be one of"):
+                load_player_options(config_path)
+
+            config_path.write_text("Appearance = 123\n", encoding="utf-8")
+
+            with self.assertRaisesRegex(PlayerConfigError, "Appearance must be a non-empty string"):
+                load_player_options(config_path)
+
+    def test_load_player_options_accepts_palette_accent_color_code(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            config_path = Path(tempdir) / "kukicha.toml"
+            config_path.write_text("AccentColor = '#06B6D4'\n", encoding="utf-8")
+
+            options = load_player_options(config_path)
+
+        self.assertEqual(options.accent_color, "cyan")
+
+    def test_player_accent_theme_derives_contrast_safe_values(self) -> None:
+        gray_theme = player_accent_theme("gray")
+        cyan_theme = player_accent_theme("cyan")
+
+        self.assertEqual(gray_theme.accent, "#71717a")
+        self.assertEqual(gray_theme.accent_strong, "#4f4f55")
+        self.assertEqual(gray_theme.accent_soft, "#eeeeef")
+        self.assertEqual(gray_theme.accent_foreground, "#ffffff")
+        self.assertEqual(cyan_theme.accent, "#06b6d4")
+        self.assertEqual(cyan_theme.accent_strong, "#04768a")
+        self.assertEqual(cyan_theme.accent_soft, "#e1f6fa")
+        self.assertEqual(cyan_theme.accent_foreground, "#111827")
+
     def test_load_player_options_rejects_unknown_config_keys(self) -> None:
         with TemporaryDirectory() as tempdir:
             config_path = Path(tempdir) / "kukicha.toml"
-            config_path.write_text("Bogus = 'value'\n", encoding="utf-8")
+            for text in ("Bogus = 'value'\n", "LinkedToastTimeoutMs = 25000\n"):
+                with self.subTest(text=text):
+                    config_path.write_text(text, encoding="utf-8")
 
-            with self.assertRaisesRegex(PlayerConfigError, "unsupported config key"):
-                load_player_options(config_path)
+                    with self.assertRaisesRegex(PlayerConfigError, "unsupported config key"):
+                        load_player_options(config_path)
 
     def test_player_config_help_text_shows_defaults_when_config_is_missing(self) -> None:
         with TemporaryDirectory() as tempdir:
@@ -1029,27 +1104,26 @@ class PlayerConfigTest(unittest.TestCase):
             self.assertIn(f"path: {(config_home / 'kukicha' / 'kukicha.toml').resolve()}", help_text)
             self.assertIn(f"LogLevel: {DEFAULT_PLAYER_LOG_LEVEL} (default)", help_text)
             self.assertIn(f"DatabasePath: {(config_home / 'kukicha' / 'kukicha.sqlite').resolve()} (default)", help_text)
+            self.assertIn("Roots: [] (default)", help_text)
             self.assertIn(f"Host: {DEFAULT_PLAYER_HOST} (default)", help_text)
             self.assertIn(f"Port: {DEFAULT_PLAYER_PORT} (default)", help_text)
             self.assertIn(f"AccentColor: {DEFAULT_ACCENT_COLOR} (default)", help_text)
+            self.assertIn(f"Appearance: {DEFAULT_APPEARANCE} (default)", help_text)
             self.assertIn(f"ToastTimeoutMs: {DEFAULT_TOAST_TIMEOUT_MS} (default)", help_text)
-            self.assertIn(
-                f"LinkedToastTimeoutMs: {DEFAULT_LINKED_TOAST_TIMEOUT_MS} (default)",
-                help_text,
-            )
             self.assertIn("FFmpegPath: <unset> (default)", help_text)
             self.assertIn(
                 "AlbumArtistSplitPatterns: ['with', 'and', '&', ',', '/'] (default)",
                 help_text,
             )
             self.assertIn(
-                "Supported keys:\n  LogLevel\n  DatabasePath\n  FFmpegPath\n  Host\n  Port\n"
-                "  AccentColor\n  ToastTimeoutMs\n  LinkedToastTimeoutMs\n"
-                "  AlbumArtistSplitPatterns",
+                "Supported keys:\n  LogLevel\n  DatabasePath\n  Roots\n  FFmpegPath\n  Host\n  Port\n"
+                "  AccentColor\n  Appearance\n  ToastTimeoutMs\n  AlbumArtistSplitPatterns",
                 help_text,
             )
-            self.assertIn("AccentColor accepts any valid CSS named color.", help_text)
-            self.assertNotIn("Supported AccentColor values:", help_text)
+            self.assertNotIn("LinkedToastTimeoutMs", help_text)
+            self.assertIn("AccentColor accepts these palette names or matching hex codes:", help_text)
+            self.assertIn(f"  {DEFAULT_ACCENT_COLOR} ({ACCENT_COLOR_CODES[DEFAULT_ACCENT_COLOR]})", help_text)
+            self.assertIn("Appearance accepts these values:\n  light\n  dark\n  dim", help_text)
 
 
 class CliPlayerCommandTest(unittest.TestCase):
@@ -1505,7 +1579,7 @@ class PlayerAlbumDetailLinksTest(unittest.TestCase):
             html,
         )
 
-    def test_album_template_renders_year_with_album_artist_separator(self) -> None:
+    def test_album_template_renders_year_adjacent_to_album_title(self) -> None:
         album = AlbumDetails(
             album_id="brian-eno::ambient-1",
             artist="Brian Eno",
@@ -1528,18 +1602,25 @@ class PlayerAlbumDetailLinksTest(unittest.TestCase):
             track_sections=(),
         )
 
+        title_year = '<span class="album-title-year-meta">1978</span>'
+        title_text = '<span class="album-detail-title-text" title="Ambient 1">Ambient 1</span>'
+        self.assertIn(f"{title_text}{title_year}", html)
         self.assertIn('<ul class="meta-list album-artist-meta">', html)
-        self.assertIn('<li class="album-year-meta">1978</li>', html)
+        self.assertNotIn('<li class="album-year-meta">1978</li>', html)
         self.assertLess(
-            html.index("album-artist-meta"),
-            html.index('<li class="album-year-meta">1978</li>'),
+            html.index("Ambient 1"),
+            html.index(title_year),
         )
         self.assertLess(
-            html.index('<li class="album-year-meta">1978</li>'),
+            html.index(title_year),
+            html.index("album-artist-meta"),
+        )
+        self.assertLess(
+            html.index("album-artist-meta"),
             html.index("album-genre-meta"),
         )
 
-    def test_album_template_renders_styles_adjacent_to_genres(self) -> None:
+    def test_album_template_renders_genres_after_artist_and_styles_below(self) -> None:
         album = AlbumDetails(
             album_id="autechre::tri-repetae",
             artist="Autechre",
@@ -1556,21 +1637,35 @@ class PlayerAlbumDetailLinksTest(unittest.TestCase):
             album_edit_page_url="/albums/autechre::tri-repetae/edit",
             album_root_links=(),
             album_artist_links=album_artist_links(album, AlbumListQuery()),
-            album_genre_links=({"label": "Electronic", "url": "/?genre=Electronic"},),
+            album_genre_links=(
+                {"label": "Electronic", "url": "/?genre=Electronic"},
+                {"label": "Experimental", "url": "/?genre=Experimental"},
+            ),
             album_year_text="",
-            album_style_links=({"label": "IDM", "url": "/?style=IDM"},),
+            album_style_links=(
+                {"label": "IDM", "url": "/?style=IDM"},
+                {"label": "Ambient Techno", "url": "/?style=Ambient+Techno"},
+            ),
             track_sections=(),
         )
+        collapsed_html = " ".join(html.split())
 
-        genre_list_start = html.index('<ul class="meta-list album-genre-meta">')
-        genre_list_end = html.index("</ul>", genre_list_start)
-        style_item = html.index('<li class="album-style-meta">')
+        artist_list_start = html.index('<ul class="meta-list album-artist-meta">')
+        artist_list_end = html.index("</ul>", artist_list_start)
+        genre_item = html.index('<li class="album-genre-meta">')
+        style_list_start = html.index('<ul class="meta-list album-style-meta">')
+        style_list_end = html.index("</ul>", style_list_start)
 
-        self.assertLess(genre_list_start, html.index("Electronic"))
-        self.assertLess(html.index("Electronic"), style_item)
-        self.assertLess(style_item, html.index("IDM"))
-        self.assertLess(style_item, genre_list_end)
-        self.assertNotIn('<ul class="meta-list album-style-meta">', html)
+        self.assertLess(artist_list_start, html.index("Autechre"))
+        self.assertLess(html.index("Autechre"), genre_item)
+        self.assertLess(genre_item, html.index("Electronic"))
+        self.assertLess(html.index("Electronic"), artist_list_end)
+        self.assertLess(artist_list_end, style_list_start)
+        self.assertLess(style_list_start, html.index("IDM"))
+        self.assertLess(html.index("IDM"), style_list_end)
+        self.assertNotIn('<ul class="meta-list album-genre-meta">', html)
+        self.assertIn("Electronic</a>,&nbsp;<a", collapsed_html)
+        self.assertIn("IDM</a>,&nbsp;<a", collapsed_html)
 
     def test_album_edit_template_matches_album_identity_meta_grouping(self) -> None:
         album = AlbumDetails(
@@ -1589,8 +1684,8 @@ class PlayerAlbumDetailLinksTest(unittest.TestCase):
             album_root_links=(),
             album_artist_parts=("Autechre",),
             album_year_text="1995",
-            album_genre_parts=("Electronic",),
-            album_style_parts=("IDM",),
+            album_genre_parts=("Electronic", "Experimental"),
+            album_style_parts=("IDM", "Ambient Techno"),
             album_musicbrainz_action_url="/api/albums/autechre::tri-repetae/musicbrainz",
             album_tag_edit_action_url="/api/albums/autechre::tri-repetae/tags",
             album_tag_edit_album_artist="Autechre",
@@ -1600,20 +1695,30 @@ class PlayerAlbumDetailLinksTest(unittest.TestCase):
             tracks=(),
         )
 
+        title_year = '<span class="album-title-year-meta">1995</span>'
+        title_text = '<span class="album-detail-title-text" title="Tri Repetae">Tri Repetae</span>'
         artist_list_start = html.index('<ul class="meta-list album-artist-meta">')
-        genre_list_start = html.index('<ul class="meta-list album-genre-meta">')
-        genre_list_end = html.index("</ul>", genre_list_start)
-        style_item = html.index('<li class="album-style-meta">')
+        artist_list_end = html.index("</ul>", artist_list_start)
+        genre_item = html.index('<li class="album-genre-meta">')
+        style_list_start = html.index('<ul class="meta-list album-style-meta">')
+        style_list_end = html.index("</ul>", style_list_start)
 
+        self.assertIn(f"{title_text}{title_year}", html)
+        self.assertLess(html.index("Tri Repetae"), html.index(title_year))
+        self.assertLess(html.index(title_year), artist_list_start)
         self.assertLess(artist_list_start, html.index("Autechre"))
-        self.assertLess(html.index('<li class="album-year-meta">1995</li>'), genre_list_start)
-        self.assertLess(genre_list_start, html.index("Electronic"))
-        self.assertLess(html.index("Electronic"), style_item)
-        self.assertLess(style_item, html.index("IDM"))
-        self.assertLess(style_item, genre_list_end)
-        self.assertNotIn('<ul class="meta-list album-style-meta">', html)
+        self.assertLess(html.index("Autechre"), genre_item)
+        self.assertNotIn('<li class="album-year-meta">1995</li>', html)
+        self.assertLess(genre_item, html.index("Electronic"))
+        self.assertLess(html.index("Electronic"), artist_list_end)
+        self.assertLess(artist_list_end, style_list_start)
+        self.assertLess(style_list_start, html.index("IDM"))
+        self.assertLess(html.index("IDM"), style_list_end)
+        self.assertNotIn('<ul class="meta-list album-genre-meta">', html)
+        self.assertIn("Electronic,&nbsp;Experimental", html)
+        self.assertIn("IDM,&nbsp;Ambient Techno", html)
 
-    def test_album_templates_render_comma_separated_root_filter_links_in_title(self) -> None:
+    def test_album_templates_render_comma_separated_root_labels_after_year(self) -> None:
         album = AlbumDetails(
             album_id="brian-eno-robert-fripp::no-pussyfooting",
             artist="Brian Eno, Robert Fripp",
@@ -1640,9 +1745,9 @@ class PlayerAlbumDetailLinksTest(unittest.TestCase):
             album_edit_page_url="/albums/brian-eno-robert-fripp::no-pussyfooting/edit",
             album_root_links=root_links,
             album_artist_links=album_artist_links(album, AlbumListQuery()),
-            album_genre_links=(),
-            album_year_text="",
-            album_style_links=(),
+            album_genre_links=({"label": "Ambient", "url": "/?genre=Ambient"},),
+            album_year_text="1973",
+            album_style_links=({"label": "Frippertronics", "url": "/?style=Frippertronics"},),
             track_sections=(),
         )
         edit_html = edit_template.render(
@@ -1650,9 +1755,9 @@ class PlayerAlbumDetailLinksTest(unittest.TestCase):
             album_back_url="/albums/brian-eno-robert-fripp::no-pussyfooting",
             album_root_links=root_links,
             album_artist_parts=("Brian Eno", "Robert Fripp"),
-            album_year_text="",
-            album_genre_parts=(),
-            album_style_parts=(),
+            album_year_text="1973",
+            album_genre_parts=("Ambient",),
+            album_style_parts=("Frippertronics",),
             album_musicbrainz_action_url="/api/albums/brian-eno-robert-fripp::no-pussyfooting/musicbrainz",
             album_tag_edit_action_url="/api/albums/brian-eno-robert-fripp::no-pussyfooting/tags",
             album_tag_edit_album_artist="Brian Eno & Robert Fripp",
@@ -1662,13 +1767,18 @@ class PlayerAlbumDetailLinksTest(unittest.TestCase):
             tracks=(),
         )
 
-        expected = (
-            '<span class="album-title-root-links">(<a class="album-detail-meta-link" '
-            'href="/?root=0" data-nav>.../a</a>, '
-            '<a class="album-detail-meta-link" href="/?root=2" data-nav>.../b</a>)</span>'
-        )
-        self.assertIn(expected, album_html)
-        self.assertIn(expected, edit_html)
+        album_root_start = album_html.index('<span class="album-title-root-links">')
+        edit_root_start = edit_html.index('<span class="album-title-root-links">')
+
+        self.assertLess(album_html.index('<span class="album-title-year-meta">1973</span>'), album_root_start)
+        self.assertLess(album_root_start, album_html.index("album-artist-meta"))
+        self.assertIn('href="/?root=0"', album_html)
+        self.assertIn('href="/?root=2"', album_html)
+        self.assertIn("Brian Eno</a>,&nbsp;<a", album_html)
+        self.assertLess(edit_html.index('<span class="album-title-year-meta">1973</span>'), edit_root_start)
+        self.assertLess(edit_root_start, edit_html.index("album-artist-meta"))
+        self.assertIn("(.../a,&nbsp;.../b)", edit_html)
+        self.assertNotIn('href="/?root=0"', edit_html)
 
 
 class PlayerWebAdapterTest(unittest.TestCase):
@@ -1683,6 +1793,7 @@ class PlayerWebAdapterTest(unittest.TestCase):
         runtime = Mock()
         runtime.database = database
         runtime.queue_state_copy.return_value = PlayerQueueState(track_ids=[])
+        runtime.active_job_payloads.return_value = []
         return runtime
 
     def test_healthz_returns_no_content(self) -> None:
@@ -1695,6 +1806,28 @@ class PlayerWebAdapterTest(unittest.TestCase):
             response = app.test_client().get("/healthz")
 
             self.assertEqual(response.status_code, 204)
+
+    def test_start_player_sync_queues_config_root_sync(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            runtime = self.make_runtime(temp_path / "kukicha.sqlite")
+            options = PlayerServerOptions(
+                config_path=temp_path / "kukicha.toml",
+                database=temp_path / "kukicha.sqlite",
+                ffmpeg_path=None,
+                roots=(temp_path / "music",),
+            )
+            with patch("kukicha.player_web_adapter.PlayerRuntime", return_value=runtime):
+                app = create_player_app(options)
+
+            runtime.enqueue_job.assert_not_called()
+            start_player_sync(app)
+
+            runtime.enqueue_job.assert_called_once()
+            kwargs = runtime.enqueue_job.call_args.kwargs
+            self.assertEqual(kwargs["kind"], "sync")
+            self.assertEqual(kwargs["context"], {"roots_configured": 1})
+            self.assertEqual(kwargs["queued_message"], "Sync queued.")
 
     def test_removed_placeholder_routes_return_not_found(self) -> None:
         with TemporaryDirectory() as tempdir:
@@ -1808,6 +1941,21 @@ class PlayerWebAdapterTest(unittest.TestCase):
             self.assertEqual(response.status_code, 404)
             runtime.enqueue_job.assert_not_called()
 
+    def test_add_and_delete_root_routes_are_removed(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            runtime = self.make_runtime(temp_path / "kukicha.sqlite")
+            with patch("kukicha.player_web_adapter.PlayerRuntime", return_value=runtime):
+                app = create_player_app(self.make_options(temp_path))
+                client = app.test_client()
+
+            add_response = client.post("/api/roots", json={"path": "/music/a"})
+            delete_response = client.post("/api/roots/0/delete")
+
+            self.assertEqual(add_response.status_code, 404)
+            self.assertEqual(delete_response.status_code, 404)
+            runtime.enqueue_job.assert_not_called()
+
     def test_page_rendering_can_return_full_document_or_fragment(self) -> None:
         context = {
             "app_title": "kukicha",
@@ -1820,7 +1968,6 @@ class PlayerWebAdapterTest(unittest.TestCase):
             "count_text": "",
             "view_template": "player/simple_page.html",
             "toast_timeout_ms": 12000,
-            "linked_toast_timeout_ms": 30000,
         }
         with TemporaryDirectory() as tempdir:
             temp_path = Path(tempdir)
@@ -1837,11 +1984,36 @@ class PlayerWebAdapterTest(unittest.TestCase):
             self.assertEqual(full_response.status_code, 200)
             self.assertIn(b"<!doctype html>", full_response.data)
             self.assertIn(b"<h1>Albums</h1>", full_response.data)
+            self.assertIn(b'class="toast-region"', full_response.data)
             self.assertIn(b'data-toast-timeout-ms="12000"', full_response.data)
-            self.assertIn(b'data-linked-toast-timeout-ms="30000"', full_response.data)
+            self.assertNotIn(b"data-linked-toast-timeout-ms", full_response.data)
             self.assertEqual(fragment_response.status_code, 200)
             self.assertNotIn(b"<!doctype html>", fragment_response.data)
             self.assertIn(b"<h1>Albums</h1>", fragment_response.data)
+
+    def test_page_rendering_uses_default_toast_timeout(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            runtime = self.make_runtime(temp_path / "kukicha.sqlite")
+            context = base_player_context(
+                runtime,
+                page_name="library",
+                page_key="library",
+                page_heading="Albums",
+                page_menu_items=(),
+                count_text="",
+                view_template="player/simple_page.html",
+            )
+            with (
+                patch("kukicha.player_web_adapter.PlayerRuntime", return_value=runtime),
+                patch("kukicha.player_web_adapter.build_index_context", return_value=context),
+            ):
+                app = create_player_app(self.make_options(temp_path))
+                response = app.test_client().get("/")
+
+            self.assertEqual(response.status_code, 200)
+            self.assertIn(b'data-toast-timeout-ms="5000"', response.data)
+            self.assertNotIn(b'data-toast-timeout-ms="10000"', response.data)
 
     def test_artists_page_renders_tag_cloud_without_album_filters(self) -> None:
         with TemporaryDirectory() as tempdir:
@@ -1970,6 +2142,8 @@ class PlayerWebAdapterTest(unittest.TestCase):
 
         self.assertEqual(playlist_detail_response.status_code, 200)
         self.assertIn(b'href="/playlists?search=Road"', playlist_detail_response.data)
+        self.assertIn(b"data-play-album", playlist_detail_response.data)
+        self.assertNotIn(b"data-play-track", playlist_detail_response.data)
 
         self.assertEqual(playlist_sort_response.status_code, 200)
         self.assertLess(
@@ -1987,9 +2161,12 @@ class PlayerWebAdapterTest(unittest.TestCase):
                 "\n".join(
                     (
                         "LogLevel = 'info'",
+                        "Roots = ['music-a', 'music-b']",
                         "Host = '0.0.0.0'",
                         "Port = 43210",
                         "AccentColor = 'cyan'",
+                        "Appearance = 'dim'",
+                        "AlbumArtistSplitPatterns = ['&', '/']",
                     )
                 ),
                 encoding="utf-8",
@@ -2011,11 +2188,49 @@ class PlayerWebAdapterTest(unittest.TestCase):
             self.assertIn(b"<code>43210</code>", response.data)
             self.assertIn(b"<code>AccentColor</code>", response.data)
             self.assertIn(b"<code>cyan</code>", response.data)
-            self.assertIn(b"--accent: cyan;", response.data)
+            self.assertIn(b"<code>Appearance</code>", response.data)
+            self.assertIn(b"<code>dim</code>", response.data)
+            self.assertIn(b"<code>Roots</code>", response.data)
+            self.assertIn(b'class="config-array-value"', response.data)
+            self.assertIn(f"<code>{(temp_path / 'music-a').resolve()}</code>".encode(), response.data)
+            self.assertIn(f"<code>{(temp_path / 'music-b').resolve()}</code>".encode(), response.data)
+            self.assertIn(b"<code>AlbumArtistSplitPatterns</code>", response.data)
+            self.assertIn(b"<code>&amp;</code>", response.data)
+            self.assertIn(b"<code>/</code>", response.data)
+            self.assertIn(b"color-scheme: dark;", response.data)
+            self.assertIn(b"--bg: #1e293b;", response.data)
+            self.assertIn(b"--surface: #475569;", response.data)
+            self.assertIn(b"--surface-overlay: rgba(71, 85, 105, 0.94);", response.data)
+            self.assertIn(b"--text: #f4f4f5;", response.data)
+            self.assertIn(b"--line: #64748b;", response.data)
+            self.assertIn(b"--track-row-highlight: #334155;", response.data)
+            self.assertIn(b"--track-row-highlight-text: #f4f4f5;", response.data)
+            self.assertIn(b"--accent: #06b6d4;", response.data)
+            self.assertIn(b"--accent-strong: #04768a;", response.data)
+            self.assertIn(b"--accent-soft: #e1f6fa;", response.data)
+            self.assertIn(b"--accent-foreground: #111827;", response.data)
             self.assertIn(b'<span class="config-source configured">configured</span>', response.data)
             self.assertIn(b"<code>FFmpegPath</code>", response.data)
             self.assertIn(b"<code>&lt;unset&gt;</code>", response.data)
             self.assertIn(b'<span class="config-source default">default</span>', response.data)
+
+    def test_player_page_renders_dark_appearance_theme(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            config_path = Path(tempdir) / "kukicha.toml"
+            config_path.write_text("Appearance = 'dark'\n", encoding="utf-8")
+            app = create_player_app(load_player_options(config_path))
+
+            response = app.test_client().get("/help")
+
+            self.assertEqual(response.status_code, 200)
+            self.assertIn(b"color-scheme: dark;", response.data)
+            self.assertIn(b"--bg: #18181b;", response.data)
+            self.assertIn(b"--surface: #27272a;", response.data)
+            self.assertIn(b"--surface-overlay-hover: rgba(63, 63, 70, 0.97);", response.data)
+            self.assertIn(b"--muted: #a1a1aa;", response.data)
+            self.assertIn(b"--line: #3f3f46;", response.data)
+            self.assertIn(b"--track-row-highlight: #3f3f46;", response.data)
+            self.assertIn(b"--track-row-highlight-text: #f4f4f5;", response.data)
 
     def test_settings_pages_render_roots_artist_split_rules_musicbrainz_and_cache(self) -> None:
         with TemporaryDirectory() as tempdir:
@@ -2142,7 +2357,9 @@ class PlayerWebAdapterTest(unittest.TestCase):
 
             self.assertEqual(roots_response.status_code, 200)
             self.assertIn(b"<h1>Roots</h1>", roots_response.data)
-            self.assertIn(b"<h2>Add Root</h2>", roots_response.data)
+            self.assertNotIn(b"<h2>Add Root</h2>", roots_response.data)
+            self.assertNotIn(b"data-root-form", roots_response.data)
+            self.assertNotIn(b"data-delete-root", roots_response.data)
             self.assertIn(b"<h2>Current Roots</h2>", roots_response.data)
             self.assertIn(b"data-rescan-library", roots_response.data)
             self.assertNotIn(b"data-rescan-root", roots_response.data)
@@ -2545,74 +2762,47 @@ class PlayerWebAdapterTest(unittest.TestCase):
         with TemporaryDirectory() as tempdir:
             temp_path = Path(tempdir)
             runtime = self.make_runtime(temp_path / "kukicha.sqlite")
+            runtime.active_job_payloads.return_value = [
+                {
+                    "job_id": 4,
+                    "kind": "sync",
+                    "kind_label": "Sync",
+                    "status": "running",
+                    "status_label": "Running",
+                    "message": "Sync running.",
+                }
+            ]
             with patch("kukicha.player_web_adapter.PlayerRuntime", return_value=runtime):
                 app = create_player_app(self.make_options(temp_path))
 
             response = app.test_client().get("/api/jobs/events", buffered=False)
-            first_chunk = next(iter(response.response))
+            stream = iter(response.response)
+            first_chunk = next(stream)
+            second_chunk = next(stream)
+            third_chunk = next(stream)
+            fourth_chunk = next(stream)
             response.close()
 
             self.assertEqual(response.status_code, 200)
             self.assertEqual(first_chunk, b"retry: 1000\n\n")
+            self.assertEqual(second_chunk, b"event: job\n")
+            self.assertEqual(third_chunk, b"data: ")
+            self.assertIn(b'"kind": "sync"', fourth_chunk)
+            self.assertIn(b'"status": "running"', fourth_chunk)
             runtime.subscribe_jobs.assert_called_once()
+            runtime.active_job_payloads.assert_called_once()
             runtime.unsubscribe_jobs.assert_called_once()
 
 
 class PlayerRootMutationTest(unittest.TestCase):
-    def test_create_library_root_inserts_next_root_and_returns_option(self) -> None:
-        with TemporaryDirectory() as tempdir:
-            temp_path = Path(tempdir)
-            database = temp_path / "kukicha.sqlite"
-            first_root = temp_path / "music-a"
-            second_root = temp_path / "music-b"
-            first_root.mkdir()
-            second_root.mkdir()
-
-            created_first = create_library_root(database, str(first_root))
-            created_second = create_library_root(database, str(second_root))
-            connection = connect_database(database)
-            try:
-                roots = list(
-                    connection.execute(
-                        "SELECT position, root_path FROM library_roots ORDER BY position"
-                    )
-                )
-            finally:
-                connection.close()
-
-            self.assertEqual(created_first.position, 0)
-            self.assertEqual(created_first.path, str(first_root.resolve()))
-            self.assertEqual(created_second.position, 1)
-            self.assertEqual(created_second.path, str(second_root.resolve()))
-            self.assertEqual([int(row["position"]) for row in roots], [0, 1])
-            self.assertEqual(
-                [str(row["root_path"]) for row in roots],
-                [str(first_root.resolve()), str(second_root.resolve())],
-            )
-
-    def test_create_library_root_rejects_duplicates(self) -> None:
-        with TemporaryDirectory() as tempdir:
-            temp_path = Path(tempdir)
-            database = temp_path / "kukicha.sqlite"
-            root = temp_path / "music"
-            root.mkdir()
-
-            create_library_root(database, str(root))
-
-            with self.assertRaisesRegex(ValueError, "root already exists"):
-                create_library_root(database, str(root))
-
-    def test_scan_library_with_new_root_scans_atomically_and_preserves_root_positions(self) -> None:
+    def test_sync_library_roots_noops_when_config_matches_database(self) -> None:
         with TemporaryDirectory() as tempdir:
             temp_path = Path(tempdir)
             database = temp_path / "kukicha.sqlite"
             root_a = (temp_path / "music-a").resolve()
             root_b = (temp_path / "music-b").resolve()
-            root_c = (temp_path / "music-c").resolve()
             root_a.mkdir()
             root_b.mkdir()
-            root_c.mkdir()
-
             connection = connect_database(database)
             try:
                 connection.execute(
@@ -2623,59 +2813,39 @@ class PlayerRootMutationTest(unittest.TestCase):
                     "INSERT INTO library_roots (position, root_path) VALUES (?, ?)",
                     (2, str(root_b)),
                 )
-                insert_library_album(
-                    connection,
-                    "artist-a::album-a",
-                    "Artist A",
-                    "Album A",
-                    2000,
-                    1,
+                connection.commit()
+            finally:
+                connection.close()
+
+            with patch("kukicha.use_case.commands.roots.build_library") as build_library:
+                result = sync_library_roots(database, (root_a, root_b))
+
+            self.assertFalse(result.changed)
+            self.assertEqual(result.roots_configured, 2)
+            self.assertEqual(result.roots_added, 0)
+            self.assertEqual(result.roots_removed, 0)
+            self.assertEqual(result.roots_scanned, 0)
+            build_library.assert_not_called()
+
+    def test_sync_library_roots_adds_new_roots_and_preserves_positions(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            database = temp_path / "kukicha.sqlite"
+            root_a = (temp_path / "music-a").resolve()
+            root_b = (temp_path / "music-b").resolve()
+            root_c = (temp_path / "music-c").resolve()
+            root_a.mkdir()
+            root_b.mkdir()
+            root_c.mkdir()
+            connection = connect_database(database)
+            try:
+                connection.execute(
+                    "INSERT INTO library_roots (position, root_path) VALUES (?, ?)",
+                    (0, str(root_a)),
                 )
-                insert_library_album(
-                    connection,
-                    "artist-b::album-b",
-                    "Artist B",
-                    "Album B",
-                    2001,
-                    1,
-                )
-                preserved_track_a = int(
-                    connection.execute(
-                        """
-                        INSERT INTO library_tracks (
-                            album_id, root_position, path, album_artist, artist, album, title, date
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                        """,
-                        (
-                            "artist-a::album-a",
-                            0,
-                            str(root_a / "Artist A" / "Album A" / "01.flac"),
-                            "Artist A",
-                            "Artist A",
-                            "Album A",
-                            "Track A",
-                            "2000",
-                        ),
-                    ).lastrowid
-                )
-                preserved_track_b = int(
-                    connection.execute(
-                        """
-                        INSERT INTO library_tracks (
-                            album_id, root_position, path, album_artist, artist, album, title, date
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                        """,
-                        (
-                            "artist-b::album-b",
-                            2,
-                            str(root_b / "Artist B" / "Album B" / "01.flac"),
-                            "Artist B",
-                            "Artist B",
-                            "Album B",
-                            "Track B",
-                            "2001",
-                        ),
-                    ).lastrowid
+                connection.execute(
+                    "INSERT INTO library_roots (position, root_path) VALUES (?, ?)",
+                    (2, str(root_b)),
                 )
                 connection.commit()
             finally:
@@ -2692,7 +2862,6 @@ class PlayerRootMutationTest(unittest.TestCase):
                         album_artist="Artist A",
                         album="Album A",
                         title="Track A",
-                        date="2000",
                     ),
                     TrackRecord(
                         path=str(root_b / "Artist B" / "Album B" / "01.flac"),
@@ -2702,7 +2871,6 @@ class PlayerRootMutationTest(unittest.TestCase):
                         album_artist="Artist B",
                         album="Album B",
                         title="Track B",
-                        date="2001",
                     ),
                     TrackRecord(
                         path=str(root_c / "Artist C" / "Album C" / "01.flac"),
@@ -2712,15 +2880,92 @@ class PlayerRootMutationTest(unittest.TestCase):
                         album_artist="Artist C",
                         album="Album C",
                         title="Track C",
-                        date="2002",
                     ),
                 ],
-                playlists=[
-                    PlaylistRecord(
-                        path=str(root_c / "mix.m3u"),
-                        name="Root C Mix",
-                        root_position=2,
-                    ),
+                supported_extensions=[".flac"],
+                generated_at="2026-04-21T12:00:00+00:00",
+            )
+
+            def fake_build_library(roots: object, *_args: object, **_kwargs: object) -> MusicLibrary:
+                self.assertEqual([str(root) for root in roots], [str(root_a), str(root_b), str(root_c)])
+                return scanned_library
+
+            with (
+                patch("kukicha.use_case.commands.roots.build_library", side_effect=fake_build_library),
+                patch("kukicha.use_case.commands.roots.resolve_library_genres", return_value=None),
+                patch("kukicha.use_case.commands.roots.resolve_library_cover_art", return_value=None),
+            ):
+                result = sync_library_roots(database, (root_a, root_b, root_c))
+
+            self.assertTrue(result.changed)
+            self.assertEqual(result.roots_added, 1)
+            self.assertEqual(result.roots_removed, 0)
+            connection = connect_database(database, create=False)
+            try:
+                roots = list(connection.execute("SELECT position, root_path FROM library_roots ORDER BY position"))
+                self.assertEqual(
+                    [(int(row["position"]), str(row["root_path"])) for row in roots],
+                    [(0, str(root_a)), (2, str(root_b)), (3, str(root_c))],
+                )
+                tracks = list(
+                    connection.execute(
+                        "SELECT root_position, path FROM library_tracks ORDER BY root_position, path"
+                    )
+                )
+                self.assertEqual(
+                    [(int(row["root_position"]), str(row["path"])) for row in tracks],
+                    [
+                        (0, str(root_a / "Artist A" / "Album A" / "01.flac")),
+                        (2, str(root_b / "Artist B" / "Album B" / "01.flac")),
+                        (3, str(root_c / "Artist C" / "Album C" / "01.flac")),
+                    ],
+                )
+            finally:
+                connection.close()
+
+    def test_sync_library_roots_removes_roots_and_rescans_remaining_roots(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            database = temp_path / "kukicha.sqlite"
+            root_a = (temp_path / "music-a").resolve()
+            root_b = (temp_path / "music-b").resolve()
+            root_a.mkdir()
+            root_b.mkdir()
+            connection = connect_database(database)
+            try:
+                connection.execute(
+                    "INSERT INTO library_roots (position, root_path) VALUES (?, ?)",
+                    (0, str(root_a)),
+                )
+                connection.execute(
+                    "INSERT INTO library_roots (position, root_path) VALUES (?, ?)",
+                    (1, str(root_b)),
+                )
+                insert_library_album(connection, "old::album", "Old", "Album", 2000, 1)
+                connection.execute(
+                    """
+                    INSERT INTO library_tracks (
+                        album_id, root_position, path, album_artist, artist, album, title
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    ("old::album", 0, str(root_a / "old.flac"), "Old", "Old", "Album", "Old"),
+                )
+                connection.commit()
+            finally:
+                connection.close()
+
+            scanned_library = MusicLibrary(
+                roots=[str(root_b)],
+                tracks=[
+                    TrackRecord(
+                        path=str(root_b / "Artist B" / "Album B" / "01.flac"),
+                        root_position=0,
+                        file_type="flac",
+                        artist="Artist B",
+                        album_artist="Artist B",
+                        album="Album B",
+                        title="Track B",
+                    )
                 ],
                 supported_extensions=[".flac"],
                 generated_at="2026-04-21T12:00:00+00:00",
@@ -2731,204 +2976,90 @@ class PlayerRootMutationTest(unittest.TestCase):
                 patch("kukicha.use_case.commands.roots.resolve_library_genres", return_value=None),
                 patch("kukicha.use_case.commands.roots.resolve_library_cover_art", return_value=None),
             ):
-                result = scan_library_with_new_root(database, str(root_c))
+                result = sync_library_roots(database, (root_b,))
 
-            self.assertEqual(result.root.position, 3)
-            self.assertEqual(result.root.path, str(root_c))
-            self.assertEqual(result.tracks_scanned, 3)
-            self.assertEqual(result.albums_scanned, 3)
-            self.assertEqual(result.playlists_scanned, 1)
-            self.assertEqual(result.files_missing_required_tags, 0)
-
+            self.assertTrue(result.changed)
+            self.assertEqual(result.roots_added, 0)
+            self.assertEqual(result.roots_removed, 1)
             connection = connect_database(database, create=False)
             try:
                 roots = list(connection.execute("SELECT position, root_path FROM library_roots ORDER BY position"))
                 self.assertEqual(
                     [(int(row["position"]), str(row["root_path"])) for row in roots],
-                    [(0, str(root_a)), (2, str(root_b)), (3, str(root_c))],
+                    [(1, str(root_b))],
                 )
-                tracks = list(
-                    connection.execute(
-                        "SELECT track_id, root_position, path FROM library_tracks ORDER BY root_position, path"
-                    )
-                )
-                self.assertEqual(
-                    [
-                        (int(row["track_id"]), int(row["root_position"]), str(row["path"]))
-                        for row in tracks
-                    ],
-                    [
-                        (
-                            preserved_track_a,
-                            0,
-                            str(root_a / "Artist A" / "Album A" / "01.flac"),
-                        ),
-                        (
-                            preserved_track_b,
-                            2,
-                            str(root_b / "Artist B" / "Album B" / "01.flac"),
-                        ),
-                        (
-                            max(preserved_track_a, preserved_track_b) + 1,
-                            3,
-                            str(root_c / "Artist C" / "Album C" / "01.flac"),
-                        ),
-                    ],
-                )
-                stats = list(
-                    connection.execute(
-                        """
-                        SELECT
-                            root_position,
-                            tracks_scanned,
-                            albums_scanned,
-                            playlists_scanned
-                        FROM library_root_stats
-                        ORDER BY root_position
-                        """
-                    )
-                )
-                self.assertEqual(
-                    [
-                        (
-                            int(row["root_position"]),
-                            int(row["tracks_scanned"]),
-                            int(row["albums_scanned"]),
-                            int(row["playlists_scanned"]),
-                        )
-                        for row in stats
-                    ],
-                    [
-                        (0, 1, 1, 0),
-                        (2, 1, 1, 0),
-                        (3, 1, 1, 1),
-                    ],
-                )
-                total_stats = connection.execute(
-                    """
-                    SELECT tracks_scanned, albums_scanned, playlists_scanned
-                    FROM library_stats
-                    WHERE stats_id = 1
-                    """
-                ).fetchone()
-                self.assertIsNotNone(total_stats)
-                self.assertEqual(
-                    (
-                        int(total_stats["tracks_scanned"]),
-                        int(total_stats["albums_scanned"]),
-                        int(total_stats["playlists_scanned"]),
-                    ),
-                    (3, 3, 1),
-                )
+                tracks = list(connection.execute("SELECT root_position, path FROM library_tracks"))
+                self.assertEqual([(int(row["root_position"]), str(row["path"])) for row in tracks], [(1, str(root_b / "Artist B" / "Album B" / "01.flac"))])
             finally:
                 connection.close()
 
-    def test_scan_library_with_new_root_logs_scanner_progress(self) -> None:
+    def test_sync_library_roots_empty_config_clears_library_data(self) -> None:
         with TemporaryDirectory() as tempdir:
-            temp_path = Path(tempdir)
-            database = temp_path / "kukicha.sqlite"
-            root = (temp_path / "music").resolve()
-            root.mkdir()
-
-            scanned_library = MusicLibrary(
-                roots=[str(root)],
-                tracks=[],
-                supported_extensions=[".flac"],
-                generated_at="2026-04-21T12:00:00+00:00",
-            )
-
-            def fake_build_library(*_args: object, **kwargs: object) -> MusicLibrary:
-                self.assertEqual(kwargs["progress_every"], 500)
-                progress = kwargs.get("progress")
-                self.assertIsNotNone(progress)
-                progress("scanned 500 music files")
-                return scanned_library
-
-            with (
-                patch("kukicha.use_case.commands.roots.build_library", side_effect=fake_build_library),
-                patch("kukicha.use_case.commands.roots.resolve_library_genres", return_value=None),
-                patch("kukicha.use_case.commands.roots.resolve_library_cover_art", return_value=None),
-                patch("kukicha.use_case.commands.roots.LOGGER.info") as logger_info,
-            ):
-                scan_library_with_new_root(database, str(root))
-
-            logged_messages = [
-                str(call.args[1])
-                for call in logger_info.call_args_list
-                if len(call.args) >= 2 and call.args[0] == "%s"
-            ]
-            self.assertIn(
-                library_scan_progress_text("add and scan", "scanned 500 music files"),
-                logged_messages,
-            )
-
-    def test_scan_library_with_new_root_rolls_back_all_changes_on_failure(self) -> None:
-        with TemporaryDirectory() as tempdir:
-            temp_path = Path(tempdir)
-            database = temp_path / "kukicha.sqlite"
-            existing_root = (temp_path / "music-a").resolve()
-            new_root = (temp_path / "music-b").resolve()
-            existing_root.mkdir()
-            new_root.mkdir()
-
+            database = Path(tempdir) / "kukicha.sqlite"
             connection = connect_database(database)
             try:
-                connection.execute(
-                    "INSERT INTO library_roots (position, root_path) VALUES (?, ?)",
-                    (0, str(existing_root)),
-                )
-                insert_library_album(
-                    connection,
-                    "artist::album",
-                    "Artist",
-                    "Album",
-                    2000,
-                    1,
-                )
+                connection.execute("INSERT INTO library_roots (position, root_path) VALUES (?, ?)", (0, "/music/a"))
+                insert_library_album(connection, "artist::album", "Artist", "Album", 2000, 1)
                 connection.execute(
                     """
                     INSERT INTO library_tracks (
-                        album_id, root_position, path, album_artist, artist, album, title, date
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                        album_id, root_position, path, album_artist, artist, album, title
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
                     """,
-                    (
-                        "artist::album",
-                        0,
-                        str(existing_root / "Artist" / "Album" / "01.flac"),
-                        "Artist",
-                        "Artist",
-                        "Album",
-                        "Track",
-                        "2000",
-                    ),
+                    ("artist::album", 0, "/music/a/01.flac", "Artist", "Artist", "Album", "Track"),
+                )
+                connection.commit()
+            finally:
+                connection.close()
+
+            result = sync_library_roots(database, ())
+
+            self.assertTrue(result.changed)
+            self.assertEqual(result.roots_removed, 1)
+            connection = connect_database(database, create=False)
+            try:
+                self.assertEqual(int(connection.execute("SELECT COUNT(*) AS count FROM library_roots").fetchone()["count"]), 0)
+                self.assertEqual(int(connection.execute("SELECT COUNT(*) AS count FROM library_tracks").fetchone()["count"]), 0)
+                self.assertEqual(int(connection.execute("SELECT COUNT(*) AS count FROM library_albums").fetchone()["count"]), 0)
+            finally:
+                connection.close()
+
+    def test_sync_library_roots_rolls_back_on_failure(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            database = temp_path / "kukicha.sqlite"
+            root_a = (temp_path / "music-a").resolve()
+            root_b = (temp_path / "music-b").resolve()
+            root_a.mkdir()
+            root_b.mkdir()
+            connection = connect_database(database)
+            try:
+                connection.execute("INSERT INTO library_roots (position, root_path) VALUES (?, ?)", (0, str(root_a)))
+                insert_library_album(connection, "artist::album", "Artist", "Album", 2000, 1)
+                connection.execute(
+                    """
+                    INSERT INTO library_tracks (
+                        album_id, root_position, path, album_artist, artist, album, title
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    ("artist::album", 0, str(root_a / "01.flac"), "Artist", "Artist", "Album", "Track"),
                 )
                 connection.commit()
             finally:
                 connection.close()
 
             scanned_library = MusicLibrary(
-                roots=[str(existing_root), str(new_root)],
+                roots=[str(root_a), str(root_b)],
                 tracks=[
                     TrackRecord(
-                        path=str(existing_root / "Artist" / "Album" / "02.flac"),
-                        root_position=0,
-                        file_type="flac",
-                        artist="Artist",
-                        album_artist="Artist",
-                        album="Album",
-                        title="Replacement",
-                        date="2001",
-                    ),
-                    TrackRecord(
-                        path=str(new_root / "Artist" / "Album" / "01.flac"),
+                        path=str(root_b / "replacement.flac"),
                         root_position=1,
                         file_type="flac",
-                        artist="Artist",
-                        album_artist="Artist",
+                        artist="New",
+                        album_artist="New",
                         album="Album",
-                        title="New Root Track",
-                        date="2001",
-                    ),
+                        title="Replacement",
+                    )
                 ],
                 supported_extensions=[".flac"],
                 generated_at="2026-04-21T12:00:00+00:00",
@@ -2952,235 +3083,60 @@ class PlayerRootMutationTest(unittest.TestCase):
                 patch("kukicha.use_case.commands.roots.resolve_library_genres", side_effect=failing_resolve),
             ):
                 with self.assertRaisesRegex(RuntimeError, "boom"):
-                    scan_library_with_new_root(database, str(new_root))
+                    sync_library_roots(database, (root_a, root_b))
 
             connection = connect_database(database, create=False)
             try:
                 roots = list(connection.execute("SELECT position, root_path FROM library_roots ORDER BY position"))
-                self.assertEqual(
-                    [(int(row["position"]), str(row["root_path"])) for row in roots],
-                    [(0, str(existing_root))],
-                )
+                self.assertEqual([(int(row["position"]), str(row["root_path"])) for row in roots], [(0, str(root_a))])
                 tracks = list(connection.execute("SELECT root_position, path FROM library_tracks"))
-                self.assertEqual(len(tracks), 1)
-                self.assertEqual(int(tracks[0]["root_position"]), 0)
-                self.assertEqual(str(tracks[0]["path"]), str(existing_root / "Artist" / "Album" / "01.flac"))
-                self.assertEqual(
-                    int(connection.execute("SELECT COUNT(*) AS count FROM musicbrainz_entity_cache").fetchone()["count"]),
-                    0,
-                )
-                stats = list(
-                    connection.execute(
-                        """
-                        SELECT root_position, tracks_scanned, albums_scanned, playlists_scanned
-                        FROM library_root_stats
-                        ORDER BY root_position
-                        """
-                    )
-                )
-                self.assertEqual(
-                    [
-                        (
-                            int(row["root_position"]),
-                            int(row["tracks_scanned"]),
-                            int(row["albums_scanned"]),
-                            int(row["playlists_scanned"]),
-                        )
-                        for row in stats
-                    ],
-                    [(0, 1, 1, 0)],
-                )
-                total_stats = connection.execute(
-                    """
-                    SELECT tracks_scanned, albums_scanned, playlists_scanned
-                    FROM library_stats
-                    WHERE stats_id = 1
-                    """
-                ).fetchone()
-                self.assertIsNotNone(total_stats)
-                self.assertEqual(
-                    (
-                        int(total_stats["tracks_scanned"]),
-                        int(total_stats["albums_scanned"]),
-                        int(total_stats["playlists_scanned"]),
-                    ),
-                    (1, 1, 0),
-                )
+                self.assertEqual([(int(row["root_position"]), str(row["path"])) for row in tracks], [(0, str(root_a / "01.flac"))])
+                self.assertEqual(int(connection.execute("SELECT COUNT(*) AS count FROM musicbrainz_entity_cache").fetchone()["count"]), 0)
             finally:
                 connection.close()
 
-    def test_delete_library_root_removes_only_that_root_data(self) -> None:
+    def test_sync_library_roots_cancellation_leaves_database_unchanged(self) -> None:
         with TemporaryDirectory() as tempdir:
             temp_path = Path(tempdir)
             database = temp_path / "kukicha.sqlite"
+            root_a = (temp_path / "music-a").resolve()
+            root_b = (temp_path / "music-b").resolve()
+            root_a.mkdir()
+            root_b.mkdir()
             connection = connect_database(database)
             try:
-                connection.execute(
-                    "INSERT INTO library_roots (position, root_path) VALUES (?, ?)",
-                    (0, "/music/a"),
-                )
-                connection.execute(
-                    "INSERT INTO library_roots (position, root_path) VALUES (?, ?)",
-                    (1, "/music/b"),
-                )
-                insert_library_album(
-                    connection,
-                    "artist::shared",
-                    "Artist",
-                    "Shared",
-                    2000,
-                    2,
-                )
-                insert_library_album(
-                    connection,
-                    "artist::only-a",
-                    "Artist",
-                    "Only A",
-                    1999,
-                    1,
-                )
-                connection.execute(
-                    """
-                    INSERT INTO album_musicbrainz_links (
-                        album_id, release_mbid, release_group_mbid
-                    ) VALUES (?, ?, ?)
-                    """,
-                    ("artist::shared", "release-1", "group-1"),
-                )
-                shared_a = int(
-                    connection.execute(
-                        """
-                        INSERT INTO library_tracks (
-                            album_id, root_position, path, album_artist, artist, album, title, date
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                        """,
-                        (
-                            "artist::shared",
-                            0,
-                            "/music/a/Artist/Shared/01.flac",
-                            "Artist",
-                            "Artist",
-                            "Shared",
-                            "One",
-                            "2000",
-                        ),
-                    ).lastrowid
-                )
-                shared_b = int(
-                    connection.execute(
-                        """
-                        INSERT INTO library_tracks (
-                            album_id, root_position, path, album_artist, artist, album, title, date
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                        """,
-                        (
-                            "artist::shared",
-                            1,
-                            "/music/b/Artist/Shared/01.flac",
-                            "Artist",
-                            "Artist",
-                            "Shared",
-                            "Two",
-                            "2001",
-                        ),
-                    ).lastrowid
-                )
-                only_a = int(
-                    connection.execute(
-                        """
-                        INSERT INTO library_tracks (
-                            album_id, root_position, path, album_artist, artist, album, title, date
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                        """,
-                        (
-                            "artist::only-a",
-                            0,
-                            "/music/a/Artist/Only A/01.flac",
-                            "Artist",
-                            "Artist",
-                            "Only A",
-                            "Solo",
-                            "1999",
-                        ),
-                    ).lastrowid
-                )
-                connection.execute(
-                    "INSERT INTO library_track_artwork (track_id, height_px, mime_type, data) VALUES (?, ?, ?, ?)",
-                    (shared_a, 32, "image/png", b"art-a"),
-                )
-                connection.execute(
-                    "INSERT INTO library_track_artwork (track_id, height_px, mime_type, data) VALUES (?, ?, ?, ?)",
-                    (shared_b, 32, "image/png", b"art-b"),
-                )
-                connection.execute(
-                    "INSERT INTO library_track_genres (track_id, position, genre) VALUES (?, ?, ?)",
-                    (only_a, 0, "Electronic"),
-                )
-                connection.execute(
-                    """
-                    INSERT INTO musicbrainz_entity_cache (
-                        entity_type, mbid, fetched_at, endpoint_url, response_json
-                    ) VALUES (?, ?, ?, ?, ?)
-                    """,
-                    ("release", "release-1", "2024-01-01", "https://example.test/release-1", "{}"),
-                )
+                connection.execute("INSERT INTO library_roots (position, root_path) VALUES (?, ?)", (0, str(root_a)))
                 connection.commit()
             finally:
                 connection.close()
 
-            deleted = delete_library_root(database, 0)
+            scanned_library = MusicLibrary(
+                roots=[str(root_a), str(root_b)],
+                tracks=[],
+                supported_extensions=[".flac"],
+                generated_at="2026-04-21T12:00:00+00:00",
+            )
 
-            self.assertEqual(deleted.position, 0)
-            self.assertEqual(deleted.path, "/music/a")
+            for cancel_at, expected_build_calls in ((1, 0), (3, 1)):
+                with self.subTest(cancel_at=cancel_at):
+                    calls = {"count": 0}
 
-            connection = connect_database(database)
-            try:
-                remaining_roots = list(
-                    connection.execute("SELECT position, root_path FROM library_roots ORDER BY position")
-                )
-                self.assertEqual(len(remaining_roots), 1)
-                self.assertEqual(int(remaining_roots[0]["position"]), 1)
-                self.assertEqual(str(remaining_roots[0]["root_path"]), "/music/b")
-                remaining_tracks = list(
-                    connection.execute("SELECT album_id, root_position, path FROM library_tracks ORDER BY track_id")
-                )
-                self.assertEqual(len(remaining_tracks), 1)
-                self.assertEqual(str(remaining_tracks[0]["album_id"]), "artist::shared")
-                self.assertEqual(int(remaining_tracks[0]["root_position"]), 1)
-                self.assertEqual(str(remaining_tracks[0]["path"]), "/music/b/Artist/Shared/01.flac")
+                    def cancel_check() -> None:
+                        calls["count"] += 1
+                        if calls["count"] == cancel_at:
+                            raise PlayerJobCanceled("Canceled by user.")
 
-                shared_album = connection.execute(
-                    "SELECT album, year, track_count FROM library_albums WHERE album_id = ?",
-                    ("artist::shared",),
-                ).fetchone()
-                self.assertIsNotNone(shared_album)
-                self.assertEqual(int(shared_album["year"]), 2001)
-                self.assertEqual(int(shared_album["track_count"]), 1)
-                self.assertIsNone(
-                    connection.execute(
-                        "SELECT 1 FROM library_albums WHERE album_id = ?",
-                        ("artist::only-a",),
-                    ).fetchone()
-                )
+                    with patch("kukicha.use_case.commands.roots.build_library", return_value=scanned_library) as build_library:
+                        with self.assertRaises(PlayerJobCanceled):
+                            sync_library_roots(database, (root_a, root_b), cancel_check=cancel_check)
 
-                self.assertEqual(
-                    int(connection.execute("SELECT COUNT(*) AS count FROM library_track_artwork").fetchone()["count"]),
-                    1,
-                )
-                self.assertEqual(
-                    int(connection.execute("SELECT COUNT(*) AS count FROM library_album_search").fetchone()["count"]),
-                    1,
-                )
-                self.assertEqual(
-                    int(connection.execute("SELECT COUNT(*) AS count FROM musicbrainz_entity_cache").fetchone()["count"]),
-                    1,
-                )
-                self.assertGreater(
-                    int(connection.execute("SELECT COUNT(*) AS count FROM taxonomy_genres").fetchone()["count"]),
-                    0,
-                )
-            finally:
-                connection.close()
+                    self.assertEqual(build_library.call_count, expected_build_calls)
+                    connection = connect_database(database, create=False)
+                    try:
+                        roots = list(connection.execute("SELECT position, root_path FROM library_roots ORDER BY position"))
+                        self.assertEqual([(int(row["position"]), str(row["root_path"])) for row in roots], [(0, str(root_a))])
+                    finally:
+                        connection.close()
 
     def test_rescan_library_scans_all_roots_and_preserves_root_positions(self) -> None:
         with TemporaryDirectory() as tempdir:
@@ -3520,69 +3476,6 @@ class PlayerRootMutationTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "no roots configured"):
                 rescan_library(database)
 
-    def test_delete_library_root_rolls_back_on_failure(self) -> None:
-        with TemporaryDirectory() as tempdir:
-            temp_path = Path(tempdir)
-            database = temp_path / "kukicha.sqlite"
-            connection = connect_database(database)
-            try:
-                connection.execute(
-                    "INSERT INTO library_roots (position, root_path) VALUES (?, ?)",
-                    (0, "/music/a"),
-                )
-                insert_library_album(
-                    connection,
-                    "artist::album",
-                    "Artist",
-                    "Album",
-                    2000,
-                    1,
-                )
-                connection.execute(
-                    """
-                    INSERT INTO library_tracks (
-                        album_id, root_position, path, album_artist, artist, album, title, date
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    (
-                        "artist::album",
-                        0,
-                        "/music/a/Artist/Album/01.flac",
-                        "Artist",
-                        "Artist",
-                        "Album",
-                        "Track",
-                        "2000",
-                    ),
-                )
-                connection.commit()
-            finally:
-                connection.close()
-
-            with patch("kukicha.use_case.commands.roots.reconcile_deleted_root_albums", side_effect=RuntimeError("boom")):
-                with self.assertRaisesRegex(RuntimeError, "boom"):
-                    delete_library_root(database, 0)
-
-            connection = connect_database(database)
-            try:
-                self.assertIsNotNone(
-                    connection.execute(
-                        "SELECT 1 FROM library_roots WHERE position = ?",
-                        (0,),
-                    ).fetchone()
-                )
-                self.assertEqual(
-                    int(connection.execute("SELECT COUNT(*) AS count FROM library_tracks").fetchone()["count"]),
-                    1,
-                )
-                self.assertIsNotNone(
-                    connection.execute(
-                        "SELECT 1 FROM library_albums WHERE album_id = ?",
-                        ("artist::album",),
-                    ).fetchone()
-                )
-            finally:
-                connection.close()
 
 
 class PlayerJobLogTest(unittest.TestCase):

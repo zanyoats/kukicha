@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -186,37 +187,6 @@ def mapped_artists_text_from_payload(value: object) -> str:
     return "\n".join(line for line in lines if line)
 
 
-def start_add_root(runtime: PlayerRuntime, path: str) -> dict[str, object]:
-    from ...player_jobs import job_payload
-    from .roots import (
-        prepare_library_root,
-        root_display_label,
-        root_payload,
-        run_add_root_job,
-    )
-
-    root = prepare_library_root(runtime.database, path)
-    root_label = root_display_label(root)
-    queued_job = runtime.enqueue_job(
-        kind="add_root",
-        queued_message=f"Add and scan queued for {root_label}.",
-        running_message=f"Add and scan running for {root_label}.",
-        canceled_message=f"Add and scan canceled for {root_label}.",
-        failed_message=f"Add and scan failed for {root_label}.",
-        context={
-            "path": root.path,
-            "root_position": root.position,
-        },
-        runner=lambda cancel_token: run_add_root_job(runtime, root, cancel_token),
-    )
-
-    return {
-        "message": f"Add and scan queued for {root_label}.",
-        "job": job_payload(queued_job),
-        "root": root_payload(root),
-    }
-
-
 def start_rescan_library(runtime: PlayerRuntime) -> dict[str, object]:
     from ...player_jobs import job_payload
     from .roots import (
@@ -246,35 +216,21 @@ def start_rescan_library(runtime: PlayerRuntime) -> dict[str, object]:
     }
 
 
-def start_delete_root(runtime: PlayerRuntime, position: int) -> dict[str, object]:
-    from ...player_jobs import job_payload
-    from .roots import (
-        library_root_by_position,
-        root_display_label,
-        root_payload,
-        run_delete_root_job,
-    )
+def start_sync(runtime: PlayerRuntime, configured_roots: Iterable[Path]) -> object:
+    from .roots import run_sync_job
 
-    root = library_root_by_position(runtime.database, position)
-    root_label = root_display_label(root)
-    queued_job = runtime.enqueue_job(
-        kind="delete_root",
-        queued_message=f"Delete queued for {root_label}.",
-        running_message=f"Delete running for {root_label}.",
-        canceled_message=f"Delete canceled for {root_label}.",
-        failed_message=f"Delete failed for {root_label}.",
+    roots = tuple(Path(root) for root in configured_roots)
+    return runtime.enqueue_job(
+        kind="sync",
+        queued_message="Sync queued.",
+        running_message="Sync running.",
+        canceled_message="Sync canceled.",
+        failed_message="Sync failed.",
         context={
-            "path": root.path,
-            "root_position": root.position,
+            "roots_configured": len(roots),
         },
-        runner=lambda cancel_token: run_delete_root_job(runtime, root, cancel_token),
+        runner=lambda cancel_token: run_sync_job(runtime, roots, cancel_token),
     )
-
-    return {
-        "message": f"Delete queued for {root_label}.",
-        "job": job_payload(queued_job),
-        "root": root_payload(root),
-    }
 
 
 def start_album_musicbrainz_edit(

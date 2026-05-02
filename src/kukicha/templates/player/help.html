@@ -36,7 +36,17 @@
             {% for item in config_summary.values %}
               <tr>
                 <td><code>{{ item.key }}</code></td>
-                <td><code>{{ item.value }}</code></td>
+                <td>
+                  {% if item.items %}
+                    <div class="config-array-value">
+                      {% for value in item.items %}
+                        <code>{{ value }}</code>
+                      {% endfor %}
+                    </div>
+                  {% else %}
+                    <code>{{ item.value }}</code>
+                  {% endif %}
+                </td>
                 <td><span class="config-source {{ item.source }}">{{ item.source }}</span></td>
               </tr>
             {% endfor %}

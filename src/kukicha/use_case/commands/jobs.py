@@ -318,6 +318,36 @@ def list_player_jobs(database: Path) -> tuple[PlayerJobRecord, ...]:
     return tuple(row_to_player_job(row) for row in rows)
 
 
+def list_active_player_jobs(database: Path) -> tuple[PlayerJobRecord, ...]:
+    connection = connect_database(database, create=False)
+    try:
+        rows = list(
+            connection.execute(
+                """
+                SELECT
+                    job_id,
+                    created_at,
+                    updated_at,
+                    started_at,
+                    finished_at,
+                    cancel_requested_at,
+                    kind,
+                    status,
+                    message,
+                    reason,
+                    context_json
+                FROM player_jobs
+                WHERE status IN ('queued', 'running')
+                ORDER BY created_at, job_id
+                """
+            )
+        )
+    finally:
+        connection.close()
+
+    return tuple(row_to_player_job(row) for row in rows)
+
+
 def job_kind_label_for_message(kind: str) -> str:
     labels = {
         "add_root": "Add and scan",
@@ -326,5 +356,6 @@ def job_kind_label_for_message(kind: str) -> str:
         "edit_album_musicbrainz": "MusicBrainz ID edit",
         "update_playlist_file": "Update playlist file",
         "rescan_library": "Rescan",
+        "sync": "Sync",
     }
     return labels.get(kind, " ".join(part.capitalize() for part in kind.split("_") if part) or "Job")

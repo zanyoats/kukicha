@@ -14,7 +14,12 @@ from kukicha.use_case import (
     ItunesLookupStats,
     get_itunes_lookup_image,
 )
-from kukicha.use_case import resolve_library_cover_art, resolve_library_genres, save_library
+from kukicha.use_case import (
+    resolve_library_cover_art,
+    resolve_library_genres,
+    save_library,
+    sync_library_roots,
+)
 from kukicha.models import (
     MusicLibrary,
     PlaylistItemRecord,
@@ -22,7 +27,6 @@ from kukicha.models import (
     TrackArtwork,
     TrackRecord,
 )
-from kukicha.use_case import delete_library_root
 
 
 class LibraryAlbumPathQueryTest(unittest.TestCase):
@@ -835,7 +839,7 @@ class LibraryMusicBrainzPersistenceTest(unittest.TestCase):
             finally:
                 connection.close()
 
-    def test_delete_library_root_keeps_musicbrainz_links_when_album_is_removed(self) -> None:
+    def test_sync_empty_roots_keeps_musicbrainz_links_when_album_is_removed(self) -> None:
         with TemporaryDirectory() as tempdir:
             database = Path(tempdir) / "kukicha.sqlite"
             connection = connect_database(database)
@@ -881,7 +885,7 @@ class LibraryMusicBrainzPersistenceTest(unittest.TestCase):
             finally:
                 connection.close()
 
-            delete_library_root(database, 0)
+            sync_library_roots(database, ())
 
             connection = connect_database(database)
             try:
@@ -913,7 +917,7 @@ class LibraryMusicBrainzPersistenceTest(unittest.TestCase):
             finally:
                 connection.close()
 
-    def test_delete_library_root_keeps_itunes_lookup_cache_when_album_is_removed(self) -> None:
+    def test_sync_empty_roots_keeps_itunes_lookup_cache_when_album_is_removed(self) -> None:
         with TemporaryDirectory() as tempdir:
             database = Path(tempdir) / "kukicha.sqlite"
             connection = connect_database(database)
@@ -975,7 +979,7 @@ class LibraryMusicBrainzPersistenceTest(unittest.TestCase):
             finally:
                 connection.close()
 
-            delete_library_root(database, 0)
+            sync_library_roots(database, ())
 
             connection = connect_database(database)
             try:

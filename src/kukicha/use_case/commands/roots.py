@@ -2,18 +2,17 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
+from datetime import UTC, datetime
 import logging
 from pathlib import Path
 import sqlite3
 from time import perf_counter
 
-from ..queries import LibraryQueries, LibraryRootFilterOption, library_root_filter_label
+from ..queries import LibraryQueries
 from ..database import (
     canonicalize_library_album_artists,
     connect_database,
     rebuild_album_rollups,
-    rebuild_album_search_index,
-    rebuild_root_scan_stats,
 )
 from ...discogs import (
     group_library_albums,
@@ -34,61 +33,11 @@ from ..library import (
     resolve_library_genres,
     save_library_with_options,
 )
-from ...player_errors import PlayerNotFoundError
 from ...player_runtime import PlayerJobCancelToken, PlayerJobResult, PlayerRuntime
-from ...scanner import build_library
+from ...models import MusicLibrary
+from ...scanner import SUPPORTED_EXTENSIONS, build_library
 
 LOGGER = logging.getLogger("kukicha.player")
-
-def create_library_root(database: Path, root_path: str) -> LibraryRootFilterOption:
-    root = prepare_library_root(database, root_path)
-    connection = connect_database(database)
-    try:
-        connection.execute(
-            "INSERT INTO library_roots (position, root_path) VALUES (?, ?)",
-            (root.position, root.path),
-        )
-        rebuild_root_scan_stats(connection)
-        connection.commit()
-    finally:
-        connection.close()
-    return root
-
-
-def prepare_library_root(database: Path, root_path: str) -> LibraryRootFilterOption:
-    stripped = root_path.strip()
-    if not stripped:
-        raise ValueError("root path is required")
-
-    resolved = Path(stripped).expanduser().resolve(strict=False)
-    if not resolved.exists():
-        raise ValueError(f"directory does not exist: {resolved}")
-    if not resolved.is_dir():
-        raise ValueError(f"path is not a directory: {resolved}")
-
-    resolved_path = str(resolved)
-    connection = connect_database(database)
-    try:
-        existing = connection.execute(
-            "SELECT position FROM library_roots WHERE root_path = ?",
-            (resolved_path,),
-        ).fetchone()
-        if existing is not None:
-            raise ValueError(f"root already exists: {resolved_path}")
-        position = int(
-            connection.execute(
-                "SELECT COALESCE(MAX(position), -1) + 1 AS position FROM library_roots"
-            ).fetchone()["position"]
-        )
-    finally:
-        connection.close()
-
-    return LibraryRootFilterOption(
-        position=position,
-        path=resolved_path,
-        label=library_root_filter_label(resolved_path),
-    )
-
 
 def library_root_count(database: Path) -> int:
     connection = connect_database(database)
@@ -96,30 +45,6 @@ def library_root_count(database: Path) -> int:
         return int(connection.execute("SELECT COUNT(*) AS count FROM library_roots").fetchone()["count"])
     finally:
         connection.close()
-
-
-def library_root_by_position(database: Path, position: int) -> LibraryRootFilterOption:
-    connection = connect_database(database, create=False)
-    try:
-        row = connection.execute(
-            "SELECT position, root_path FROM library_roots WHERE position = ?",
-            (position,),
-        ).fetchone()
-    finally:
-        connection.close()
-
-    if row is None:
-        raise PlayerNotFoundError(f"root does not exist: {position}")
-
-    return LibraryRootFilterOption(
-        position=int(row["position"]),
-        path=str(row["root_path"]),
-        label=library_root_filter_label(str(row["root_path"])),
-    )
-
-
-def root_display_label(root: LibraryRootFilterOption) -> str:
-    return root.label or library_root_filter_label(root.path) or root.path
 
 
 def library_job_summary_text(
@@ -191,39 +116,6 @@ def library_scan_progress_text(job_label: str, message: str) -> str:
     return f"{job_label} progress: {message}"
 
 
-def run_delete_root_job(
-    runtime: PlayerRuntime,
-    root: LibraryRootFilterOption,
-    cancel_token: PlayerJobCancelToken,
-) -> PlayerJobResult:
-    started_at = perf_counter()
-    root_label = root_display_label(root)
-    delete_library_root(
-        runtime.database,
-        root.position,
-        cancel_check=cancel_token.raise_if_canceled,
-    )
-    return PlayerJobResult(
-        message=f"Delete completed for {root_label}.",
-        context={
-            "path": root.path,
-            "root_position": root.position,
-            "duration_seconds": perf_counter() - started_at,
-        },
-    )
-
-
-@dataclass(frozen=True, slots=True)
-class RootScanResult:
-    root: LibraryRootFilterOption
-    tracks_scanned: int
-    albums_scanned: int
-    playlists_scanned: int
-    files_missing_required_tags: int
-    genre_resolution: GenreResolutionStats
-    cover_art_resolution: CoverArtResolutionStats
-
-
 @dataclass(frozen=True, slots=True)
 class LibraryRescanResult:
     roots_scanned: int
@@ -235,134 +127,27 @@ class LibraryRescanResult:
     cover_art_resolution: CoverArtResolutionStats
 
 
-def scan_library_with_new_root(
-    database: Path,
-    root_path: str,
-    *,
-    album_artist_split_patterns: Iterable[str | None] = DEFAULT_ALBUM_ARTIST_SPLIT_PATTERNS,
-    cancel_check: Callable[[], None] | None = None,
-) -> RootScanResult:
-    root = prepare_library_root(database, root_path)
-    existing_roots = tuple(LibraryQueries(database).library_roots())
-    combined_root_rows = [*( (item.position, item.path) for item in existing_roots ), (root.position, root.path)]
-    combined_root_paths = [Path(root_path) for _position, root_path in combined_root_rows]
-    missing_required_tag_count = 0
-
-    def log_missing_required_tags(_track: object, _missing_fields: list[str]) -> None:
-        nonlocal missing_required_tag_count
-        missing_required_tag_count += 1
-
-    def scan_progress(message: str) -> None:
-        if cancel_check is not None:
-            cancel_check()
-        LOGGER.info("%s", library_scan_progress_text("add and scan", message))
-
-    if cancel_check is not None:
-        cancel_check()
-    library = build_library(
-        combined_root_paths,
-        progress=scan_progress,
-        progress_every=500,
-        on_missing_required_tags=log_missing_required_tags,
-    )
-    if cancel_check is not None:
-        cancel_check()
-    connection = connect_database(database, create=False)
-    try:
-        connection.execute("SAVEPOINT add_root_scan")
-        try:
-            if cancel_check is not None:
-                cancel_check()
-            genre_resolution = resolve_library_genres(
-                library,
-                database,
-                connection=connection,
-                album_artist_split_patterns=album_artist_split_patterns,
-            ) or GenreResolutionStats()
-            cover_art_resolution = resolve_library_cover_art(
-                library,
-                database,
-                connection=connection,
-                album_artist_split_patterns=album_artist_split_patterns,
-            ) or CoverArtResolutionStats()
-            save_library_with_options(
-                library,
-                database,
-                connection=connection,
-                root_rows=combined_root_rows,
-                album_artist_split_patterns=album_artist_split_patterns,
-            )
-            if cancel_check is not None:
-                cancel_check()
-            connection.execute("RELEASE SAVEPOINT add_root_scan")
-            connection.commit()
-        except Exception:
-            connection.execute("ROLLBACK TO SAVEPOINT add_root_scan")
-            connection.execute("RELEASE SAVEPOINT add_root_scan")
-            connection.rollback()
-            raise
-    finally:
-        connection.close()
-
-    albums = group_library_albums(library)
-    return RootScanResult(
-        root=root,
-        tracks_scanned=len(library.tracks),
-        albums_scanned=len(albums),
-        playlists_scanned=len(library.playlists),
-        files_missing_required_tags=missing_required_tag_count,
-        genre_resolution=genre_resolution,
-        cover_art_resolution=cover_art_resolution,
-    )
+@dataclass(frozen=True, slots=True)
+class LibrarySyncPlan:
+    root_rows: tuple[tuple[int, str], ...]
+    roots_added: int
+    roots_removed: int
+    changed: bool
 
 
-def run_add_root_job(
-    runtime: PlayerRuntime,
-    root: LibraryRootFilterOption,
-    cancel_token: PlayerJobCancelToken,
-) -> PlayerJobResult:
-    started_at = perf_counter()
-    root_label = root_display_label(root)
-    result = scan_library_with_new_root(
-        runtime.database,
-        root.path,
-        album_artist_split_patterns=runtime.album_artist_split_patterns,
-        cancel_check=cancel_token.raise_if_canceled,
-    )
-    duration_seconds = perf_counter() - started_at
-    LOGGER.info(
-        "%s",
-        library_job_summary_text(
-            "add and scan",
-            root.path,
-            tracks_scanned=result.tracks_scanned,
-            albums_scanned=result.albums_scanned,
-            playlists_scanned=result.playlists_scanned,
-            files_missing_required_tags=result.files_missing_required_tags,
-            duration_seconds=duration_seconds,
-        ),
-    )
-    for line in library_job_detail_lines(
-        tracks_scanned=result.tracks_scanned,
-        albums_scanned=result.albums_scanned,
-        playlists_scanned=result.playlists_scanned,
-        files_missing_required_tags=result.files_missing_required_tags,
-        genre_resolution=result.genre_resolution,
-        cover_art_resolution=result.cover_art_resolution,
-    ):
-        LOGGER.info("%s", line)
-    return PlayerJobResult(
-        message=f"Add and scan completed for {root_label}.",
-        context={
-            "path": root.path,
-            "root_position": root.position,
-            "tracks_scanned": result.tracks_scanned,
-            "albums_scanned": result.albums_scanned,
-            "playlists_scanned": result.playlists_scanned,
-            "files_missing_required_tags": result.files_missing_required_tags,
-            "duration_seconds": duration_seconds,
-        },
-    )
+@dataclass(frozen=True, slots=True)
+class LibrarySyncResult:
+    roots_configured: int
+    roots_added: int
+    roots_removed: int
+    roots_scanned: int
+    tracks_scanned: int
+    albums_scanned: int
+    playlists_scanned: int
+    files_missing_required_tags: int
+    changed: bool
+    genre_resolution: GenreResolutionStats
+    cover_art_resolution: CoverArtResolutionStats
 
 
 def rescan_library(
@@ -491,70 +276,232 @@ def run_rescan_library_job(
     )
 
 
-def delete_library_root(
+def sync_library_roots(
     database: Path,
-    position: int,
+    configured_roots: Iterable[Path],
     *,
+    album_artist_split_patterns: Iterable[str | None] = DEFAULT_ALBUM_ARTIST_SPLIT_PATTERNS,
     cancel_check: Callable[[], None] | None = None,
-) -> LibraryRootFilterOption:
-    connection = connect_database(database, create=False)
-    try:
+) -> LibrarySyncResult:
+    desired_roots = tuple(normalized_configured_roots(configured_roots))
+    validate_sync_roots(desired_roots)
+    sync_plan = plan_library_root_sync(database, desired_roots)
+
+    if cancel_check is not None:
+        cancel_check()
+    if not sync_plan.changed:
+        return LibrarySyncResult(
+            roots_configured=len(desired_roots),
+            roots_added=0,
+            roots_removed=0,
+            roots_scanned=0,
+            tracks_scanned=0,
+            albums_scanned=0,
+            playlists_scanned=0,
+            files_missing_required_tags=0,
+            changed=False,
+            genre_resolution=GenreResolutionStats(),
+            cover_art_resolution=CoverArtResolutionStats(),
+        )
+
+    missing_required_tag_count = 0
+
+    def log_missing_required_tags(_track: object, _missing_fields: list[str]) -> None:
+        nonlocal missing_required_tag_count
+        missing_required_tag_count += 1
+
+    def scan_progress(message: str) -> None:
         if cancel_check is not None:
             cancel_check()
-        connection.execute("SAVEPOINT delete_root")
+        LOGGER.info("%s", library_scan_progress_text("sync", message))
+
+    if sync_plan.root_rows:
+        library = build_library(
+            [Path(root_path) for _position, root_path in sync_plan.root_rows],
+            progress=scan_progress,
+            progress_every=500,
+            on_missing_required_tags=log_missing_required_tags,
+        )
+    else:
+        library = MusicLibrary(
+            roots=[],
+            tracks=[],
+            supported_extensions=sorted(SUPPORTED_EXTENSIONS),
+            generated_at=datetime.now(UTC).isoformat(),
+        )
+
+    if cancel_check is not None:
+        cancel_check()
+    connection = connect_database(database, create=False)
+    try:
+        connection.execute("SAVEPOINT sync_roots")
         try:
-            row = connection.execute(
-                "SELECT position, root_path FROM library_roots WHERE position = ?",
-                (position,),
-            ).fetchone()
-            if row is None:
-                raise ValueError(f"root does not exist: {position}")
-
-            root = LibraryRootFilterOption(
-                position=int(row["position"]),
-                path=str(row["root_path"]),
-                label=library_root_filter_label(str(row["root_path"])),
-            )
-            affected_album_ids = [
-                str(album_row["album_id"])
-                for album_row in connection.execute(
-                    """
-                    SELECT DISTINCT album_id
-                    FROM library_tracks
-                    WHERE root_position = ?
-                        AND album_id IS NOT NULL
-                        AND album_id != ''
-                    ORDER BY album_id
-                    """,
-                    (position,),
-                )
-            ]
-
-            connection.execute("DELETE FROM library_playlists WHERE root_position = ?", (position,))
-            connection.execute("DELETE FROM library_tracks WHERE root_position = ?", (position,))
-            connection.execute("DELETE FROM library_roots WHERE position = ?", (position,))
-            reconcile_deleted_root_albums(connection, affected_album_ids)
-            rebuild_root_scan_stats(connection)
-            rebuild_album_search_index(connection)
             if cancel_check is not None:
                 cancel_check()
-            connection.execute("RELEASE SAVEPOINT delete_root")
+            if sync_plan.root_rows:
+                genre_resolution = resolve_library_genres(
+                    library,
+                    database,
+                    connection=connection,
+                    album_artist_split_patterns=album_artist_split_patterns,
+                ) or GenreResolutionStats()
+                cover_art_resolution = resolve_library_cover_art(
+                    library,
+                    database,
+                    connection=connection,
+                    album_artist_split_patterns=album_artist_split_patterns,
+                ) or CoverArtResolutionStats()
+            else:
+                genre_resolution = GenreResolutionStats()
+                cover_art_resolution = CoverArtResolutionStats()
+            save_library_with_options(
+                library,
+                database,
+                connection=connection,
+                root_rows=sync_plan.root_rows,
+                album_artist_split_patterns=album_artist_split_patterns,
+            )
+            if cancel_check is not None:
+                cancel_check()
+            connection.execute("RELEASE SAVEPOINT sync_roots")
             connection.commit()
-            return root
         except Exception:
-            connection.execute("ROLLBACK TO SAVEPOINT delete_root")
-            connection.execute("RELEASE SAVEPOINT delete_root")
+            connection.execute("ROLLBACK TO SAVEPOINT sync_roots")
+            connection.execute("RELEASE SAVEPOINT sync_roots")
             connection.rollback()
             raise
     finally:
         connection.close()
 
+    albums = group_library_albums(library)
+    return LibrarySyncResult(
+        roots_configured=len(desired_roots),
+        roots_added=sync_plan.roots_added,
+        roots_removed=sync_plan.roots_removed,
+        roots_scanned=len(sync_plan.root_rows),
+        tracks_scanned=len(library.tracks),
+        albums_scanned=len(albums),
+        playlists_scanned=len(library.playlists),
+        files_missing_required_tags=missing_required_tag_count,
+        changed=True,
+        genre_resolution=genre_resolution,
+        cover_art_resolution=cover_art_resolution,
+    )
 
-def reconcile_deleted_root_albums(
-    connection: sqlite3.Connection,
-    affected_album_ids: list[str],
-) -> None:
-    reconcile_library_albums(connection, affected_album_ids)
+
+def normalized_configured_roots(configured_roots: Iterable[Path]) -> tuple[Path, ...]:
+    return tuple(Path(root).expanduser().resolve(strict=False) for root in configured_roots)
+
+
+def validate_sync_roots(roots: Iterable[Path]) -> None:
+    for root in roots:
+        if not root.exists():
+            raise ValueError(f"directory does not exist: {root}")
+        if not root.is_dir():
+            raise ValueError(f"path is not a directory: {root}")
+
+
+def plan_library_root_sync(database: Path, desired_roots: tuple[Path, ...]) -> LibrarySyncPlan:
+    current_roots = tuple(LibraryQueries(database).library_roots())
+    current_rows = tuple(
+        (
+            root.position,
+            str(Path(root.path).expanduser().resolve(strict=False)),
+        )
+        for root in current_roots
+    )
+    current_by_path: dict[str, int] = {}
+    for position, root_path in current_rows:
+        current_by_path.setdefault(root_path, position)
+
+    desired_paths = tuple(str(root) for root in desired_roots)
+    desired_path_set = set(desired_paths)
+    next_position = max((position for position, _path in current_rows), default=-1) + 1
+    roots_added = 0
+    root_rows: list[tuple[int, str]] = []
+    for root_path in desired_paths:
+        position = current_by_path.get(root_path)
+        if position is None:
+            position = next_position
+            next_position += 1
+            roots_added += 1
+        root_rows.append((position, root_path))
+
+    roots_removed = len({root_path for _position, root_path in current_rows} - desired_path_set)
+    changed = tuple(sorted(current_rows)) != tuple(sorted(root_rows))
+    return LibrarySyncPlan(
+        root_rows=tuple(root_rows),
+        roots_added=roots_added,
+        roots_removed=roots_removed,
+        changed=changed,
+    )
+
+
+def run_sync_job(
+    runtime: PlayerRuntime,
+    configured_roots: Iterable[Path],
+    cancel_token: PlayerJobCancelToken,
+) -> PlayerJobResult:
+    started_at = perf_counter()
+    result = sync_library_roots(
+        runtime.database,
+        configured_roots,
+        album_artist_split_patterns=runtime.album_artist_split_patterns,
+        cancel_check=cancel_token.raise_if_canceled,
+    )
+    duration_seconds = perf_counter() - started_at
+    if not result.changed:
+        LOGGER.info(
+            "sync completed with no library root changes (roots=%s, duration=%.2fs)",
+            result.roots_configured,
+            duration_seconds,
+        )
+        return PlayerJobResult(
+            message="Sync completed.",
+            context={
+                "roots_configured": result.roots_configured,
+                "roots_added": 0,
+                "roots_removed": 0,
+                "roots_scanned": 0,
+                "duration_seconds": duration_seconds,
+            },
+        )
+
+    LOGGER.info(
+        "%s",
+        library_job_summary_text(
+            "sync",
+            "configured roots",
+            tracks_scanned=result.tracks_scanned,
+            albums_scanned=result.albums_scanned,
+            playlists_scanned=result.playlists_scanned,
+            files_missing_required_tags=result.files_missing_required_tags,
+            duration_seconds=duration_seconds,
+        ),
+    )
+    for line in library_job_detail_lines(
+        tracks_scanned=result.tracks_scanned,
+        albums_scanned=result.albums_scanned,
+        playlists_scanned=result.playlists_scanned,
+        files_missing_required_tags=result.files_missing_required_tags,
+        genre_resolution=result.genre_resolution,
+        cover_art_resolution=result.cover_art_resolution,
+    ):
+        LOGGER.info("%s", line)
+    return PlayerJobResult(
+        message="Sync completed.",
+        context={
+            "roots_configured": result.roots_configured,
+            "roots_added": result.roots_added,
+            "roots_removed": result.roots_removed,
+            "roots_scanned": result.roots_scanned,
+            "tracks_scanned": result.tracks_scanned,
+            "albums_scanned": result.albums_scanned,
+            "playlists_scanned": result.playlists_scanned,
+            "files_missing_required_tags": result.files_missing_required_tags,
+            "duration_seconds": duration_seconds,
+        },
+    )
 
 
 def reconcile_library_albums(
@@ -666,11 +613,3 @@ def reconcile_library_albums(
             )
     canonicalize_library_album_artists(connection)
     rebuild_album_rollups(connection, affected_album_ids)
-
-
-def root_payload(root: LibraryRootFilterOption) -> dict[str, object]:
-    return {
-        "position": root.position,
-        "path": root.path,
-        "label": root.label,
-    }

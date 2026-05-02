@@ -17,11 +17,10 @@ from .use_case import (
     mark_stale_player_jobs_canceled,
     playlist_audio_path,
     save_album_artist_split_mapping,
-    start_add_root,
     start_album_musicbrainz_edit,
     start_album_tag_edit,
-    start_delete_root,
     start_rescan_library,
+    start_sync,
     track_artwork,
     track_audio_path,
     update_playback as update_playback_command,
@@ -38,7 +37,8 @@ from .player_config import (
     LOGGER,
     PlayerServerOptions,
     build_template_environment,
-    player_accent_color,
+    player_accent_theme,
+    player_appearance_theme,
     validate_player_startup,
 )
 from .player_errors import PlayerConfigError, PlayerConflictError, PlayerNotFoundError
@@ -129,7 +129,13 @@ def create_player_app(options: PlayerServerOptions) -> Flask:
 
     @app.context_processor
     def inject_player_theme() -> dict[str, object]:
-        return {"accent_color": player_accent_color(options.accent_color)}
+        accent_theme = player_accent_theme(options.accent_color)
+        appearance_theme = player_appearance_theme(options.appearance)
+        return {
+            "accent_color": accent_theme.accent,
+            "accent_theme": accent_theme,
+            "appearance_theme": appearance_theme,
+        }
 
     @app.errorhandler(PlayerConflictError)
     def handle_conflict(error: PlayerConflictError) -> Response:
@@ -260,19 +266,9 @@ def create_player_app(options: PlayerServerOptions) -> Flask:
         result = start_album_tag_edit(player_context().runtime, album_id, payload)
         return json_response(result, status=202)
 
-    @app.post("/api/roots")
-    def add_root() -> Response:
-        payload = read_json_body()
-        result = start_add_root(player_context().runtime, str(payload.get("path", "")))
-        return json_response(result, status=202)
-
     @app.post("/api/roots/rescan")
     def rescan_library() -> Response:
         return json_response(start_rescan_library(player_context().runtime), status=202)
-
-    @app.post("/api/roots/<int:position>/delete")
-    def delete_root(position: int) -> Response:
-        return json_response(start_delete_root(player_context().runtime, position), status=202)
 
     @app.post("/api/album-artist-mappings")
     def edit_album_artist_split_mapping() -> Response:
@@ -400,6 +396,7 @@ def serve_player(options: PlayerServerOptions) -> int:
         )
         return 1
 
+    start_player_sync(app)
     url = f"http://{options.host}:{server.server_port}/"
     LOGGER.info("using config file %s", options.config_path)
     LOGGER.info("kukicha listening on %s", url)
@@ -414,6 +411,11 @@ def serve_player(options: PlayerServerOptions) -> int:
         restore_signal_handlers(previous_handlers)
         LOGGER.info("player server stopped")
     return 0
+
+
+def start_player_sync(app: Flask) -> None:
+    context = app.extensions[PLAYER_CONTEXT_KEY]
+    start_sync(context.runtime, context.options.roots)
 
 
 def player_context() -> PlayerWebContext:
@@ -614,6 +616,11 @@ def job_events_response(runtime: PlayerRuntime) -> Response:
         runtime.subscribe_jobs(subscriber)
         try:
             yield b"retry: 1000\n\n"
+            for payload in runtime.active_job_payloads():
+                yield b"event: job\n"
+                yield b"data: "
+                yield json.dumps(payload, sort_keys=True).encode("utf-8")
+                yield b"\n\n"
             while True:
                 try:
                     payload = subscriber.get(timeout=15.0)

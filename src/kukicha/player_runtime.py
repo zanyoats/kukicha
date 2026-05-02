@@ -282,6 +282,12 @@ class PlayerRuntime:
 
         return [job_payload(job) for job in list_player_jobs(self.database)]
 
+    def active_job_payloads(self) -> list[dict[str, object]]:
+        from .player_jobs import job_payload
+        from .use_case import list_active_player_jobs
+
+        return [job_payload(job) for job in list_active_player_jobs(self.database)]
+
 
 def brief_error_reason(error: BaseException) -> str:
     reason = str(error).strip()

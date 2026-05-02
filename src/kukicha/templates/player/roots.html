@@ -5,26 +5,8 @@
 
   <section class="settings-panel" id="roots">
     <div class="settings-panel-header">
-      <h2>Add Root</h2>
-      <div class="settings-panel-meta">Choose a folder path to add and scan into the library.</div>
-    </div>
-    <form class="settings-form" action="/api/roots" method="post" data-root-form>
-      <label class="settings-field">
-        <span class="visually-hidden">New root folder path</span>
-        <input class="settings-input" type="text" name="path" value="" placeholder="/Volumes/Music"
-          autocomplete="off" spellcheck="false" data-initial-focus data-root-path-input>
-      </label>
-      <div class="settings-actions">
-        <button class="primary" type="submit" data-add-root disabled>Add and Scan</button>
-      </div>
-      <div class="settings-status" data-root-form-status aria-live="polite"></div>
-    </form>
-  </section>
-
-  <section class="settings-panel">
-    <div class="settings-panel-header">
       <h2>Current Roots</h2>
-      <div class="settings-panel-meta">Add and scan, delete, and rescan run in the background. Check Jobs for progress.</div>
+      <div class="settings-panel-meta">Configured roots are synced at startup. Rescan runs in the background.</div>
     </div>
     <div class="settings-actions">
       <button type="button" data-rescan-library {% if not roots %}disabled{% endif %}>Rescan</button>
@@ -52,9 +34,6 @@
                 <dd>{{ stats.playlists_scanned if stats else 0 }}</dd>
               </div>
             </dl>
-          </div>
-          <div class="root-card-actions">
-            <button type="button" class="danger" data-delete-root data-root-position="{{ root.position }}">Delete</button>
           </div>
         </article>
       {% endfor %}

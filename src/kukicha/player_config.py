@@ -23,20 +23,21 @@ from .use_case import prepare_player_database
 DEFAULT_PLAYER_LOG_LEVEL = "DEBUG"
 DEFAULT_PLAYER_HOST = "127.0.0.1"
 DEFAULT_PLAYER_PORT = 65042
-DEFAULT_TOAST_TIMEOUT_MS = 10000
-DEFAULT_LINKED_TOAST_TIMEOUT_MS = 25000
-DEFAULT_ACCENT_COLOR = "sienna"
+DEFAULT_TOAST_TIMEOUT_MS = 5000
+DEFAULT_ACCENT_COLOR = "warm-brown"
+DEFAULT_APPEARANCE = "light"
 PLAYER_CONFIG_FILENAME = "kukicha.toml"
 PLAYER_DATABASE_FILENAME = "kukicha.sqlite"
 PLAYER_CONFIG_KEY_ORDER = (
     "LogLevel",
     "DatabasePath",
+    "Roots",
     "FFmpegPath",
     "Host",
     "Port",
     "AccentColor",
+    "Appearance",
     "ToastTimeoutMs",
-    "LinkedToastTimeoutMs",
     "AlbumArtistSplitPatterns",
 )
 PLAYER_CONFIG_KEYS = frozenset(PLAYER_CONFIG_KEY_ORDER)
@@ -55,12 +56,13 @@ class PlayerServerOptions:
     config_path: Path
     database: Path
     ffmpeg_path: Path | None
+    roots: tuple[Path, ...] = ()
     host: str = DEFAULT_PLAYER_HOST
     port: int = DEFAULT_PLAYER_PORT
     log_level: str = DEFAULT_PLAYER_LOG_LEVEL
     accent_color: str = DEFAULT_ACCENT_COLOR
+    appearance: str = DEFAULT_APPEARANCE
     toast_timeout_ms: int = DEFAULT_TOAST_TIMEOUT_MS
-    linked_toast_timeout_ms: int = DEFAULT_LINKED_TOAST_TIMEOUT_MS
     album_artist_split_patterns: tuple[str, ...] = DEFAULT_ALBUM_ARTIST_SPLIT_PATTERNS
 
 
@@ -69,6 +71,7 @@ class PlayerConfigValue:
     key: str
     value: str
     source: str
+    items: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -80,42 +83,131 @@ class PlayerConfigSummary:
     error: str = ""
 
 
-CSS_NAMED_COLORS = frozenset(
-    (
-        "aliceblue", "antiquewhite", "aqua", "aquamarine", "azure",
-        "beige", "bisque", "black", "blanchedalmond", "blue", "blueviolet",
-        "brown", "burlywood", "cadetblue", "chartreuse", "chocolate",
-        "coral", "cornflowerblue", "cornsilk", "crimson", "cyan",
-        "darkblue", "darkcyan", "darkgoldenrod", "darkgray", "darkgreen",
-        "darkgrey", "darkkhaki", "darkmagenta", "darkolivegreen",
-        "darkorange", "darkorchid", "darkred", "darksalmon",
-        "darkseagreen", "darkslateblue", "darkslategray", "darkslategrey",
-        "darkturquoise", "darkviolet", "deeppink", "deepskyblue",
-        "dimgray", "dimgrey", "dodgerblue", "firebrick", "floralwhite",
-        "forestgreen", "fuchsia", "gainsboro", "ghostwhite", "gold",
-        "goldenrod", "gray", "green", "greenyellow", "grey", "honeydew",
-        "hotpink", "indianred", "indigo", "ivory", "khaki", "lavender",
-        "lavenderblush", "lawngreen", "lemonchiffon", "lightblue",
-        "lightcoral", "lightcyan", "lightgoldenrodyellow", "lightgray",
-        "lightgreen", "lightgrey", "lightpink", "lightsalmon",
-        "lightseagreen", "lightskyblue", "lightslategray",
-        "lightslategrey", "lightsteelblue", "lightyellow", "lime",
-        "limegreen", "linen", "magenta", "maroon", "mediumaquamarine",
-        "mediumblue", "mediumorchid", "mediumpurple", "mediumseagreen",
-        "mediumslateblue", "mediumspringgreen", "mediumturquoise",
-        "mediumvioletred", "midnightblue", "mintcream", "mistyrose",
-        "moccasin", "navajowhite", "navy", "oldlace", "olive",
-        "olivedrab", "orange", "orangered", "orchid", "palegoldenrod",
-        "palegreen", "paleturquoise", "palevioletred", "papayawhip",
-        "peachpuff", "peru", "pink", "plum", "powderblue", "purple",
-        "rebeccapurple", "red", "rosybrown", "royalblue", "saddlebrown",
-        "salmon", "sandybrown", "seagreen", "seashell", "sienna",
-        "silver", "skyblue", "slateblue", "slategray", "slategrey",
-        "snow", "springgreen", "steelblue", "tan", "teal", "thistle",
-        "tomato", "turquoise", "violet", "wheat", "white", "whitesmoke",
-        "yellow", "yellowgreen",
-    )
-)
+ACCENT_COLOR_CODES = {
+    "red": "#dc2626",
+    "dark-red": "#b91c1c",
+    "bright-red": "#ef4444",
+    "rose": "#e11d48",
+    "dark-rose": "#be123c",
+    "pink": "#ec4899",
+    "dark-pink": "#db2777",
+    "orange": "#f97316",
+    "dark-orange": "#ea580c",
+    "amber": "#f59e0b",
+    "dark-amber": "#d97706",
+    "yellow": "#eab308",
+    "dark-yellow": "#ca8a04",
+    "lime": "#84cc16",
+    "dark-lime": "#65a30d",
+    "green": "#22c55e",
+    "dark-green": "#16a34a",
+    "emerald": "#059669",
+    "dark-emerald": "#047857",
+    "teal": "#14b8a6",
+    "dark-teal": "#0f766e",
+    "cyan": "#06b6d4",
+    "dark-cyan": "#0891b2",
+    "sky-blue": "#0ea5e9",
+    "dark-sky-blue": "#0284c7",
+    "blue": "#3b82f6",
+    "dark-blue": "#2563eb",
+    "indigo": "#4f46e5",
+    "dark-indigo": "#4338ca",
+    "violet": "#8b5cf6",
+    "dark-violet": "#7c3aed",
+    "purple": "#a855f7",
+    "dark-purple": "#9333ea",
+    "fuchsia": "#d946ef",
+    "dark-fuchsia": "#c026d3",
+    "gray": "#71717a",
+    "dark-gray": "#52525b",
+    "cool-gray": "#9ca3af",
+    "medium-gray": "#6b7280",
+    "brown": "#a16207",
+    "dark-brown": "#854d0e",
+    "warm-brown": "#8b5e3c",
+    "taupe": "#766b65",
+    "warm-taupe": "#b09f95",
+}
+ACCENT_COLOR_NAMES_BY_CODE = {code: name for name, code in ACCENT_COLOR_CODES.items()}
+ACCENT_COLOR_STRONG_MINIMUM_CONTRAST = 4.5
+ACCENT_FOREGROUND_DARK = "#111827"
+ACCENT_FOREGROUND_LIGHT = "#ffffff"
+
+
+@dataclass(frozen=True, slots=True)
+class PlayerAccentTheme:
+    name: str
+    accent: str
+    accent_strong: str
+    accent_soft: str
+    accent_foreground: str
+
+
+@dataclass(frozen=True, slots=True)
+class PlayerAppearanceTheme:
+    name: str
+    color_scheme: str
+    bg: str
+    surface: str
+    surface_alt: str
+    surface_hover: str
+    surface_overlay: str
+    surface_overlay_hover: str
+    text: str
+    muted: str
+    line: str
+    track_row_highlight: str
+    track_row_highlight_text: str
+
+
+APPEARANCE_THEMES = {
+    "light": PlayerAppearanceTheme(
+        name="light",
+        color_scheme="light",
+        bg="#f4f4f5",
+        surface="#ffffff",
+        surface_alt="#eeeeee",
+        surface_hover="#e1e1e1",
+        surface_overlay="rgba(255, 255, 255, 0.94)",
+        surface_overlay_hover="rgba(238, 238, 238, 0.97)",
+        text="#18181b",
+        muted="#5c5c5c",
+        line="#e4e4e7",
+        track_row_highlight="var(--accent-soft)",
+        track_row_highlight_text="var(--text)",
+    ),
+    "dark": PlayerAppearanceTheme(
+        name="dark",
+        color_scheme="dark",
+        bg="#18181b",
+        surface="#27272a",
+        surface_alt="#3f3f46",
+        surface_hover="#52525b",
+        surface_overlay="rgba(39, 39, 42, 0.94)",
+        surface_overlay_hover="rgba(63, 63, 70, 0.97)",
+        text="#f4f4f5",
+        muted="#a1a1aa",
+        line="#3f3f46",
+        track_row_highlight="#3f3f46",
+        track_row_highlight_text="#f4f4f5",
+    ),
+    "dim": PlayerAppearanceTheme(
+        name="dim",
+        color_scheme="dark",
+        bg="#1e293b",
+        surface="#475569",
+        surface_alt="#64748b",
+        surface_hover="#708199",
+        surface_overlay="rgba(71, 85, 105, 0.94)",
+        surface_overlay_hover="rgba(100, 116, 139, 0.97)",
+        text="#f4f4f5",
+        muted="#cbd5e1",
+        line="#64748b",
+        track_row_highlight="#334155",
+        track_row_highlight_text="#f4f4f5",
+    ),
+}
 
 
 def default_player_config_dir() -> Path:
@@ -144,16 +236,18 @@ def load_player_options(config_path: str | Path | None = None) -> PlayerServerOp
         key="FFmpegPath",
         base_dir=config_dir,
     )
+    roots = parse_config_path_list(
+        config.get("Roots", ()),
+        key="Roots",
+        base_dir=config_dir,
+    )
     host = parse_player_host(config.get("Host", DEFAULT_PLAYER_HOST))
     port = parse_player_port(config.get("Port", DEFAULT_PLAYER_PORT))
     accent_color = parse_accent_color(config.get("AccentColor", DEFAULT_ACCENT_COLOR))
+    appearance = parse_appearance(config.get("Appearance", DEFAULT_APPEARANCE))
     toast_timeout_ms = parse_positive_milliseconds(
         config.get("ToastTimeoutMs", DEFAULT_TOAST_TIMEOUT_MS),
         key="ToastTimeoutMs",
-    )
-    linked_toast_timeout_ms = parse_positive_milliseconds(
-        config.get("LinkedToastTimeoutMs", DEFAULT_LINKED_TOAST_TIMEOUT_MS),
-        key="LinkedToastTimeoutMs",
     )
     album_artist_split_patterns = parse_album_artist_split_patterns(
         config.get("AlbumArtistSplitPatterns", DEFAULT_ALBUM_ARTIST_SPLIT_PATTERNS)
@@ -162,13 +256,14 @@ def load_player_options(config_path: str | Path | None = None) -> PlayerServerOp
     return PlayerServerOptions(
         config_path=resolved_config_path,
         database=database,
+        roots=roots,
         ffmpeg_path=ffmpeg_path,
         host=host,
         port=port,
         log_level=log_level,
         accent_color=accent_color,
+        appearance=appearance,
         toast_timeout_ms=toast_timeout_ms,
-        linked_toast_timeout_ms=linked_toast_timeout_ms,
         album_artist_split_patterns=album_artist_split_patterns,
     )
 
@@ -197,7 +292,13 @@ def player_config_help_text(config_path: str | Path | None = None) -> str:
 
     lines.extend(("", "Supported keys:"))
     lines.extend(f"  {key}" for key in summary.supported_keys)
-    lines.extend(("", "AccentColor accepts any valid CSS named color."))
+    lines.extend(("", "AccentColor accepts these palette names or matching hex codes:"))
+    lines.extend(
+        f"  {name} ({code})"
+        for name, code in ACCENT_COLOR_CODES.items()
+    )
+    lines.extend(("", "Appearance accepts these values:"))
+    lines.extend(f"  {name}" for name in APPEARANCE_THEMES)
     return "\n".join(lines)
 
 def player_config_summary(
@@ -246,21 +347,27 @@ def player_config_values(
     values = {
         "LogLevel": options.log_level,
         "DatabasePath": str(options.database),
+        "Roots": format_player_config_path_list(options.roots),
         "FFmpegPath": format_player_config_optional_path(options.ffmpeg_path),
         "Host": options.host,
         "Port": str(options.port),
         "AccentColor": options.accent_color,
+        "Appearance": options.appearance,
         "ToastTimeoutMs": str(options.toast_timeout_ms),
-        "LinkedToastTimeoutMs": str(options.linked_toast_timeout_ms),
         "AlbumArtistSplitPatterns": format_player_config_string_list(
             options.album_artist_split_patterns
         ),
+    }
+    value_items = {
+        "Roots": tuple(str(root) for root in options.roots),
+        "AlbumArtistSplitPatterns": options.album_artist_split_patterns,
     }
     return tuple(
         PlayerConfigValue(
             key=key,
             value=values[key],
             source=player_config_value_source(raw_config, key),
+            items=value_items.get(key, ()),
         )
         for key in PLAYER_CONFIG_KEY_ORDER
     )
@@ -280,6 +387,9 @@ def format_player_config_optional_path(path: Path | None) -> str:
 
 def format_player_config_string_list(values: tuple[str, ...]) -> str:
     return "[" + ", ".join(repr(value) for value in values) + "]"
+
+def format_player_config_path_list(values: tuple[Path, ...]) -> str:
+    return "[" + ", ".join(repr(str(value)) for value in values) + "]"
 
 def configure_player_logging(log_level: str) -> None:
     level_name = parse_player_log_level(log_level)
@@ -355,16 +465,107 @@ def parse_accent_color(value: object) -> str:
     if not isinstance(value, str) or not value.strip():
         raise PlayerConfigError("AccentColor must be a non-empty string")
     name = normalize_accent_color_name(value)
-    if name not in CSS_NAMED_COLORS:
-        raise PlayerConfigError(f"AccentColor must be a valid CSS named color: {value}")
+    if name not in ACCENT_COLOR_CODES:
+        raise PlayerConfigError(f"AccentColor must be a supported palette color: {value}")
     return name
 
+def parse_appearance(value: object) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise PlayerConfigError("Appearance must be a non-empty string")
+    appearance = value.strip().lower()
+    if appearance not in APPEARANCE_THEMES:
+        raise PlayerConfigError(f"Appearance must be one of: {', '.join(APPEARANCE_THEMES)}")
+    return appearance
+
 def normalize_accent_color_name(value: str) -> str:
-    return value.strip().lower()
+    color = value.strip().lower()
+    return ACCENT_COLOR_NAMES_BY_CODE.get(color, color)
 
 def player_accent_color(name: str) -> str:
-    color = normalize_accent_color_name(name)
-    return color if color in CSS_NAMED_COLORS else DEFAULT_ACCENT_COLOR
+    return player_accent_theme(name).accent
+
+def player_accent_theme(name: str) -> PlayerAccentTheme:
+    color_name = normalize_accent_color_name(name)
+    if color_name not in ACCENT_COLOR_CODES:
+        color_name = DEFAULT_ACCENT_COLOR
+    accent = ACCENT_COLOR_CODES[color_name]
+    accent_soft = derived_accent_soft(accent)
+    return PlayerAccentTheme(
+        name=color_name,
+        accent=accent,
+        accent_strong=derived_accent_strong(accent, accent_soft),
+        accent_soft=accent_soft,
+        accent_foreground=derived_accent_foreground(accent),
+    )
+
+def player_appearance_theme(name: str) -> PlayerAppearanceTheme:
+    return APPEARANCE_THEMES.get(name.strip().lower(), APPEARANCE_THEMES[DEFAULT_APPEARANCE])
+
+def derived_accent_strong(accent: str, accent_soft: str) -> str:
+    accent_rgb = hex_to_rgb(accent)
+    black_rgb = (0, 0, 0)
+    for accent_percent in range(70, 19, -5):
+        candidate = rgb_to_hex(mix_rgb(accent_rgb, black_rgb, accent_percent / 100))
+        if contrast_ratio(candidate, accent_soft) >= ACCENT_COLOR_STRONG_MINIMUM_CONTRAST:
+            return candidate
+    return ACCENT_FOREGROUND_DARK
+
+def derived_accent_soft(accent: str) -> str:
+    return rgb_to_hex(mix_rgb(hex_to_rgb(accent), (255, 255, 255), 0.12))
+
+def derived_accent_foreground(accent: str) -> str:
+    light_contrast = contrast_ratio(ACCENT_FOREGROUND_LIGHT, accent)
+    dark_contrast = contrast_ratio(ACCENT_FOREGROUND_DARK, accent)
+    if light_contrast >= dark_contrast:
+        return ACCENT_FOREGROUND_LIGHT
+    return ACCENT_FOREGROUND_DARK
+
+def hex_to_rgb(value: str) -> tuple[int, int, int]:
+    hex_value = value.removeprefix("#")
+    return (
+        int(hex_value[0:2], 16),
+        int(hex_value[2:4], 16),
+        int(hex_value[4:6], 16),
+    )
+
+def rgb_to_hex(value: tuple[int, int, int]) -> str:
+    return "#" + "".join(f"{channel:02x}" for channel in value)
+
+def mix_rgb(
+    foreground: tuple[int, int, int],
+    background: tuple[int, int, int],
+    foreground_weight: float,
+) -> tuple[int, int, int]:
+    background_weight = 1 - foreground_weight
+    return tuple(
+        int(
+            foreground_channel * foreground_weight
+            + background_channel * background_weight
+            + 0.5
+        )
+        for foreground_channel, background_channel in zip(foreground, background)
+    )
+
+def contrast_ratio(first: str, second: str) -> float:
+    first_luminance = relative_luminance(first)
+    second_luminance = relative_luminance(second)
+    lighter = max(first_luminance, second_luminance)
+    darker = min(first_luminance, second_luminance)
+    return (lighter + 0.05) / (darker + 0.05)
+
+def relative_luminance(value: str) -> float:
+    red, green, blue = hex_to_rgb(value)
+    return (
+        0.2126 * linearized_rgb_channel(red)
+        + 0.7152 * linearized_rgb_channel(green)
+        + 0.0722 * linearized_rgb_channel(blue)
+    )
+
+def linearized_rgb_channel(value: int) -> float:
+    normalized = value / 255
+    if normalized <= 0.04045:
+        return normalized / 12.92
+    return ((normalized + 0.055) / 1.055) ** 2.4
 
 def parse_positive_milliseconds(value: object, *, key: str) -> int:
     if type(value) is not int:
@@ -408,6 +609,28 @@ def parse_optional_config_path(
     if not stripped:
         return None
     return resolve_path(Path(stripped).expanduser(), base_dir=base_dir)
+
+def parse_config_path_list(
+    value: object,
+    *,
+    key: str,
+    base_dir: Path,
+) -> tuple[Path, ...]:
+    if not isinstance(value, (list, tuple)):
+        raise PlayerConfigError(f"{key} must be an array of strings")
+
+    paths: list[Path] = []
+    seen: set[str] = set()
+    for item in value:
+        if not isinstance(item, str) or not item.strip():
+            raise PlayerConfigError(f"{key} must be an array of non-empty strings")
+        path = resolve_path(Path(item.strip()).expanduser(), base_dir=base_dir)
+        key_value = str(path)
+        if key_value in seen:
+            raise PlayerConfigError(f"{key} must not contain duplicate paths: {path}")
+        seen.add(key_value)
+        paths.append(path)
+    return tuple(paths)
 
 def resolve_path(path: Path, *, base_dir: Path | None = None) -> Path:
     resolved = path

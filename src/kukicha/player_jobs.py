@@ -13,6 +13,7 @@ def job_kind_label(kind: str) -> str:
         "edit_album_musicbrainz": "Edit MusicBrainz IDs",
         "update_playlist_file": "Update Playlist File",
         "rescan_library": "Rescan",
+        "sync": "Sync",
     }
     return labels.get(kind, " ".join(part.capitalize() for part in kind.split("_") if part))
 
@@ -54,6 +55,9 @@ def humanize_job_context_key(key: str) -> str:
         "playlist_path": "Playlist File",
         "track": "Track",
         "root_position": "Root",
+        "roots_configured": "Configured Roots",
+        "roots_added": "Added Roots",
+        "roots_removed": "Removed Roots",
         "roots_scanned": "Roots",
         "tracks_updated": "Tracks",
         "tracks_scanned": "Tracks",
@@ -93,6 +97,9 @@ def job_context_items(context: dict[str, object]) -> list[dict[str, str]]:
         "operation",
         "album",
         "album_artist",
+        "roots_configured",
+        "roots_added",
+        "roots_removed",
         "roots_scanned",
         "tracks_updated",
         "tracks_scanned",

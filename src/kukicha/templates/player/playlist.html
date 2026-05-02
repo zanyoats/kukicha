@@ -23,7 +23,9 @@
         {% endif %}
       </div>
       <div class="album-detail-copy">
-        <h2 title="{{ playlist.name }}">{{ playlist.name }}</h2>
+        <h2 title="{{ playlist.name }}">
+          <span class="album-detail-title-text" title="{{ playlist.name }}">{{ playlist.name }}</span>
+        </h2>
         <ul class="meta-list album-genre-meta">
           <li>Playlist</li>
           {% if playlist_path_text %}
@@ -35,6 +37,7 @@
   </header>
 
   {% set is_queue = false %}
+  {% set show_track_play_button = false %}
   <div class="album-track-sections">
     <section class="album-track-section">
       {% include "player/_track_table.html" %}
