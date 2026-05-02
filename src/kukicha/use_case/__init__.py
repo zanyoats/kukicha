@@ -40,6 +40,7 @@ from .database import (
     ALBUM_SEARCH_INDEX_VERSION,
     ALBUM_SEARCH_METADATA_KEY,
     UNKNOWN_GENRE_TAG,
+    UNKNOWN_METADATA_TAG,
     connect_database,
 )
 from .itunes import (
@@ -172,6 +173,7 @@ __all__ = [
     "track_audio_path",
     "store_track_artwork_by_path",
     "UNKNOWN_GENRE_TAG",
+    "UNKNOWN_METADATA_TAG",
     "update_playback",
     "update_player_job",
     "update_queue",

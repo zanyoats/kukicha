@@ -7,7 +7,7 @@ import unittest
 from unittest.mock import patch
 
 from kukicha.discogs import group_library_albums
-from kukicha.models import TrackRecord
+from kukicha.models import TrackRecord, UNKNOWN_METADATA_TAG
 from kukicha.scanner import (
     PRIMARY_TAG_FIELDS,
     build_library,
@@ -116,6 +116,76 @@ class ScannerTagNormalizationTest(unittest.TestCase):
         self.assertEqual(track.duration_seconds, 123.456)
         self.assertEqual(track.bitrate, 128000)
         self.assertEqual(mutagen_file.call_count, 2)
+
+    def test_readable_file_without_tags_uses_unknown_album_metadata(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            root = Path(tempdir)
+            path = root / "01 Mystery.flac"
+            path.write_bytes(b"not real audio; mutagen is mocked")
+
+            audio = SimpleNamespace(
+                tags=None,
+                info=SimpleNamespace(length=42.0, bitrate=128000),
+            )
+
+            with patch("kukicha.scanner.MutagenFile", return_value=audio):
+                library = build_library([root])
+
+        self.assertEqual(len(library.tracks), 1)
+        track = library.tracks[0]
+        self.assertIsNone(track.artist)
+        self.assertEqual(track.album_artist, UNKNOWN_METADATA_TAG)
+        self.assertEqual(track.album, UNKNOWN_METADATA_TAG)
+        self.assertEqual(track.title, "01 Mystery")
+        self.assertEqual(track.genres, [UNKNOWN_METADATA_TAG])
+        self.assertEqual(track.duration_seconds, 42.0)
+
+    def test_empty_tag_values_use_unknown_album_metadata(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            path = Path(tempdir) / "02 Empty Tags.flac"
+            path.write_bytes(b"not real audio; mutagen is mocked")
+
+            audio = SimpleNamespace(
+                tags={
+                    "ARTIST": "",
+                    "ALBUMARTIST": "",
+                    "ALBUM": "",
+                    "TITLE": "",
+                    "GENRE": "",
+                },
+                info=SimpleNamespace(length=12.0, bitrate=128000),
+            )
+
+            with patch("kukicha.scanner.MutagenFile", return_value=audio):
+                track = scan_track(path)
+
+        self.assertEqual(track.album_artist, UNKNOWN_METADATA_TAG)
+        self.assertEqual(track.album, UNKNOWN_METADATA_TAG)
+        self.assertEqual(track.title, "02 Empty Tags")
+        self.assertEqual(track.genres, [UNKNOWN_METADATA_TAG])
+
+    def test_composer_artist_fallback_is_not_replaced_by_unknown_album_artist(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            path = Path(tempdir) / "03 Composer.flac"
+            path.write_bytes(b"not real audio; mutagen is mocked")
+
+            audio = SimpleNamespace(
+                tags={
+                    "TCOM": ["Antonio Vivaldi"],
+                    "ALBUM": ["The Four Seasons"],
+                    "TITLE": ["Spring"],
+                },
+                info=SimpleNamespace(length=123.0, bitrate=128000),
+            )
+
+            with patch("kukicha.scanner.MutagenFile", return_value=audio):
+                track = scan_track(path)
+
+        self.assertEqual(track.artist, "Antonio Vivaldi")
+        self.assertIsNone(track.album_artist)
+        self.assertEqual(track.album, "The Four Seasons")
+        self.assertEqual(track.title, "Spring")
+        self.assertEqual(track.genres, [UNKNOWN_METADATA_TAG])
 
     def test_album_year_uses_original_date_before_release_date(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
@@ -348,6 +418,8 @@ class ScannerTagWriteTest(unittest.TestCase):
                         "artist": ["Old Artist"],
                         "albumartist": ["Old Album Artist"],
                         "album": ["Old Album"],
+                        "tracknumber": ["1"],
+                        "title": ["Old Title"],
                         "genre": ["Old Genre"],
                     }
                 )
@@ -398,12 +470,16 @@ class ScannerTagWriteTest(unittest.TestCase):
                 artist="New Artist",
                 album_artist="",
                 album="New Album",
+                track_number="7",
+                title="New Title",
                 genre="Electronic; Score",
             )
 
         self.assertEqual(audio["artist"], ["New Artist"])
         self.assertNotIn("albumartist", audio)
         self.assertEqual(audio["album"], ["New Album"])
+        self.assertEqual(audio["tracknumber"], ["7"])
+        self.assertEqual(audio["title"], ["New Title"])
         self.assertEqual(audio["genre"], ["Electronic; Score"])
         self.assertTrue(audio.saved)
 

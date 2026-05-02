@@ -7,6 +7,7 @@ from pathlib import Path
 import re
 from urllib.parse import urlsplit
 
+from .discogs import most_common_value
 from .use_case import (
     AlbumDetails,
     LibraryQueries,
@@ -90,6 +91,20 @@ class AlbumTrackSection:
     label: str
     meta: tuple[str, ...]
     table_rows: list[TrackTableRow]
+
+@dataclass(frozen=True, slots=True)
+class AlbumTagEditTrack:
+    track: TrackView
+    track_number: str
+
+@dataclass(frozen=True, slots=True)
+class AlbumTagEditSection:
+    label: str
+    meta: tuple[str, ...]
+    tracks: tuple[AlbumTagEditTrack, ...]
+    album: str
+    album_artist: str
+    genre: str
 
 def album_track_meta(album: AlbumDetails, tracks: list[TrackView]) -> tuple[str, ...]:
     parts = [f"{album.track_count} {plural(album.track_count, 'track', 'tracks')}"]
@@ -482,6 +497,65 @@ def album_track_sections(
             )
         )
     return sections
+
+def album_tag_edit_sections(
+    tracks: list[TrackView],
+    roots: tuple[LibraryRootFilterOption, ...],
+) -> list[AlbumTagEditSection]:
+    return [
+        AlbumTagEditSection(
+            label=section.label,
+            meta=section.meta,
+            tracks=album_tag_edit_tracks(row.track for row in section.table_rows),
+            album=album_tag_edit_section_album(row.track for row in section.table_rows),
+            album_artist=album_tag_edit_section_album_artist(
+                row.track for row in section.table_rows
+            ),
+            genre=album_tag_edit_section_genre(row.track for row in section.table_rows),
+        )
+        for section in album_track_sections(tracks, roots)
+    ]
+
+def album_tag_edit_tracks(tracks: Iterable[TrackView]) -> tuple[AlbumTagEditTrack, ...]:
+    section_tracks = tuple(tracks)
+    track_numbers_by_id = {
+        track.track_id: str(position)
+        for position, track in enumerate(
+            sorted(section_tracks, key=album_tag_edit_track_number_sort_key),
+            start=1,
+        )
+    }
+    return tuple(
+        AlbumTagEditTrack(
+            track=track,
+            track_number=track_numbers_by_id.get(track.track_id, ""),
+        )
+        for track in section_tracks
+    )
+
+def album_tag_edit_track_number_sort_key(track: TrackView) -> tuple[str, int]:
+    return (track.path.casefold(), track.track_id)
+
+def album_tag_edit_section_album(tracks: Iterable[TrackView]) -> str:
+    return most_common_value(track.album for track in tracks) or ""
+
+def album_tag_edit_section_album_artist(tracks: Iterable[TrackView]) -> str:
+    return most_common_value(track.album_artist for track in tracks) or ""
+
+def album_tag_edit_section_genre(tracks: Iterable[TrackView]) -> str:
+    values: list[str] = []
+    seen: set[str] = set()
+    for track in tracks:
+        for value in (*track.genres, *track.styles):
+            text = value.strip()
+            if not text:
+                continue
+            key = text.casefold()
+            if key in seen:
+                continue
+            seen.add(key)
+            values.append(text)
+    return "; ".join(values)
 
 def album_track_section_meta(tracks: list[TrackView]) -> tuple[str, ...]:
     parts = [f"{len(tracks)} {plural(len(tracks), 'track', 'tracks')}"]

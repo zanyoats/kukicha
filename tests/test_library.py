@@ -27,6 +27,7 @@ from kukicha.use_case import (
     resolve_library_genres,
     save_library,
     sync_library_roots,
+    UNKNOWN_GENRE_TAG,
 )
 from kukicha.models import (
     MusicLibrary,
@@ -2040,6 +2041,104 @@ def album_cursor_library() -> MusicLibrary:
 
 
 class LibraryGenreResolutionTest(unittest.TestCase):
+    def test_resolve_library_genres_sets_unknown_when_audio_has_no_genre_data(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            database = Path(tempdir) / "kukicha.sqlite"
+            connection = connect_database(database)
+            try:
+                library = MusicLibrary(
+                    roots=[],
+                    tracks=[
+                        TrackRecord(
+                            path="/music/Artist/Album/01.flac",
+                            album_artist="Artist",
+                            album="Album",
+                            title="Track",
+                            genres=[],
+                        )
+                    ],
+                    supported_extensions=[],
+                    generated_at="2026-04-23T00:00:00+00:00",
+                )
+
+                stats = resolve_library_genres(library, database, connection=connection)
+            finally:
+                connection.close()
+
+        self.assertEqual(library.tracks[0].genres, [UNKNOWN_GENRE_TAG])
+        self.assertEqual(library.tracks[0].styles, [])
+        self.assertEqual(stats.unmatched, 0)
+        self.assertEqual(stats.unknown_albums, 1)
+        self.assertEqual(stats.unknown_tracks, 1)
+
+    def test_resolve_library_genres_treats_explicit_unknown_as_missing_marker(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            database = Path(tempdir) / "kukicha.sqlite"
+            connection = connect_database(database)
+            try:
+                library = MusicLibrary(
+                    roots=[],
+                    tracks=[
+                        TrackRecord(
+                            path="/music/Artist/Album/01.flac",
+                            album_artist="Artist",
+                            album="Album",
+                            title="Track",
+                            genres=[UNKNOWN_GENRE_TAG],
+                        )
+                    ],
+                    supported_extensions=[],
+                    generated_at="2026-04-23T00:00:00+00:00",
+                )
+
+                stats = resolve_library_genres(library, database, connection=connection)
+            finally:
+                connection.close()
+
+        self.assertEqual(library.tracks[0].genres, [UNKNOWN_GENRE_TAG])
+        self.assertEqual(library.tracks[0].styles, [])
+        self.assertEqual(stats.unmatched, 0)
+        self.assertEqual(stats.unknown_albums, 1)
+        self.assertEqual(stats.unknown_tracks, 1)
+
+    def test_resolve_library_genres_ignores_unknown_marker_when_real_genre_matches(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            database = Path(tempdir) / "kukicha.sqlite"
+            connection = connect_database(database)
+            try:
+                library = MusicLibrary(
+                    roots=[],
+                    tracks=[
+                        TrackRecord(
+                            path="/music/Artist/Album/01.flac",
+                            album_artist="Artist",
+                            album="Album",
+                            title="One",
+                            genres=[UNKNOWN_GENRE_TAG],
+                        ),
+                        TrackRecord(
+                            path="/music/Artist/Album/02.flac",
+                            album_artist="Artist",
+                            album="Album",
+                            title="Two",
+                            genres=[UNKNOWN_GENRE_TAG, "Electronic"],
+                        ),
+                    ],
+                    supported_extensions=[],
+                    generated_at="2026-04-23T00:00:00+00:00",
+                )
+
+                stats = resolve_library_genres(library, database, connection=connection)
+            finally:
+                connection.close()
+
+        self.assertEqual(library.tracks[0].genres, ["Electronic"])
+        self.assertEqual(library.tracks[1].genres, ["Electronic"])
+        self.assertEqual(stats.exact_genre_matches, 1)
+        self.assertEqual(stats.unmatched, 0)
+        self.assertEqual(stats.unknown_albums, 0)
+        self.assertEqual(stats.unknown_tracks, 0)
+
     def test_resolve_library_genres_uses_supplied_connection_for_taxonomy(self) -> None:
         with TemporaryDirectory() as tempdir:
             database = Path(tempdir) / "kukicha.sqlite"

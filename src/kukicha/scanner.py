@@ -26,6 +26,7 @@ from .models import (
     PlaylistRecord,
     TrackArtwork,
     TrackRecord,
+    UNKNOWN_METADATA_TAG,
     normalize_genre_values,
 )
 from .playlist_art import playlist_cover_svg
@@ -365,8 +366,10 @@ def scan_track(path: Path) -> TrackRecord:
     record.artist = first_value(tags, PRIMARY_TAG_FIELDS["artist"])
     record.album_artist = first_value(tags, PRIMARY_TAG_FIELDS["album_artist"])
     record.composer = first_value(tags, PRIMARY_TAG_FIELDS["composer"])
-    record.album = first_value(tags, PRIMARY_TAG_FIELDS["album"])
-    record.title = first_value(tags, PRIMARY_TAG_FIELDS["title"])
+    if not (record.album_artist or record.artist):
+        record.album_artist = UNKNOWN_METADATA_TAG
+    record.album = first_value(tags, PRIMARY_TAG_FIELDS["album"]) or UNKNOWN_METADATA_TAG
+    record.title = first_value(tags, PRIMARY_TAG_FIELDS["title"]) or fallback_track_title(path)
     record.work = first_value(tags, PRIMARY_TAG_FIELDS["work"])
     record.grouping = first_value(tags, PRIMARY_TAG_FIELDS["grouping"])
     record.movement_name = first_value(tags, PRIMARY_TAG_FIELDS["movement_name"])
@@ -377,7 +380,7 @@ def scan_track(path: Path) -> TrackRecord:
     if record.file_type in ITUNES_STORE_FILE_TYPES:
         record.itunes_store_track_id = first_numeric_value(tags, ("cnid",))
         record.itunes_store_album_id = first_numeric_value(tags, ("plid",))
-    record.genres = genres
+    record.genres = genres or [UNKNOWN_METADATA_TAG]
     artwork_by_height = extract_preferred_artworks(
         audio,
         path,
@@ -394,17 +397,25 @@ def scan_track(path: Path) -> TrackRecord:
     return record
 
 
+def fallback_track_title(path: Path) -> str:
+    return path.stem.strip() or UNKNOWN_METADATA_TAG
+
+
 def write_track_audio_tags(
     path: Path,
     *,
     artist: str | None,
     album_artist: str | None,
     album: str | None,
+    track_number: str | None,
+    title: str | None,
     genre: str | None,
 ) -> None:
     resolved_artist = artist.strip() if artist else ""
     resolved_album_artist = album_artist.strip() if album_artist else ""
     resolved_album = album.strip() if album else ""
+    resolved_track_number = track_number.strip() if track_number else ""
+    resolved_title = title.strip() if title else ""
     resolved_genre = genre.strip() if genre else ""
 
     try:
@@ -436,6 +447,16 @@ def write_track_audio_tags(
             audio["album"] = [resolved_album]
         else:
             delete_easy_tag(audio, "album")
+
+        if resolved_track_number:
+            audio["tracknumber"] = [resolved_track_number]
+        else:
+            delete_easy_tag(audio, "tracknumber")
+
+        if resolved_title:
+            audio["title"] = [resolved_title]
+        else:
+            delete_easy_tag(audio, "title")
 
         if resolved_genre:
             audio["genre"] = [resolved_genre]

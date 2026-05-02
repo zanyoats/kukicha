@@ -473,8 +473,6 @@ def build_album_edit_context(
     query_string: str,
 ) -> dict[str, Any]:
     from .player_navigation import (
-        album_edit_album_artist_value,
-        album_edit_genre_value,
         album_artist_parts,
         album_root_links,
         album_genre_parts,
@@ -482,6 +480,7 @@ def build_album_edit_context(
         album_url,
     )
     from .player_presenters import (
+        album_tag_edit_sections,
         track_view,
     )
 
@@ -501,6 +500,7 @@ def build_album_edit_context(
         album=album,
         query=query,
         tracks=track_views,
+        album_tag_edit_sections=album_tag_edit_sections(track_views, roots),
         album_root_links=album_root_links(album, roots),
         album_artist_parts=album_artist_parts(album),
         album_year_text=str(album.year) if album.year else "",
@@ -509,8 +509,6 @@ def build_album_edit_context(
         album_back_url=album_url(album, query),
         album_musicbrainz_action_url=f"/api/albums/{quote(album.album_id, safe=':')}/musicbrainz",
         album_tag_edit_action_url=f"/api/albums/{quote(album.album_id, safe=':')}/tags",
-        album_tag_edit_album_artist=album_edit_album_artist_value(album),
-        album_tag_edit_genre=album_edit_genre_value(album),
         album_musicbrainz_release_mbid=(
             musicbrainz_link.release_mbid if musicbrainz_link is not None else ""
         ),

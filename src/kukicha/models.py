@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 
 TRACK_ARTWORK_HEIGHT = 32
 ALBUM_ARTWORK_HEIGHT = 250
+UNKNOWN_METADATA_TAG = "__Unknown"
 
 
 @dataclass(slots=True)

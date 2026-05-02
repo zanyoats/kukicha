@@ -8,11 +8,11 @@ from types import TracebackType
 from typing import Iterable
 
 from ..file_metadata import file_created_at
-from ..models import ALBUM_ARTWORK_HEIGHT
+from ..models import ALBUM_ARTWORK_HEIGHT, UNKNOWN_METADATA_TAG
 from ..taxonomy_data import parse_taxonomy_tsv
 
 TAXONOMY_METADATA_KEY = "taxonomy_tsv_sha256"
-UNKNOWN_GENRE_TAG = "__Unknown"
+UNKNOWN_GENRE_TAG = UNKNOWN_METADATA_TAG
 ALBUM_SEARCH_METADATA_KEY = "album_search_index_version"
 ALBUM_SEARCH_INDEX_VERSION = "4"
 ALBUM_SEARCH_TRACK_SEPARATOR = " kukichatrackboundarytoken "

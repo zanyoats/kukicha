@@ -63,7 +63,6 @@ def humanize_job_context_key(key: str) -> str:
         "tracks_scanned": "Tracks",
         "albums_scanned": "Albums",
         "playlists_scanned": "Playlists",
-        "files_missing_required_tags": "Missing Tags",
         "duration_seconds": "Duration",
         "error": "Error",
     }
@@ -105,7 +104,6 @@ def job_context_items(context: dict[str, object]) -> list[dict[str, str]]:
         "tracks_scanned",
         "albums_scanned",
         "playlists_scanned",
-        "files_missing_required_tags",
         "duration_seconds",
         "error",
     )

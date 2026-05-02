@@ -20,7 +20,6 @@ from .use_case import (
     LibraryRootFilterOption,
 )
 from .use_case import DEFAULT_ALBUMS_PER_PAGE, album_query_params
-from .discogs import most_common_value
 from .display import display_album_title
 from .models import ALBUM_ARTWORK_HEIGHT
 from .player_common import plural
@@ -231,23 +230,6 @@ def album_artist_parts(album: AlbumDetails) -> tuple[str, ...]:
     if album.album_artists:
         return album.album_artists
     return (album.artist,) if album.artist else ()
-
-def album_edit_album_artist_value(album: AlbumDetails) -> str:
-    return most_common_value(track.album_artist for track in album.tracks) or ""
-
-def album_edit_genre_value(album: AlbumDetails) -> str:
-    values: list[str] = []
-    seen: set[str] = set()
-    for value in (*album.genres, *album.styles):
-        text = value.strip()
-        if not text:
-            continue
-        key = text.casefold()
-        if key in seen:
-            continue
-        seen.add(key)
-        values.append(text)
-    return "; ".join(values)
 
 def album_meta_query(
     query: AlbumListQuery,

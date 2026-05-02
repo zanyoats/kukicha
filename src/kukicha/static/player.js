@@ -1550,19 +1550,32 @@ async function submitAlbumMusicBrainzForm(form) {
     return;
   }
 
+  const trackIdInputs = Array.from(form.querySelectorAll("[data-musicbrainz-track-id]"));
+  const trackIds = trackIdInputs.map((input) => (
+    input instanceof HTMLInputElement ? Number(input.value || "") : NaN
+  )).filter((trackId) => Number.isInteger(trackId) && trackId > 0);
+  if (trackIdInputs.length && !trackIds.length) {
+    setAlbumMusicBrainzStatus(form, "No tracks available to edit.", true);
+    return;
+  }
+
   setAlbumMusicBrainzStatus(form, "Submitting MusicBrainz edit...");
   submitButton.disabled = true;
   submitButton.setAttribute("aria-busy", "true");
   releaseMbidInput.disabled = true;
   releaseGroupMbidInput.disabled = true;
   try {
+    const requestBody = {
+      musicbrainz_release_mbid: releaseMbidInput.value.trim(),
+      musicbrainz_release_group_mbid: releaseGroupMbidInput.value.trim()
+    };
+    if (trackIdInputs.length) {
+      requestBody.track_ids = trackIds;
+    }
     const response = await fetch(form.action, {
       method: "POST",
       headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({
-        musicbrainz_release_mbid: releaseMbidInput.value.trim(),
-        musicbrainz_release_group_mbid: releaseGroupMbidInput.value.trim()
-      })
+      body: JSON.stringify(requestBody)
     });
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) {
@@ -1597,15 +1610,19 @@ async function submitAlbumTagForm(form) {
   if (!(form instanceof HTMLFormElement)) {
     return;
   }
+  const albumInput = form.querySelector("[data-album-input]");
   const genreInput = form.querySelector("[data-album-genre-input]");
   const albumArtistInput = form.querySelector("[data-album-artist-input]");
   const submitButton = form.querySelector("[data-save-album-tag]");
   const trackRows = Array.from(form.querySelectorAll("[data-track-tag-row]"));
   const trackTagInputs = Array.from(
-    form.querySelectorAll("[data-track-artist-input], [data-track-album-input]")
+    form.querySelectorAll(
+      "[data-track-artist-input], [data-track-number-input], [data-track-title-input]"
+    )
   );
   if (
-    !(genreInput instanceof HTMLInputElement)
+    !(albumInput instanceof HTMLInputElement)
+    || !(genreInput instanceof HTMLInputElement)
     || !(albumArtistInput instanceof HTMLInputElement)
     || !(submitButton instanceof HTMLButtonElement)
   ) {
@@ -1614,17 +1631,20 @@ async function submitAlbumTagForm(form) {
 
   const tracks = trackRows.map((row) => {
     const artistInput = row.querySelector("[data-track-artist-input]");
-    const albumInput = row.querySelector("[data-track-album-input]");
+    const trackNumberInput = row.querySelector("[data-track-number-input]");
+    const titleInput = row.querySelector("[data-track-title-input]");
     if (
       !(artistInput instanceof HTMLInputElement)
-      || !(albumInput instanceof HTMLInputElement)
+      || !(trackNumberInput instanceof HTMLInputElement)
+      || !(titleInput instanceof HTMLInputElement)
     ) {
       return null;
     }
     return {
       track_id: Number(row.dataset.trackId || ""),
       artist: artistInput.value.trim(),
-      album: albumInput.value.trim()
+      track_number: trackNumberInput.value.trim(),
+      title: titleInput.value.trim()
     };
   }).filter((item) => item && Number.isInteger(item.track_id) && item.track_id > 0);
   if (!tracks.length) {
@@ -1640,6 +1660,7 @@ async function submitAlbumTagForm(form) {
       input.disabled = true;
     }
   });
+  albumInput.disabled = true;
   genreInput.disabled = true;
   albumArtistInput.disabled = true;
   try {
@@ -1647,6 +1668,7 @@ async function submitAlbumTagForm(form) {
       method: "POST",
       headers: {"Content-Type": "application/json"},
       body: JSON.stringify({
+        album: albumInput.value.trim(),
         genre: genreInput.value.trim(),
         album_artist: albumArtistInput.value.trim(),
         tracks
@@ -1681,6 +1703,7 @@ async function submitAlbumTagForm(form) {
         input.disabled = false;
       }
     });
+    albumInput.disabled = false;
     genreInput.disabled = false;
     albumArtistInput.disabled = false;
   }

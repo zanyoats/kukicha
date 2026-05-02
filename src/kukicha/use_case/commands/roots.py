@@ -54,7 +54,6 @@ def library_job_summary_text(
     tracks_scanned: int,
     albums_scanned: int,
     playlists_scanned: int | None = None,
-    files_missing_required_tags: int,
     duration_seconds: float,
 ) -> str:
     scan_parts = f"tracks={tracks_scanned}, albums={albums_scanned}"
@@ -62,9 +61,7 @@ def library_job_summary_text(
         scan_parts = f"{scan_parts}, playlists={playlists_scanned}"
     return (
         f"{job_label} completed for {root_path} "
-        f"({scan_parts}, "
-        f"missing_required_tags={files_missing_required_tags}, "
-        f"duration={duration_seconds:.2f}s)"
+        f"({scan_parts}, duration={duration_seconds:.2f}s)"
     )
 
 
@@ -73,7 +70,6 @@ def library_job_detail_lines(
     tracks_scanned: int,
     albums_scanned: int,
     playlists_scanned: int | None = None,
-    files_missing_required_tags: int,
     genre_resolution: GenreResolutionStats,
     cover_art_resolution: CoverArtResolutionStats,
 ) -> tuple[str, ...]:
@@ -83,7 +79,6 @@ def library_job_detail_lines(
     ]
     if playlists_scanned is not None:
         scan_lines.append(f"playlists scanned: {playlists_scanned}")
-    scan_lines.append(f"files missing required tags: {files_missing_required_tags}")
     return (
         *scan_lines,
         f"exact genre matches: {genre_resolution.exact_genre_matches}",
@@ -122,7 +117,6 @@ class LibraryRescanResult:
     tracks_scanned: int
     albums_scanned: int
     playlists_scanned: int
-    files_missing_required_tags: int
     genre_resolution: GenreResolutionStats
     cover_art_resolution: CoverArtResolutionStats
 
@@ -144,7 +138,6 @@ class LibrarySyncResult:
     tracks_scanned: int
     albums_scanned: int
     playlists_scanned: int
-    files_missing_required_tags: int
     changed: bool
     genre_resolution: GenreResolutionStats
     cover_art_resolution: CoverArtResolutionStats
@@ -161,11 +154,6 @@ def rescan_library(
         raise ValueError("no roots configured")
 
     root_rows = [(root.position, root.path) for root in roots]
-    missing_required_tag_count = 0
-
-    def log_missing_required_tags(_track: object, _missing_fields: list[str]) -> None:
-        nonlocal missing_required_tag_count
-        missing_required_tag_count += 1
 
     def scan_progress(message: str) -> None:
         if cancel_check is not None:
@@ -178,7 +166,6 @@ def rescan_library(
         [Path(root.path) for root in roots],
         progress=scan_progress,
         progress_every=500,
-        on_missing_required_tags=log_missing_required_tags,
     )
     if cancel_check is not None:
         cancel_check()
@@ -225,7 +212,6 @@ def rescan_library(
         tracks_scanned=len(library.tracks),
         albums_scanned=len(albums),
         playlists_scanned=len(library.playlists),
-        files_missing_required_tags=missing_required_tag_count,
         genre_resolution=genre_resolution,
         cover_art_resolution=cover_art_resolution,
     )
@@ -250,7 +236,6 @@ def run_rescan_library_job(
             tracks_scanned=result.tracks_scanned,
             albums_scanned=result.albums_scanned,
             playlists_scanned=result.playlists_scanned,
-            files_missing_required_tags=result.files_missing_required_tags,
             duration_seconds=duration_seconds,
         ),
     )
@@ -258,7 +243,6 @@ def run_rescan_library_job(
         tracks_scanned=result.tracks_scanned,
         albums_scanned=result.albums_scanned,
         playlists_scanned=result.playlists_scanned,
-        files_missing_required_tags=result.files_missing_required_tags,
         genre_resolution=result.genre_resolution,
         cover_art_resolution=result.cover_art_resolution,
     ):
@@ -270,7 +254,6 @@ def run_rescan_library_job(
             "tracks_scanned": result.tracks_scanned,
             "albums_scanned": result.albums_scanned,
             "playlists_scanned": result.playlists_scanned,
-            "files_missing_required_tags": result.files_missing_required_tags,
             "duration_seconds": duration_seconds,
         },
     )
@@ -298,17 +281,10 @@ def sync_library_roots(
             tracks_scanned=0,
             albums_scanned=0,
             playlists_scanned=0,
-            files_missing_required_tags=0,
             changed=False,
             genre_resolution=GenreResolutionStats(),
             cover_art_resolution=CoverArtResolutionStats(),
         )
-
-    missing_required_tag_count = 0
-
-    def log_missing_required_tags(_track: object, _missing_fields: list[str]) -> None:
-        nonlocal missing_required_tag_count
-        missing_required_tag_count += 1
 
     def scan_progress(message: str) -> None:
         if cancel_check is not None:
@@ -320,7 +296,6 @@ def sync_library_roots(
             [Path(root_path) for _position, root_path in sync_plan.root_rows],
             progress=scan_progress,
             progress_every=500,
-            on_missing_required_tags=log_missing_required_tags,
         )
     else:
         library = MusicLibrary(
@@ -382,7 +357,6 @@ def sync_library_roots(
         tracks_scanned=len(library.tracks),
         albums_scanned=len(albums),
         playlists_scanned=len(library.playlists),
-        files_missing_required_tags=missing_required_tag_count,
         changed=True,
         genre_resolution=genre_resolution,
         cover_art_resolution=cover_art_resolution,
@@ -475,7 +449,6 @@ def run_sync_job(
             tracks_scanned=result.tracks_scanned,
             albums_scanned=result.albums_scanned,
             playlists_scanned=result.playlists_scanned,
-            files_missing_required_tags=result.files_missing_required_tags,
             duration_seconds=duration_seconds,
         ),
     )
@@ -483,7 +456,6 @@ def run_sync_job(
         tracks_scanned=result.tracks_scanned,
         albums_scanned=result.albums_scanned,
         playlists_scanned=result.playlists_scanned,
-        files_missing_required_tags=result.files_missing_required_tags,
         genre_resolution=result.genre_resolution,
         cover_art_resolution=result.cover_art_resolution,
     ):
@@ -498,7 +470,6 @@ def run_sync_job(
             "tracks_scanned": result.tracks_scanned,
             "albums_scanned": result.albums_scanned,
             "playlists_scanned": result.playlists_scanned,
-            "files_missing_required_tags": result.files_missing_required_tags,
             "duration_seconds": duration_seconds,
         },
     )

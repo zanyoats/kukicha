@@ -39,7 +39,6 @@ from ...models import (
     TrackRecord,
 )
 from ..musicbrainz import (
-    load_album_musicbrainz_links,
     normalize_musicbrainz_mbid,
     store_album_musicbrainz_link,
 )
@@ -58,7 +57,8 @@ LOGGER = logging.getLogger("kukicha.player")
 class AlbumTrackTagEdit:
     track_id: int
     artist: str
-    album: str
+    track_number: str
+    title: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -68,6 +68,7 @@ class AlbumMusicBrainzEditRequest:
     album_name: str
     musicbrainz_release_mbid: str | None
     musicbrainz_release_group_mbid: str | None
+    track_ids: tuple[int, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -89,6 +90,7 @@ class AlbumMusicBrainzEditResult:
 @dataclass(frozen=True, slots=True)
 class AlbumTagEditRequest:
     album_id: str
+    album: str
     album_artist: str
     genre: str
     tracks: tuple[AlbumTrackTagEdit, ...]
@@ -145,6 +147,7 @@ def prepare_album_musicbrainz_edit_request(
         raw_release_group_mbid or "",
         entity_type="release-group",
     )
+    track_ids = parse_album_musicbrainz_track_ids(payload.get("track_ids"))
 
     connection = connect_database(database, create=False)
     try:
@@ -173,7 +176,27 @@ def prepare_album_musicbrainz_edit_request(
         album_name=album_name,
         musicbrainz_release_mbid=release_mbid,
         musicbrainz_release_group_mbid=release_group_mbid,
+        track_ids=track_ids,
     )
+
+
+def parse_album_musicbrainz_track_ids(value: object) -> tuple[int, ...]:
+    if value is None:
+        return ()
+    if not isinstance(value, list) or not value:
+        raise ValueError("at least one track is required")
+
+    seen_track_ids: set[int] = set()
+    track_ids: list[int] = []
+    for item in value:
+        track_id = optional_int(item)
+        if track_id is None or track_id < 1:
+            raise ValueError("invalid track id")
+        if track_id in seen_track_ids:
+            raise ValueError(f"duplicate track id: {track_id}")
+        seen_track_ids.add(track_id)
+        track_ids.append(track_id)
+    return tuple(track_ids)
 
 
 def prepare_album_musicbrainz_edit_job(
@@ -184,27 +207,61 @@ def prepare_album_musicbrainz_edit_job(
     request = prepare_album_musicbrainz_edit_request(database, album_id, payload)
     connection = connect_database(database, create=False)
     try:
-        track_rows = list(
-            connection.execute(
-                """
-                SELECT
-                    track_id,
-                    album_id,
-                    root_position,
-                    path,
-                    album,
-                    title
-                FROM library_tracks
-                WHERE album_id = ?
-                ORDER BY track_id
-                """,
-                (album_id,),
+        requested_track_ids = list(request.track_ids)
+        if requested_track_ids:
+            placeholders = placeholders_for(requested_track_ids)
+            track_rows = list(
+                connection.execute(
+                    f"""
+                    SELECT
+                        track_id,
+                        album_id,
+                        root_position,
+                        path,
+                        album,
+                        title
+                    FROM library_tracks
+                    WHERE track_id IN ({placeholders})
+                    ORDER BY track_id
+                    """,
+                    requested_track_ids,
+                )
             )
-        )
-        if not track_rows:
-            raise AlbumNotFoundError(album_id)
+            rows_by_id = {
+                int(row["track_id"]): row
+                for row in track_rows
+            }
+            missing_track_ids = [
+                track_id
+                for track_id in requested_track_ids
+                if track_id not in rows_by_id
+            ]
+            if missing_track_ids:
+                raise TrackNotFoundError(missing_track_ids[0])
+            ordered_track_rows = [rows_by_id[track_id] for track_id in requested_track_ids]
+        else:
+            ordered_track_rows = list(
+                connection.execute(
+                    """
+                    SELECT
+                        track_id,
+                        album_id,
+                        root_position,
+                        path,
+                        album,
+                        title
+                    FROM library_tracks
+                    WHERE album_id = ?
+                    ORDER BY track_id
+                    """,
+                    (album_id,),
+                )
+            )
+            if not ordered_track_rows:
+                raise AlbumNotFoundError(album_id)
+            requested_track_ids = [int(row["track_id"]) for row in ordered_track_rows]
 
-        track_ids = [int(row["track_id"]) for row in track_rows]
+        track_ids = requested_track_ids
         placeholders = placeholders_for(track_ids)
 
         genre_rows: dict[int, list[str]] = {}
@@ -246,13 +303,16 @@ def prepare_album_musicbrainz_edit_job(
             )
 
         snapshots: list[AlbumEditSnapshot] = []
-        for row in track_rows:
+        for row in ordered_track_rows:
             track_id = int(row["track_id"])
+            row_album_id = str(row["album_id"]) if row["album_id"] else ""
+            if row_album_id != album_id:
+                raise ValueError(f"track does not belong to album: {track_id}")
             track_artworks = artwork_rows.get(track_id, {})
             snapshots.append(
                 AlbumEditSnapshot(
                     track_id=track_id,
-                    album_id=str(row["album_id"]) if row["album_id"] else "",
+                    album_id=row_album_id,
                     root_position=int(row["root_position"]) if row["root_position"] is not None else None,
                     path=str(row["path"]),
                     album=str(row["album"]) if row["album"] else "",
@@ -276,6 +336,7 @@ def parse_album_tag_edit_request(
     album_id: str,
     payload: dict[str, Any],
 ) -> AlbumTagEditRequest:
+    album = str(payload.get("album") or "").strip()
     album_artist = str(payload.get("album_artist") or "").strip()
     genre = str(payload.get("genre") or "").strip()
     raw_tracks = payload.get("tracks")
@@ -297,11 +358,13 @@ def parse_album_tag_edit_request(
             AlbumTrackTagEdit(
                 track_id=track_id,
                 artist=str(item.get("artist") or "").strip(),
-                album=str(item.get("album") or "").strip(),
+                track_number=str(item.get("track_number") or "").strip(),
+                title=str(item.get("title") or "").strip(),
             )
         )
     return AlbumTagEditRequest(
         album_id=album_id,
+        album=album,
         album_artist=album_artist,
         genre=genre,
         tracks=tuple(tracks),
@@ -433,10 +496,13 @@ def prepare_album_tag_edit_job(
     finally:
         connection.close()
 
+    if not request.album:
+        raise ValueError("album title is required")
+
     for track_edit, snapshot in zip(request.tracks, snapshots, strict=True):
         title = snapshot.title or Path(snapshot.path).name
-        if not track_edit.album:
-            raise ValueError(f"track requires album title: {title}")
+        if not track_edit.title:
+            raise ValueError(f"track requires title: {title}")
         if track_edit.artist or request.album_artist:
             continue
         raise ValueError(f"track requires artist or album artist: {title}")
@@ -604,7 +670,9 @@ def edit_library_album_tags(
             Path(snapshot.path),
             artist=track_edit.artist,
             album_artist=job.request.album_artist,
-            album=track_edit.album,
+            album=job.request.album,
+            track_number=track_edit.track_number,
+            title=track_edit.title,
             genre=job.request.genre,
         )
 
@@ -822,14 +890,12 @@ def run_edit_album_musicbrainz_job(
             result.album_label,
             tracks_scanned=result.tracks_scanned,
             albums_scanned=result.albums_scanned,
-            files_missing_required_tags=0,
             duration_seconds=duration_seconds,
         ),
     )
     for line in library_job_detail_lines(
         tracks_scanned=result.tracks_scanned,
         albums_scanned=result.albums_scanned,
-        files_missing_required_tags=0,
         genre_resolution=result.genre_resolution,
         cover_art_resolution=result.cover_art_resolution,
     ):

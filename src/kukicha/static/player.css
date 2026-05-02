@@ -1502,7 +1502,7 @@ button:disabled,
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(220px, 360px);
   gap: 12px;
-  align-items: center;
+  align-items: start;
 }
 
 .album-edit-track-copy {
@@ -1620,6 +1620,40 @@ button:disabled,
   display: grid;
   gap: 10px;
   min-width: 0;
+}
+
+.album-edit-sections {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+}
+
+.album-edit-section {
+  gap: 16px;
+}
+
+.album-edit-section-forms,
+.album-edit-form-block {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.album-edit-form-block + .album-edit-form-block {
+  border-top: 1px solid var(--line);
+  padding-top: 14px;
+}
+
+.album-edit-form-title {
+  margin: 0;
+  color: var(--fg);
+  font-size: 1rem;
+  font-weight: 650;
+}
+
+.album-edit-section-header .album-track-section-title {
+  color: var(--fg);
+  font-size: 1rem;
 }
 
 .album-track-section-title {

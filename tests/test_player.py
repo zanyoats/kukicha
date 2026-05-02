@@ -95,6 +95,7 @@ from kukicha.player_presenters import (
     PlaylistMenuOption,
     TrackView,
     album_playback_track_payloads,
+    album_tag_edit_sections,
     album_track_sections,
     normalized_queue_state,
     playlist_item_view,
@@ -1799,11 +1800,9 @@ class PlayerAlbumDetailLinksTest(unittest.TestCase):
             album_style_parts=("IDM", "Ambient Techno"),
             album_musicbrainz_action_url="/api/albums/autechre::tri-repetae/musicbrainz",
             album_tag_edit_action_url="/api/albums/autechre::tri-repetae/tags",
-            album_tag_edit_album_artist="Autechre",
-            album_tag_edit_genre="Electronic; IDM",
+            album_tag_edit_sections=(),
             album_musicbrainz_release_mbid="",
             album_musicbrainz_release_group_mbid="",
-            tracks=(),
         )
 
         title_year = '<span class="album-title-year-meta">1995</span>'
@@ -1828,6 +1827,92 @@ class PlayerAlbumDetailLinksTest(unittest.TestCase):
         self.assertNotIn('<ul class="meta-list album-genre-meta">', html)
         self.assertIn("Electronic,&nbsp;Experimental", html)
         self.assertIn("IDM,&nbsp;Ambient Techno", html)
+
+    def test_album_edit_template_renders_forms_grouped_by_track_section(self) -> None:
+        album = AlbumDetails(
+            album_id="unknown::unknown",
+            artist="__Unknown",
+            album_artists=("__Unknown",),
+            album="__Unknown",
+            year=None,
+            track_count=2,
+        )
+        roots = (
+            LibraryRootFilterOption(position=0, path="/music/downloads", label=".../downloads"),
+        )
+        sections = album_tag_edit_sections(
+            [
+                make_track_view(
+                    1,
+                    root_position=0,
+                    path="/music/downloads/Unknown/01.mp3",
+                    album_id="unknown::unknown",
+                    album_artist="__Unknown",
+                    album="__Unknown",
+                    genres=("__Unknown",),
+                ),
+                make_track_view(
+                    2,
+                    root_position=0,
+                    path="/music/downloads/Artist/Album/01.mp3",
+                    album_id="unknown::unknown",
+                    album_artist="Artist",
+                    album="Album",
+                    genres=("Electronic",),
+                    styles=("Ambient",),
+                ),
+            ],
+            roots,
+        )
+        template = build_template_environment().get_template("player/album_edit.html")
+
+        html = template.render(
+            album=album,
+            album_back_url="/albums/unknown::unknown",
+            album_root_links=album_root_links(album, roots),
+            album_artist_parts=("__Unknown",),
+            album_year_text="",
+            album_genre_parts=("__Unknown",),
+            album_style_parts=(),
+            album_musicbrainz_action_url="/api/albums/unknown::unknown/musicbrainz",
+            album_tag_edit_action_url="/api/albums/unknown::unknown/tags",
+            album_tag_edit_sections=sections,
+            album_musicbrainz_release_mbid="",
+            album_musicbrainz_release_group_mbid="",
+        )
+
+        self.assertEqual(html.count("data-album-tag-form"), 2)
+        self.assertEqual(html.count("data-album-musicbrainz-form"), 2)
+        self.assertEqual(
+            html.count('class="album-edit-panel settings-panel album-track-section album-edit-section"'),
+            2,
+        )
+        self.assertEqual(html.count("data-musicbrainz-track-id"), 2)
+        self.assertIn(".../downloads/Unknown/", html)
+        self.assertIn(".../downloads/Artist/Album/", html)
+        self.assertIn('value="__Unknown"', html)
+        self.assertIn('value="Electronic; Ambient"', html)
+        self.assertIn('data-track-id="1"', html)
+        self.assertIn('data-track-id="2"', html)
+        self.assertIn("data-album-input", html)
+        self.assertIn("data-track-number-input", html)
+        self.assertIn("data-track-title-input", html)
+        first_section_start = html.index(".../downloads/Unknown/")
+        first_musicbrainz_start = html.index("data-album-musicbrainz-form", first_section_start)
+        first_form_start = html.index("data-album-tag-form", first_section_start)
+        second_section_start = html.index(".../downloads/Artist/Album/")
+        second_musicbrainz_start = html.index("data-album-musicbrainz-form", second_section_start)
+        second_form_start = html.index("data-album-tag-form", second_section_start)
+        self.assertLess(first_section_start, first_musicbrainz_start)
+        self.assertLess(first_musicbrainz_start, first_form_start)
+        self.assertLess(first_form_start, second_section_start)
+        self.assertLess(second_section_start, second_musicbrainz_start)
+        self.assertLess(second_musicbrainz_start, second_form_start)
+        self.assertLess(html.index(">Album</span>", first_form_start), html.index(">Album artist</span>", first_form_start))
+        self.assertLess(html.index(">Album artist</span>", first_form_start), html.index(">Genre</span>", first_form_start))
+        first_track_start = html.index('data-track-id="1"')
+        self.assertLess(html.index(">Artist</span>", first_track_start), html.index(">Track</span>", first_track_start))
+        self.assertLess(html.index(">Track</span>", first_track_start), html.index(">Title</span>", first_track_start))
 
     def test_album_templates_render_comma_separated_root_labels_after_year(self) -> None:
         album = AlbumDetails(
@@ -1871,11 +1956,9 @@ class PlayerAlbumDetailLinksTest(unittest.TestCase):
             album_style_parts=("Frippertronics",),
             album_musicbrainz_action_url="/api/albums/brian-eno-robert-fripp::no-pussyfooting/musicbrainz",
             album_tag_edit_action_url="/api/albums/brian-eno-robert-fripp::no-pussyfooting/tags",
-            album_tag_edit_album_artist="Brian Eno & Robert Fripp",
-            album_tag_edit_genre="",
+            album_tag_edit_sections=(),
             album_musicbrainz_release_mbid="",
             album_musicbrainz_release_group_mbid="",
-            tracks=(),
         )
 
         album_root_start = album_html.index('<span class="album-title-root-links">')
@@ -3518,7 +3601,6 @@ class PlayerRootMutationTest(unittest.TestCase):
             self.assertEqual(result.tracks_scanned, 2)
             self.assertEqual(result.albums_scanned, 2)
             self.assertEqual(result.playlists_scanned, 1)
-            self.assertEqual(result.files_missing_required_tags, 0)
 
             connection = connect_database(database)
             try:
@@ -3764,10 +3846,9 @@ class PlayerJobLogTest(unittest.TestCase):
                 tracks_scanned=12,
                 albums_scanned=3,
                 playlists_scanned=2,
-                files_missing_required_tags=1,
                 duration_seconds=4.125,
             ),
-            "add and scan completed for /music/a (tracks=12, albums=3, playlists=2, missing_required_tags=1, duration=4.12s)",
+            "add and scan completed for /music/a (tracks=12, albums=3, playlists=2, duration=4.12s)",
         )
 
     def test_library_scan_progress_text_formats_progress_log_message(self) -> None:
@@ -3782,7 +3863,6 @@ class PlayerJobLogTest(unittest.TestCase):
                 tracks_scanned=12,
                 albums_scanned=3,
                 playlists_scanned=2,
-                files_missing_required_tags=1,
                 genre_resolution=GenreResolutionStats(
                     exact_genre_matches=4,
                     exact_style_matches=5,
@@ -3815,7 +3895,6 @@ class PlayerJobLogTest(unittest.TestCase):
                 "tracks scanned: 12",
                 "albums scanned: 3",
                 "playlists scanned: 2",
-                "files missing required tags: 1",
                 "exact genre matches: 4",
                 "exact style matches: 5",
                 "fuzzy genre matches: 6",
@@ -3917,7 +3996,6 @@ class PlayerJobLogTest(unittest.TestCase):
                     "tracks_scanned": 12,
                     "albums_scanned": 3,
                     "playlists_scanned": 2,
-                    "files_missing_required_tags": 1,
                     "duration_seconds": 4.125,
                 },
             )
@@ -3932,7 +4010,6 @@ class PlayerJobLogTest(unittest.TestCase):
                 {"label": "Tracks", "value": "12"},
                 {"label": "Albums", "value": "3"},
                 {"label": "Playlists", "value": "2"},
-                {"label": "Missing Tags", "value": "1"},
                 {"label": "Duration", "value": "4.12 seconds"},
             ],
         )
@@ -4046,6 +4123,119 @@ class PlayerAlbumTagEditTest(unittest.TestCase):
             connection.commit()
         finally:
             connection.close()
+
+    def test_prepare_album_musicbrainz_edit_job_scopes_to_requested_tracks(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            database = temp_path / "kukicha.sqlite"
+            paths = (
+                temp_path / "Album" / "01.mp3",
+                temp_path / "Album" / "02.mp3",
+            )
+            self.seed_album(database, paths)
+
+            job = prepare_album_musicbrainz_edit_job(
+                database,
+                "old-artist::album",
+                {
+                    "musicbrainz_release_group_mbid": "22222222-2222-2222-2222-222222222222",
+                    "track_ids": [2],
+                },
+            )
+
+            self.assertEqual(job.request.track_ids, (2,))
+            self.assertEqual([snapshot.track_id for snapshot in job.tracks], [2])
+            self.assertEqual(job.tracks[0].path, str(paths[1]))
+            self.assertEqual(job.tracks[0].genres, ("Soundtrack",))
+            self.assertEqual(job.tracks[0].styles, ("Score",))
+            self.assertIsNone(job.tracks[0].track_artwork)
+
+    def test_prepare_album_musicbrainz_edit_job_rejects_track_from_another_album(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            database = temp_path / "kukicha.sqlite"
+            paths = (
+                temp_path / "Album" / "01.mp3",
+                temp_path / "Album" / "02.mp3",
+            )
+            self.seed_album(database, paths)
+            connection = connect_database(database, create=False)
+            try:
+                insert_library_album(
+                    connection,
+                    "other-artist::other-album",
+                    "Other Artist",
+                    "Other Album",
+                    1981,
+                    1,
+                )
+                connection.execute(
+                    """
+                    INSERT INTO library_tracks (
+                        track_id,
+                        album_id,
+                        root_position,
+                        path,
+                        file_type,
+                        artist,
+                        album_artist,
+                        album,
+                        title,
+                        track_number,
+                        date,
+                        duration_seconds,
+                        bitrate
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        3,
+                        "other-artist::other-album",
+                        0,
+                        str(temp_path / "Other Album" / "01.mp3"),
+                        "mp3",
+                        "Other Artist",
+                        "Other Artist",
+                        "Other Album",
+                        "Other Track",
+                        "1",
+                        "1981",
+                        90.0,
+                        128000,
+                    ),
+                )
+                connection.commit()
+            finally:
+                connection.close()
+
+            with self.assertRaisesRegex(ValueError, "track does not belong to album: 3"):
+                prepare_album_musicbrainz_edit_job(
+                    database,
+                    "old-artist::album",
+                    {
+                        "musicbrainz_release_group_mbid": "22222222-2222-2222-2222-222222222222",
+                        "track_ids": [3],
+                    },
+                )
+
+    def test_prepare_album_musicbrainz_edit_request_rejects_duplicate_track_ids(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            database = temp_path / "kukicha.sqlite"
+            paths = (
+                temp_path / "Album" / "01.mp3",
+                temp_path / "Album" / "02.mp3",
+            )
+            self.seed_album(database, paths)
+
+            with self.assertRaisesRegex(ValueError, "duplicate track id: 1"):
+                prepare_album_musicbrainz_edit_request(
+                    database,
+                    "old-artist::album",
+                    {
+                        "musicbrainz_release_group_mbid": "22222222-2222-2222-2222-222222222222",
+                        "track_ids": [1, 1],
+                    },
+                )
 
     def test_edit_library_album_musicbrainz_rescans_tracks_and_resolves_metadata(self) -> None:
         with TemporaryDirectory() as tempdir:
@@ -4219,18 +4409,21 @@ class PlayerAlbumTagEditTest(unittest.TestCase):
                 database,
                 "old-artist::album",
                 {
+                    "album": "New Album",
                     "genre": "Electronic; Score",
                     "album_artist": "Various Artists",
                     "tracks": [
                         {
                             "track_id": 1,
                             "artist": "Wendy Carlos & Rachel Elkind",
-                            "album": "New Album",
+                            "track_number": "1",
+                            "title": "Main Title",
                         },
                         {
                             "track_id": 2,
                             "artist": "The Shining",
-                            "album": "New Album",
+                            "track_number": "2",
+                            "title": "Rocky Mountains",
                         },
                     ],
                 },
@@ -4252,6 +4445,8 @@ class PlayerAlbumTagEditTest(unittest.TestCase):
                         artist="Wendy Carlos & Rachel Elkind",
                         album_artist="Various Artists",
                         album="New Album",
+                        track_number="1",
+                        title="Main Title",
                         genre="Electronic; Score",
                     ),
                     call(
@@ -4259,6 +4454,8 @@ class PlayerAlbumTagEditTest(unittest.TestCase):
                         artist="The Shining",
                         album_artist="Various Artists",
                         album="New Album",
+                        track_number="2",
+                        title="Rocky Mountains",
                         genre="Electronic; Score",
                     ),
                 ],
@@ -4370,18 +4567,21 @@ class PlayerAlbumTagEditTest(unittest.TestCase):
                     runtime,
                     "old-artist::album",
                     {
+                        "album": "New Album",
                         "genre": "Electronic; Score",
                         "album_artist": "Various Artists",
                         "tracks": [
                             {
                                 "track_id": 1,
                                 "artist": "Wendy Carlos & Rachel Elkind",
-                                "album": "New Album",
+                                "track_number": "1",
+                                "title": "Main Title",
                             },
                             {
                                 "track_id": 2,
                                 "artist": "The Shining",
-                                "album": "New Album",
+                                "track_number": "2",
+                                "title": "Rocky Mountains",
                             },
                         ],
                     },
@@ -4414,18 +4614,21 @@ class PlayerAlbumTagEditTest(unittest.TestCase):
                 database,
                 "old-artist::album",
                 {
+                    "album": "New Album",
                     "genre": "Electronic; Score",
                     "album_artist": "Various Artists",
                     "tracks": [
                         {
                             "track_id": 1,
                             "artist": "Wendy Carlos & Rachel Elkind",
-                            "album": "New Album",
+                            "track_number": "1",
+                            "title": "Main Title",
                         },
                         {
                             "track_id": 2,
                             "artist": "The Shining",
-                            "album": "New Album",
+                            "track_number": "2",
+                            "title": "Rocky Mountains",
                         },
                     ],
                 },
@@ -4444,6 +4647,8 @@ class PlayerAlbumTagEditTest(unittest.TestCase):
                         artist="Wendy Carlos & Rachel Elkind",
                         album_artist="Various Artists",
                         album="New Album",
+                        track_number="1",
+                        title="Main Title",
                         genre="Electronic; Score",
                     ),
                     call(
@@ -4451,6 +4656,8 @@ class PlayerAlbumTagEditTest(unittest.TestCase):
                         artist="The Shining",
                         album_artist="Various Artists",
                         album="New Album",
+                        track_number="2",
+                        title="Rocky Mountains",
                         genre="Electronic; Score",
                     ),
                 ],
@@ -4478,18 +4685,21 @@ class PlayerAlbumTagEditTest(unittest.TestCase):
                 database,
                 "old-artist::album",
                 {
+                    "album": "New Album",
                     "genre": "Electronic; Score",
                     "album_artist": "Various Artists",
                     "tracks": [
                         {
                             "track_id": 1,
                             "artist": "Wendy Carlos & Rachel Elkind",
-                            "album": "New Album",
+                            "track_number": "1",
+                            "title": "Main Title",
                         },
                         {
                             "track_id": 2,
                             "artist": "The Shining",
-                            "album": "New Album",
+                            "track_number": "2",
+                            "title": "Rocky Mountains",
                         },
                     ],
                 },
@@ -4550,29 +4760,67 @@ class PlayerAlbumTagEditTest(unittest.TestCase):
             )
             self.seed_album(database, paths)
 
-            with self.assertRaisesRegex(ValueError, "track requires album title: Track One"):
+            with self.assertRaisesRegex(ValueError, "album title is required"):
                 prepare_album_tag_edit_job(
                     database,
                     "old-artist::album",
                     {
+                        "album": "",
                         "genre": "Electronic; Score",
                         "album_artist": "Various Artists",
                         "tracks": [
                             {
                                 "track_id": 1,
                                 "artist": "Wendy Carlos & Rachel Elkind",
-                                "album": "",
+                                "track_number": "1",
+                                "title": "Main Title",
                             },
                             {
                                 "track_id": 2,
                                 "artist": "The Shining",
-                                "album": "New Album",
+                                "track_number": "2",
+                                "title": "Rocky Mountains",
                             },
                         ],
                     },
                 )
 
-    def test_edit_library_album_tags_supports_per_track_album_titles(self) -> None:
+    def test_prepare_album_tag_edit_job_rejects_blank_track_title(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            database = temp_path / "kukicha.sqlite"
+            paths = (
+                temp_path / "Album" / "01.mp3",
+                temp_path / "Album" / "02.mp3",
+            )
+            self.seed_album(database, paths)
+
+            with self.assertRaisesRegex(ValueError, "track requires title: Track One"):
+                prepare_album_tag_edit_job(
+                    database,
+                    "old-artist::album",
+                    {
+                        "album": "New Album",
+                        "genre": "Electronic; Score",
+                        "album_artist": "Various Artists",
+                        "tracks": [
+                            {
+                                "track_id": 1,
+                                "artist": "Wendy Carlos & Rachel Elkind",
+                                "track_number": "1",
+                                "title": "",
+                            },
+                            {
+                                "track_id": 2,
+                                "artist": "The Shining",
+                                "track_number": "2",
+                                "title": "Rocky Mountains",
+                            },
+                        ],
+                    },
+                )
+
+    def test_edit_library_album_tags_supports_per_track_titles(self) -> None:
         with TemporaryDirectory() as tempdir:
             temp_path = Path(tempdir)
             database = temp_path / "kukicha.sqlite"
@@ -4585,18 +4833,21 @@ class PlayerAlbumTagEditTest(unittest.TestCase):
                 database,
                 "old-artist::album",
                 {
+                    "album": "New Album",
                     "genre": "Electronic; Score",
                     "album_artist": "Various Artists",
                     "tracks": [
                         {
                             "track_id": 1,
                             "artist": "Artist Alpha",
-                            "album": "Album Alpha",
+                            "track_number": "1",
+                            "title": "Title Alpha",
                         },
                         {
                             "track_id": 2,
                             "artist": "Artist Beta",
-                            "album": "Album Beta",
+                            "track_number": "2",
+                            "title": "Title Beta",
                         },
                     ],
                 },
@@ -4615,14 +4866,18 @@ class PlayerAlbumTagEditTest(unittest.TestCase):
                         paths[0],
                         artist="Artist Alpha",
                         album_artist="Various Artists",
-                        album="Album Alpha",
+                        album="New Album",
+                        track_number="1",
+                        title="Title Alpha",
                         genre="Electronic; Score",
                     ),
                     call(
                         paths[1],
                         artist="Artist Beta",
                         album_artist="Various Artists",
-                        album="Album Beta",
+                        album="New Album",
+                        track_number="2",
+                        title="Title Beta",
                         genre="Electronic; Score",
                     ),
                 ],
@@ -4875,6 +5130,53 @@ class AlbumTrackSectionsTest(unittest.TestCase):
         self.assertEqual(sections[0].label, "")
         self.assertEqual([row.track.track_id for row in sections[0].table_rows], [1, 2])
 
+    def test_album_tag_edit_sections_use_section_level_defaults(self) -> None:
+        tracks = [
+            make_track_view(
+                1,
+                root_position=0,
+                path="/music/downloads/Unknown/01.mp3",
+                album_artist="__Unknown",
+                album="__Unknown",
+                genres=("__Unknown",),
+            ),
+            make_track_view(
+                2,
+                root_position=0,
+                path="/music/downloads/Artist/Album/02.mp3",
+                album_artist="Artist",
+                album="Album",
+                genres=("Electronic",),
+                styles=("Ambient",),
+            ),
+            make_track_view(
+                3,
+                root_position=0,
+                path="/music/downloads/Artist/Album/01.mp3",
+                album_artist="Artist",
+                album="Album",
+                genres=("Electronic",),
+                styles=("Ambient",),
+            ),
+        ]
+
+        sections = album_tag_edit_sections(
+            tracks,
+            (LibraryRootFilterOption(position=0, path="/music/downloads", label=".../downloads"),),
+        )
+
+        self.assertEqual(
+            [section.label for section in sections],
+            [".../downloads/Unknown/", ".../downloads/Artist/Album/"],
+        )
+        self.assertEqual([section.album for section in sections], ["__Unknown", "Album"])
+        self.assertEqual([section.album_artist for section in sections], ["__Unknown", "Artist"])
+        self.assertEqual([section.genre for section in sections], ["__Unknown", "Electronic; Ambient"])
+        self.assertEqual([item.track.track_id for item in sections[0].tracks], [1])
+        self.assertEqual([item.track.track_id for item in sections[1].tracks], [2, 3])
+        self.assertEqual([item.track_number for item in sections[0].tracks], ["1"])
+        self.assertEqual([item.track_number for item in sections[1].tracks], ["2", "1"])
+
 
 def make_track_view(
     track_id: int,
@@ -4886,6 +5188,8 @@ def make_track_view(
     album_artists: tuple[str, ...] | None = None,
     artist: str | None = None,
     album: str = "Selected Ambient Works Volume II",
+    genres: tuple[str, ...] = (),
+    styles: tuple[str, ...] = (),
     duration_seconds: float | None = None,
     library_track_id: int | None = None,
     playlist_options: tuple[PlaylistMenuOption, ...] | None = None,
@@ -4919,8 +5223,8 @@ def make_track_view(
         duration="",
         duration_seconds=duration_seconds,
         grouping="",
-        genres=(),
-        styles=(),
+        genres=genres,
+        styles=styles,
         library_track_id=library_track_id,
         playlist_options=playlist_options,
     )

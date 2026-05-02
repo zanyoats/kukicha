@@ -740,10 +740,10 @@ def resolve_album_genres(
 ) -> ResolvedAlbumGenres:
     resolved_genres: list[str] = []
     resolved_styles: list[str] = []
-    has_genre_tags = False
     for track in tracks:
         for genre in normalize_genre_values(track.genres):
-            has_genre_tags = True
+            if is_unknown_genre_marker(genre):
+                continue
             match = matcher.resolve(genre)
             update_genre_resolution_stats(stats, match.resolution)
             resolved_genres.extend(match.genres)
@@ -753,9 +753,11 @@ def resolve_album_genres(
     album_styles = normalize_genre_values(resolved_styles)
     if album_genres:
         return ResolvedAlbumGenres(genres=album_genres, styles=album_styles)
-    if has_genre_tags:
-        return ResolvedAlbumGenres(genres=[UNKNOWN_GENRE_TAG], styles=album_styles)
-    return ResolvedAlbumGenres(genres=[], styles=[])
+    return ResolvedAlbumGenres(genres=[UNKNOWN_GENRE_TAG], styles=album_styles)
+
+
+def is_unknown_genre_marker(value: str) -> bool:
+    return value.strip().casefold() == UNKNOWN_GENRE_TAG.casefold()
 
 
 def resolve_musicbrainz_album_genres(
