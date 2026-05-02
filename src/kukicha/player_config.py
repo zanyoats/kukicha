@@ -83,6 +83,12 @@ class PlayerConfigSummary:
     error: str = ""
 
 
+@dataclass(frozen=True, slots=True)
+class ResolvedConfigPath:
+    source: Path
+    resolved: Path
+
+
 ACCENT_COLOR_CODES = {
     "red": "#dc2626",
     "dark-red": "#b91c1c",
@@ -617,25 +623,92 @@ def parse_config_path_list(
         raise PlayerConfigError(f"{key} must be an array of strings")
 
     paths: list[Path] = []
-    seen: set[str] = set()
+    source_paths: list[Path] = []
     for item in value:
         if not isinstance(item, str) or not item.strip():
             raise PlayerConfigError(f"{key} must be an array of non-empty strings")
-        path = resolve_path(Path(item.strip()).expanduser(), base_dir=base_dir)
-        key_value = str(path)
-        if key_value in seen:
-            raise PlayerConfigError(f"{key} must not contain duplicate paths: {path}")
-        seen.add(key_value)
+        source_path = absolute_path(Path(item.strip()).expanduser(), base_dir=base_dir)
+        path = source_path.resolve(strict=False)
+        source_paths.append(source_path)
         paths.append(path)
+    validate_config_path_list(paths, key=key, source_paths=source_paths)
     return tuple(paths)
 
+def validate_config_path_list(
+    paths: list[Path] | tuple[Path, ...],
+    *,
+    key: str,
+    source_paths: list[Path] | tuple[Path, ...] | None = None,
+) -> None:
+    source_values = tuple(source_paths) if source_paths is not None else tuple(paths)
+    entries = tuple(
+        ResolvedConfigPath(
+            source=absolute_path(source_path),
+            resolved=resolve_path(path),
+        )
+        for source_path, path in zip(source_values, paths, strict=True)
+    )
+    seen: dict[str, ResolvedConfigPath] = {}
+    for entry in entries:
+        key_value = str(entry.resolved)
+        previous = seen.get(key_value)
+        if previous is not None:
+            reason = config_path_resolution_reason(previous, entry)
+            raise PlayerConfigError(
+                f"{key} must not contain duplicate paths{reason}: "
+                f"{format_resolved_config_path(entry)} duplicates "
+                f"{format_resolved_config_path(previous)}"
+            )
+        seen[key_value] = entry
+
+    for index, parent in enumerate(entries):
+        for child in entries[index + 1 :]:
+            if (
+                child.resolved != parent.resolved
+                and child.resolved.is_relative_to(parent.resolved)
+            ):
+                raise_nested_config_path_error(key, child=child, parent=parent)
+            if (
+                parent.resolved != child.resolved
+                and parent.resolved.is_relative_to(child.resolved)
+            ):
+                raise_nested_config_path_error(key, child=parent, parent=child)
+
+def raise_nested_config_path_error(
+    key: str,
+    *,
+    child: ResolvedConfigPath,
+    parent: ResolvedConfigPath,
+) -> None:
+    reason = config_path_resolution_reason(child, parent)
+    raise PlayerConfigError(
+        f"{key} must not contain nested paths{reason}: "
+        f"{format_resolved_config_path(child)} is inside "
+        f"{format_resolved_config_path(parent)}"
+    )
+
+def config_path_resolution_reason(*entries: ResolvedConfigPath) -> str:
+    if any(entry.source != entry.resolved for entry in entries):
+        return " after resolving symbolic links"
+    return ""
+
+def format_resolved_config_path(entry: ResolvedConfigPath) -> str:
+    if entry.source == entry.resolved:
+        return str(entry.resolved)
+    return f"{entry.source} (resolves to {entry.resolved})"
+
+def absolute_path(path: Path, *, base_dir: Path | None = None) -> Path:
+    expanded = path.expanduser()
+    if not expanded.is_absolute():
+        expanded = (base_dir or Path.cwd()) / expanded
+    return Path(os.path.abspath(expanded))
+
 def resolve_path(path: Path, *, base_dir: Path | None = None) -> Path:
-    resolved = path
-    if not resolved.is_absolute():
-        resolved = (base_dir or Path.cwd()) / resolved
-    return resolved.resolve(strict=False)
+    return absolute_path(path, base_dir=base_dir).resolve(strict=False)
 
 def validate_player_startup(options: PlayerServerOptions) -> None:
+    validate_config_path_list(options.roots, key="Roots")
+
     try:
         prepare_player_database(options.database)
     except OSError as error:

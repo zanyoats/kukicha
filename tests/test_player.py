@@ -113,7 +113,7 @@ from kukicha.player_runtime import (
     PlayerQueueState,
     PlayerRuntime,
 )
-from kukicha.player_web_adapter import create_player_app, start_player_sync
+from kukicha.player_web_adapter import create_player_app, serve_player, start_player_sync
 from kukicha.playlist_art import playlist_cover_data_url, playlist_cover_svg
 
 
@@ -1001,11 +1001,44 @@ class PlayerConfigTest(unittest.TestCase):
                 ("Roots = ['music', 1]\n", "Roots must be an array of non-empty strings"),
                 ("Roots = ['music', '  ']\n", "Roots must be an array of non-empty strings"),
                 ("Roots = ['music', './music']\n", "Roots must not contain duplicate paths"),
+                ("Roots = ['music', 'music/live']\n", "Roots must not contain nested paths"),
+                ("Roots = ['music/live', 'music']\n", "Roots must not contain nested paths"),
             ):
                 with self.subTest(text=text):
                     config_path.write_text(text, encoding="utf-8")
                     with self.assertRaisesRegex(PlayerConfigError, message):
                         load_player_options(config_path)
+
+    def test_load_player_options_rejects_roots_nested_through_symlink(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            library = temp_path / "library"
+            album = library / "album"
+            album.mkdir(parents=True)
+            linked_album = temp_path / "linked-album"
+            linked_album_alias = temp_path / "linked-album-alias"
+            try:
+                linked_album.symlink_to(album, target_is_directory=True)
+                linked_album_alias.symlink_to(linked_album, target_is_directory=True)
+            except OSError as error:
+                self.skipTest(f"symlink unavailable: {error}")
+            config_path = temp_path / "kukicha.toml"
+            config_path.write_text(
+                "Roots = ['library', 'linked-album-alias']\n",
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(
+                PlayerConfigError,
+                "Roots must not contain nested paths",
+            ) as caught:
+                load_player_options(config_path)
+
+            message = str(caught.exception)
+            self.assertIn("after resolving symbolic links", message)
+            self.assertIn(str(linked_album_alias), message)
+            self.assertIn(f"resolves to {album.resolve(strict=False)}", message)
+            self.assertIn(str(library.resolve(strict=False)), message)
 
     def test_load_player_options_rejects_invalid_toast_timeouts(self) -> None:
         with TemporaryDirectory() as tempdir:
@@ -1238,6 +1271,25 @@ class PlayerStartupTest(unittest.TestCase):
                 )
             finally:
                 connection.close()
+
+    def test_validate_player_startup_rejects_nested_roots_before_database_setup(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            database = temp_path / "kukicha.sqlite"
+            options = PlayerServerOptions(
+                config_path=temp_path / "kukicha.toml",
+                database=database,
+                ffmpeg_path=None,
+                roots=(temp_path / "music", temp_path / "music" / "live"),
+            )
+
+            with self.assertRaisesRegex(
+                PlayerConfigError,
+                "Roots must not contain nested paths",
+            ):
+                validate_player_startup(options)
+
+            self.assertFalse(database.exists())
 
 
 class PlayerPageMenuTest(unittest.TestCase):
@@ -1840,6 +1892,28 @@ class PlayerWebAdapterTest(unittest.TestCase):
             self.assertEqual(kwargs["kind"], "sync")
             self.assertEqual(kwargs["context"], {"roots_configured": 1})
             self.assertEqual(kwargs["queued_message"], "Sync queued.")
+
+    def test_serve_player_rejects_nested_roots_before_binding_server(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            database = temp_path / "kukicha.sqlite"
+            options = PlayerServerOptions(
+                config_path=temp_path / "kukicha.toml",
+                database=database,
+                ffmpeg_path=None,
+                roots=(temp_path / "music", temp_path / "music" / "live"),
+            )
+
+            with (
+                patch("kukicha.player_web_adapter.make_server") as make_server,
+                patch("kukicha.player_web_adapter.LOGGER") as logger,
+            ):
+                result = serve_player(options)
+
+            self.assertEqual(result, 1)
+            make_server.assert_not_called()
+            logger.error.assert_called_once()
+            self.assertFalse(database.exists())
 
     def test_removed_placeholder_routes_return_not_found(self) -> None:
         with TemporaryDirectory() as tempdir:
