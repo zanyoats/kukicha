@@ -2687,7 +2687,7 @@ function appendNowPlayingArtistLabels(container, track) {
     if (added) {
       const separator = document.createElement("span");
       separator.className = "now-playing-artist-separator";
-      separator.textContent = ", ";
+      separator.textContent = ",\u00a0";
       container.append(separator);
     }
     const artistAdded = appendNowPlayingLabel(
