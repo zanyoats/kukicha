@@ -1,12 +1,27 @@
 # kukicha
 
-`kukicha` serves a local browser player backed by a SQLite music-library
-database. The player can add, rescan, sync library root paths, browse albums, search the library, and play tracks in the browser.
+`kukicha` focuses on managing and streaming your audio library using a http server backed by single sqlite database file. It comes with a simple and fast builtin web UI.
 
-The player database holds:
+Some noteworthy features:
+- It supports both POSIX and Windows.
+- Text/token based search & filters.
+- Artist tag cloud page
+- Albums grid page
+- Easily sync library root paths
+- Supports most audio formats
+- Never transcodes audio streams
+- Playlist are ordinary m3u, m3u8, pls files
+- Genre/style taxonomy provides clean data
+- Artist split patterns overrides (avoid artist names like `Brian Eno with Jon Hopkins & Leo Abrahams`)
+- iTunes cover art lookup
+- Musicbrainz release group & release IDs overrides
+- Overwrite album-level audio tags for album artist, genre
+- Overwrite track-level audio tags for artist, album title
 
-- packaged genre/style taxonomy lookup tables
-- the scanned local library
+Roadmap
+- Mount remote library roots (S3, etc.)
+- Support subset of Opensonic API to support different clients
+- Live stream a playlist
 
 ## Install With pipx
 
