@@ -1115,15 +1115,27 @@ class PlayerConfigTest(unittest.TestCase):
                 "AlbumArtistSplitPatterns: ['with', 'and', '&', ',', '/'] (default)",
                 help_text,
             )
+            self.assertLess(
+                help_text.index(f"Appearance: {DEFAULT_APPEARANCE} (default)"),
+                help_text.index(f"AccentColor: {DEFAULT_ACCENT_COLOR} (default)"),
+            )
             self.assertIn(
                 "Supported keys:\n  LogLevel\n  DatabasePath\n  Roots\n  FFmpegPath\n  Host\n  Port\n"
-                "  AccentColor\n  Appearance\n  ToastTimeoutMs\n  AlbumArtistSplitPatterns",
+                "  Appearance\n  AccentColor\n  ToastTimeoutMs\n  AlbumArtistSplitPatterns",
                 help_text,
             )
             self.assertNotIn("LinkedToastTimeoutMs", help_text)
-            self.assertIn("AccentColor accepts these palette names or matching hex codes:", help_text)
-            self.assertIn(f"  {DEFAULT_ACCENT_COLOR} ({ACCENT_COLOR_CODES[DEFAULT_ACCENT_COLOR]})", help_text)
             self.assertIn("Appearance accepts these values:\n  light\n  dark\n  dim", help_text)
+            self.assertIn(
+                "AccentColor accepts these palette names or matching hex codes:\n  "
+                + " ".join(ACCENT_COLOR_CODES),
+                help_text,
+            )
+            self.assertLess(
+                help_text.index("Appearance accepts these values:"),
+                help_text.index("AccentColor accepts these palette names or matching hex codes:"),
+            )
+            self.assertNotIn(f"{DEFAULT_ACCENT_COLOR} ({ACCENT_COLOR_CODES[DEFAULT_ACCENT_COLOR]})", help_text)
 
 
 class CliPlayerCommandTest(unittest.TestCase):

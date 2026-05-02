@@ -35,8 +35,8 @@ PLAYER_CONFIG_KEY_ORDER = (
     "FFmpegPath",
     "Host",
     "Port",
-    "AccentColor",
     "Appearance",
+    "AccentColor",
     "ToastTimeoutMs",
     "AlbumArtistSplitPatterns",
 )
@@ -292,13 +292,10 @@ def player_config_help_text(config_path: str | Path | None = None) -> str:
 
     lines.extend(("", "Supported keys:"))
     lines.extend(f"  {key}" for key in summary.supported_keys)
-    lines.extend(("", "AccentColor accepts these palette names or matching hex codes:"))
-    lines.extend(
-        f"  {name} ({code})"
-        for name, code in ACCENT_COLOR_CODES.items()
-    )
     lines.extend(("", "Appearance accepts these values:"))
     lines.extend(f"  {name}" for name in APPEARANCE_THEMES)
+    lines.extend(("", "AccentColor accepts these palette names or matching hex codes:"))
+    lines.append(f"  {' '.join(ACCENT_COLOR_CODES)}")
     return "\n".join(lines)
 
 def player_config_summary(
