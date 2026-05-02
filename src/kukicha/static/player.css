@@ -1947,6 +1947,7 @@ tr.queue-error .queue-status-label {
   .search-submit-group,
   .filter-controls,
   .search-controls,
+  .filter-controls > .button-link,
   .search-controls > .button-link {
     width: 100%;
     max-width: none;

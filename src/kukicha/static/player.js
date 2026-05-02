@@ -502,7 +502,6 @@ function syncFilterSummaries(form = view.querySelector("form[data-filter-form]")
   }
   syncGenreFilterStates(form);
   updateFilterSummary(form, "roots", checkedInputCount(form, "root"));
-  updateFilterSummary(form, "artists", checkedInputCount(form, "artist"));
   updateFilterSummary(form, "genres", selectedGenreFilterCount(form));
   updateFilterSummary(form, "properties", selectedPropertyCount(form));
 }

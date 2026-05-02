@@ -123,6 +123,8 @@ def create_player_app(options: PlayerServerOptions) -> Flask:
     app.jinja_env.filters.update(template_environment.filters)
     runtime = PlayerRuntime(options)
     mark_stale_player_jobs_canceled(runtime.database)
+    if type(runtime) is PlayerRuntime:
+        runtime.library_filter_options()
     app.extensions[PLAYER_CONTEXT_KEY] = PlayerWebContext(
         options=options,
         runtime=runtime,

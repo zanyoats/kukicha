@@ -37,7 +37,11 @@
             {% if album_artist_links %}
               <li>
                 {%- for item in album_artist_links -%}
-                  <a class="album-detail-meta-link" href="{{ item.url }}" data-nav>{{ item.label }}</a>{% if not loop.last %},&nbsp;{% endif %}
+                  {% if item.url -%}
+                    <a class="album-detail-meta-link" href="{{ item.url }}" data-nav>{{ item.label }}</a>
+                  {%- else -%}
+                    <span class="album-detail-meta-link">{{ item.label }}</span>
+                  {%- endif %}{% if not loop.last %},&nbsp;{% endif %}
                 {%- endfor %}
               </li>
             {% endif %}

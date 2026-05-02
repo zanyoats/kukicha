@@ -6,11 +6,22 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from queue import Queue
 from threading import Event, Lock, Thread
+from typing import TYPE_CHECKING
 import logging
 
 from .album_artists import DEFAULT_ALBUM_ARTIST_SPLIT_PATTERNS
 
 LOGGER = logging.getLogger("kukicha.player")
+LIBRARY_FILTER_OPTIONS_INVALIDATING_JOB_KINDS = frozenset(
+    {
+        "edit_album_musicbrainz",
+        "rescan_library",
+        "sync",
+    }
+)
+
+if TYPE_CHECKING:
+    from .use_case import LibraryFilterOptions
 
 
 @dataclass(slots=True)
@@ -97,6 +108,8 @@ class PlayerRuntime:
         self.job_queue: deque[QueuedPlayerJob] = deque()
         self.job_worker_thread: Thread | None = None
         self.job_cancel_tokens: dict[int, PlayerJobCancelToken] = {}
+        self.library_filter_options_lock = Lock()
+        self._library_filter_options: LibraryFilterOptions | None = None
 
     def enqueue_job(
         self,
@@ -184,6 +197,8 @@ class PlayerRuntime:
                 context=result.context if result.context is not None else running_job.context,
                 finished_at=utc_now_iso(),
             )
+            if queued.record.kind in LIBRARY_FILTER_OPTIONS_INVALIDATING_JOB_KINDS:
+                self.invalidate_library_filter_options()
             self.publish_job(succeeded_job)
         except PlayerJobCanceled as error:
             canceled_job = update_player_job(
@@ -269,6 +284,20 @@ class PlayerRuntime:
                 paused=self.queue_state.paused,
                 errored_track_ids=list(self.queue_state.errored_track_ids),
             )
+
+    def library_filter_options(self) -> "LibraryFilterOptions":
+        with self.library_filter_options_lock:
+            if self._library_filter_options is None:
+                from .use_case import LibraryQueries
+
+                self._library_filter_options = LibraryQueries(
+                    self.database
+                ).filter_options()
+            return self._library_filter_options
+
+    def invalidate_library_filter_options(self) -> None:
+        with self.library_filter_options_lock:
+            self._library_filter_options = None
 
     def reset_queue_state(self) -> None:
         from .player_presenters import reset_queue_state

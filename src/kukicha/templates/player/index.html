@@ -23,7 +23,6 @@
             </svg>
           </button>
         </div>
-        <a class="button-link" href="{{ clear_url }}" data-nav>Clear</a>
         {% if show_sort_controls %}
         <details class="filter-menu sort-menu" data-dropdown-menu>
           <summary aria-label="Sort" title="Sort">{{ sort_icon() }}</summary>
@@ -37,33 +36,22 @@
           </div>
         </details>
         {% endif %}
+        {% if not show_filter_controls %}
+        <a class="button-link" href="{{ clear_url }}" data-nav>Clear</a>
+        {% endif %}
       </div>
       {% if show_filter_controls %}
       <div class="filter-controls">
         <details class="filter-menu" data-dropdown-menu>
           <summary data-filter-summary="roots" data-summary-label="Roots">Roots{% if selected_roots %}: {{ selected_roots|length }}{% endif %}</summary>
           <div class="filter-options">
-            {% for root in filters.roots %}
+            {% for root in roots %}
               <label class="filter-option" title="{{ root.path }}">
                 <input type="checkbox" name="root" value="{{ root.position }}" {% if root.position in selected_roots %}checked{% endif %}>
                 <span>{{ root.label }}</span>
               </label>
             {% else %}
               <div class="empty-small">No roots found.</div>
-            {% endfor %}
-          </div>
-        </details>
-
-        <details class="filter-menu" data-dropdown-menu>
-          <summary data-filter-summary="artists" data-summary-label="Artists">Artists{% if selected_artists %}: {{ selected_artists|length }}{% endif %}</summary>
-          <div class="filter-options">
-            {% for artist in filters.artists %}
-              <label class="filter-option">
-                <input type="checkbox" name="artist" value="{{ artist }}" {% if artist in selected_artists %}checked{% endif %}>
-                <span>{{ artist }}</span>
-              </label>
-            {% else %}
-              <div class="empty-small">No artists found.</div>
             {% endfor %}
           </div>
         </details>
@@ -86,6 +74,8 @@
                   </label>
                 {% endfor %}
               </div>
+            {% else %}
+              <div class="empty-small">No genres found.</div>
             {% endfor %}
           </div>
         </details>
@@ -140,6 +130,8 @@
             </div>
           </div>
         </details>
+
+        <a class="button-link" href="{{ clear_url }}" data-nav>Clear</a>
       </div>
       {% endif %}
     </form>

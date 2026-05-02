@@ -320,6 +320,27 @@ class PlayerRuntimeTest(unittest.TestCase):
         self.assertEqual(payload["job_id"], 7)
         self.assertEqual(payload["kind"], "rescan_library")
 
+    def test_library_filter_options_are_cached_until_invalidated(self) -> None:
+        runtime = PlayerRuntime(Path("/tmp/kukicha-test.sqlite"))
+        options = LibraryFilterOptions(
+            roots=(),
+            artists=("Alice",),
+            genre_groups=(GenreFilterGroup("Electronic"),),
+        )
+        api = Mock()
+        api.filter_options.return_value = options
+
+        with patch("kukicha.use_case.LibraryQueries", return_value=api):
+            first = runtime.library_filter_options()
+            second = runtime.library_filter_options()
+            runtime.invalidate_library_filter_options()
+            third = runtime.library_filter_options()
+
+        self.assertIs(first, options)
+        self.assertIs(second, options)
+        self.assertIs(third, options)
+        self.assertEqual(api.filter_options.call_count, 2)
+
     def test_enqueued_job_runs_and_updates_status(self) -> None:
         with TemporaryDirectory() as tempdir:
             database = Path(tempdir) / "kukicha.sqlite"
@@ -1349,7 +1370,7 @@ class PlayerPageMenuTest(unittest.TestCase):
 
 
 class PlayerArtistCloudLinksTest(unittest.TestCase):
-    def test_artist_cloud_links_build_album_filter_urls_and_skip_blank_artists(self) -> None:
+    def test_artist_cloud_links_skip_blank_artists_without_album_filter_urls(self) -> None:
         links = artist_cloud_links(
             (
                 LibraryAlbumArtistStats(
@@ -1367,7 +1388,7 @@ class PlayerArtistCloudLinksTest(unittest.TestCase):
 
         self.assertEqual(len(links), 1)
         self.assertEqual(links[0].label, "Ahmad Jamal")
-        self.assertEqual(links[0].url, "/?artist=Ahmad+Jamal")
+        self.assertEqual(links[0].url, "")
         self.assertEqual(links[0].title, "1 album - 8 tracks")
 
     def test_artist_cloud_size_weights_albums_more_than_tracks(self) -> None:
@@ -1595,7 +1616,7 @@ class PlayerAlbumDetailLinksTest(unittest.TestCase):
 
         self.assertEqual(
             [(item.label, item.url) for item in artist_links],
-            [("Aphex Twin", "/?artist=Aphex+Twin&root=1&has_cover=1&per_page=80")],
+            [("Aphex Twin", "")],
         )
         self.assertEqual(
             [(item.label, item.url) for item in root_links],
@@ -1638,7 +1659,7 @@ class PlayerAlbumDetailLinksTest(unittest.TestCase):
         )
 
 
-    def test_album_template_renders_individual_album_artist_links_with_commas(self) -> None:
+    def test_album_template_renders_individual_album_artist_labels_with_commas(self) -> None:
         album = AlbumDetails(
             album_id="brian-eno-robert-fripp::no-pussyfooting",
             artist="Brian Eno, Robert Fripp",
@@ -1663,11 +1684,11 @@ class PlayerAlbumDetailLinksTest(unittest.TestCase):
 
         self.assertIn(
             (
-                '<a class="album-detail-meta-link" href="/?artist=Brian+Eno" '
-                'data-nav>Brian Eno</a>,'
+                '<span class="album-detail-meta-link">Brian Eno</span>,'
             ),
             html,
         )
+        self.assertNotIn('href="/?artist=', html)
 
     def test_album_template_renders_year_adjacent_to_album_title(self) -> None:
         album = AlbumDetails(
@@ -1864,7 +1885,8 @@ class PlayerAlbumDetailLinksTest(unittest.TestCase):
         self.assertLess(album_root_start, album_html.index("album-artist-meta"))
         self.assertIn('href="/?root=0"', album_html)
         self.assertIn('href="/?root=2"', album_html)
-        self.assertIn("Brian Eno</a>,&nbsp;<a", album_html)
+        self.assertIn("Brian Eno</span>,&nbsp;<span", album_html)
+        self.assertNotIn('href="/?artist=', album_html)
         self.assertLess(edit_html.index('<span class="album-title-year-meta">1973</span>'), edit_root_start)
         self.assertLess(edit_root_start, edit_html.index("album-artist-meta"))
         self.assertIn("(.../a,&nbsp;.../b)", edit_html)
@@ -1884,6 +1906,9 @@ class PlayerWebAdapterTest(unittest.TestCase):
         runtime.database = database
         runtime.queue_state_copy.return_value = PlayerQueueState(track_ids=[])
         runtime.active_job_payloads.return_value = []
+        runtime.library_filter_options.side_effect = (
+            lambda: LibraryQueries(database).filter_options()
+        )
         return runtime
 
     def test_healthz_returns_no_content(self) -> None:
@@ -1896,6 +1921,20 @@ class PlayerWebAdapterTest(unittest.TestCase):
             response = app.test_client().get("/healthz")
 
             self.assertEqual(response.status_code, 204)
+
+    def test_create_player_app_preloads_library_filter_options_cache(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            with patch.object(
+                PlayerRuntime,
+                "library_filter_options",
+                autospec=True,
+                return_value=LibraryFilterOptions(),
+            ) as preload:
+                app = create_player_app(self.make_options(temp_path))
+
+        self.assertIsNotNone(app)
+        preload.assert_called_once()
 
     def test_start_player_sync_queues_config_root_sync(self) -> None:
         with TemporaryDirectory() as tempdir:
@@ -2223,12 +2262,85 @@ class PlayerWebAdapterTest(unittest.TestCase):
             self.assertEqual(full_response.status_code, 200)
             self.assertIn(b"<h1>Artists</h1>", full_response.data)
             self.assertIn(b'class="artist-cloud"', full_response.data)
-            self.assertIn(b'href="/?artist=Ahmad+Jamal"', full_response.data)
+            self.assertIn(b'class="artist-cloud-link"', full_response.data)
+            self.assertIn(b"Ahmad Jamal", full_response.data)
+            self.assertNotIn(b'href="/?artist=', full_response.data)
             self.assertNotIn(b"data-filter-form", full_response.data)
             self.assertNotIn(b'type="search"', full_response.data)
             self.assertEqual(fragment_response.status_code, 200)
             self.assertNotIn(b"<!doctype html>", fragment_response.data)
             self.assertIn(b"<h1>Artists</h1>", fragment_response.data)
+
+    def test_album_index_renders_eager_genre_filters_without_artist_filter(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            database = temp_path / "kukicha.sqlite"
+            save_library(
+                MusicLibrary(
+                    roots=["/music"],
+                    tracks=[
+                        TrackRecord(
+                            path="/music/Artist A/Album/01.flac",
+                            root_position=0,
+                            file_type="flac",
+                            artist="Artist A",
+                            album_artist="Artist A",
+                            album="Album",
+                            title="One",
+                            genres=["Electronic"],
+                            styles=["Ambient"],
+                        ),
+                        TrackRecord(
+                            path="/music/Artist B/Album/01.flac",
+                            root_position=0,
+                            file_type="flac",
+                            artist="Artist B",
+                            album_artist="Artist B",
+                            album="Album",
+                            title="Two",
+                            genres=["Electronic"],
+                            styles=["Techno"],
+                        ),
+                    ],
+                    supported_extensions=[".flac"],
+                    generated_at="2026-04-29T00:00:00+00:00",
+                ),
+                database,
+            )
+            runtime = self.make_runtime(database)
+            with patch("kukicha.player_web_adapter.PlayerRuntime", return_value=runtime):
+                app = create_player_app(self.make_options(temp_path))
+                client = app.test_client()
+                response = client.get(
+                    "/?artist=Artist+A&genre[0][p]=Electronic"
+                    "&genre[0][c][]=Ambient"
+                )
+                artist_response = client.get("/?artist=Artist+A")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn(b"data-lazy-filter-options", response.data)
+        self.assertNotIn(b'data-filter-summary="artists"', response.data)
+        self.assertNotIn(b'name="artist"', response.data)
+        self.assertIn(b'value="Ambient" data-genre-child-control checked', response.data)
+        self.assertIn(b'value="Techno" data-genre-child-control', response.data)
+        self.assertNotIn(
+            b'value="Electronic" data-genre-parent-param disabled',
+            response.data,
+        )
+        self.assertEqual(artist_response.status_code, 200)
+        self.assertIn(b"Artist A", artist_response.data)
+        self.assertIn(b"Artist B", artist_response.data)
+
+    def test_lazy_filter_endpoints_are_not_registered(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            app = create_player_app(self.make_options(temp_path))
+            client = app.test_client()
+            artist_response = client.get("/api/filters/artists?artist=Artist+A")
+            genre_response = client.get("/api/filters/genres")
+
+        self.assertEqual(artist_response.status_code, 404)
+        self.assertEqual(genre_response.status_code, 404)
 
     def test_albums_and_playlist_pages_are_separate_indexes(self) -> None:
         with TemporaryDirectory() as tempdir:

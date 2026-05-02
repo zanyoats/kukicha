@@ -143,9 +143,6 @@ def playlist_index_url(query: AlbumListQuery, *, page: int | None = None) -> str
     encoded = urlencode(params, doseq=True, safe="[]")
     return f"/playlists?{encoded}" if encoded else "/playlists"
 
-def artist_index_url(artist: str) -> str:
-    return album_index_url(AlbumListQuery(artists=(artist,)))
-
 def artist_cloud_links(
     stats: Iterable[LibraryAlbumArtistStats],
 ) -> tuple[ArtistCloudLink, ...]:
@@ -164,7 +161,7 @@ def artist_cloud_links(
     return tuple(
         ArtistCloudLink(
             label=stat.album_artist,
-            url=artist_index_url(stat.album_artist),
+            url="",
             font_size_rem=artist_cloud_font_size(log_score, min_score, max_score),
             title=artist_cloud_title(stat),
         )
@@ -310,11 +307,11 @@ def album_root_links(
         for position in root_positions
     )
 
-def album_artist_links(album: AlbumDetails, query: AlbumListQuery) -> tuple[MetaLink, ...]:
+def album_artist_links(album: AlbumDetails, _query: AlbumListQuery) -> tuple[MetaLink, ...]:
     return tuple(
         MetaLink(
             label=artist,
-            url=album_index_url(album_meta_query(query, artists=(artist,))),
+            url="",
         )
         for artist in unique_meta_values(album.album_artists or (album.artist,))
     )

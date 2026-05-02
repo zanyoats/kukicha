@@ -57,7 +57,7 @@ def player_option_string(runtime: PlayerRuntime, name: str, default: str) -> str
 def album_index_query_from_query_string(query_string: str) -> AlbumListQuery:
     parsed = album_list_query_from_params(parse_qs(query_string))
     return AlbumListQuery(
-        artists=parsed.artists,
+        artists=(),
         album=parsed.album,
         root_positions=parsed.root_positions,
         genres=parsed.genres,
@@ -101,7 +101,7 @@ def build_index_context(runtime: PlayerRuntime, query_string: str) -> dict[str, 
 
     api = LibraryQueries(runtime.database)
     query = api.expand_album_list_query(album_index_query_from_query_string(query_string))
-    filters = api.filter_options()
+    filters = runtime.library_filter_options()
     album_page = api.list_album_page(query)
     context = base_player_context(
         runtime,
@@ -110,8 +110,8 @@ def build_index_context(runtime: PlayerRuntime, query_string: str) -> dict[str, 
         albums=album_page.items,
         query=query,
         filters=filters,
+        roots=filters.roots,
         selected_roots=set(query.root_positions),
-        selected_artists=set(query.artists),
         selected_genres=selected_genre_values(filters, query),
         checked_genres=checked_genre_values(filters, query),
         selected_styles=selected_style_values(filters, query),
@@ -186,9 +186,7 @@ def album_playback_payload(
     from .player_presenters import track_playback_payloads, track_view
 
     api = LibraryQueries(database)
-    query = api.expand_album_list_query(
-        album_list_query_from_params(parse_qs(query_string))
-    )
+    query = api.expand_album_list_query(album_index_query_from_query_string(query_string))
     album = api.get_album(
         album_id,
         root_positions=query.root_positions,
@@ -396,9 +394,7 @@ def build_album_context(
     )
 
     api = LibraryQueries(runtime.database)
-    query = api.expand_album_list_query(
-        album_list_query_from_params(parse_qs(query_string))
-    )
+    query = api.expand_album_list_query(album_index_query_from_query_string(query_string))
     album = api.get_album(
         album_id,
         root_positions=query.root_positions,
@@ -409,7 +405,7 @@ def build_album_context(
     )
     roots = api.library_roots()
     track_sections = album_track_sections(track_views, roots)
-    filters = api.filter_options()
+    filters = runtime.library_filter_options()
     return base_player_context(
         runtime,
         page_name="album",
@@ -490,9 +486,7 @@ def build_album_edit_context(
     )
 
     api = LibraryQueries(runtime.database)
-    query = api.expand_album_list_query(
-        album_list_query_from_params(parse_qs(query_string))
-    )
+    query = api.expand_album_list_query(album_index_query_from_query_string(query_string))
     album = api.get_album(
         album_id,
         root_positions=query.root_positions,
