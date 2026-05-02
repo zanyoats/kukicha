@@ -3154,12 +3154,15 @@ function replaceBrokenImage(event) {
   }
   const placeholder = document.createElement("span");
   placeholder.className = event.target.classList.contains("cover")
-    ? "cover"
+    ? ["cover", event.target.classList.contains("now-playing-cover") ? "now-playing-cover" : ""]
+        .filter(Boolean)
+        .join(" ")
     : "album-cover-placeholder";
   placeholder.setAttribute("aria-hidden", "true");
   event.target.replaceWith(placeholder);
 }
 
 view.addEventListener("error", replaceBrokenImage, true);
+nowPlaying.addEventListener("error", replaceBrokenImage, true);
 hydrateVisibleTracks();
 updatePlaybackUi();
