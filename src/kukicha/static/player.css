@@ -655,6 +655,26 @@ button:disabled,
   padding: 18px;
 }
 
+.not-found-panel {
+  display: grid;
+  gap: 14px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  padding: 18px;
+}
+
+.not-found-message {
+  margin: 0;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.not-found-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
 .empty-small {
   padding: 8px;
 }

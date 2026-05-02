@@ -16,6 +16,7 @@ from kukicha.use_case import (
     ALBUM_LIST_SORT_RECENTLY_ADDED,
     AlbumDetails,
     AlbumListQuery,
+    AlbumNotFoundError,
     GenreFilterGroup,
     GenreStyleFilter,
     LibraryAlbumArtistStats,
@@ -1953,6 +1954,56 @@ class PlayerWebAdapterTest(unittest.TestCase):
             self.assertEqual(client.get("/settings").status_code, 302)
             self.assertEqual(client.get("/settings").headers["Location"], "/roots")
 
+            response = client.get("/notifications")
+            self.assertIn(b"<h1>Not Found</h1>", response.data)
+            self.assertIn(b"page not found: /notifications", response.data)
+            self.assertIn(b'href="/" data-nav>Albums</a>', response.data)
+            self.assertIn(b'href="/playlists" data-nav>Playlists</a>', response.data)
+            self.assertNotIn(b'class="filter-menu page-menu"', response.data)
+            self.assertNotIn(b'href="/roots"', response.data)
+            self.assertNotIn(b'href="/jobs"', response.data)
+
+    def test_missing_album_page_returns_not_found_response(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            runtime = self.make_runtime(temp_path / "kukicha.sqlite")
+            with (
+                patch("kukicha.player_web_adapter.PlayerRuntime", return_value=runtime),
+                patch(
+                    "kukicha.player_web_adapter.build_album_context",
+                    side_effect=AlbumNotFoundError("missing-album"),
+                ),
+            ):
+                app = create_player_app(self.make_options(temp_path))
+
+            response = app.test_client().get("/albums/missing-album")
+
+            self.assertEqual(response.status_code, 404)
+            self.assertEqual(response.content_type, "text/html; charset=utf-8")
+            self.assertIn(b"<!doctype html>", response.data)
+            self.assertIn(b"<h1>Not Found</h1>", response.data)
+            self.assertIn(b"album not found: missing-album", response.data)
+            self.assertIn(b'href="/artists" data-nav>Artists</a>', response.data)
+            self.assertIn(b'href="/queue" data-nav>Queue</a>', response.data)
+
+    def test_missing_album_playback_returns_json_not_found_response(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            runtime = self.make_runtime(temp_path / "kukicha.sqlite")
+            with (
+                patch("kukicha.player_web_adapter.PlayerRuntime", return_value=runtime),
+                patch(
+                    "kukicha.player_web_adapter.album_playback_payload",
+                    side_effect=AlbumNotFoundError("missing-album"),
+                ),
+            ):
+                app = create_player_app(self.make_options(temp_path))
+
+            response = app.test_client().get("/api/albums/missing-album/playback")
+
+            self.assertEqual(response.status_code, 404)
+            self.assertEqual(response.get_json(), {"error": "album not found: missing-album"})
+
     def test_cancel_job_route_returns_job_payload(self) -> None:
         with TemporaryDirectory() as tempdir:
             temp_path = Path(tempdir)
@@ -2050,6 +2101,7 @@ class PlayerWebAdapterTest(unittest.TestCase):
             response = app.test_client().post("/api/roots/0/rescan")
 
             self.assertEqual(response.status_code, 404)
+            self.assertEqual(response.get_json(), {"error": "page not found: /api/roots/0/rescan"})
             runtime.enqueue_job.assert_not_called()
 
     def test_add_and_delete_root_routes_are_removed(self) -> None:

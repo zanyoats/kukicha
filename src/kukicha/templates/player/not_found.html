@@ -1,0 +1,14 @@
+<div class="view-page not-found-page" data-page="{{ page_key }}">
+  <header class="view-header">
+    <h1>{{ page_heading }}</h1>
+  </header>
+
+  <section class="not-found-panel" aria-label="Not found details">
+    <p class="not-found-message">{{ not_found_message }}</p>
+    <nav class="not-found-links" aria-label="Available pages">
+      {% for link in not_found_links %}
+        <a class="button-link" href="{{ link.url }}" data-nav>{{ link.label }}</a>
+      {% endfor %}
+    </nav>
+  </section>
+</div>

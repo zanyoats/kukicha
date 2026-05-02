@@ -219,6 +219,24 @@ def build_simple_page_context(runtime: PlayerRuntime, page_key: str) -> dict[str
     return context
 
 
+def build_not_found_context(runtime: PlayerRuntime, message: str) -> dict[str, Any]:
+    return base_player_context(
+        runtime,
+        page_name="not-found",
+        page_key="not-found",
+        page_heading="Not Found",
+        count_text="",
+        view_template="player/not_found.html",
+        not_found_message=message,
+        not_found_links=(
+            {"label": "Albums", "url": "/"},
+            {"label": "Artists", "url": "/artists"},
+            {"label": "Playlists", "url": "/playlists"},
+            {"label": "Queue", "url": "/queue"},
+        ),
+    )
+
+
 def build_help_page_context(runtime: PlayerRuntime, options: Any) -> dict[str, Any]:
     from .player_config import player_config_summary
     from .player_navigation import player_page_context

@@ -10,6 +10,7 @@ import sqlite3
 from typing import Any
 
 from flask import Flask, Response, abort, current_app, redirect, request, stream_with_context
+from werkzeug.exceptions import NotFound
 from werkzeug.serving import make_server
 
 from .use_case import (
@@ -60,6 +61,7 @@ from .player_views import (
     build_index_context,
     build_jobs_page_context,
     build_musicbrainz_overrides_page_context,
+    build_not_found_context,
     build_playlist_context,
     build_playlist_index_context,
     build_queue_context,
@@ -147,22 +149,24 @@ def create_player_app(options: PlayerServerOptions) -> Flask:
     @app.errorhandler(PlaylistItemNotFoundError)
     @app.errorhandler(TrackNotFoundError)
     def handle_not_found(error: Exception) -> Response:
-        if not wants_json_error():
-            abort(404, str(error))
-        return json_response({"error": str(error)}, status=404)
+        return not_found_response(error_message(error))
+
+    @app.errorhandler(NotFound)
+    def handle_http_not_found(error: NotFound) -> Response:
+        return not_found_response(http_not_found_message(error))
 
     @app.errorhandler(ValueError)
     def handle_bad_request(error: ValueError) -> Response:
         if not wants_json_error():
-            abort(400, str(error))
-        return json_response({"error": str(error)}, status=400)
+            return error_response(error, status=400)
+        return json_response({"error": error_message(error)}, status=400)
 
     @app.errorhandler(sqlite3.Error)
     @app.errorhandler(OSError)
     def handle_server_error(error: Exception) -> Response:
         if not wants_json_error():
-            abort(500, str(error))
-        return json_response({"error": str(error)}, status=500)
+            return error_response(error, status=500)
+        return json_response({"error": error_message(error)}, status=500)
 
     @app.get("/")
     @app.get("/index.html")
@@ -492,12 +496,12 @@ def render_simple_page(page_key: str) -> Response:
     return rendered_response(build_simple_page_context(player_context().runtime, page_key))
 
 
-def rendered_response(context: dict[str, Any]) -> Response:
+def rendered_response(context: dict[str, Any], *, status: int = 200) -> Response:
     from flask import render_template
 
     template_name = context["view_template"] if wants_fragment() else "player/base.html"
     html = render_template(template_name, **context)
-    return Response(html, content_type="text/html; charset=utf-8")
+    return Response(html, status=status, content_type="text/html; charset=utf-8")
 
 
 def json_response(
@@ -514,6 +518,36 @@ def json_response(
     if cache_control:
         response.headers["Cache-Control"] = cache_control
     return response
+
+
+def not_found_response(message: str) -> Response:
+    if wants_json_error():
+        return json_response({"error": message}, status=404)
+    return rendered_response(
+        build_not_found_context(player_context().runtime, message),
+        status=404,
+    )
+
+
+def http_not_found_message(error: NotFound) -> str:
+    description = str(error.description).strip()
+    if description and description != NotFound.description:
+        return description
+    return f"page not found: {request.path}"
+
+
+def error_response(error: Exception, *, status: int) -> Response:
+    return Response(
+        error_message(error),
+        status=status,
+        content_type="text/plain; charset=utf-8",
+    )
+
+
+def error_message(error: Exception) -> str:
+    if isinstance(error, KeyError) and error.args:
+        return str(error.args[0])
+    return str(error)
 
 
 def read_json_body() -> dict[str, Any]:
