@@ -44,8 +44,12 @@ from kukicha.player_config import (
     DEFAULT_PLAYER_LOG_LEVEL,
     DEFAULT_PLAYER_PORT,
     DEFAULT_TOAST_TIMEOUT_MS,
+    APPEARANCE_THEMES,
+    CONTROL_ACCENT_MINIMUM_CONTRAST,
     PlayerServerOptions,
     build_template_environment,
+    contrast_ratio,
+    derived_control_accent,
     load_player_options,
     player_accent_theme,
     player_config_help_text,
@@ -1237,6 +1241,20 @@ class PlayerPlaylistMembershipTest(unittest.TestCase):
 class PlayerConfigTest(unittest.TestCase):
     def test_default_toast_timeout_is_five_seconds(self) -> None:
         self.assertEqual(DEFAULT_TOAST_TIMEOUT_MS, 5000)
+
+    def test_control_accent_preserves_readable_accents_and_lifts_low_contrast_dim_accents(self) -> None:
+        dim = APPEARANCE_THEMES["dim"]
+        cyan = player_accent_theme("cyan").accent
+        brown = player_accent_theme("brown").accent
+
+        self.assertEqual(derived_control_accent(cyan, dim), cyan)
+        resolved_brown = derived_control_accent(brown, dim)
+
+        self.assertNotEqual(resolved_brown, brown)
+        self.assertGreaterEqual(
+            contrast_ratio(resolved_brown, dim.surface),
+            CONTROL_ACCENT_MINIMUM_CONTRAST,
+        )
 
     def test_load_player_options_reads_toml_config(self) -> None:
         with TemporaryDirectory() as tempdir:
@@ -2551,10 +2569,15 @@ class PlayerWebAdapterTest(unittest.TestCase):
             runtime.enqueue_job.assert_not_called()
 
     def test_page_rendering_can_return_full_document_or_fragment(self) -> None:
+        accent_theme = player_accent_theme("brown")
+        appearance_theme = APPEARANCE_THEMES["light"]
         context = {
             "app_title": "kukicha",
             "queue_state": {},
             "queue_url": "/queue",
+            "accent_theme": accent_theme,
+            "appearance_theme": appearance_theme,
+            "control_accent": derived_control_accent(accent_theme.accent, appearance_theme),
             "page_name": "library",
             "page_key": "library",
             "page_heading": "Albums",
@@ -2576,11 +2599,37 @@ class PlayerWebAdapterTest(unittest.TestCase):
                 fragment_response = client.get("/", headers={"X-Kukicha-Fragment": "1"})
 
             self.assertEqual(full_response.status_code, 200)
+            full_html = full_response.data.decode()
             self.assertIn(b"<!doctype html>", full_response.data)
             self.assertIn(b"<h1>Albums</h1>", full_response.data)
             self.assertIn(b'class="toast-region"', full_response.data)
             self.assertIn(b'data-toast-timeout-ms="12000"', full_response.data)
             self.assertNotIn(b"data-linked-toast-timeout-ms", full_response.data)
+            self.assertIn('id="playback-progress"', full_html)
+            self.assertIn('id="previous" class="transport-step-button"', full_html)
+            self.assertIn('id="next" class="transport-step-button"', full_html)
+            self.assertIn("transport-step-icon", full_html)
+            self.assertIn("M3.3 1a.7.7", full_html)
+            self.assertIn("M12.7 1a.7.7", full_html)
+            self.assertIn("data-play-icon", full_html)
+            self.assertIn("M3 1.713a.7.7", full_html)
+            self.assertIn("data-pause-icon", full_html)
+            self.assertIn("M2.7 1a.7.7", full_html)
+            self.assertIn('<span class="play-toggle-icon" data-pause-icon hidden>', full_html)
+            self.assertIn('id="volume"', full_html)
+            self.assertIn('id="volume-toggle"', full_html)
+            self.assertIn('id="volume-icon"', full_html)
+            self.assertNotIn('<span class="volume-label">Volume</span>', full_html)
+            self.assertIn('<audio id="audio" preload="metadata"></audio>', full_html)
+            self.assertNotIn('<audio id="audio" controls', full_html)
+            buttons_html = full_html.split('<div class="buttons">', 1)[1].split("</div>", 1)[0]
+            self.assertIn('id="queue-link"', buttons_html)
+            self.assertIn('aria-label="Queue"', buttons_html)
+            self.assertIn("queue-link-icon", buttons_html)
+            self.assertNotIn(">Queue<", buttons_html)
+            self.assertNotIn('id="play"', buttons_html)
+            self.assertNotIn('id="previous"', buttons_html)
+            self.assertNotIn('id="next"', buttons_html)
             self.assertEqual(fragment_response.status_code, 200)
             self.assertNotIn(b"<!doctype html>", fragment_response.data)
             self.assertIn(b"<h1>Albums</h1>", fragment_response.data)
@@ -2878,6 +2927,7 @@ class PlayerWebAdapterTest(unittest.TestCase):
             self.assertIn(b"--accent-strong: #04768a;", response.data)
             self.assertIn(b"--accent-soft: #e1f6fa;", response.data)
             self.assertIn(b"--accent-foreground: #111827;", response.data)
+            self.assertIn(b"--control-accent: #06b6d4;", response.data)
             self.assertIn(b'<span class="config-source configured">configured</span>', response.data)
             self.assertIn(b"<code>FFmpegPath</code>", response.data)
             self.assertIn(b"<code>&lt;unset&gt;</code>", response.data)
@@ -2900,6 +2950,11 @@ class PlayerWebAdapterTest(unittest.TestCase):
             self.assertIn(b"--line: #3f3f46;", response.data)
             self.assertIn(b"--track-row-highlight: #3f3f46;", response.data)
             self.assertIn(b"--track-row-highlight-text: #f4f4f5;", response.data)
+            dark_control_accent = derived_control_accent(
+                player_accent_theme(DEFAULT_ACCENT_COLOR).accent,
+                APPEARANCE_THEMES["dark"],
+            )
+            self.assertIn(f"--control-accent: {dark_control_accent};".encode(), response.data)
 
     def test_settings_pages_render_roots_artist_split_rules_musicbrainz_and_cache(self) -> None:
         with TemporaryDirectory() as tempdir:

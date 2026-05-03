@@ -2,16 +2,31 @@ const fragmentHeader = "X-Kukicha-Fragment";
 const view = document.getElementById("view");
 const audio = document.getElementById("audio");
 const playButton = document.getElementById("play");
+const playButtonPlayIcon = document.querySelector("[data-play-icon]");
+const playButtonPauseIcon = document.querySelector("[data-pause-icon]");
 const previousButton = document.getElementById("previous");
 const nextButton = document.getElementById("next");
-const queueLink = document.getElementById("queue-link");
 const nowPlaying = document.getElementById("now-playing");
+const progressInput = document.getElementById("playback-progress");
+const elapsedTime = document.getElementById("elapsed-time");
+const durationTime = document.getElementById("duration-time");
+const volumeInput = document.getElementById("volume");
+const volumeToggle = document.getElementById("volume-toggle");
+const volumeIcon = document.getElementById("volume-icon");
 const toast = document.getElementById("toast");
 const jobToasts = document.getElementById("job-toasts");
 const trackCache = new Map();
 const albumPlaybackCache = new Map();
 const dropdownMenuSelector = "details[data-dropdown-menu]";
 const toastHideDelayMs = readToastDelayMs("toastTimeoutMs", 5000);
+const volumeIconPathData = [
+  "M9.741.85a.75.75 0 0 1 .375.65v13a.75.75 0 0 1-1.125.65l-6.925-4a3.64 3.64 0 0 1-1.33-4.967 3.64 3.64 0 0 1 1.33-1.332l6.925-4a.75.75 0 0 1 .75 0zm-6.924 5.3a2.14 2.14 0 0 0 0 3.7l5.8 3.35V2.8zm8.683 4.29V5.56a2.75 2.75 0 0 1 0 4.88",
+  "M11.5 13.614a5.752 5.752 0 0 0 0-11.228v1.55a4.252 4.252 0 0 1 0 8.127z"
+];
+const volumeMutedIconPathData = [
+  "M13.86 5.47a.75.75 0 0 0-1.061 0l-1.47 1.47-1.47-1.47A.75.75 0 0 0 8.8 6.53L10.269 8l-1.47 1.47a.75.75 0 1 0 1.06 1.06l1.47-1.47 1.47 1.47a.75.75 0 0 0 1.06-1.06L12.39 8l1.47-1.47a.75.75 0 0 0 0-1.06",
+  "M10.116 1.5A.75.75 0 0 0 8.991.85l-6.925 4a3.64 3.64 0 0 0-1.33 4.967 3.64 3.64 0 0 0 1.33 1.332l6.925 4a.75.75 0 0 0 1.125-.649v-1.906a4.7 4.7 0 0 1-1.5-.694v1.3L2.817 9.852a2.14 2.14 0 0 1-.781-2.92c.187-.324.456-.594.78-.782l5.8-3.35v1.3c.45-.313.956-.55 1.5-.694z"
+];
 
 let queueState = readInitialQueueState();
 let appHistoryDepth = initialAppHistoryDepth();
@@ -1050,6 +1065,178 @@ function playbackIsActive() {
   return loadedId !== null && trackIsPlayable(loadedId) && !playbackPausedForUi();
 }
 
+function clampNumber(value, min, max) {
+  if (!Number.isFinite(value)) {
+    return min;
+  }
+  return Math.min(max, Math.max(min, value));
+}
+
+function finiteAudioDuration() {
+  const duration = Number(audio.duration);
+  return Number.isFinite(duration) && duration > 0 ? duration : null;
+}
+
+function trackDurationSeconds(track) {
+  const duration = Number(track && track.durationSeconds);
+  return Number.isFinite(duration) && duration > 0 ? duration : null;
+}
+
+function currentQueueTrackForProgress() {
+  const loadedId = loadedTrackId();
+  if (loadedId !== null) {
+    return trackById(loadedId);
+  }
+  if (!queueState.track_ids.length) {
+    return null;
+  }
+  const trackId = queueState.track_ids[queuePositionForControls()];
+  return Number.isFinite(Number(trackId)) ? trackById(trackId) : null;
+}
+
+function playbackDurationForProgress() {
+  return finiteAudioDuration() || trackDurationSeconds(currentQueueTrackForProgress());
+}
+
+function finiteAudioCurrentTime() {
+  return clampNumber(Number(audio.currentTime), 0, Number.MAX_SAFE_INTEGER);
+}
+
+function formatMediaTime(seconds) {
+  if (!Number.isFinite(seconds) || seconds < 0) {
+    return "--:--";
+  }
+  const wholeSeconds = Math.floor(seconds);
+  const hours = Math.floor(wholeSeconds / 3600);
+  const minutes = Math.floor((wholeSeconds % 3600) / 60);
+  const remainingSeconds = wholeSeconds % 60;
+  const paddedSeconds = String(remainingSeconds).padStart(2, "0");
+  if (!hours) {
+    return `${minutes}:${paddedSeconds}`;
+  }
+  return `${hours}:${String(minutes).padStart(2, "0")}:${paddedSeconds}`;
+}
+
+function updateRangeFill(input, fraction) {
+  if (!(input instanceof HTMLInputElement)) {
+    return;
+  }
+  const percent = clampNumber(fraction, 0, 1) * 100;
+  input.style.setProperty("--range-fill", `${percent}%`);
+}
+
+function updatePlaybackProgress() {
+  const duration = playbackDurationForProgress();
+  const currentTime = duration === null
+    ? finiteAudioCurrentTime()
+    : clampNumber(Number(audio.currentTime), 0, duration);
+  if (elapsedTime instanceof HTMLElement) {
+    elapsedTime.textContent = formatMediaTime(currentTime);
+  }
+  if (durationTime instanceof HTMLElement) {
+    durationTime.textContent = duration === null ? "--:--" : formatMediaTime(duration);
+  }
+  if (!(progressInput instanceof HTMLInputElement)) {
+    return;
+  }
+  const max = Number(progressInput.max) || 1000;
+  const canSeek = duration !== null;
+  progressInput.disabled = !canSeek;
+  if (!canSeek) {
+    progressInput.value = "0";
+    progressInput.setAttribute("aria-valuetext", "No seekable duration");
+    updateRangeFill(progressInput, 0);
+    return;
+  }
+  const fraction = clampNumber(currentTime / duration, 0, 1);
+  progressInput.value = String(Math.round(fraction * max));
+  progressInput.setAttribute(
+    "aria-valuetext",
+    `${formatMediaTime(currentTime)} of ${formatMediaTime(duration)}`
+  );
+  updateRangeFill(progressInput, fraction);
+}
+
+function seekFromProgressInput() {
+  if (!(progressInput instanceof HTMLInputElement)) {
+    return;
+  }
+  const duration = playbackDurationForProgress();
+  if (duration === null) {
+    updatePlaybackProgress();
+    return;
+  }
+  const max = Number(progressInput.max) || 1000;
+  const fraction = clampNumber(Number(progressInput.value) / max, 0, 1);
+  try {
+    audio.currentTime = duration * fraction;
+  } catch {
+    updatePlaybackProgress();
+    return;
+  }
+  updatePlaybackProgress();
+}
+
+function updateVolumeControl() {
+  if (!(volumeInput instanceof HTMLInputElement)) {
+    return;
+  }
+  const volume = clampNumber(Number(audio.volume), 0, 1);
+  volumeInput.value = String(volume);
+  updateRangeFill(volumeInput, volume);
+  updateVolumeIcon(volume);
+}
+
+function setVolumeFromInput() {
+  if (!(volumeInput instanceof HTMLInputElement)) {
+    return;
+  }
+  const volume = clampNumber(Number(volumeInput.value), 0, 1);
+  audio.volume = volume;
+  updateRangeFill(volumeInput, volume);
+  updateVolumeIcon(volume);
+}
+
+function toggleMuted() {
+  audio.muted = !audio.muted;
+  updateVolumeIcon(audio.volume);
+}
+
+function updateVolumeIcon(volume) {
+  if (!(volumeIcon instanceof SVGSVGElement)) {
+    return;
+  }
+  const mutedIcon = audio.muted || volume <= 0;
+  const pathData = mutedIcon ? volumeMutedIconPathData : volumeIconPathData;
+  volumeIcon.dataset.state = mutedIcon ? "muted" : "volume";
+  volumeIcon.replaceChildren(...pathData.map(svgPath));
+  if (volumeToggle instanceof HTMLButtonElement) {
+    const label = audio.muted ? "Unmute volume" : "Mute volume";
+    volumeToggle.setAttribute("aria-label", label);
+    volumeToggle.setAttribute("aria-pressed", String(audio.muted));
+    volumeToggle.title = label;
+  }
+}
+
+function svgPath(pathData) {
+  const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  path.setAttribute("d", pathData);
+  return path;
+}
+
+function updatePlayButton(playing) {
+  const label = playing ? "Pause" : "Play";
+  playButton.setAttribute("aria-label", label);
+  playButton.setAttribute("aria-pressed", String(playing));
+  playButton.title = label;
+  if (playButtonPlayIcon instanceof HTMLElement) {
+    playButtonPlayIcon.hidden = playing;
+  }
+  if (playButtonPauseIcon instanceof HTMLElement) {
+    playButtonPauseIcon.hidden = !playing;
+  }
+}
+
 previousButton.addEventListener("click", () => {
   moveQueue(-1);
 });
@@ -1057,6 +1244,26 @@ previousButton.addEventListener("click", () => {
 nextButton.addEventListener("click", () => {
   moveQueue(1);
 });
+
+if (progressInput instanceof HTMLInputElement) {
+  progressInput.addEventListener("input", seekFromProgressInput);
+  progressInput.addEventListener("change", seekFromProgressInput);
+}
+
+if (volumeInput instanceof HTMLInputElement) {
+  volumeInput.addEventListener("input", setVolumeFromInput);
+  volumeInput.addEventListener("change", setVolumeFromInput);
+}
+
+if (volumeToggle instanceof HTMLButtonElement) {
+  volumeToggle.addEventListener("click", toggleMuted);
+}
+
+audio.addEventListener("timeupdate", updatePlaybackProgress);
+audio.addEventListener("loadedmetadata", updatePlaybackProgress);
+audio.addEventListener("durationchange", updatePlaybackProgress);
+audio.addEventListener("emptied", updatePlaybackProgress);
+audio.addEventListener("volumechange", updateVolumeControl);
 
 audio.addEventListener("seeking", () => {
   if (loadedTrackId() === null || queueState.paused) {
@@ -2863,12 +3070,10 @@ function updatePlaybackUi() {
   const currentQueuePosition = queueLoadedPosition();
   const playing = playbackIsActive();
   const hasPlayableQueuedTrack = queueState.track_ids.some((trackId) => trackIsPlayable(trackId));
-  playButton.textContent = playing ? "Pause" : "Play";
-  playButton.setAttribute("aria-pressed", String(playing));
+  updatePlayButton(playing);
   playButton.disabled = loadedId === null && !hasPlayableQueuedTrack;
   previousButton.disabled = !canMove(-1);
   nextButton.disabled = !canMove(1);
-  queueLink.classList.toggle("active", document.body.dataset.page === "queue");
 
   const loadedTrack = loadedId === null ? null : trackById(loadedId);
   if (loadedTrack && !nowPlaying.textContent) {
@@ -2900,6 +3105,7 @@ function updatePlaybackUi() {
     row.classList.toggle("current", rowCurrent);
     row.classList.toggle("playing", rowCurrent && playing);
   });
+  updatePlaybackProgress();
 }
 
 function totalDurationText(tracks) {
@@ -3236,5 +3442,6 @@ function replaceBrokenImage(event) {
 
 view.addEventListener("error", replaceBrokenImage, true);
 nowPlaying.addEventListener("error", replaceBrokenImage, true);
+updateVolumeControl();
 hydrateVisibleTracks();
 updatePlaybackUi();

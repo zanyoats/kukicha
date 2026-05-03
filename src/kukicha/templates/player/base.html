@@ -24,6 +24,7 @@
       --accent-strong: {{ accent_theme.accent_strong }};
       --accent-soft: {{ accent_theme.accent_soft }};
       --accent-foreground: {{ accent_theme.accent_foreground }};
+      --control-accent: {{ control_accent }};
     }
   </style>
 </head>
@@ -36,12 +37,74 @@
     <section id="controls" class="controls" aria-label="Player controls">
       <div id="now-playing" aria-live="polite"></div>
       <div class="buttons">
-        <button class="primary" id="play" type="button">Play</button>
-        <button id="previous" type="button">Previous</button>
-        <button id="next" type="button">Next</button>
-        <a id="queue-link" class="button-link" href="{{ queue_url }}" data-nav>Queue</a>
+        <a id="queue-link" class="button-link queue-link-button" href="{{ queue_url }}"
+          aria-label="Queue" title="Queue" data-nav>
+          <svg class="queue-link-icon" viewBox="0 0 16 16"
+            xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false">
+            <path fill="currentColor"
+              d="M15 15H1v-1.5h14zm0-4.5H1V9h14zm-14-7A2.5 2.5 0 0 1 3.5 1h9a2.5 2.5 0 0 1 0 5h-9A2.5 2.5 0 0 1 1 3.5m2.5-1a1 1 0 0 0 0 2h9a1 1 0 1 0 0-2z" />
+          </svg>
+        </a>
       </div>
-      <audio id="audio" controls preload="metadata"></audio>
+      <div class="transport" role="group" aria-label="Playback">
+        <div class="transport-buttons" aria-label="Track navigation">
+          <button id="previous" class="transport-step-button" type="button"
+            aria-label="Previous" title="Previous">
+            <svg class="transport-step-icon" viewBox="0 0 16 16"
+              xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false">
+              <path fill="currentColor"
+                d="M3.3 1a.7.7 0 0 1 .7.7v5.15l9.95-5.744a.7.7 0 0 1 1.05.606v12.575a.7.7 0 0 1-1.05.607L4 9.149V14.3a.7.7 0 0 1-.7.7H1.7a.7.7 0 0 1-.7-.7V1.7a.7.7 0 0 1 .7-.7z" />
+            </svg>
+          </button>
+          <button class="primary transport-play-toggle" id="play" type="button"
+            aria-label="Play" aria-pressed="false" title="Play">
+            <span class="play-toggle-icon" data-play-icon>
+              <svg class="transport-play-icon" viewBox="0 0 16 16"
+                xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false">
+                <path fill="currentColor"
+                  d="M3 1.713a.7.7 0 0 1 1.05-.607l10.89 6.288a.7.7 0 0 1 0 1.212L4.05 14.894A.7.7 0 0 1 3 14.288z" />
+              </svg>
+            </span>
+            <span class="play-toggle-icon" data-pause-icon hidden>
+              <svg class="transport-pause-icon" viewBox="0 0 16 16"
+                xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false">
+                <path fill="currentColor"
+                  d="M2.7 1a.7.7 0 0 0-.7.7v12.6a.7.7 0 0 0 .7.7h2.6a.7.7 0 0 0 .7-.7V1.7a.7.7 0 0 0-.7-.7zm8 0a.7.7 0 0 0-.7.7v12.6a.7.7 0 0 0 .7.7h2.6a.7.7 0 0 0 .7-.7V1.7a.7.7 0 0 0-.7-.7z" />
+              </svg>
+            </span>
+          </button>
+          <button id="next" class="transport-step-button" type="button"
+            aria-label="Next" title="Next">
+            <svg class="transport-step-icon" viewBox="0 0 16 16"
+              xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false">
+              <path fill="currentColor"
+                d="M12.7 1a.7.7 0 0 0-.7.7v5.15L2.05 1.107A.7.7 0 0 0 1 1.712v12.575a.7.7 0 0 0 1.05.607L12 9.149V14.3a.7.7 0 0 0 .7.7h1.6a.7.7 0 0 0 .7-.7V1.7a.7.7 0 0 0-.7-.7z" />
+            </svg>
+          </button>
+        </div>
+        <div class="track-progress">
+          <span id="elapsed-time" class="time-label">0:00</span>
+          <input id="playback-progress" class="progress-range" type="range" min="0" max="1000"
+            value="0" step="1" aria-label="Track progress" disabled>
+          <span id="duration-time" class="time-label">--:--</span>
+        </div>
+        <div class="volume-control">
+          <button id="volume-toggle" class="volume-toggle" type="button" aria-label="Mute volume"
+            aria-pressed="false" title="Mute volume">
+            <svg id="volume-icon" class="volume-icon" xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 16 16" width="16" height="16" fill="currentColor"
+              aria-hidden="true" focusable="false">
+              <path
+                d="M9.741.85a.75.75 0 0 1 .375.65v13a.75.75 0 0 1-1.125.65l-6.925-4a3.64 3.64 0 0 1-1.33-4.967 3.64 3.64 0 0 1 1.33-1.332l6.925-4a.75.75 0 0 1 .75 0zm-6.924 5.3a2.14 2.14 0 0 0 0 3.7l5.8 3.35V2.8zm8.683 4.29V5.56a2.75 2.75 0 0 1 0 4.88" />
+              <path
+                d="M11.5 13.614a5.752 5.752 0 0 0 0-11.228v1.55a4.252 4.252 0 0 1 0 8.127z" />
+            </svg>
+          </button>
+          <input id="volume" class="volume-range" type="range" min="0" max="1" value="1"
+            step="0.01" aria-label="Volume">
+        </div>
+      </div>
+      <audio id="audio" preload="metadata"></audio>
     </section>
   </main>
   <div class="toast-region">

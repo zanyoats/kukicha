@@ -137,6 +137,7 @@ ACCENT_COLOR_CODES = {
 }
 ACCENT_COLOR_NAMES_BY_CODE = {code: name for name, code in ACCENT_COLOR_CODES.items()}
 ACCENT_COLOR_STRONG_MINIMUM_CONTRAST = 4.5
+CONTROL_ACCENT_MINIMUM_CONTRAST = 3.0
 ACCENT_FOREGROUND_DARK = "#111827"
 ACCENT_FOREGROUND_LIGHT = "#ffffff"
 
@@ -522,6 +523,17 @@ def derived_accent_foreground(accent: str) -> str:
     if light_contrast >= dark_contrast:
         return ACCENT_FOREGROUND_LIGHT
     return ACCENT_FOREGROUND_DARK
+
+def derived_control_accent(accent: str, appearance: PlayerAppearanceTheme) -> str:
+    if contrast_ratio(accent, appearance.surface) >= CONTROL_ACCENT_MINIMUM_CONTRAST:
+        return accent
+    accent_rgb = hex_to_rgb(accent)
+    text_rgb = hex_to_rgb(appearance.text)
+    for accent_percent in range(90, 0, -10):
+        candidate = rgb_to_hex(mix_rgb(accent_rgb, text_rgb, accent_percent / 100))
+        if contrast_ratio(candidate, appearance.surface) >= CONTROL_ACCENT_MINIMUM_CONTRAST:
+            return candidate
+    return appearance.text
 
 def hex_to_rgb(value: str) -> tuple[int, int, int]:
     hex_value = value.removeprefix("#")

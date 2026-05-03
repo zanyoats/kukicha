@@ -14,6 +14,7 @@ def base_player_context(runtime: PlayerRuntime, **context: Any) -> dict[str, Any
         DEFAULT_ACCENT_COLOR,
         DEFAULT_APPEARANCE,
         DEFAULT_TOAST_TIMEOUT_MS,
+        derived_control_accent,
         player_accent_theme,
         player_appearance_theme,
     )
@@ -32,6 +33,7 @@ def base_player_context(runtime: PlayerRuntime, **context: Any) -> dict[str, Any
         "accent_color": accent_theme.accent,
         "accent_theme": accent_theme,
         "appearance_theme": appearance_theme,
+        "control_accent": derived_control_accent(accent_theme.accent, appearance_theme),
         "toast_timeout_ms": player_option_int(
             runtime,
             "toast_timeout_ms",
