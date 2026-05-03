@@ -148,7 +148,7 @@ CREATE TABLE IF NOT EXISTS library_album_artists (
     FOREIGN KEY (album_id) REFERENCES library_albums (album_id) ON DELETE CASCADE
 );
 CREATE INDEX IF NOT EXISTS idx_library_album_artists_artist
-    ON library_album_artists (artist, album_id);
+    ON library_album_artists (artist COLLATE NOCASE, album_id);
 
 CREATE TABLE IF NOT EXISTS library_album_roots (
     album_id TEXT NOT NULL,
@@ -594,10 +594,31 @@ def migrate_library_schema(connection: sqlite3.Connection) -> None:
             ON library_playlists (file_created_at)
         """
     )
+    ensure_library_album_artists_artist_index(connection)
     backfill_library_album_artists(connection)
     migrate_library_album_artist_column(connection)
     canonicalize_library_album_artists(connection)
     connection.execute("DROP TABLE IF EXISTS library_album_paths")
+
+
+def ensure_library_album_artists_artist_index(connection: sqlite3.Connection) -> None:
+    row = connection.execute(
+        """
+        SELECT sql
+        FROM sqlite_master
+        WHERE type = 'index'
+            AND name = 'idx_library_album_artists_artist'
+        """
+    ).fetchone()
+    index_sql = str(row["sql"] or "") if row is not None else ""
+    if row is not None and "COLLATE NOCASE" not in index_sql.upper():
+        connection.execute("DROP INDEX idx_library_album_artists_artist")
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_library_album_artists_artist
+            ON library_album_artists (artist COLLATE NOCASE, album_id)
+        """
+    )
 
 
 def table_columns(connection: sqlite3.Connection, table_name: str) -> set[str]:

@@ -166,11 +166,10 @@ def album_where_clause(query: AlbumListQuery) -> tuple[str, list[object]]:
         placeholders = placeholders_for(query.artists)
         clauses.append(
             f"""
-            EXISTS (
-                SELECT 1
+            albums.album_id IN (
+                SELECT album_artists.album_id
                 FROM library_album_artists AS album_artists
-                WHERE album_artists.album_id = albums.album_id
-                    AND album_artists.artist COLLATE NOCASE IN ({placeholders})
+                WHERE album_artists.artist COLLATE NOCASE IN ({placeholders})
             )
             """
         )

@@ -160,7 +160,7 @@ def artist_cloud_links(
     return tuple(
         ArtistCloudLink(
             label=stat.album_artist,
-            url="",
+            url=album_index_url(AlbumListQuery(artists=(stat.album_artist,))),
             font_size_rem=artist_cloud_font_size(log_score, min_score, max_score),
             title=artist_cloud_title(stat),
         )
@@ -289,11 +289,11 @@ def album_root_links(
         for position in root_positions
     )
 
-def album_artist_links(album: AlbumDetails, _query: AlbumListQuery) -> tuple[MetaLink, ...]:
+def album_artist_links(album: AlbumDetails, query: AlbumListQuery) -> tuple[MetaLink, ...]:
     return tuple(
         MetaLink(
             label=artist,
-            url="",
+            url=album_index_url(album_meta_query(query, artists=(artist,))),
         )
         for artist in unique_meta_values(album.album_artists or (album.artist,))
     )

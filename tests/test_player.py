@@ -1371,7 +1371,7 @@ class PlayerPageMenuTest(unittest.TestCase):
 
 
 class PlayerArtistCloudLinksTest(unittest.TestCase):
-    def test_artist_cloud_links_skip_blank_artists_without_album_filter_urls(self) -> None:
+    def test_artist_cloud_links_skip_blank_artists_and_link_to_album_filter(self) -> None:
         links = artist_cloud_links(
             (
                 LibraryAlbumArtistStats(
@@ -1389,7 +1389,7 @@ class PlayerArtistCloudLinksTest(unittest.TestCase):
 
         self.assertEqual(len(links), 1)
         self.assertEqual(links[0].label, "Ahmad Jamal")
-        self.assertEqual(links[0].url, "")
+        self.assertEqual(links[0].url, "/?artist=Ahmad+Jamal")
         self.assertEqual(links[0].title, "1 album - 8 tracks")
 
     def test_artist_cloud_size_weights_albums_more_than_tracks(self) -> None:
@@ -1617,7 +1617,7 @@ class PlayerAlbumDetailLinksTest(unittest.TestCase):
 
         self.assertEqual(
             [(item.label, item.url) for item in artist_links],
-            [("Aphex Twin", "")],
+            [("Aphex Twin", "/?artist=Aphex+Twin&root=1&has_cover=1&per_page=80")],
         )
         self.assertEqual(
             [(item.label, item.url) for item in root_links],
@@ -1683,13 +1683,11 @@ class PlayerAlbumDetailLinksTest(unittest.TestCase):
             track_sections=(),
         )
 
+        self.assertIn('href="/?artist=Brian+Eno" data-nav>Brian Eno</a>,', html)
         self.assertIn(
-            (
-                '<span class="album-detail-meta-link">Brian Eno</span>,'
-            ),
+            'href="/?artist=Robert+Fripp" data-nav>Robert Fripp</a>',
             html,
         )
-        self.assertNotIn('href="/?artist=', html)
 
     def test_album_template_renders_year_adjacent_to_album_title(self) -> None:
         album = AlbumDetails(
@@ -1968,8 +1966,9 @@ class PlayerAlbumDetailLinksTest(unittest.TestCase):
         self.assertLess(album_root_start, album_html.index("album-artist-meta"))
         self.assertIn('href="/?root=0"', album_html)
         self.assertIn('href="/?root=2"', album_html)
-        self.assertIn("Brian Eno</span>,&nbsp;<span", album_html)
-        self.assertNotIn('href="/?artist=', album_html)
+        self.assertIn("Brian Eno</a>,&nbsp;<a", album_html)
+        self.assertIn('href="/?artist=Brian+Eno"', album_html)
+        self.assertIn('href="/?artist=Robert+Fripp"', album_html)
         self.assertLess(edit_html.index('<span class="album-title-year-meta">1973</span>'), edit_root_start)
         self.assertLess(edit_root_start, edit_html.index("album-artist-meta"))
         self.assertIn("(.../a,&nbsp;.../b)", edit_html)
@@ -2300,7 +2299,7 @@ class PlayerWebAdapterTest(unittest.TestCase):
             self.assertIn(b'data-toast-timeout-ms="5000"', response.data)
             self.assertNotIn(b'data-toast-timeout-ms="10000"', response.data)
 
-    def test_artists_page_renders_tag_cloud_without_album_filters(self) -> None:
+    def test_artists_page_renders_tag_cloud_with_album_filter_links(self) -> None:
         with TemporaryDirectory() as tempdir:
             temp_path = Path(tempdir)
             database = temp_path / "kukicha.sqlite"
@@ -2347,7 +2346,7 @@ class PlayerWebAdapterTest(unittest.TestCase):
             self.assertIn(b'class="artist-cloud"', full_response.data)
             self.assertIn(b'class="artist-cloud-link"', full_response.data)
             self.assertIn(b"Ahmad Jamal", full_response.data)
-            self.assertNotIn(b'href="/?artist=', full_response.data)
+            self.assertIn(b'href="/?artist=Ahmad+Jamal"', full_response.data)
             self.assertNotIn(b"data-filter-form", full_response.data)
             self.assertNotIn(b'type="search"', full_response.data)
             self.assertEqual(fragment_response.status_code, 200)
@@ -2403,7 +2402,7 @@ class PlayerWebAdapterTest(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertNotIn(b"data-lazy-filter-options", response.data)
         self.assertNotIn(b'data-filter-summary="artists"', response.data)
-        self.assertNotIn(b'name="artist"', response.data)
+        self.assertIn(b'type="hidden" name="artist" value="Artist A"', response.data)
         self.assertIn(b'value="Ambient" data-genre-child-control checked', response.data)
         self.assertIn(b'value="Techno" data-genre-child-control', response.data)
         self.assertNotIn(
@@ -2412,7 +2411,7 @@ class PlayerWebAdapterTest(unittest.TestCase):
         )
         self.assertEqual(artist_response.status_code, 200)
         self.assertIn(b"Artist A", artist_response.data)
-        self.assertIn(b"Artist B", artist_response.data)
+        self.assertNotIn(b"Artist B", artist_response.data)
 
     def test_lazy_filter_endpoints_are_not_registered(self) -> None:
         with TemporaryDirectory() as tempdir:

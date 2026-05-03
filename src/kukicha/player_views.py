@@ -57,7 +57,7 @@ def player_option_string(runtime: PlayerRuntime, name: str, default: str) -> str
 def album_index_query_from_query_string(query_string: str) -> AlbumListQuery:
     parsed = album_list_query_from_params(parse_qs(query_string))
     return AlbumListQuery(
-        artists=(),
+        artists=parsed.artists,
         album=parsed.album,
         root_positions=parsed.root_positions,
         genres=parsed.genres,

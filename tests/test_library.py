@@ -37,12 +37,112 @@ from kukicha.models import (
     TrackRecord,
 )
 from kukicha.use_case.queries.library import (
+    album_order_by_clause,
     album_sort_columns,
+    album_sort_select_sql,
     decode_album_page_cursor,
 )
+from kukicha.use_case.queries.filters import album_where_clause
 
 
 class LibraryAlbumPathQueryTest(unittest.TestCase):
+    def test_migrates_album_artist_index_to_nocase(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            database = Path(tempdir) / "kukicha.sqlite"
+            legacy_connection = sqlite3.connect(database)
+            try:
+                legacy_connection.executescript(
+                    """
+                    CREATE TABLE library_album_artists (
+                        album_id TEXT NOT NULL,
+                        position INTEGER NOT NULL,
+                        artist TEXT NOT NULL,
+                        PRIMARY KEY (album_id, position)
+                    );
+                    CREATE INDEX idx_library_album_artists_artist
+                        ON library_album_artists (artist, album_id);
+                    """
+                )
+                legacy_connection.commit()
+            finally:
+                legacy_connection.close()
+
+            with connect_database(database) as connection:
+                columns = list(
+                    connection.execute(
+                        "PRAGMA index_xinfo(idx_library_album_artists_artist)"
+                    )
+                )
+
+        artist_column = next(row for row in columns if row["name"] == "artist")
+        self.assertEqual(artist_column["coll"], "NOCASE")
+
+    def test_artist_filter_plan_uses_artist_index_then_album_primary_key(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            database = Path(tempdir) / "kukicha.sqlite"
+            with connect_database(database) as connection:
+                for index in range(1000):
+                    album_id = f"album-{index}"
+                    artist = "Terekke" if index in {200, 400} else "Other"
+                    connection.execute(
+                        """
+                        INSERT INTO library_albums (
+                            album_id,
+                            album,
+                            year,
+                            track_count,
+                            file_created_at,
+                            artist_sort_key,
+                            album_sort_key
+                        ) VALUES (?, ?, ?, 1, ?, ?, ?)
+                        """,
+                        (
+                            album_id,
+                            f"Album {index}",
+                            2026,
+                            f"2026-01-{(index % 28) + 1:02d}",
+                            artist.casefold(),
+                            f"album {index}",
+                        ),
+                    )
+                    connection.execute(
+                        """
+                        INSERT INTO library_album_artists (album_id, position, artist)
+                        VALUES (?, 0, ?)
+                        """,
+                        (album_id, artist),
+                    )
+
+                query = AlbumListQuery(artists=("Terekke",))
+                where_sql, params = album_where_clause(query)
+                sort_columns = album_sort_columns(query)
+                plan_rows = list(
+                    connection.execute(
+                        f"""
+                        EXPLAIN QUERY PLAN
+                        SELECT
+                            albums.album_id,
+                            albums.album,
+                            albums.year,
+                            albums.track_count,
+                            albums.file_created_at,
+                            albums.art_track_id
+                            {album_sort_select_sql(sort_columns)}
+                        FROM library_albums AS albums
+                        {where_sql}
+                        {album_order_by_clause(sort_columns)}
+                        LIMIT ?
+                        """,
+                        [*params, 201],
+                    )
+                )
+
+        details = "\n".join(str(row["detail"]) for row in plan_rows)
+        self.assertIn("idx_library_album_artists_artist", details)
+        self.assertIn("SEARCH albums", details)
+        self.assertIn("album_id=?", details)
+        self.assertNotIn("SCAN albums", details)
+
     def test_album_details_paths_come_from_tracks_in_case_insensitive_path_order(self) -> None:
         with TemporaryDirectory() as tempdir:
             database = Path(tempdir) / "kukicha.sqlite"

@@ -7,6 +7,9 @@
     <form id="filters" class="filters" action="{{ filter_action_url }}" method="get" data-filter-form
       data-default-sort="{{ sort_options[0][0] }}">
       <input type="hidden" name="per_page" value="{% if query.per_page != default_per_page %}{{ query.per_page }}{% endif %}">
+      {% for artist in query.artists %}
+        <input type="hidden" name="artist" value="{{ artist }}">
+      {% endfor %}
       <div class="search-controls">
         <div class="search-submit-group">
           <label class="search-field">
