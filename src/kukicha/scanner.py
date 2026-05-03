@@ -560,7 +560,7 @@ def write_track_audio_tags(
     resolved_album = album.strip() if album else ""
     resolved_track_number = track_number.strip() if track_number else ""
     resolved_title = title.strip() if title else ""
-    resolved_genre = genre.strip() if genre else ""
+    genre_values = audio_genre_tag_values(genre)
 
     try:
         audio = MutagenFile(path, easy=True)
@@ -602,8 +602,8 @@ def write_track_audio_tags(
         else:
             delete_easy_tag(audio, "title")
 
-        if resolved_genre:
-            audio["genre"] = [resolved_genre]
+        if genre_values:
+            audio["genre"] = genre_values
         else:
             delete_easy_tag(audio, "genre")
 
@@ -621,7 +621,7 @@ def write_album_audio_tags(
 ) -> None:
     resolved_album_artist = album_artist.strip()
     resolved_album = album.strip()
-    resolved_genre = genre.strip()
+    genre_values = audio_genre_tag_values(genre)
 
     try:
         audio = MutagenFile(path, easy=True)
@@ -640,10 +640,17 @@ def write_album_audio_tags(
     try:
         audio["albumartist"] = [resolved_album_artist]
         audio["album"] = [resolved_album]
-        audio["genre"] = [resolved_genre]
+        if genre_values:
+            audio["genre"] = genre_values
+        else:
+            delete_easy_tag(audio, "genre")
         audio.save()
     except Exception as error:
         raise OSError(f"failed to update tags for {path}: {error}") from error
+
+
+def audio_genre_tag_values(genre: str | None) -> list[str]:
+    return normalize_genre_values((genre,))
 
 
 def missing_required_tags(track: TrackRecord) -> list[str]:

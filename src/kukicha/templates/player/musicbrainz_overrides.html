@@ -1,3 +1,5 @@
+{% from "player/_icons.html" import delete_icon %}
+
 <div class="view-page settings-page" data-page="{{ page_key }}">
   <header class="view-header">
     {% include "player/_page_title.html" %}
@@ -15,7 +17,7 @@
             <th scope="col">Album</th>
             <th scope="col">Release ID</th>
             <th scope="col">Release Group ID</th>
-            <th scope="col">Action</th>
+            <th scope="col">Actions</th>
           </tr>
         </thead>
         <tbody>
@@ -50,18 +52,23 @@
                 {% endif %}
               </td>
               <td>
-                {% if override.album_edit_url %}
-                  <a class="button-link" href="{{ override.album_edit_url }}" data-nav
-                    aria-label="Edit MusicBrainz IDs for {{ override.album }}">Edit</a>
-                {% elif override.delete_url %}
-                  <button
-                    class="danger"
-                    type="button"
-                    data-delete-musicbrainz-override
-                    data-album-id="{{ override.album_id }}"
-                    data-delete-url="{{ override.delete_url }}"
-                  >Delete</button>
-                {% endif %}
+                <div class="musicbrainz-override-actions">
+                  {% if override.album_edit_url %}
+                    <a class="button-link" href="{{ override.album_edit_url }}" data-nav
+                      aria-label="Edit MusicBrainz IDs for {{ override.album }}">Edit</a>
+                  {% endif %}
+                  {% if override.delete_url %}
+                    <button
+                      class="delete-icon-button"
+                      type="button"
+                      data-delete-musicbrainz-override
+                      data-album-id="{{ override.album_id }}"
+                      data-delete-url="{{ override.delete_url }}"
+                      aria-label="Delete MusicBrainz override for {{ override.album if override.is_current_album else override.album_id }}"
+                      title="Delete MusicBrainz override"
+                    >{{ delete_icon() }}</button>
+                  {% endif %}
+                </div>
               </td>
             </tr>
           {% endfor %}

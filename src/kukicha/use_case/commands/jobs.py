@@ -353,7 +353,7 @@ def job_kind_label_for_message(kind: str) -> str:
         "add_root": "Add and scan",
         "delete_root": "Delete",
         "edit_album": "Tag edit",
-        "edit_album_musicbrainz": "MusicBrainz ID edit",
+        "edit_album_musicbrainz": "Tag edit",
         "update_playlist_file": "Update playlist file",
         "rescan_library": "Rescan",
         "sync": "Sync",

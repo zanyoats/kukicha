@@ -1,55 +1,50 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Iterable
-from dataclasses import dataclass
-from datetime import datetime, timezone
+from dataclasses import dataclass, fields
 import logging
 from pathlib import Path
 import sqlite3
 from time import perf_counter
 from typing import Any
+import urllib.parse
 
 from ..queries import AlbumNotFoundError, TrackNotFoundError
-from ..database import connect_database, rebuild_album_search_index
-from ...discogs import (
-    most_common_artist_values,
-    most_common_value,
-    most_common_year,
-    parse_year,
-)
+from ..database import connect_database
 from ...album_artists import (
     DEFAULT_ALBUM_ARTIST_SPLIT_PATTERNS,
+    album_artist_has_mapping_pattern,
+    album_artist_id_text,
+    default_album_artist_mapping,
     display_album_artists,
-    track_album_artist_values,
+    mapped_album_artists_from_text,
 )
 from ...display import display_album_title
 from ..library import (
-    apply_album_artist_mappings,
     CoverArtResolutionStats,
     GenreResolutionStats,
-    resolve_library_cover_art,
-    resolve_library_genres,
-    track_album_id,
+    load_taxonomy_genre_matcher_from_connection,
+    update_genre_resolution_stats,
 )
 from ...models import (
     ALBUM_ARTWORK_HEIGHT,
     TRACK_ARTWORK_HEIGHT,
-    MusicLibrary,
     TrackArtwork,
-    TrackRecord,
+    normalize_genre_values,
 )
 from ..musicbrainz import (
+    MusicBrainzClient,
+    MusicBrainzLookupStats,
+    get_musicbrainz_entity,
+    musicbrainz_genres,
+    musicbrainz_release_group_mbid,
     normalize_musicbrainz_mbid,
     store_album_musicbrainz_link,
 )
 from ...player_common import optional_int, placeholders_for
-from .roots import (
-    library_job_detail_lines,
-    library_job_summary_text,
-    reconcile_library_albums,
-)
 from ...player_runtime import PlayerJobCancelToken, PlayerJobResult, PlayerRuntime
-from ...scanner import missing_required_tags, scan_track, write_track_audio_tags
+from ...scanner import write_album_audio_tags, write_track_audio_tags
+from ...text import normalize_slug_text
 
 LOGGER = logging.getLogger("kukicha.player")
 
@@ -62,29 +57,63 @@ class AlbumTrackTagEdit:
 
 
 @dataclass(frozen=True, slots=True)
-class AlbumMusicBrainzEditRequest:
-    album_id: str
-    album_label: str
-    album_name: str
+class AlbumMusicBrainzEditGroupRequest:
     musicbrainz_release_mbid: str | None
     musicbrainz_release_group_mbid: str | None
     track_ids: tuple[int, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
+class AlbumMusicBrainzEditRequest:
+    album_id: str
+    album_label: str
+    album_name: str
+    groups: tuple[AlbumMusicBrainzEditGroupRequest, ...]
+
+    @property
+    def track_ids(self) -> tuple[int, ...]:
+        return tuple(track_id for group in self.groups for track_id in group.track_ids)
+
+
+@dataclass(frozen=True, slots=True)
+class AlbumMusicBrainzEditGroupJob:
+    request: AlbumMusicBrainzEditGroupRequest
+    tracks: tuple[AlbumEditSnapshot, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class AlbumMusicBrainzEditJob:
     request: AlbumMusicBrainzEditRequest
-    tracks: tuple[AlbumEditSnapshot, ...]
+    groups: tuple[AlbumMusicBrainzEditGroupJob, ...]
+
+    @property
+    def tracks(self) -> tuple[AlbumEditSnapshot, ...]:
+        return tuple(track for group in self.groups for track in group.tracks)
 
 
 @dataclass(frozen=True, slots=True)
 class AlbumMusicBrainzEditResult:
     album_label: str
-    tracks_scanned: int
-    albums_scanned: int
-    affected_album_ids: tuple[str, ...]
+    album: str
+    album_artist: str
+    genre: str
+    tracks_updated: int
+    ids_cleared: bool
     genre_resolution: GenreResolutionStats
-    cover_art_resolution: CoverArtResolutionStats
+
+
+@dataclass(frozen=True, slots=True)
+class MusicBrainzPayload:
+    entity_type: str
+    mbid: str
+    payload: dict[str, object]
+
+
+@dataclass(frozen=True, slots=True)
+class AlbumMusicBrainzAudioTags:
+    album: str
+    album_artist: str
+    genres: tuple[str, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -132,22 +161,7 @@ def prepare_album_musicbrainz_edit_request(
     album_id: str,
     payload: dict[str, Any],
 ) -> AlbumMusicBrainzEditRequest:
-    raw_release_mbid = payload.get("musicbrainz_release_mbid")
-    if raw_release_mbid is not None and not isinstance(raw_release_mbid, str):
-        raise ValueError("MusicBrainz release ID must be a string")
-    raw_release_group_mbid = payload.get("musicbrainz_release_group_mbid")
-    if raw_release_group_mbid is not None and not isinstance(raw_release_group_mbid, str):
-        raise ValueError("MusicBrainz release group ID must be a string")
-
-    release_mbid = normalize_musicbrainz_mbid(
-        raw_release_mbid or "",
-        entity_type="release",
-    )
-    release_group_mbid = normalize_musicbrainz_mbid(
-        raw_release_group_mbid or "",
-        entity_type="release-group",
-    )
-    track_ids = parse_album_musicbrainz_track_ids(payload.get("track_ids"))
+    groups = parse_album_musicbrainz_group_requests(payload)
 
     connection = connect_database(database, create=False)
     try:
@@ -174,10 +188,96 @@ def prepare_album_musicbrainz_edit_request(
             album_name,
         ),
         album_name=album_name,
+        groups=groups,
+    )
+
+
+def parse_album_musicbrainz_group_requests(
+    payload: dict[str, Any],
+) -> tuple[AlbumMusicBrainzEditGroupRequest, ...]:
+    raw_groups = payload.get("groups")
+    if raw_groups is None:
+        return (parse_album_musicbrainz_group_request(payload, require_tracks=False),)
+
+    if not isinstance(raw_groups, list) or not raw_groups:
+        raise ValueError("at least one MusicBrainz group is required")
+
+    groups: list[AlbumMusicBrainzEditGroupRequest] = []
+    seen_track_ids: set[int] = set()
+    for item in raw_groups:
+        if not isinstance(item, dict):
+            raise ValueError("invalid MusicBrainz group payload")
+        group = parse_album_musicbrainz_group_request(item, require_tracks=True)
+        for track_id in group.track_ids:
+            if track_id in seen_track_ids:
+                raise ValueError(f"duplicate track id: {track_id}")
+            seen_track_ids.add(track_id)
+        groups.append(group)
+    return tuple(groups)
+
+
+def parse_album_musicbrainz_group_request(
+    payload: dict[str, Any],
+    *,
+    require_tracks: bool,
+) -> AlbumMusicBrainzEditGroupRequest:
+    raw_musicbrainz_url = payload.get("musicbrainz_url")
+    if raw_musicbrainz_url is not None and not isinstance(raw_musicbrainz_url, str):
+        raise ValueError("MusicBrainz URL must be a string")
+
+    raw_release_mbid = payload.get("musicbrainz_release_mbid")
+    if raw_release_mbid is not None and not isinstance(raw_release_mbid, str):
+        raise ValueError("MusicBrainz release ID must be a string")
+    raw_release_group_mbid = payload.get("musicbrainz_release_group_mbid")
+    if raw_release_group_mbid is not None and not isinstance(raw_release_group_mbid, str):
+        raise ValueError("MusicBrainz release group ID must be a string")
+
+    if raw_musicbrainz_url and raw_musicbrainz_url.strip():
+        if (raw_release_mbid and raw_release_mbid.strip()) or (
+            raw_release_group_mbid and raw_release_group_mbid.strip()
+        ):
+            raise ValueError("MusicBrainz URL cannot be combined with separate IDs")
+        release_mbid, release_group_mbid = parse_musicbrainz_album_url(
+            raw_musicbrainz_url
+        )
+    else:
+        release_mbid = normalize_musicbrainz_mbid(
+            raw_release_mbid or "",
+            entity_type="release",
+        )
+        release_group_mbid = normalize_musicbrainz_mbid(
+            raw_release_group_mbid or "",
+            entity_type="release-group",
+        )
+    track_ids = parse_album_musicbrainz_track_ids(payload.get("track_ids"))
+    if require_tracks and not track_ids:
+        raise ValueError("at least one track is required")
+
+    return AlbumMusicBrainzEditGroupRequest(
         musicbrainz_release_mbid=release_mbid,
         musicbrainz_release_group_mbid=release_group_mbid,
         track_ids=track_ids,
     )
+
+
+def parse_musicbrainz_album_url(value: str) -> tuple[str | None, str | None]:
+    text = value.strip()
+    if not text:
+        return None, None
+
+    parts = urllib.parse.urlsplit(text)
+    if not parts.scheme and not parts.netloc:
+        raise ValueError("Expected a MusicBrainz release or release group URL.")
+    path_parts = [part for part in parts.path.split("/") if part]
+    if len(path_parts) < 2:
+        raise ValueError("Expected a MusicBrainz release or release group URL.")
+
+    entity_type = path_parts[0]
+    if entity_type == "release":
+        return normalize_musicbrainz_mbid(text, entity_type="release"), None
+    if entity_type == "release-group":
+        return None, normalize_musicbrainz_mbid(text, entity_type="release-group")
+    raise ValueError("Expected a MusicBrainz release or release group URL.")
 
 
 def parse_album_musicbrainz_track_ids(value: object) -> tuple[int, ...]:
@@ -208,7 +308,38 @@ def prepare_album_musicbrainz_edit_job(
     connection = connect_database(database, create=False)
     try:
         requested_track_ids = list(request.track_ids)
-        if requested_track_ids:
+        if not requested_track_ids and len(request.groups) == 1:
+            ordered_track_rows = list(
+                connection.execute(
+                    """
+                    SELECT
+                        track_id,
+                        album_id,
+                        root_position,
+                        path,
+                        album,
+                        title
+                    FROM library_tracks
+                    WHERE album_id = ?
+                    ORDER BY track_id
+                    """,
+                    (album_id,),
+                )
+            )
+            if not ordered_track_rows:
+                raise AlbumNotFoundError(album_id)
+            rows_by_id = {
+                int(row["track_id"]): row
+                for row in ordered_track_rows
+            }
+            request_groups = (
+                AlbumMusicBrainzEditGroupRequest(
+                    musicbrainz_release_mbid=request.groups[0].musicbrainz_release_mbid,
+                    musicbrainz_release_group_mbid=request.groups[0].musicbrainz_release_group_mbid,
+                    track_ids=tuple(rows_by_id),
+                ),
+            )
+        elif requested_track_ids:
             placeholders = placeholders_for(requested_track_ids)
             track_rows = list(
                 connection.execute(
@@ -238,89 +369,23 @@ def prepare_album_musicbrainz_edit_job(
             ]
             if missing_track_ids:
                 raise TrackNotFoundError(missing_track_ids[0])
-            ordered_track_rows = [rows_by_id[track_id] for track_id in requested_track_ids]
+            request_groups = request.groups
         else:
-            ordered_track_rows = list(
-                connection.execute(
-                    """
-                    SELECT
-                        track_id,
-                        album_id,
-                        root_position,
-                        path,
-                        album,
-                        title
-                    FROM library_tracks
-                    WHERE album_id = ?
-                    ORDER BY track_id
-                    """,
-                    (album_id,),
-                )
-            )
-            if not ordered_track_rows:
-                raise AlbumNotFoundError(album_id)
-            requested_track_ids = [int(row["track_id"]) for row in ordered_track_rows]
+            raise ValueError("at least one track is required")
 
-        track_ids = requested_track_ids
-        placeholders = placeholders_for(track_ids)
-
-        genre_rows: dict[int, list[str]] = {}
-        for row in connection.execute(
-            f"""
-            SELECT track_id, genre
-            FROM library_track_genres
-            WHERE track_id IN ({placeholders})
-            ORDER BY track_id, position
-            """,
-            track_ids,
-        ):
-            genre_rows.setdefault(int(row["track_id"]), []).append(str(row["genre"]))
-
-        style_rows: dict[int, list[str]] = {}
-        for row in connection.execute(
-            f"""
-            SELECT track_id, style
-            FROM library_track_styles
-            WHERE track_id IN ({placeholders})
-            ORDER BY track_id, position
-            """,
-            track_ids,
-        ):
-            style_rows.setdefault(int(row["track_id"]), []).append(str(row["style"]))
-
-        artwork_rows: dict[int, dict[int, TrackArtwork]] = {}
-        for row in connection.execute(
-            f"""
-            SELECT track_id, height_px, mime_type, data
-            FROM library_track_artwork
-            WHERE track_id IN ({placeholders})
-            """,
-            track_ids,
-        ):
-            artwork_rows.setdefault(int(row["track_id"]), {})[int(row["height_px"])] = TrackArtwork(
-                mime_type=str(row["mime_type"]),
-                data=bytes(row["data"]),
-            )
-
-        snapshots: list[AlbumEditSnapshot] = []
-        for row in ordered_track_rows:
-            track_id = int(row["track_id"])
-            row_album_id = str(row["album_id"]) if row["album_id"] else ""
-            if row_album_id != album_id:
-                raise ValueError(f"track does not belong to album: {track_id}")
-            track_artworks = artwork_rows.get(track_id, {})
-            snapshots.append(
-                AlbumEditSnapshot(
-                    track_id=track_id,
-                    album_id=row_album_id,
-                    root_position=int(row["root_position"]) if row["root_position"] is not None else None,
-                    path=str(row["path"]),
-                    album=str(row["album"]) if row["album"] else "",
-                    title=str(row["title"]) if row["title"] else "",
-                    genres=tuple(genre_rows.get(track_id, ())),
-                    styles=tuple(style_rows.get(track_id, ())),
-                    track_artwork=track_artworks.get(TRACK_ARTWORK_HEIGHT),
-                    album_artwork=track_artworks.get(ALBUM_ARTWORK_HEIGHT),
+        groups: list[AlbumMusicBrainzEditGroupJob] = []
+        for group_request in request_groups:
+            snapshots: list[AlbumEditSnapshot] = []
+            for track_id in group_request.track_ids:
+                row = rows_by_id[track_id]
+                row_album_id = str(row["album_id"]) if row["album_id"] else ""
+                if row_album_id != album_id:
+                    raise ValueError(f"track does not belong to album: {track_id}")
+                snapshots.append(album_edit_snapshot_from_row(row, row_album_id=row_album_id))
+            groups.append(
+                AlbumMusicBrainzEditGroupJob(
+                    request=group_request,
+                    tracks=tuple(snapshots),
                 )
             )
     finally:
@@ -328,7 +393,26 @@ def prepare_album_musicbrainz_edit_job(
 
     return AlbumMusicBrainzEditJob(
         request=request,
-        tracks=tuple(snapshots),
+        groups=tuple(groups),
+    )
+
+
+def album_edit_snapshot_from_row(
+    row: sqlite3.Row,
+    *,
+    row_album_id: str,
+) -> AlbumEditSnapshot:
+    return AlbumEditSnapshot(
+        track_id=int(row["track_id"]),
+        album_id=row_album_id,
+        root_position=int(row["root_position"]) if row["root_position"] is not None else None,
+        path=str(row["path"]),
+        album=str(row["album"]) if row["album"] else "",
+        title=str(row["title"]) if row["title"] else "",
+        genres=(),
+        styles=(),
+        track_artwork=None,
+        album_artwork=None,
     )
 
 
@@ -546,87 +630,89 @@ def edit_library_album_musicbrainz(
     album_artist_split_patterns: Iterable[str | None] = DEFAULT_ALBUM_ARTIST_SPLIT_PATTERNS,
     cancel_check: Callable[[], None] | None = None,
 ) -> AlbumMusicBrainzEditResult:
-    rescanned_tracks: list[TrackRecord] = []
-    for snapshot in job.tracks:
-        if cancel_check is not None:
-            cancel_check()
-        track = scan_track(Path(snapshot.path))
-        if track.scan_error:
-            raise OSError(f"failed to rescan {snapshot.path}: {track.scan_error}")
-        missing_fields = missing_required_tags(track)
-        if missing_fields:
-            joined = ", ".join(missing_fields)
-            raise ValueError(f"rescanned track is missing required fields for {snapshot.path}: {joined}")
-        track.track_id = snapshot.track_id
-        track.root_position = snapshot.root_position
-        rescanned_tracks.append(track)
-
     connection = connect_database(database, create=False)
     try:
-        if cancel_check is not None:
-            cancel_check()
-        apply_album_artist_mappings(
-            connection,
-            rescanned_tracks,
-            split_patterns=album_artist_split_patterns,
-        )
-        grouped_new_tracks: dict[str, list[TrackRecord]] = {}
-        for track in rescanned_tracks:
-            album_id = track_album_id(track)
-            if album_id:
-                grouped_new_tracks.setdefault(album_id, []).append(track)
-        albums_scanned = len(grouped_new_tracks)
-        if albums_scanned != 1:
-            raise ValueError(
-                "MusicBrainz IDs can only be edited when the rescanned tracks remain a single album"
-            )
-
-        targeted_library = MusicLibrary(
-            roots=[],
-            tracks=rescanned_tracks,
-            supported_extensions=[],
-            generated_at=datetime.now(timezone.utc).replace(microsecond=0).isoformat(),
-        )
-        affected_album_ids = tuple(
-            sorted(
-                {
-                    *(snapshot.album_id for snapshot in job.tracks if snapshot.album_id),
-                    *grouped_new_tracks.keys(),
-                }
-            )
-        )
-        target_album_id = next(iter(grouped_new_tracks))
-
         connection.execute("SAVEPOINT edit_album_musicbrainz")
         try:
             if cancel_check is not None:
                 cancel_check()
-            store_album_musicbrainz_link(
-                connection,
-                target_album_id,
-                release_mbid=job.request.musicbrainz_release_mbid,
-                release_group_mbid=job.request.musicbrainz_release_group_mbid,
+
+            connection.execute(
+                "DELETE FROM album_musicbrainz_links WHERE album_id = ?",
+                (job.request.album_id,),
             )
-            genre_resolution = resolve_library_genres(
-                targeted_library,
-                database,
-                connection=connection,
-                album_artist_split_patterns=album_artist_split_patterns,
-            ) or GenreResolutionStats()
-            cover_art_resolution = resolve_library_cover_art(
-                targeted_library,
-                database,
-                connection=connection,
-                album_artist_split_patterns=album_artist_split_patterns,
-            ) or CoverArtResolutionStats()
-            ensure_album_rows_exist(connection, grouped_new_tracks)
-            replace_library_tracks(connection, rescanned_tracks)
-            reconcile_library_albums(
-                connection,
-                list(affected_album_ids),
-                album_artist_split_patterns=album_artist_split_patterns,
-            )
-            rebuild_album_search_index(connection)
+
+            pending_groups = [
+                group
+                for group in job.groups
+                if (
+                    group.request.musicbrainz_release_mbid is not None
+                    or group.request.musicbrainz_release_group_mbid is not None
+                )
+            ]
+            if not pending_groups:
+                connection.execute("RELEASE SAVEPOINT edit_album_musicbrainz")
+                connection.commit()
+                return AlbumMusicBrainzEditResult(
+                    album_label=job.request.album_label,
+                    album="",
+                    album_artist="",
+                    genre="",
+                    tracks_updated=0,
+                    ids_cleared=True,
+                    genre_resolution=GenreResolutionStats(),
+                )
+
+            total_tracks_updated = 0
+            combined_genre_resolution = GenreResolutionStats()
+            first_tag_values: AlbumMusicBrainzAudioTags | None = None
+            first_genre_text = ""
+            for group in pending_groups:
+                if cancel_check is not None:
+                    cancel_check()
+
+                lookup_stats = MusicBrainzLookupStats()
+                payloads, release_group_mbid = load_album_musicbrainz_edit_payloads(
+                    connection,
+                    group.request,
+                    lookup_stats,
+                )
+                tag_values, genre_resolution = album_musicbrainz_audio_tags(
+                    connection,
+                    payloads,
+                )
+                genre_resolution.musicbrainz_api_calls = lookup_stats.api_calls
+                genre_resolution.musicbrainz_cached_calls = lookup_stats.cached_calls
+                genre_resolution.musicbrainz_rate_limit_retries = lookup_stats.rate_limit_retries
+                genre_resolution.musicbrainz_fetch_failures = lookup_stats.fetch_failures
+                add_genre_resolution_stats(combined_genre_resolution, genre_resolution)
+
+                genre_text = "; ".join(tag_values.genres)
+                if first_tag_values is None:
+                    first_tag_values = tag_values
+                    first_genre_text = genre_text
+                for snapshot in group.tracks:
+                    if cancel_check is not None:
+                        cancel_check()
+                    write_album_audio_tags(
+                        Path(snapshot.path),
+                        album_artist=tag_values.album_artist,
+                        album=tag_values.album,
+                        genre=genre_text,
+                    )
+                    total_tracks_updated += 1
+
+                target_album_id = musicbrainz_audio_tag_album_id(
+                    connection,
+                    tag_values,
+                    split_patterns=album_artist_split_patterns,
+                )
+                store_album_musicbrainz_link(
+                    connection,
+                    target_album_id,
+                    release_mbid=group.request.musicbrainz_release_mbid,
+                    release_group_mbid=release_group_mbid,
+                )
             if cancel_check is not None:
                 cancel_check()
             connection.execute("RELEASE SAVEPOINT edit_album_musicbrainz")
@@ -641,12 +727,221 @@ def edit_library_album_musicbrainz(
 
     return AlbumMusicBrainzEditResult(
         album_label=job.request.album_label,
-        tracks_scanned=len(rescanned_tracks),
-        albums_scanned=albums_scanned,
-        affected_album_ids=affected_album_ids,
-        genre_resolution=genre_resolution,
-        cover_art_resolution=cover_art_resolution,
+        album=first_tag_values.album if first_tag_values is not None else job.request.album_name,
+        album_artist=first_tag_values.album_artist if first_tag_values is not None else "",
+        genre=first_genre_text,
+        tracks_updated=total_tracks_updated,
+        ids_cleared=False,
+        genre_resolution=combined_genre_resolution,
     )
+
+
+def load_album_musicbrainz_edit_payloads(
+    connection: sqlite3.Connection,
+    request: AlbumMusicBrainzEditGroupRequest,
+    stats: MusicBrainzLookupStats,
+) -> tuple[tuple[MusicBrainzPayload, ...], str | None]:
+    client = MusicBrainzClient(stats=stats)
+    payloads: list[MusicBrainzPayload] = []
+    release_group_mbid = request.musicbrainz_release_group_mbid
+
+    if request.musicbrainz_release_mbid:
+        release_payload = get_musicbrainz_entity(
+            connection,
+            client,
+            entity_type="release",
+            mbid=request.musicbrainz_release_mbid,
+        )
+        if release_payload is not None:
+            payloads.append(
+                MusicBrainzPayload(
+                    entity_type="release",
+                    mbid=request.musicbrainz_release_mbid,
+                    payload=release_payload,
+                )
+            )
+            if release_group_mbid is None:
+                release_group_mbid = musicbrainz_release_group_mbid(release_payload)
+
+    if release_group_mbid:
+        release_group_payload = get_musicbrainz_entity(
+            connection,
+            client,
+            entity_type="release-group",
+            mbid=release_group_mbid,
+        )
+        if release_group_payload is not None:
+            payloads.append(
+                MusicBrainzPayload(
+                    entity_type="release-group",
+                    mbid=release_group_mbid,
+                    payload=release_group_payload,
+                )
+            )
+
+    if not payloads:
+        raise ValueError("No MusicBrainz data available for the saved IDs.")
+
+    return tuple(payloads), release_group_mbid
+
+
+def add_genre_resolution_stats(
+    target: GenreResolutionStats,
+    source: GenreResolutionStats,
+) -> None:
+    for field in fields(GenreResolutionStats):
+        setattr(
+            target,
+            field.name,
+            int(getattr(target, field.name)) + int(getattr(source, field.name)),
+        )
+
+
+def album_musicbrainz_audio_tags(
+    connection: sqlite3.Connection,
+    payloads: tuple[MusicBrainzPayload, ...],
+) -> tuple[AlbumMusicBrainzAudioTags, GenreResolutionStats]:
+    tag_payload = preferred_musicbrainz_tag_payload(payloads)
+    genres, stats = musicbrainz_audio_genre_values(connection, payloads)
+    return (
+        AlbumMusicBrainzAudioTags(
+            album=musicbrainz_album_tag_title(tag_payload),
+            album_artist=musicbrainz_album_artist_tag_value(tag_payload),
+            genres=genres,
+        ),
+        stats,
+    )
+
+
+def preferred_musicbrainz_tag_payload(
+    payloads: tuple[MusicBrainzPayload, ...],
+) -> MusicBrainzPayload:
+    for payload in payloads:
+        if payload.entity_type == "release":
+            return payload
+    return payloads[0]
+
+
+def musicbrainz_album_tag_title(payload: MusicBrainzPayload) -> str:
+    title = payload.payload.get("title")
+    if not isinstance(title, str) or not title.strip():
+        raise ValueError(f"MusicBrainz {payload.entity_type} payload is missing a title.")
+
+    album = title.strip()
+    if payload.entity_type != "release":
+        return album
+
+    disambiguation = payload.payload.get("disambiguation")
+    if isinstance(disambiguation, str) and disambiguation.strip():
+        return f"{album} ({disambiguation.strip()})"
+    return album
+
+
+def musicbrainz_album_artist_tag_value(payload: MusicBrainzPayload) -> str:
+    artist_credit = payload.payload.get("artist-credit")
+    if not isinstance(artist_credit, list):
+        raise ValueError(
+            f"MusicBrainz {payload.entity_type} payload is missing artist credit."
+        )
+
+    parts: list[str] = []
+    for item in artist_credit:
+        if not isinstance(item, dict):
+            continue
+        name = item.get("name")
+        if not isinstance(name, str) or not name:
+            continue
+        joinphrase = item.get("joinphrase")
+        parts.append(name + (joinphrase if isinstance(joinphrase, str) else ""))
+
+    artist = "".join(parts).strip()
+    if not artist:
+        raise ValueError(
+            f"MusicBrainz {payload.entity_type} payload is missing artist credit."
+        )
+    return artist
+
+
+def musicbrainz_audio_genre_values(
+    connection: sqlite3.Connection,
+    payloads: tuple[MusicBrainzPayload, ...],
+) -> tuple[tuple[str, ...], GenreResolutionStats]:
+    matcher = load_taxonomy_genre_matcher_from_connection(connection)
+    if not matcher.candidates:
+        raise ValueError("No taxonomy genres are available for MusicBrainz genre matching.")
+
+    source_genres: dict[str, tuple[str, str, str]] = {}
+    for payload in payloads:
+        for genre in musicbrainz_genres(payload.payload):
+            source_genres.setdefault(
+                genre.casefold(),
+                (genre, payload.entity_type, payload.mbid),
+            )
+
+    if not source_genres:
+        raise ValueError("MusicBrainz returned no genres for the saved IDs.")
+
+    stats = GenreResolutionStats(musicbrainz_album_overrides=1)
+    resolved_genres: list[str] = []
+    resolved_styles: list[str] = []
+    for genre, _entity_type, _mbid in source_genres.values():
+        match = matcher.resolve(genre)
+        update_genre_resolution_stats(stats, match.resolution)
+        if match.resolution == "unmatched":
+            stats.musicbrainz_unmatched_genres += 1
+            continue
+        resolved_genres.extend(match.genres)
+        resolved_styles.extend(match.styles)
+
+    genre_values = tuple(normalize_genre_values((*resolved_genres, *resolved_styles)))
+    if not genre_values:
+        raise ValueError("No MusicBrainz genres matched the taxonomy for the saved IDs.")
+    return genre_values, stats
+
+
+def musicbrainz_audio_tag_album_id(
+    connection: sqlite3.Connection,
+    tag_values: AlbumMusicBrainzAudioTags,
+    *,
+    split_patterns: Iterable[str | None],
+) -> str:
+    album_artist = tag_values.album_artist.strip()
+    album = tag_values.album.strip()
+    if not album_artist or not album:
+        raise ValueError("MusicBrainz album and album artist are required.")
+
+    artists = musicbrainz_audio_tag_album_artists(
+        connection,
+        album_artist,
+        split_patterns=split_patterns,
+    )
+    artist_id = album_artist_id_text(artists) or album_artist
+    artist_slug = normalize_slug_text(artist_id)
+    album_slug = normalize_slug_text(album)
+    if not artist_slug or not album_slug:
+        raise ValueError("MusicBrainz album and album artist are required.")
+    return f"{artist_slug}::{album_slug}"
+
+
+def musicbrainz_audio_tag_album_artists(
+    connection: sqlite3.Connection,
+    album_artist: str,
+    *,
+    split_patterns: Iterable[str | None],
+) -> tuple[str, ...]:
+    row = connection.execute(
+        """
+        SELECT mapped_artists
+        FROM album_artist_split_mappings
+        WHERE album_artist = ?
+        """,
+        (album_artist,),
+    ).fetchone()
+    if row is not None:
+        return mapped_album_artists_from_text(row["mapped_artists"]) or (album_artist,)
+    if album_artist_has_mapping_pattern(album_artist, split_patterns):
+        return default_album_artist_mapping(album_artist) or (album_artist,)
+    return (album_artist,)
 
 
 def edit_library_album_tags(
@@ -684,157 +979,6 @@ def edit_library_album_tags(
         genre_resolution=GenreResolutionStats(),
         cover_art_resolution=CoverArtResolutionStats(),
     )
-
-
-def ensure_album_rows_exist(
-    connection: sqlite3.Connection,
-    grouped_tracks: dict[str, list[TrackRecord]],
-) -> None:
-    for album_id, tracks in grouped_tracks.items():
-        artists = most_common_artist_values(
-            track_album_artist_values(track)
-            for track in tracks
-        )
-        artist = display_album_artists(artists) or "<unknown artist>"
-        album = most_common_value(track.album for track in tracks) or "<unknown album>"
-        year = most_common_year(parse_year(track.date) for track in tracks)
-        file_created_at = min(
-            (track.file_created_at for track in tracks if track.file_created_at),
-            default=None,
-        )
-        connection.execute(
-            """
-            INSERT OR IGNORE INTO library_albums (
-                album_id,
-                album,
-                year,
-                track_count,
-                file_created_at
-            ) VALUES (?, ?, ?, ?, ?)
-            """,
-            (album_id, album, year, len(tracks), file_created_at),
-        )
-        for position, album_artist in enumerate(artists or (artist,)):
-            connection.execute(
-                """
-                INSERT OR IGNORE INTO library_album_artists (album_id, position, artist)
-                VALUES (?, ?, ?)
-                """,
-                (album_id, position, album_artist),
-            )
-
-
-def replace_library_tracks(
-    connection: sqlite3.Connection,
-    tracks: list[TrackRecord],
-) -> None:
-    track_ids = [
-        track.track_id
-        for track in tracks
-        if track.track_id is not None
-    ]
-    if not track_ids:
-        return
-
-    placeholders = placeholders_for(track_ids)
-    connection.execute(
-        f"DELETE FROM library_track_artwork WHERE track_id IN ({placeholders})",
-        track_ids,
-    )
-    connection.execute(
-        f"DELETE FROM library_track_styles WHERE track_id IN ({placeholders})",
-        track_ids,
-    )
-    connection.execute(
-        f"DELETE FROM library_track_genres WHERE track_id IN ({placeholders})",
-        track_ids,
-    )
-
-    for track in tracks:
-        if track.track_id is None:
-            continue
-        connection.execute(
-            """
-            UPDATE library_tracks
-            SET album_id = ?,
-                root_position = ?,
-                path = ?,
-                file_created_at = ?,
-                file_type = ?,
-                scan_error = ?,
-                artist = ?,
-                album_artist = ?,
-                composer = ?,
-                album = ?,
-                title = ?,
-                work = ?,
-                grouping = ?,
-                movement_name = ?,
-                is_compilation = ?,
-                track_number = ?,
-                disc_number = ?,
-                date = ?,
-                duration_seconds = ?,
-                bitrate = ?
-            WHERE track_id = ?
-            """,
-            (
-                track_album_id(track),
-                track.root_position,
-                track.path,
-                track.file_created_at,
-                track.file_type,
-                track.scan_error,
-                track.artist,
-                track.album_artist,
-                track.composer,
-                track.album,
-                track.title,
-                track.work,
-                track.grouping,
-                track.movement_name,
-                1 if track.is_compilation else 0,
-                track.track_number,
-                track.disc_number,
-                track.date,
-                track.duration_seconds,
-                track.bitrate,
-                track.track_id,
-            ),
-        )
-        for position, genre in enumerate(track.genres):
-            connection.execute(
-                """
-                INSERT INTO library_track_genres (track_id, position, genre)
-                VALUES (?, ?, ?)
-                """,
-                (track.track_id, position, genre),
-            )
-        for position, style in enumerate(track.styles):
-            connection.execute(
-                """
-                INSERT INTO library_track_styles (track_id, position, style)
-                VALUES (?, ?, ?)
-                """,
-                (track.track_id, position, style),
-            )
-        for height_px, artwork in (
-            (TRACK_ARTWORK_HEIGHT, track.artwork),
-            (ALBUM_ARTWORK_HEIGHT, track.album_artwork),
-        ):
-            if artwork is None or not artwork.data:
-                continue
-            connection.execute(
-                """
-                INSERT INTO library_track_artwork (
-                    track_id,
-                    height_px,
-                    mime_type,
-                    data
-                ) VALUES (?, ?, ?, ?)
-                """,
-                (track.track_id, height_px, artwork.mime_type, artwork.data),
-            )
 
 
 def run_edit_album_job(
@@ -883,29 +1027,36 @@ def run_edit_album_musicbrainz_job(
         cancel_check=cancel_token.raise_if_canceled,
     )
     duration_seconds = perf_counter() - started_at
-    LOGGER.info(
-        "%s",
-        library_job_summary_text(
-            "MusicBrainz ID edit",
+    if result.ids_cleared:
+        LOGGER.info(
+            "MusicBrainz IDs cleared for %s (duration=%.2fs)",
             result.album_label,
-            tracks_scanned=result.tracks_scanned,
-            albums_scanned=result.albums_scanned,
-            duration_seconds=duration_seconds,
-        ),
+            duration_seconds,
+        )
+        return PlayerJobResult(
+            message=f"MusicBrainz IDs cleared for {job.request.album_label}.",
+            context={
+                "album": job.request.album_name,
+                "duration_seconds": duration_seconds,
+            },
+        )
+
+    LOGGER.info(
+        "MusicBrainz tag edit completed for %s (tracks_updated=%s, duration=%.2fs)",
+        result.album_label,
+        result.tracks_updated,
+        duration_seconds,
     )
-    for line in library_job_detail_lines(
-        tracks_scanned=result.tracks_scanned,
-        albums_scanned=result.albums_scanned,
-        genre_resolution=result.genre_resolution,
-        cover_art_resolution=result.cover_art_resolution,
-    ):
-        LOGGER.info("%s", line)
     return PlayerJobResult(
-        message=f"MusicBrainz ID edit completed for {job.request.album_label}.",
+        message=(
+            f"Tags saved for {job.request.album_label}. "
+            "Rescan the library to update library filters, artists, and stats."
+        ),
         context={
-            "album": job.request.album_name,
-            "tracks_scanned": result.tracks_scanned,
-            "albums_scanned": result.albums_scanned,
+            "album": result.album,
+            "album_artist": result.album_artist,
+            "tracks_updated": result.tracks_updated,
             "duration_seconds": duration_seconds,
+            "rescan_recommended": True,
         },
     )

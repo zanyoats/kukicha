@@ -637,6 +637,20 @@ def album_tag_edit_sections(
         for section in album_track_sections(tracks, roots)
     ]
 
+
+def album_tag_edit_section_for_tracks(
+    tracks: list[TrackView],
+) -> AlbumTagEditSection:
+    return AlbumTagEditSection(
+        label="",
+        meta=album_track_section_meta(tracks),
+        tracks=album_tag_edit_tracks(tracks),
+        album=album_tag_edit_section_album(tracks),
+        album_artist=album_tag_edit_section_album_artist(tracks),
+        genre=album_tag_edit_section_genre(tracks),
+    )
+
+
 def album_tag_edit_tracks(tracks: Iterable[TrackView]) -> tuple[AlbumTagEditTrack, ...]:
     section_tracks = tuple(tracks)
     track_numbers_by_id = {

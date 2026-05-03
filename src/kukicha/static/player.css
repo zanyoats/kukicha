@@ -898,6 +898,12 @@ button:disabled,
   word-break: break-all;
 }
 
+.musicbrainz-override-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .musicbrainz-override-album {
   display: grid;
   gap: 4px;
@@ -1648,6 +1654,22 @@ button:disabled,
 }
 
 .album-edit-form-block + .album-edit-form-block {
+  border-top: 1px solid var(--line);
+  padding-top: 14px;
+}
+
+.album-musicbrainz-groups {
+  display: grid;
+  gap: 14px;
+}
+
+.album-musicbrainz-group {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.album-musicbrainz-group + .album-musicbrainz-group {
   border-top: 1px solid var(--line);
   padding-top: 14px;
 }

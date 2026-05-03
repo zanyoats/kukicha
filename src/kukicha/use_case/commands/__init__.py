@@ -19,7 +19,7 @@ from .album_edits import (
 from .player import (
     append_queue,
     clear_queue_database,
-    delete_stale_album_musicbrainz_override,
+    delete_album_musicbrainz_override,
     load_queue_state_database,
     pause_queue_for_document_load,
     playlist_audio_path,
@@ -54,7 +54,7 @@ from .startup import prepare_player_database
 __all__ = [
     "append_queue",
     "clear_queue_database",
-    "delete_stale_album_musicbrainz_override",
+    "delete_album_musicbrainz_override",
     "edit_library_album_musicbrainz",
     "edit_library_album_tags",
     "library_job_detail_lines",

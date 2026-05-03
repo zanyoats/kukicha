@@ -57,6 +57,7 @@ function readToastDelayMs(datasetKey, fallback) {
 initializeHistoryState();
 focusInitialSearch();
 syncFilterSummaries();
+syncAlbumMusicBrainzFormValues();
 syncAlbumArtistMappingForms();
 localizeJobTimes();
 syncJobsStream();
@@ -195,6 +196,18 @@ function focusInitialSearch() {
   }
 }
 
+function syncAlbumMusicBrainzFormValues() {
+  view.querySelectorAll(
+    "[data-musicbrainz-url-input], [data-musicbrainz-release-mbid-input], [data-musicbrainz-release-group-mbid-input]"
+  ).forEach((input) => {
+    if (!(input instanceof HTMLInputElement)) {
+      return;
+    }
+    const serverValue = input.getAttribute("data-server-value");
+    input.value = serverValue === null ? input.defaultValue : serverValue;
+  });
+}
+
 function parseFragment(html) {
   const template = document.createElement("template");
   template.innerHTML = html.trim();
@@ -263,6 +276,7 @@ function renderFragment(html, url, options = {}) {
   hydrateVisibleTracks();
   updatePlaybackUi();
   syncFilterSummaries();
+  syncAlbumMusicBrainzFormValues();
   syncAlbumArtistMappingForms();
   localizeJobTimes();
   syncJobsStream();
@@ -982,8 +996,11 @@ window.addEventListener("pagehide", () => {
   closeJobsStream();
 });
 
-window.addEventListener("pageshow", () => {
+window.addEventListener("pageshow", (event) => {
   pageIsUnloading = false;
+  if (!event.persisted) {
+    syncAlbumMusicBrainzFormValues();
+  }
   syncJobsStream();
   updatePlaybackUi();
 });
@@ -1854,38 +1871,84 @@ async function submitAlbumMusicBrainzForm(form) {
   if (!(form instanceof HTMLFormElement)) {
     return;
   }
-  const releaseMbidInput = form.querySelector("[data-musicbrainz-release-mbid-input]");
-  const releaseGroupMbidInput = form.querySelector("[data-musicbrainz-release-group-mbid-input]");
   const submitButton = form.querySelector("[data-save-album-musicbrainz]");
-  if (
-    !(releaseMbidInput instanceof HTMLInputElement)
-    || !(releaseGroupMbidInput instanceof HTMLInputElement)
-    || !(submitButton instanceof HTMLButtonElement)
-  ) {
+  if (!(submitButton instanceof HTMLButtonElement)) {
     return;
   }
 
-  const trackIdInputs = Array.from(form.querySelectorAll("[data-musicbrainz-track-id]"));
-  const trackIds = trackIdInputs.map((input) => (
-    input instanceof HTMLInputElement ? Number(input.value || "") : NaN
-  )).filter((trackId) => Number.isInteger(trackId) && trackId > 0);
-  if (trackIdInputs.length && !trackIds.length) {
+  const groupElements = Array.from(form.querySelectorAll("[data-musicbrainz-group]"));
+  const requestGroups = [];
+  const fieldScopes = groupElements.length ? groupElements : [form];
+  let hasInvalidGroupTracks = false;
+  fieldScopes.forEach((scope) => {
+    const musicBrainzUrlInput = scope.querySelector("[data-musicbrainz-url-input]");
+    const releaseMbidInput = scope.querySelector("[data-musicbrainz-release-mbid-input]");
+    const releaseGroupMbidInput = scope.querySelector("[data-musicbrainz-release-group-mbid-input]");
+    if (!(musicBrainzUrlInput instanceof HTMLInputElement)
+      && !(releaseMbidInput instanceof HTMLInputElement)
+      && !(releaseGroupMbidInput instanceof HTMLInputElement)) {
+      return;
+    }
+    const trackIdInputs = Array.from(scope.querySelectorAll("[data-musicbrainz-track-id]"));
+    const trackIds = trackIdInputs.map((input) => (
+      input instanceof HTMLInputElement ? Number(input.value || "") : NaN
+    )).filter((trackId) => Number.isInteger(trackId) && trackId > 0);
+    if (trackIdInputs.length && !trackIds.length) {
+      hasInvalidGroupTracks = true;
+    }
+    if (musicBrainzUrlInput instanceof HTMLInputElement) {
+      requestGroups.push({
+        musicbrainz_url: musicBrainzUrlInput.value.trim(),
+        track_ids: trackIds
+      });
+    } else {
+      requestGroups.push({
+        musicbrainz_release_mbid: releaseMbidInput instanceof HTMLInputElement
+          ? releaseMbidInput.value.trim()
+          : "",
+        musicbrainz_release_group_mbid: releaseGroupMbidInput instanceof HTMLInputElement
+          ? releaseGroupMbidInput.value.trim()
+          : "",
+        track_ids: trackIds
+      });
+    }
+  });
+  if (hasInvalidGroupTracks) {
     setAlbumMusicBrainzStatus(form, "No tracks available to edit.", true);
+    return;
+  }
+  if (!requestGroups.length) {
+    setAlbumMusicBrainzStatus(form, "No MusicBrainz fields available to edit.", true);
     return;
   }
 
   setAlbumMusicBrainzStatus(form, "Submitting MusicBrainz edit...");
   submitButton.disabled = true;
   submitButton.setAttribute("aria-busy", "true");
-  releaseMbidInput.disabled = true;
-  releaseGroupMbidInput.disabled = true;
+  const musicBrainzInputs = Array.from(
+    form.querySelectorAll(
+      "[data-musicbrainz-url-input], [data-musicbrainz-release-mbid-input], [data-musicbrainz-release-group-mbid-input]"
+    )
+  );
+  musicBrainzInputs.forEach((input) => {
+    if (input instanceof HTMLInputElement) {
+      input.disabled = true;
+    }
+  });
   try {
-    const requestBody = {
-      musicbrainz_release_mbid: releaseMbidInput.value.trim(),
-      musicbrainz_release_group_mbid: releaseGroupMbidInput.value.trim()
-    };
-    if (trackIdInputs.length) {
-      requestBody.track_ids = trackIds;
+    let requestBody;
+    if (groupElements.length) {
+      requestBody = {groups: requestGroups};
+    } else {
+      requestBody = requestGroups[0].musicbrainz_url !== undefined
+        ? {musicbrainz_url: requestGroups[0].musicbrainz_url}
+        : {
+            musicbrainz_release_mbid: requestGroups[0].musicbrainz_release_mbid,
+            musicbrainz_release_group_mbid: requestGroups[0].musicbrainz_release_group_mbid
+          };
+      if (requestGroups[0].track_ids.length) {
+        requestBody.track_ids = requestGroups[0].track_ids;
+      }
     }
     const response = await fetch(form.action, {
       method: "POST",
@@ -1903,7 +1966,7 @@ async function submitAlbumMusicBrainzForm(form) {
     }
     const message = payload && typeof payload.message === "string" && payload.message.trim()
       ? payload.message
-      : "MusicBrainz ID edit queued.";
+      : "Tag edit queued.";
     setAlbumMusicBrainzStatus(form, message);
     if (payload && payload.job) {
       showJobToast(payload.job);
@@ -1916,8 +1979,11 @@ async function submitAlbumMusicBrainzForm(form) {
   } finally {
     submitButton.removeAttribute("aria-busy");
     submitButton.disabled = false;
-    releaseMbidInput.disabled = false;
-    releaseGroupMbidInput.disabled = false;
+    musicBrainzInputs.forEach((input) => {
+      if (input instanceof HTMLInputElement) {
+        input.disabled = false;
+      }
+    });
   }
 }
 
@@ -2113,7 +2179,7 @@ async function deleteMusicBrainzOverride(button) {
     return;
   }
 
-  if (!window.confirm(`Delete stale MusicBrainz override for ${albumId}?`)) {
+  if (!window.confirm(`Delete MusicBrainz override for ${albumId}?`)) {
     return;
   }
 

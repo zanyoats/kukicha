@@ -36,57 +36,62 @@
   </header>
 
   <div class="album-edit-sections">
-    {% for section in album_tag_edit_sections %}
-      <section class="album-edit-panel settings-panel album-track-section album-edit-section">
-        {% if section.label or section.meta %}
-          <div class="settings-panel-header album-edit-section-header">
-            {% if section.label %}
-              <h3 class="album-track-section-title">{{ section.label }}</h3>
-            {% endif %}
-            {% if section.meta %}
-              <ul class="meta-list album-track-meta">
-                {% for item in section.meta %}
-                  <li>{{ item }}</li>
-                {% endfor %}
-              </ul>
-            {% endif %}
-          </div>
-        {% endif %}
-        <div class="album-edit-section-forms">
-          <div class="album-edit-form-block album-musicbrainz-section">
-            <h4 class="album-edit-form-title">MusicBrainz IDs</h4>
-            <form class="album-edit-form" action="{{ album_musicbrainz_action_url }}" method="post" data-album-musicbrainz-form>
-              {% for item in section.tracks %}
-                <input type="hidden" value="{{ item.track.track_id }}" data-musicbrainz-track-id>
+    <section class="album-edit-panel settings-panel album-edit-section">
+      <div class="album-edit-section-forms">
+        <div class="album-edit-form-block album-musicbrainz-section">
+          <h4 class="album-edit-form-title">MusicBrainz IDs</h4>
+          <form class="album-edit-form" action="{{ album_musicbrainz_action_url }}" method="post" autocomplete="off" data-album-musicbrainz-form>
+            <div class="album-musicbrainz-groups">
+              {% for section in album_musicbrainz_sections %}
+                {% set musicbrainz_value = "" %}
+                {% if album_musicbrainz_sections|length == 1 and album_musicbrainz_release_mbid %}
+                  {% set musicbrainz_value = "https://musicbrainz.org/release/" ~ album_musicbrainz_release_mbid %}
+                {% elif album_musicbrainz_sections|length == 1 and album_musicbrainz_release_group_mbid %}
+                  {% set musicbrainz_value = "https://musicbrainz.org/release-group/" ~ album_musicbrainz_release_group_mbid %}
+                {% endif %}
+                <section class="album-musicbrainz-group" data-musicbrainz-group>
+                  {% if section.label or section.meta %}
+                    <div class="settings-panel-header album-edit-section-header">
+                      {% if section.label %}
+                        <h3 class="album-track-section-title">{{ section.label }}</h3>
+                      {% endif %}
+                      {% if section.meta %}
+                        <ul class="meta-list album-track-meta">
+                          {% for item in section.meta %}
+                            <li>{{ item }}</li>
+                          {% endfor %}
+                        </ul>
+                      {% endif %}
+                    </div>
+                  {% endif %}
+                  {% for item in section.tracks %}
+                    <input type="hidden" value="{{ item.track.track_id }}" data-musicbrainz-track-id>
+                  {% endfor %}
+                  <label class="album-edit-field">
+                    <span class="album-edit-label">MusicBrainz URL</span>
+                    <input
+                      class="settings-input"
+                      type="url"
+                      value="{{ musicbrainz_value }}"
+                      data-server-value="{{ musicbrainz_value }}"
+                      data-musicbrainz-url-input
+                      autocomplete="off"
+                      placeholder="https://musicbrainz.org/release/..."
+                    >
+                  </label>
+                </section>
               {% endfor %}
-              <label class="album-edit-field">
-                <span class="album-edit-label">MusicBrainz release ID</span>
-                <input
-                  class="settings-input"
-                  type="text"
-                  value="{{ album_musicbrainz_release_mbid }}"
-                  data-musicbrainz-release-mbid-input
-                  placeholder="UUID or MusicBrainz release URL"
-                >
-              </label>
-              <label class="album-edit-field">
-                <span class="album-edit-label">MusicBrainz release group ID</span>
-                <input
-                  class="settings-input"
-                  type="text"
-                  value="{{ album_musicbrainz_release_group_mbid }}"
-                  data-musicbrainz-release-group-mbid-input
-                  placeholder="UUID or MusicBrainz release-group URL"
-                >
-              </label>
-              <div class="album-edit-actions">
-                <button class="primary" type="submit" data-save-album-musicbrainz>Save MusicBrainz IDs</button>
-              </div>
-              <div class="settings-status" data-album-musicbrainz-status aria-live="polite"></div>
-            </form>
-          </div>
+            </div>
+            <div class="album-edit-actions">
+              <button class="primary" type="submit" data-save-album-musicbrainz>Save MusicBrainz IDs</button>
+            </div>
+            <div class="settings-status" data-album-musicbrainz-status aria-live="polite"></div>
+          </form>
+        </div>
+        {% if album_tag_edit_section is defined %}
           <div class="album-edit-form-block album-tag-edit-section">
             <h4 class="album-edit-form-title">Update Audio Tags</h4>
+            {% set section = album_tag_edit_section %}
             <form class="album-edit-form" action="{{ album_tag_edit_action_url }}" method="post" data-album-tag-form>
               <label class="album-edit-field">
                 <span class="album-edit-label">Album</span>
@@ -151,8 +156,8 @@
               <div class="settings-status" data-album-tag-status aria-live="polite"></div>
             </form>
           </div>
-        </div>
-      </section>
-    {% endfor %}
+        {% endif %}
+      </div>
+    </section>
   </div>
 </div>

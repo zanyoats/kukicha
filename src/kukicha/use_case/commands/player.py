@@ -629,30 +629,17 @@ def save_album_artist_split_mapping(
     }
 
 
-def delete_stale_album_musicbrainz_override(
+def delete_album_musicbrainz_override(
     runtime: PlayerRuntime,
     album_id: str,
 ) -> dict[str, object]:
-    from ...player_errors import PlayerConflictError, PlayerNotFoundError
+    from ...player_errors import PlayerNotFoundError
 
     album_id = str(album_id or "").strip()
     if not album_id:
         raise ValueError("album id is required")
 
     with connect_database(runtime.database) as connection:
-        current_album = connection.execute(
-            """
-            SELECT 1
-            FROM library_albums
-            WHERE album_id = ?
-            """,
-            (album_id,),
-        ).fetchone()
-        if current_album is not None:
-            raise PlayerConflictError(
-                "MusicBrainz override belongs to a current album; edit it from the album page"
-            )
-
         override = connection.execute(
             """
             SELECT 1
@@ -747,19 +734,19 @@ def start_album_musicbrainz_edit(
     job = prepare_album_musicbrainz_edit_job(runtime.database, album_id, payload)
     queued_job = runtime.enqueue_job(
         kind="edit_album_musicbrainz",
-        queued_message=f"MusicBrainz ID edit queued for {job.request.album_label}.",
-        running_message=f"MusicBrainz ID edit running for {job.request.album_label}.",
-        canceled_message=f"MusicBrainz ID edit canceled for {job.request.album_label}.",
-        failed_message=f"MusicBrainz ID edit failed for {job.request.album_label}.",
+        queued_message=f"Tag edit queued for {job.request.album_label}.",
+        running_message=f"Tag edit running for {job.request.album_label}.",
+        canceled_message=f"Tag edit canceled for {job.request.album_label}.",
+        failed_message=f"Tag edit failed for {job.request.album_label}.",
         context={
             "album": job.request.album_name,
-            "tracks_scanned": len(job.tracks),
+            "tracks_updated": len(job.tracks),
         },
         runner=lambda cancel_token: run_edit_album_musicbrainz_job(runtime, job, cancel_token),
     )
 
     return {
-        "message": f"MusicBrainz ID edit queued for {job.request.album_label}.",
+        "message": f"Tag edit queued for {job.request.album_label}.",
         "job": job_payload(queued_job),
     }
 

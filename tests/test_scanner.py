@@ -535,13 +535,13 @@ class ScannerTagWriteTest(unittest.TestCase):
                 Path("/tmp/test.mp3"),
                 album_artist="New Album Artist",
                 album="New Album",
-                genre="Electronic",
+                genre="Electronic; Ambient",
             )
 
         self.assertEqual(audio["artist"], ["Old Artist"])
         self.assertEqual(audio["albumartist"], ["New Album Artist"])
         self.assertEqual(audio["album"], ["New Album"])
-        self.assertEqual(audio["genre"], ["Electronic"])
+        self.assertEqual(audio["genre"], ["Electronic", "Ambient"])
         self.assertTrue(audio.saved)
 
     def test_write_track_audio_tags_sets_and_clears_easy_tags(self) -> None:
@@ -579,7 +579,7 @@ class ScannerTagWriteTest(unittest.TestCase):
         self.assertEqual(audio["album"], ["New Album"])
         self.assertEqual(audio["tracknumber"], ["7"])
         self.assertEqual(audio["title"], ["New Title"])
-        self.assertEqual(audio["genre"], ["Electronic; Score"])
+        self.assertEqual(audio["genre"], ["Electronic", "Score"])
         self.assertTrue(audio.saved)
 
 

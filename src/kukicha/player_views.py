@@ -330,8 +330,6 @@ def build_musicbrainz_overrides_page_context(runtime: PlayerRuntime) -> dict[str
                 else "",
                 "delete_url": (
                     f"/api/musicbrainz-overrides/{quote(override.album_id, safe=':')}/delete"
-                    if not override.is_current_album
-                    else ""
                 ),
             }
             for override in overrides
@@ -482,6 +480,7 @@ def build_album_edit_context(
         album_url,
     )
     from .player_presenters import (
+        album_tag_edit_section_for_tracks,
         album_tag_edit_sections,
         track_view,
     )
@@ -502,7 +501,8 @@ def build_album_edit_context(
         album=album,
         query=query,
         tracks=track_views,
-        album_tag_edit_sections=album_tag_edit_sections(track_views, roots),
+        album_musicbrainz_sections=album_tag_edit_sections(track_views, roots),
+        album_tag_edit_section=album_tag_edit_section_for_tracks(track_views),
         album_root_links=album_root_links(album, roots),
         album_artist_parts=album_artist_parts(album),
         album_year_text=str(album.year) if album.year else "",

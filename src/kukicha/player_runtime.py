@@ -14,7 +14,6 @@ from .album_artists import DEFAULT_ALBUM_ARTIST_SPLIT_PATTERNS
 LOGGER = logging.getLogger("kukicha.player")
 LIBRARY_FILTER_OPTIONS_INVALIDATING_JOB_KINDS = frozenset(
     {
-        "edit_album_musicbrainz",
         "rescan_library",
         "sync",
     }

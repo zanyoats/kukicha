@@ -15,7 +15,7 @@ from werkzeug.serving import make_server
 
 from .use_case import (
     append_queue as append_queue_command,
-    delete_stale_album_musicbrainz_override,
+    delete_album_musicbrainz_override,
     mark_stale_player_jobs_canceled,
     pause_queue_for_document_load,
     playlist_audio_path,
@@ -266,7 +266,7 @@ def create_player_app(options: PlayerServerOptions) -> Flask:
     @app.post("/api/musicbrainz-overrides/<path:album_id>/delete")
     def delete_musicbrainz_override(album_id: str) -> Response:
         return json_response(
-            delete_stale_album_musicbrainz_override(player_context().runtime, album_id)
+            delete_album_musicbrainz_override(player_context().runtime, album_id)
         )
 
     @app.post("/api/albums/<path:album_id>/tags")

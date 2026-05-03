@@ -10,7 +10,7 @@ def job_kind_label(kind: str) -> str:
         "add_root": "Add and Scan",
         "delete_root": "Delete Root",
         "edit_album": "Edit Tags",
-        "edit_album_musicbrainz": "Edit MusicBrainz IDs",
+        "edit_album_musicbrainz": "Edit Tags",
         "update_playlist_file": "Update Playlist File",
         "rescan_library": "Rescan",
         "sync": "Sync",
