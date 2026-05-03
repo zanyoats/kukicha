@@ -78,6 +78,7 @@ class QueueRow:
     track: TrackView
     position: int
     status: str
+    unavailable: bool = False
 
 @dataclass(frozen=True, slots=True)
 class TrackTableRow:
@@ -85,6 +86,7 @@ class TrackTableRow:
     group_label: str = ""
     queue_position: int | None = None
     queue_status: str = ""
+    queue_unavailable: bool = False
 
 @dataclass(frozen=True, slots=True)
 class AlbumTrackSection:
@@ -168,6 +170,19 @@ def track_playback_payload(track: TrackView) -> dict[str, object]:
         "unsupported": track.audio_unsupported_reason,
     }
 
+def queue_track_snapshot(track: TrackView) -> dict[str, object]:
+    return {
+        **track_playback_payload(track),
+        "albumArtUrl": track.album_art_url,
+        "artist": track.artist,
+        "tableTitle": track.table_title,
+        "queueTitle": track.queue_title,
+        "trackNumber": track.track_number,
+        "duration": track.duration,
+        "libraryTrackId": track.library_track_id,
+        "usesPlaylistCover": track.uses_playlist_cover,
+    }
+
 def track_views_for_playback_ids(
     api: LibraryQueries,
     playback_ids: Iterable[int],
@@ -198,6 +213,103 @@ def track_views_for_playback_ids(
         )
         is not None
     ]
+
+def queue_track_views_for_state(
+    api: LibraryQueries,
+    state: PlayerQueueState,
+) -> list[TrackView]:
+    live_views_by_id = {
+        track.track_id: track
+        for track in track_views_for_playback_ids(
+            api,
+            (
+                playback_id
+                for playback_id in state.track_ids
+                if playback_id not in state.unavailable_track_ids
+            ),
+        )
+    }
+    return [
+        live_views_by_id.get(playback_id)
+        or track_view_from_queue_snapshot(
+            playback_id,
+            state.snapshots[position] if position < len(state.snapshots) else {},
+        )
+        for position, playback_id in enumerate(state.track_ids)
+    ]
+
+def track_view_from_queue_snapshot(
+    playback_id: int,
+    snapshot: dict[str, object],
+) -> TrackView:
+    title = snapshot_string(snapshot, "title") or f"Unavailable track {playback_id}"
+    album_artist = snapshot_string(snapshot, "albumArtist")
+    album_artists = snapshot_string_tuple(snapshot, "albumArtists")
+    if not album_artists and album_artist:
+        album_artists = (album_artist,)
+    album = snapshot_string(snapshot, "album")
+    return TrackView(
+        track_id=playback_id,
+        album_id=snapshot_string(snapshot, "albumId"),
+        root_position=None,
+        path="",
+        audio_url=snapshot_string(snapshot, "audioUrl"),
+        art_url=snapshot_string(snapshot, "artUrl"),
+        album_art_url=snapshot_string(snapshot, "albumArtUrl"),
+        audio_codec=snapshot_string(snapshot, "audioCodec"),
+        audio_mime_type=snapshot_string(snapshot, "audioMimeType"),
+        audio_unsupported_reason="Unavailable",
+        file_type=snapshot_string(snapshot, "fileType"),
+        album_artist=album_artist,
+        album_artists=album_artists,
+        album=album,
+        display_album=album,
+        artist=snapshot_string(snapshot, "artist") or album_artist,
+        title=title,
+        display_title=title,
+        table_title=snapshot_string(snapshot, "tableTitle") or title,
+        queue_title=snapshot_string(snapshot, "queueTitle")
+        or queue_track_title(album_artist, title),
+        track_number=snapshot_string(snapshot, "trackNumber"),
+        disc_number="",
+        disc_total="",
+        year=None,
+        duration=snapshot_string(snapshot, "duration"),
+        duration_seconds=snapshot_float(snapshot, "durationSeconds"),
+        grouping="",
+        genres=(),
+        styles=(),
+        library_track_id=snapshot_optional_int(snapshot, "libraryTrackId"),
+        uses_playlist_cover=snapshot_bool(snapshot, "usesPlaylistCover"),
+    )
+
+def snapshot_string(snapshot: dict[str, object], key: str) -> str:
+    value = snapshot.get(key)
+    return value if isinstance(value, str) else ""
+
+def snapshot_string_tuple(snapshot: dict[str, object], key: str) -> tuple[str, ...]:
+    value = snapshot.get(key)
+    if not isinstance(value, Iterable) or isinstance(value, str):
+        return ()
+    return tuple(
+        text
+        for item in value
+        if (text := str(item or "").strip())
+    )
+
+def snapshot_float(snapshot: dict[str, object], key: str) -> float | None:
+    value = snapshot.get(key)
+    try:
+        number = float(value) if value is not None else None
+    except (TypeError, ValueError):
+        return None
+    return number if number is not None else None
+
+def snapshot_optional_int(snapshot: dict[str, object], key: str) -> int | None:
+    return optional_int(snapshot.get(key))
+
+def snapshot_bool(snapshot: dict[str, object], key: str) -> bool:
+    return bool(snapshot.get(key))
 
 def valid_playback_ids(api: LibraryQueries, playback_ids: Iterable[int]) -> list[int]:
     requested_ids = [int(playback_id) for playback_id in playback_ids]
@@ -404,6 +516,8 @@ def playlist_item_unsupported_reason(path: str) -> str:
     return audio_unsupported_reason_for_path(Path(path))
 
 def queue_status(state: PlayerQueueState, track_id: int, position: int) -> str:
+    if track_id in state.unavailable_track_ids:
+        return "Unavailable"
     if track_id in state.errored_track_ids:
         return "Error"
     if position < state.position:
@@ -459,6 +573,7 @@ def track_table_rows(
                 group_label=group_label,
                 queue_position=queue_row.position if queue_row is not None else None,
                 queue_status=queue_row.status if queue_row is not None else "",
+                queue_unavailable=queue_row.unavailable if queue_row is not None else False,
             )
         )
     return rows
@@ -708,6 +823,8 @@ def queue_state_payload(state: PlayerQueueState) -> dict[str, object]:
         "loaded_track_id": state.loaded_track_id,
         "paused": state.paused,
         "errored_track_ids": list(state.errored_track_ids),
+        "unavailable_track_ids": list(state.unavailable_track_ids),
+        "track_snapshots": [dict(snapshot) for snapshot in state.snapshots],
     }
 
 def normalized_queue_state(
@@ -717,17 +834,39 @@ def normalized_queue_state(
     loaded_track_id: object = None,
     paused: object = True,
     errored_track_ids: object = (),
+    unavailable_track_ids: object = (),
+    snapshots: object = (),
 ) -> PlayerQueueState:
     normalized_track_ids = [int(track_id) for track_id in track_ids]
     if not normalized_track_ids:
         return PlayerQueueState(track_ids=[], position=0, loaded_track_id=None, paused=True)
 
+    normalized_unavailable_track_ids = normalized_queue_error_ids(
+        unavailable_track_ids,
+        normalized_track_ids,
+    )
+    unavailable_ids = set(normalized_unavailable_track_ids)
     normalized_position = clamp_int(position, 0, len(normalized_track_ids))
+    if (
+        normalized_position < len(normalized_track_ids)
+        and normalized_track_ids[normalized_position] in unavailable_ids
+    ):
+        normalized_position = next_available_queue_position(
+            normalized_track_ids,
+            unavailable_ids,
+            normalized_position,
+        )
     normalized_loaded_track_id = optional_int(loaded_track_id)
-    if normalized_loaded_track_id not in normalized_track_ids:
+    if (
+        normalized_loaded_track_id not in normalized_track_ids
+        or normalized_loaded_track_id in unavailable_ids
+    ):
         normalized_loaded_track_id = (
             normalized_track_ids[normalized_position]
-            if normalized_position < len(normalized_track_ids)
+            if (
+                normalized_position < len(normalized_track_ids)
+                and normalized_track_ids[normalized_position] not in unavailable_ids
+            )
             else None
         )
 
@@ -742,7 +881,19 @@ def normalized_queue_state(
         loaded_track_id=normalized_loaded_track_id,
         paused=bool(paused) if normalized_loaded_track_id is not None else True,
         errored_track_ids=normalized_errored_track_ids,
+        unavailable_track_ids=normalized_unavailable_track_ids,
+        snapshots=normalized_queue_snapshots(snapshots, len(normalized_track_ids)),
     )
+
+def next_available_queue_position(
+    track_ids: list[int],
+    unavailable_ids: set[int],
+    position: int,
+) -> int:
+    for index in range(position + 1, len(track_ids)):
+        if track_ids[index] not in unavailable_ids:
+            return index
+    return len(track_ids)
 
 def reset_queue_state(state: PlayerQueueState) -> None:
     state.track_ids = []
@@ -750,6 +901,20 @@ def reset_queue_state(state: PlayerQueueState) -> None:
     state.loaded_track_id = None
     state.paused = True
     state.errored_track_ids = []
+    state.unavailable_track_ids = []
+    state.snapshots = []
+
+def normalized_queue_snapshots(value: object, count: int) -> list[dict[str, object]]:
+    snapshots: list[dict[str, object]] = []
+    if not isinstance(value, Iterable) or isinstance(value, (str, bytes)):
+        value = ()
+    for item in value:
+        snapshots.append(dict(item) if isinstance(item, dict) else {})
+        if len(snapshots) >= count:
+            break
+    while len(snapshots) < count:
+        snapshots.append({})
+    return snapshots
 
 def normalized_queue_error_ids(
     errored_track_ids: object,

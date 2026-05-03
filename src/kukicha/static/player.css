@@ -1896,12 +1896,12 @@ tbody tr.playing {
 }
 
 .queue-status-col {
-  width: 7ch;
+  width: 12ch;
 }
 
 .queue-status-label {
   display: inline-block;
-  width: 7ch;
+  min-width: 7ch;
 }
 
 .track-actions-head,

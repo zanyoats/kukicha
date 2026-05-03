@@ -71,12 +71,12 @@ function initializeHistoryState() {
 function readInitialQueueState() {
   const source = document.getElementById("queue-state");
   if (!source) {
-    return {track_ids: [], position: 0, loaded_track_id: null, paused: true, errored_track_ids: []};
+    return emptyQueueState();
   }
   try {
     return normalizeQueueState(JSON.parse(source.textContent));
   } catch {
-    return {track_ids: [], position: 0, loaded_track_id: null, paused: true, errored_track_ids: []};
+    return emptyQueueState();
   }
 }
 
@@ -85,8 +85,9 @@ function normalizeQueueState(state) {
     ? state.track_ids.map(Number).filter(Number.isFinite)
     : [];
   if (!trackIds.length) {
-    return {track_ids: [], position: 0, loaded_track_id: null, paused: true, errored_track_ids: []};
+    return emptyQueueState();
   }
+  hydrateQueueStateSnapshots(state, trackIds);
   const validTrackIds = new Set(trackIds);
   const erroredTrackIds = state && Array.isArray(state.errored_track_ids)
     ? Array.from(new Set(
@@ -95,6 +96,14 @@ function normalizeQueueState(state) {
           .filter((trackId) => Number.isFinite(trackId) && validTrackIds.has(trackId))
       ))
     : [];
+  const unavailableTrackIds = state && Array.isArray(state.unavailable_track_ids)
+    ? Array.from(new Set(
+        state.unavailable_track_ids
+          .map(Number)
+          .filter((trackId) => Number.isFinite(trackId) && validTrackIds.has(trackId))
+      ))
+    : [];
+  const unavailableTrackIdSet = new Set(unavailableTrackIds);
   const loadedTrackIdValue = state && state.loaded_track_id === null
     ? null
     : Number(state && state.loaded_track_id);
@@ -102,18 +111,54 @@ function normalizeQueueState(state) {
   position = Number.isFinite(position) ? Math.trunc(position) : 0;
   position = Math.max(0, Math.min(position, trackIds.length));
   let loadedTrackId = Number.isFinite(loadedTrackIdValue) ? loadedTrackIdValue : null;
-  if (loadedTrackId !== null && !trackIds.includes(loadedTrackId)) {
+  if (
+    loadedTrackId !== null
+    && (!trackIds.includes(loadedTrackId) || unavailableTrackIdSet.has(loadedTrackId))
+  ) {
     loadedTrackId = null;
   }
-  if (loadedTrackId === null && position < trackIds.length) {
-    loadedTrackId = trackIds[position];
+  if (loadedTrackId === null) {
+    for (let index = position; index < trackIds.length; index += 1) {
+      if (!unavailableTrackIdSet.has(trackIds[index])) {
+        loadedTrackId = trackIds[index];
+        position = index;
+        break;
+      }
+    }
   }
   return {
     track_ids: trackIds,
     position,
     loaded_track_id: loadedTrackId,
     paused: loadedTrackId === null ? true : !state || state.paused !== false,
-    errored_track_ids: erroredTrackIds
+    errored_track_ids: erroredTrackIds,
+    unavailable_track_ids: unavailableTrackIds
+  };
+}
+
+function hydrateQueueStateSnapshots(state, trackIds) {
+  const snapshots = state && Array.isArray(state.track_snapshots)
+    ? state.track_snapshots
+    : [];
+  if (!snapshots.length) {
+    return;
+  }
+  const validTrackIds = new Set(trackIds);
+  cacheTracks(
+    snapshots
+      .map(normalizeTrackPayload)
+      .filter((track) => track && validTrackIds.has(track.trackId))
+  );
+}
+
+function emptyQueueState() {
+  return {
+    track_ids: [],
+    position: 0,
+    loaded_track_id: null,
+    paused: true,
+    errored_track_ids: [],
+    unavailable_track_ids: []
   };
 }
 
@@ -943,9 +988,9 @@ function togglePlayback() {
   const controlsPosition = queuePositionForControls();
   const queuedTrackId = queueState.track_ids[controlsPosition] ?? null;
   const firstPlayablePosition = nextPlayableQueuePosition(-1);
-  const trackId = loadedId !== null && !trackHasPlaybackError(loadedId)
+  const trackId = loadedId !== null && trackIsPlayable(loadedId)
     ? loadedId
-    : queuedTrackId !== null && !trackHasPlaybackError(queuedTrackId)
+    : queuedTrackId !== null && trackIsPlayable(queuedTrackId)
       ? queuedTrackId
       : firstPlayablePosition === -1
         ? null
@@ -1002,7 +1047,7 @@ function playbackPausedForUi() {
 
 function playbackIsActive() {
   const loadedId = loadedTrackId();
-  return loadedId !== null && !trackHasPlaybackError(loadedId) && !playbackPausedForUi();
+  return loadedId !== null && trackIsPlayable(loadedId) && !playbackPausedForUi();
 }
 
 previousButton.addEventListener("click", () => {
@@ -2390,7 +2435,8 @@ function trackFromRow(row) {
     fileType: row.dataset.fileType || "",
     audioMimeType: row.dataset.audioMimeType || "",
     audioCodec: row.dataset.audioCodec || "",
-    unsupported: row.dataset.unsupported || ""
+    unsupported: row.dataset.unsupported || "",
+    unavailable: row.dataset.unavailable === "1"
   };
 }
 
@@ -2424,8 +2470,7 @@ function playFromRow(row) {
     return;
   }
   if (row.dataset.queuePosition !== undefined) {
-    const ids = allRows.map((candidate) => Number(candidate.dataset.trackId)).filter(Number.isFinite);
-    playQueue(ids, Number(row.dataset.queuePosition) || 0, {preserveErrors: true});
+    void playExistingQueuePosition(Number(row.dataset.queuePosition) || 0);
     return;
   }
   const ids = allRows.slice(rowIndex).map((candidate) => Number(candidate.dataset.trackId)).filter(Number.isFinite);
@@ -2436,14 +2481,36 @@ async function playQueue(trackIds, position, options = {}) {
   if (!trackIds.length) {
     return;
   }
-  queueState = normalizeQueueState({
+  const requestedState = normalizeQueueState({
     track_ids: trackIds,
     position,
     loaded_track_id: trackIds[position],
     paused: false,
-    errored_track_ids: options.preserveErrors ? queueState.errored_track_ids : []
+    errored_track_ids: options.preserveErrors ? queueState.errored_track_ids : [],
+    unavailable_track_ids: []
   });
-  void postQueue(queueState);
+  queueState = requestedState;
+  const syncedState = await postQueue(requestedState);
+  if (syncedState) {
+    queueState = syncedState;
+  }
+  playQueuePosition(queueState.position);
+}
+
+async function playExistingQueuePosition(position) {
+  if (position < 0 || position >= queueState.track_ids.length) {
+    return;
+  }
+  const trackId = queueState.track_ids[position];
+  if (!trackIsPlayable(trackId)) {
+    return;
+  }
+  queueState = normalizeQueueState({
+    ...queueState,
+    position,
+    loaded_track_id: trackId,
+    paused: false
+  });
   playQueuePosition(position);
 }
 
@@ -2453,12 +2520,18 @@ function playQueuePosition(position) {
   }
   queueState.position = position;
   const trackId = queueState.track_ids[position];
+  if (!trackIsPlayable(trackId)) {
+    return;
+  }
   queueState.loaded_track_id = trackId;
   playTrack(trackById(trackId), {restart: true});
 }
 
 async function playTrack(track, options = {}) {
   if (!track) {
+    return;
+  }
+  if (trackIsUnavailable(track.trackId)) {
     return;
   }
   manualPauseRequested = false;
@@ -2567,6 +2640,16 @@ function trackHasPlaybackError(trackId) {
     && queueState.errored_track_ids.includes(resolvedTrackId);
 }
 
+function trackIsUnavailable(trackId) {
+  const resolvedTrackId = Number(trackId);
+  return Number.isFinite(resolvedTrackId)
+    && queueState.unavailable_track_ids.includes(resolvedTrackId);
+}
+
+function trackIsPlayable(trackId) {
+  return !trackIsUnavailable(trackId) && !trackHasPlaybackError(trackId);
+}
+
 function failureQueuePosition(trackId) {
   const currentPosition = queueLoadedPosition();
   if (
@@ -2587,7 +2670,7 @@ function failureQueuePosition(trackId) {
 
 function nextPlayableQueuePosition(position) {
   for (let index = position + 1; index < queueState.track_ids.length; index += 1) {
-    if (!trackHasPlaybackError(queueState.track_ids[index])) {
+    if (trackIsPlayable(queueState.track_ids[index])) {
       return index;
     }
   }
@@ -2596,7 +2679,7 @@ function nextPlayableQueuePosition(position) {
 
 function previousPlayableQueuePosition(position) {
   for (let index = position - 1; index >= 0; index -= 1) {
-    if (!trackHasPlaybackError(queueState.track_ids[index])) {
+    if (trackIsPlayable(queueState.track_ids[index])) {
       return index;
     }
   }
@@ -2779,18 +2862,13 @@ function updatePlaybackUi() {
   const loadedId = loadedTrackId();
   const currentQueuePosition = queueLoadedPosition();
   const playing = playbackIsActive();
-  const hasPlayableQueuedTrack = queueState.track_ids.some((trackId) => !trackHasPlaybackError(trackId));
+  const hasPlayableQueuedTrack = queueState.track_ids.some((trackId) => trackIsPlayable(trackId));
   playButton.textContent = playing ? "Pause" : "Play";
   playButton.setAttribute("aria-pressed", String(playing));
   playButton.disabled = loadedId === null && !hasPlayableQueuedTrack;
   previousButton.disabled = !canMove(-1);
   nextButton.disabled = !canMove(1);
   queueLink.classList.toggle("active", document.body.dataset.page === "queue");
-  document.querySelectorAll("[data-queue-append]").forEach((button) => {
-    if (button instanceof HTMLButtonElement) {
-      button.disabled = !queueState.track_ids.length;
-    }
-  });
 
   const loadedTrack = loadedId === null ? null : trackById(loadedId);
   if (loadedTrack && !nowPlaying.textContent) {
@@ -2811,7 +2889,7 @@ function updatePlaybackUi() {
       row.classList.toggle("playing", rowCurrent && playing);
       row.classList.toggle("queue-played", position < queueState.position);
       row.classList.toggle("queue-active", position === queueState.position);
-      row.classList.toggle("queue-error", trackHasPlaybackError(trackId));
+      row.classList.toggle("queue-error", trackHasPlaybackError(trackId) || trackIsUnavailable(trackId));
       const status = row.querySelector(".queue-status-label");
       if (status) {
         status.textContent = queueStatus(trackId, position);
@@ -2876,6 +2954,9 @@ function canMove(delta) {
 }
 
 function queueStatus(trackId, position) {
+  if (trackIsUnavailable(trackId)) {
+    return "Unavailable";
+  }
   if (trackHasPlaybackError(trackId)) {
     return "Error";
   }
@@ -2915,6 +2996,43 @@ async function postQueue(state) {
   }
 }
 
+async function postQueueAppend(trackIds) {
+  try {
+    const response = await fetch("/api/queue/append", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({track_ids: trackIds})
+    });
+    if (!response.ok) {
+      throw new Error(`queue append request failed: ${response.status}`);
+    }
+    return normalizeQueueState(await response.json());
+  } catch {
+    return null;
+  }
+}
+
+async function postQueueRemove(position) {
+  try {
+    const response = await fetch("/api/queue/remove", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({position})
+    });
+    if (!response.ok) {
+      throw new Error(`queue remove request failed: ${response.status}`);
+    }
+    const payload = await response.json();
+    return {
+      queue: normalizeQueueState(payload && payload.queue),
+      playNext: Boolean(payload && payload.play_next),
+      stopPlayback: Boolean(payload && payload.stop_playback)
+    };
+  } catch {
+    return null;
+  }
+}
+
 async function appendTrackToQueue(track) {
   if (!track) {
     return;
@@ -2924,65 +3042,15 @@ async function appendTrackToQueue(track) {
 }
 
 async function appendTracksToQueue(trackIds) {
-  if (!queueState.track_ids.length || !trackIds.length) {
+  if (!trackIds.length) {
     updatePlaybackUi();
     return;
   }
-  queueState = normalizeQueueState({
-    ...queueState,
-    track_ids: [...queueState.track_ids, ...trackIds]
-  });
-  const syncedState = await postQueue(queueState);
+  const syncedState = await postQueueAppend(trackIds);
   if (syncedState) {
     queueState = syncedState;
   }
   updatePlaybackUi();
-}
-
-function queueRemovalState(position) {
-  if (position < 0 || position >= queueState.track_ids.length) {
-    return null;
-  }
-  const trackIds = [...queueState.track_ids];
-  const currentPosition = queueLoadedPosition();
-  const currentLoadedTrackId = loadedTrackId();
-  trackIds.splice(position, 1);
-
-  let nextPosition = queueState.position;
-  let nextLoadedTrackId = currentLoadedTrackId;
-  let nextPaused = queueState.paused;
-  let playNext = false;
-  let stopPlayback = false;
-
-  if (position < nextPosition) {
-    nextPosition -= 1;
-  }
-
-  if (position === currentPosition) {
-    if (position < trackIds.length) {
-      nextPosition = position;
-      nextLoadedTrackId = trackIds[position];
-      nextPaused = false;
-      playNext = true;
-    } else {
-      nextPosition = trackIds.length;
-      nextLoadedTrackId = null;
-      nextPaused = true;
-      stopPlayback = currentLoadedTrackId !== null;
-    }
-  }
-
-  return {
-    state: normalizeQueueState({
-      track_ids: trackIds,
-      position: nextPosition,
-      loaded_track_id: nextLoadedTrackId,
-      paused: nextPaused,
-      errored_track_ids: queueState.errored_track_ids
-    }),
-    playNext,
-    stopPlayback,
-  };
 }
 
 function clearLoadedPlayback() {
@@ -3015,16 +3083,13 @@ async function deleteQueueTrackFromQueue(row) {
   if (!Number.isFinite(position)) {
     return;
   }
-  const removal = queueRemovalState(position);
+  const previousLoadedId = loadedTrackId();
+  const removal = await postQueueRemove(position);
   if (!removal) {
     return;
   }
 
-  queueState = removal.state;
-  const syncedState = await postQueue(queueState);
-  if (syncedState) {
-    queueState = syncedState;
-  }
+  queueState = removal.queue;
 
   if (removal.playNext) {
     playQueuePosition(queueState.position);
@@ -3032,6 +3097,9 @@ async function deleteQueueTrackFromQueue(row) {
     clearLoadedPlayback();
     updatePlaybackUi();
   } else {
+    if (previousLoadedId !== loadedTrackId()) {
+      clearLoadedPlayback();
+    }
     updatePlaybackUi();
   }
 
@@ -3040,13 +3108,17 @@ async function deleteQueueTrackFromQueue(row) {
 
 async function postPlayback(payload) {
   try {
-    await fetch("/api/playback", {
+    const response = await fetch("/api/playback", {
       method: "POST",
       headers: {"Content-Type": "application/json"},
       body: JSON.stringify(payload)
     });
+    if (!response.ok) {
+      return null;
+    }
+    return normalizeQueueState(await response.json());
   } catch {
-    return;
+    return null;
   }
 }
 

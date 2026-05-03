@@ -17,8 +17,13 @@ from .album_edits import (
     prepare_album_tag_edit_job,
 )
 from .player import (
+    append_queue,
+    clear_queue_database,
     delete_stale_album_musicbrainz_override,
+    load_queue_state_database,
+    pause_queue_for_document_load,
     playlist_audio_path,
+    remove_queue_item,
     save_album_artist_split_mapping,
     start_album_musicbrainz_edit,
     start_album_tag_edit,
@@ -47,12 +52,16 @@ from .roots import (
 from .startup import prepare_player_database
 
 __all__ = [
+    "append_queue",
+    "clear_queue_database",
     "delete_stale_album_musicbrainz_override",
     "edit_library_album_musicbrainz",
     "edit_library_album_tags",
     "library_job_detail_lines",
     "library_job_summary_text",
     "library_scan_progress_text",
+    "load_queue_state_database",
+    "pause_queue_for_document_load",
     "playlist_audio_path",
     "PlaylistFileUpdateJob",
     "PlaylistMenuOption",
@@ -67,6 +76,7 @@ __all__ = [
     "prepare_album_tag_edit_job",
     "prepare_player_database",
     "request_cancel_player_job",
+    "remove_queue_item",
     "rescan_library",
     "sync_library_roots",
     "save_album_artist_split_mapping",

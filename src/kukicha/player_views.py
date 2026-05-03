@@ -523,19 +523,20 @@ def build_queue_context(runtime: PlayerRuntime) -> dict[str, Any]:
         QueueRow,
         queue_meta_text,
         queue_status,
+        queue_track_views_for_state,
         total_duration_text,
         track_table_rows,
-        track_views_for_playback_ids,
     )
 
     state = runtime.queue_state_copy()
     api = LibraryQueries(runtime.database)
-    track_views = track_views_for_playback_ids(api, state.track_ids)
+    track_views = queue_track_views_for_state(api, state)
     rows = [
         QueueRow(
             track=track,
             position=position,
             status=queue_status(state, track.track_id, position),
+            unavailable=track.track_id in state.unavailable_track_ids,
         )
         for position, track in enumerate(track_views)
     ]

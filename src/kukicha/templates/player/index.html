@@ -162,8 +162,7 @@
                     title="Play">{{ play_icon() }}</button>
                   <button class="album-cover-action queue-icon-button" type="button" data-queue-album data-queue-append
                     aria-label="Add {{ album.artist }} - {{ album.album|display_album_title }} to the queue"
-                    title="Add to queue"
-                    {% if not queue_state.track_ids %}disabled{% endif %}>{{ queue_add_icon() }}</button>
+                    title="Add to queue">{{ queue_add_icon() }}</button>
                 </div>
               {% endif %}
             </div>

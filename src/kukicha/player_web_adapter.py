@@ -14,9 +14,12 @@ from werkzeug.exceptions import NotFound
 from werkzeug.serving import make_server
 
 from .use_case import (
+    append_queue as append_queue_command,
     delete_stale_album_musicbrainz_override,
     mark_stale_player_jobs_canceled,
+    pause_queue_for_document_load,
     playlist_audio_path,
+    remove_queue_item as remove_queue_item_command,
     save_album_artist_split_mapping,
     start_album_musicbrainz_edit,
     start_album_tag_edit,
@@ -299,6 +302,14 @@ def create_player_app(options: PlayerServerOptions) -> Flask:
     def update_queue() -> Response:
         return json_response(update_queue_command(player_context().runtime, read_json_body()))
 
+    @app.post("/api/queue/append")
+    def append_queue() -> Response:
+        return json_response(append_queue_command(player_context().runtime, read_json_body()))
+
+    @app.post("/api/queue/remove")
+    def remove_queue_item() -> Response:
+        return json_response(remove_queue_item_command(player_context().runtime, read_json_body()))
+
     @app.post("/api/playback")
     def update_playback() -> Response:
         return json_response(update_playback_command(player_context().runtime, read_json_body()))
@@ -445,7 +456,7 @@ def wants_fragment() -> bool:
 def reset_playback_for_document_load() -> None:
     if request.method == "HEAD" or wants_fragment():
         return
-    player_context().runtime.reset_queue_state()
+    pause_queue_for_document_load(player_context().runtime)
 
 
 def render_roots_page() -> Response:

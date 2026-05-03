@@ -1,35 +1,436 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
+import json
 from pathlib import Path
+from sqlite3 import Connection
 from typing import TYPE_CHECKING, Any
 
 from ..database import connect_database
 from ..queries import LibraryQueries
+from ..queries.sql import placeholders_for
 
 if TYPE_CHECKING:
     from ...models import TrackArtwork
+    from ...player_runtime import PlayerQueueState
     from ...player_runtime import PlayerRuntime
+
+
+QUEUE_STATE_ID = 1
+
+
+def load_queue_state_database(database: Path) -> PlayerQueueState:
+    with connect_database(database) as connection:
+        state = load_queue_state_connection(connection)
+    refreshed_snapshots = refreshed_queue_snapshots(database, state)
+    if refreshed_snapshots != state.snapshots:
+        with connect_database(database) as connection:
+            state = write_queue_connection(
+                connection,
+                list(state.track_ids),
+                refreshed_snapshots,
+                position=state.position,
+                paused=state.paused,
+                errored_track_ids=state.errored_track_ids,
+                unavailable_track_ids=state.unavailable_track_ids,
+            )
+    return state
+
+
+def clear_queue_database(database: Path) -> PlayerQueueState:
+    from ...player_presenters import normalized_queue_state
+
+    with connect_database(database) as connection:
+        connection.execute("DELETE FROM player_queue_items")
+        connection.execute("DELETE FROM player_queue_state")
+    return normalized_queue_state([])
+
+
+def load_queue_state_connection(connection: Connection) -> PlayerQueueState:
+    from ...player_presenters import normalized_queue_state
+
+    rows = list(
+        connection.execute(
+            """
+            SELECT position, playback_id, snapshot_json, errored
+            FROM player_queue_items
+            ORDER BY position
+            """
+        )
+    )
+    state_row = connection.execute(
+        """
+        SELECT position, paused
+        FROM player_queue_state
+        WHERE state_id = ?
+        """,
+        (QUEUE_STATE_ID,),
+    ).fetchone()
+    track_ids = [int(row["playback_id"]) for row in rows]
+    snapshots = [queue_snapshot_from_json(row["snapshot_json"]) for row in rows]
+    errored_track_ids = [
+        int(row["playback_id"])
+        for row in rows
+        if bool(row["errored"])
+    ]
+    position = int(state_row["position"]) if state_row is not None else 0
+    paused = bool(state_row["paused"]) if state_row is not None else True
+    unavailable_track_ids = unavailable_playback_ids(connection, track_ids)
+    state = normalized_queue_state(
+        track_ids,
+        position=position,
+        paused=paused,
+        errored_track_ids=errored_track_ids,
+        unavailable_track_ids=unavailable_track_ids,
+        snapshots=snapshots,
+    )
+    if (
+        state_row is None
+        or state.position != position
+        or state.paused != paused
+    ):
+        save_queue_state_connection(connection, state.position, state.paused)
+    return state
+
+
+def queue_snapshot_from_json(value: object) -> dict[str, object]:
+    try:
+        payload = json.loads(str(value or "{}"))
+    except json.JSONDecodeError:
+        return {}
+    return dict(payload) if isinstance(payload, dict) else {}
+
+
+def unavailable_playback_ids(
+    connection: Connection,
+    playback_ids: Iterable[int],
+) -> list[int]:
+    requested_ids = [int(playback_id) for playback_id in playback_ids]
+    if not requested_ids:
+        return []
+    valid_ids = valid_playback_id_set(connection, requested_ids)
+    seen: set[int] = set()
+    unavailable_ids: list[int] = []
+    for playback_id in requested_ids:
+        if playback_id in valid_ids or playback_id in seen:
+            continue
+        seen.add(playback_id)
+        unavailable_ids.append(playback_id)
+    return unavailable_ids
+
+
+def valid_playback_id_set(
+    connection: Connection,
+    playback_ids: Iterable[int],
+) -> set[int]:
+    requested_ids = {int(playback_id) for playback_id in playback_ids}
+    valid_ids: set[int] = set()
+    track_ids = sorted(playback_id for playback_id in requested_ids if playback_id > 0)
+    if track_ids:
+        placeholders = placeholders_for(track_ids)
+        valid_ids.update(
+            int(row["track_id"])
+            for row in connection.execute(
+                f"""
+                SELECT track_id
+                FROM library_tracks
+                WHERE track_id IN ({placeholders})
+                """,
+                track_ids,
+            )
+        )
+    playlist_item_ids = sorted(
+        -playback_id for playback_id in requested_ids if playback_id < 0
+    )
+    if playlist_item_ids:
+        placeholders = placeholders_for(playlist_item_ids)
+        valid_ids.update(
+            -int(row["playlist_item_id"])
+            for row in connection.execute(
+                f"""
+                SELECT playlist_item_id
+                FROM library_playlist_items
+                WHERE playlist_item_id IN ({placeholders})
+                """,
+                playlist_item_ids,
+            )
+        )
+    return valid_ids
+
+
+def save_queue_state_connection(
+    connection: Connection,
+    position: int,
+    paused: bool,
+) -> None:
+    from .jobs import utc_now_iso
+
+    now = utc_now_iso()
+    connection.execute(
+        """
+        INSERT INTO player_queue_state (
+            state_id,
+            position,
+            paused,
+            updated_at
+        ) VALUES (?, ?, ?, ?)
+        ON CONFLICT(state_id) DO UPDATE SET
+            position = excluded.position,
+            paused = excluded.paused,
+            updated_at = excluded.updated_at
+        """,
+        (QUEUE_STATE_ID, position, 1 if paused else 0, now),
+    )
+
+
+def write_queue_database(
+    database: Path,
+    track_ids: list[int],
+    snapshots: list[dict[str, object]],
+    *,
+    position: object = 0,
+    paused: object = True,
+    errored_track_ids: object = (),
+    unavailable_track_ids: object | None = None,
+) -> PlayerQueueState:
+    with connect_database(database) as connection:
+        return write_queue_connection(
+            connection,
+            track_ids,
+            snapshots,
+            position=position,
+            paused=paused,
+            errored_track_ids=errored_track_ids,
+            unavailable_track_ids=unavailable_track_ids,
+        )
+
+
+def write_queue_connection(
+    connection: Connection,
+    track_ids: list[int],
+    snapshots: list[dict[str, object]],
+    *,
+    position: object = 0,
+    paused: object = True,
+    errored_track_ids: object = (),
+    unavailable_track_ids: object | None = None,
+) -> PlayerQueueState:
+    from ...player_presenters import normalized_queue_state
+
+    aligned_snapshots = aligned_queue_snapshots(track_ids, snapshots)
+    resolved_unavailable_track_ids = (
+        unavailable_playback_ids(connection, track_ids)
+        if unavailable_track_ids is None
+        else unavailable_track_ids
+    )
+    state = normalized_queue_state(
+        track_ids,
+        position=position,
+        paused=paused,
+        errored_track_ids=errored_track_ids,
+        unavailable_track_ids=resolved_unavailable_track_ids,
+        snapshots=aligned_snapshots,
+    )
+    errored_ids = set(state.errored_track_ids)
+    connection.execute("DELETE FROM player_queue_items")
+    for item_position, (playback_id, snapshot) in enumerate(
+        zip(state.track_ids, state.snapshots, strict=True)
+    ):
+        connection.execute(
+            """
+            INSERT INTO player_queue_items (
+                position,
+                playback_id,
+                snapshot_json,
+                errored
+            ) VALUES (?, ?, ?, ?)
+            """,
+            (
+                item_position,
+                playback_id,
+                json.dumps(snapshot, sort_keys=True),
+                1 if playback_id in errored_ids else 0,
+            ),
+        )
+    save_queue_state_connection(connection, state.position, state.paused)
+    return state
+
+
+def aligned_queue_snapshots(
+    track_ids: list[int],
+    snapshots: list[dict[str, object]],
+) -> list[dict[str, object]]:
+    aligned = [dict(snapshot) for snapshot in snapshots[: len(track_ids)]]
+    while len(aligned) < len(track_ids):
+        aligned.append({})
+    return aligned
+
+
+def refreshed_queue_snapshots(
+    database: Path,
+    state: PlayerQueueState,
+) -> list[dict[str, object]]:
+    if not state.track_ids:
+        return []
+    from ...player_presenters import queue_track_snapshot, track_views_for_playback_ids
+
+    available_ids = [
+        playback_id
+        for playback_id in state.track_ids
+        if playback_id not in state.unavailable_track_ids
+    ]
+    live_snapshots_by_id = {
+        track.track_id: queue_track_snapshot(track)
+        for track in track_views_for_playback_ids(LibraryQueries(database), available_ids)
+    }
+    return [
+        live_snapshots_by_id.get(playback_id)
+        or (state.snapshots[position] if position < len(state.snapshots) else {})
+        for position, playback_id in enumerate(state.track_ids)
+    ]
+
+
+def playback_snapshots(
+    database: Path,
+    playback_ids: list[int],
+) -> list[dict[str, object]]:
+    from ...player_presenters import queue_track_snapshot, track_views_for_playback_ids
+
+    api = LibraryQueries(database)
+    return [
+        queue_track_snapshot(track)
+        for track in track_views_for_playback_ids(api, playback_ids)
+    ]
 
 
 def update_queue(runtime: PlayerRuntime, payload: dict[str, Any]) -> dict[str, object]:
     from ...player_common import safe_ints
-    from ...player_presenters import normalized_queue_state, queue_state_payload, valid_playback_ids
+    from ...player_presenters import queue_state_payload, valid_playback_ids
 
     requested_track_ids = safe_ints(payload.get("track_ids", []))
     track_ids = valid_playback_ids(
         LibraryQueries(runtime.database),
         requested_track_ids,
     )
+    snapshots = playback_snapshots(runtime.database, track_ids)
     with runtime.queue_lock:
-        runtime.queue_state = normalized_queue_state(
+        runtime.queue_state = write_queue_database(
+            runtime.database,
             track_ids,
+            snapshots,
             position=payload.get("position", 0),
-            loaded_track_id=payload.get("loaded_track_id"),
             paused=payload.get("paused", True),
             errored_track_ids=payload.get("errored_track_ids", ()),
+            unavailable_track_ids=(),
         )
         return queue_state_payload(runtime.queue_state)
+
+
+def append_queue(runtime: PlayerRuntime, payload: dict[str, Any]) -> dict[str, object]:
+    from ...player_common import safe_ints
+    from ...player_presenters import queue_state_payload, valid_playback_ids
+
+    requested_track_ids = safe_ints(payload.get("track_ids", []))
+    track_ids = valid_playback_ids(
+        LibraryQueries(runtime.database),
+        requested_track_ids,
+    )
+    snapshots = playback_snapshots(runtime.database, track_ids)
+    with runtime.queue_lock:
+        state = load_queue_state_database(runtime.database)
+        if not track_ids:
+            runtime.queue_state = state
+            return queue_state_payload(state)
+        was_empty = not state.track_ids
+        position = 0 if was_empty else state.position
+        paused = True if was_empty else state.paused
+        runtime.queue_state = write_queue_database(
+            runtime.database,
+            list(state.track_ids) + track_ids,
+            [dict(snapshot) for snapshot in state.snapshots] + snapshots,
+            position=position,
+            paused=paused,
+            errored_track_ids=state.errored_track_ids,
+            unavailable_track_ids=state.unavailable_track_ids,
+        )
+        return queue_state_payload(runtime.queue_state)
+
+
+def remove_queue_item(runtime: PlayerRuntime, payload: dict[str, Any]) -> dict[str, object]:
+    from ...player_common import optional_int
+    from ...player_presenters import queue_state_payload
+
+    requested_position = optional_int(payload.get("position"))
+    with runtime.queue_lock:
+        state = load_queue_state_database(runtime.database)
+        if (
+            requested_position is None
+            or requested_position < 0
+            or requested_position >= len(state.track_ids)
+        ):
+            runtime.queue_state = state
+            return {
+                "queue": queue_state_payload(state),
+                "play_next": False,
+                "stop_playback": False,
+            }
+
+        track_ids = list(state.track_ids)
+        snapshots = [dict(snapshot) for snapshot in state.snapshots]
+        removing_current = requested_position == state.position
+        was_paused = state.paused
+        track_ids.pop(requested_position)
+        snapshots.pop(requested_position)
+
+        position = state.position
+        if requested_position < position:
+            position -= 1
+
+        play_next = False
+        stop_playback = False
+        if removing_current:
+            next_position = next_available_position(
+                track_ids,
+                state.unavailable_track_ids,
+                requested_position - 1,
+            )
+            if next_position == -1:
+                position = len(track_ids)
+                paused = True
+                stop_playback = state.loaded_track_id is not None
+            else:
+                position = next_position
+                paused = was_paused
+                play_next = not was_paused
+        else:
+            paused = was_paused
+
+        runtime.queue_state = write_queue_database(
+            runtime.database,
+            track_ids,
+            snapshots,
+            position=position,
+            paused=paused,
+            errored_track_ids=state.errored_track_ids,
+            unavailable_track_ids=state.unavailable_track_ids,
+        )
+        return {
+            "queue": queue_state_payload(runtime.queue_state),
+            "play_next": play_next and runtime.queue_state.loaded_track_id is not None,
+            "stop_playback": stop_playback,
+        }
+
+
+def next_available_position(
+    track_ids: list[int],
+    unavailable_track_ids: Iterable[int],
+    position: int,
+) -> int:
+    unavailable_ids = set(unavailable_track_ids)
+    for index in range(max(-1, position) + 1, len(track_ids)):
+        if track_ids[index] not in unavailable_ids:
+            return index
+    return -1
 
 
 def update_playback(runtime: PlayerRuntime, payload: dict[str, Any]) -> dict[str, object]:
@@ -37,26 +438,50 @@ def update_playback(runtime: PlayerRuntime, payload: dict[str, Any]) -> dict[str
     from ...player_presenters import normalized_queue_error_ids, queue_state_payload
 
     with runtime.queue_lock:
-        state = runtime.queue_state
+        state = load_queue_state_database(runtime.database)
+        position = state.position
+        paused = state.paused
+        errored_track_ids = state.errored_track_ids
         if "position" in payload:
-            state.position = clamp_int(
+            position = clamp_int(
                 payload.get("position"),
                 0,
                 len(state.track_ids),
             )
         if "loaded_track_id" in payload:
             loaded_track_id = optional_int(payload.get("loaded_track_id"))
-            state.loaded_track_id = loaded_track_id
-            if loaded_track_id in state.track_ids:
-                state.position = state.track_ids.index(loaded_track_id)
+            if (
+                loaded_track_id in state.track_ids
+                and loaded_track_id not in state.unavailable_track_ids
+            ):
+                position = state.track_ids.index(loaded_track_id)
         if "paused" in payload:
-            state.paused = bool(payload.get("paused"))
+            paused = bool(payload.get("paused"))
         if "errored_track_ids" in payload:
-            state.errored_track_ids = normalized_queue_error_ids(
+            errored_track_ids = normalized_queue_error_ids(
                 payload.get("errored_track_ids"),
                 state.track_ids,
             )
-        return queue_state_payload(state)
+        runtime.queue_state = write_queue_database(
+            runtime.database,
+            list(state.track_ids),
+            [dict(snapshot) for snapshot in state.snapshots],
+            position=position,
+            paused=paused,
+            errored_track_ids=errored_track_ids,
+            unavailable_track_ids=state.unavailable_track_ids,
+        )
+        return queue_state_payload(runtime.queue_state)
+
+
+def pause_queue_for_document_load(runtime: PlayerRuntime) -> dict[str, object]:
+    queue_lock = getattr(runtime, "queue_lock", None)
+    if not hasattr(queue_lock, "__enter__"):
+        from ...player_presenters import queue_state_payload
+
+        return queue_state_payload(runtime.queue_state_copy())
+    return update_playback(runtime, {"paused": True})
+
 
 
 def update_track_playlist_membership(

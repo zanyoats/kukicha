@@ -29,6 +29,7 @@ from kukicha.use_case import (
 )
 from kukicha.cli import build_parser
 from kukicha.use_case import connect_database
+from kukicha.use_case.database import clear_library
 from kukicha.use_case import CoverArtResolutionStats, GenreResolutionStats, save_library
 from kukicha.models import MusicLibrary, PlaylistItemRecord, PlaylistRecord, TrackArtwork, TrackRecord
 from kukicha.player_jobs import (
@@ -51,11 +52,13 @@ from kukicha.player_config import (
     validate_player_startup,
 )
 from kukicha.use_case import (
+    append_queue as append_queue_command,
     edit_library_album_musicbrainz,
     edit_library_album_tags,
     library_job_detail_lines,
     library_job_summary_text,
     library_scan_progress_text,
+    load_queue_state_database,
     create_player_job,
     get_player_job,
     list_player_jobs,
@@ -65,6 +68,7 @@ from kukicha.use_case import (
     prepare_album_musicbrainz_edit_request,
     prepare_album_tag_edit_job,
     rescan_library,
+    remove_queue_item as remove_queue_item_command,
     sync_library_roots,
     set_track_playlist_membership,
     set_track_playlist_membership_database,
@@ -145,6 +149,39 @@ def insert_library_album(
     )
 
 
+def insert_library_track(
+    connection,
+    track_id: int,
+    *,
+    path: str | None = None,
+    title: str | None = None,
+) -> None:
+    connection.execute(
+        """
+        INSERT INTO library_tracks (
+            track_id,
+            path,
+            file_type,
+            artist,
+            album_artist,
+            album,
+            title,
+            duration_seconds
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            track_id,
+            path or f"/music/Artist/Album/{track_id:02d}.mp3",
+            "mp3",
+            "Artist",
+            "Artist",
+            "Album",
+            title or f"Track {track_id}",
+            60.0,
+        ),
+    )
+
+
 class PlayerQueueStateTest(unittest.TestCase):
     def test_reset_queue_state_clears_queue_and_unloads_track(self) -> None:
         state = PlayerQueueState(
@@ -212,6 +249,18 @@ class PlayerQueueStateTest(unittest.TestCase):
         self.assertEqual(queue_status(state, 102, 1), "Error")
         self.assertEqual(queue_status(state, 103, 2), "Now")
 
+    def test_queue_status_shows_unavailable_before_error(self) -> None:
+        state = PlayerQueueState(
+            track_ids=[101],
+            position=0,
+            loaded_track_id=None,
+            paused=True,
+            errored_track_ids=[101],
+            unavailable_track_ids=[101],
+        )
+
+        self.assertEqual(queue_status(state, 101, 0), "Unavailable")
+
     def test_queue_meta_text_counts_finished_queue_as_played(self) -> None:
         text = queue_meta_text(
             PlayerQueueState(
@@ -241,22 +290,16 @@ class PlayerQueueStateTest(unittest.TestCase):
 
 class PlayerRuntimeTest(unittest.TestCase):
     def test_update_queue_keeps_only_valid_playback_ids(self) -> None:
-        runtime = PlayerRuntime(Path("/tmp/kukicha-test.sqlite"))
-        api = Mock()
-        api.get_tracks_by_ids.return_value = [
-            PlaylistTrack(
-                track_id=101,
-                album_id="artist::album",
-                path="/music/Artist/Album/01.flac",
-                artist="Artist",
-                album_artist="Artist",
-                album="Album",
-                title="One",
-            ),
-        ]
-        api.get_playlist_items_by_ids.return_value = []
+        with TemporaryDirectory() as tempdir:
+            database = Path(tempdir) / "kukicha.sqlite"
+            connection = connect_database(database)
+            try:
+                insert_library_track(connection, 101, title="One")
+                connection.commit()
+            finally:
+                connection.close()
+            runtime = PlayerRuntime(database)
 
-        with patch("kukicha.use_case.commands.player.LibraryQueries", return_value=api):
             payload = update_queue_command(
                 runtime,
                 {
@@ -274,27 +317,269 @@ class PlayerRuntimeTest(unittest.TestCase):
         self.assertEqual(payload["errored_track_ids"], [101])
 
     def test_update_playback_records_valid_queue_error_ids(self) -> None:
-        runtime = PlayerRuntime(Path("/tmp/kukicha-test.sqlite"))
-        runtime.queue_state = PlayerQueueState(
-            track_ids=[101, 102],
-            position=0,
-            loaded_track_id=101,
-            paused=False,
-        )
+        with TemporaryDirectory() as tempdir:
+            database = Path(tempdir) / "kukicha.sqlite"
+            connection = connect_database(database)
+            try:
+                insert_library_track(connection, 101, title="One")
+                insert_library_track(connection, 102, title="Two")
+                connection.commit()
+            finally:
+                connection.close()
+            runtime = PlayerRuntime(database)
+            update_queue_command(
+                runtime,
+                {
+                    "track_ids": [101, 102],
+                    "position": 0,
+                    "loaded_track_id": 101,
+                    "paused": False,
+                },
+            )
 
-        payload = update_playback_command(
-            runtime,
-            {
-                "position": 1,
-                "loaded_track_id": 102,
-                "paused": False,
-                "errored_track_ids": [101, 999, "102"],
-            },
-        )
+            payload = update_playback_command(
+                runtime,
+                {
+                    "position": 1,
+                    "loaded_track_id": 102,
+                    "paused": False,
+                    "errored_track_ids": [101, 999, "102"],
+                },
+            )
 
         self.assertEqual(payload["position"], 1)
         self.assertEqual(payload["loaded_track_id"], 102)
         self.assertEqual(payload["errored_track_ids"], [101, 102])
+
+    def test_queue_persists_across_runtime_instances(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            database = Path(tempdir) / "kukicha.sqlite"
+            connection = connect_database(database)
+            try:
+                insert_library_track(connection, 101, title="One")
+                insert_library_track(connection, 102, title="Two")
+                connection.commit()
+            finally:
+                connection.close()
+
+            first_runtime = PlayerRuntime(database)
+            update_queue_command(
+                first_runtime,
+                {
+                    "track_ids": [101, 102],
+                    "position": 1,
+                    "loaded_track_id": 102,
+                    "paused": False,
+                },
+            )
+            second_runtime = PlayerRuntime(database)
+            state = second_runtime.queue_state_copy()
+
+        self.assertEqual(state.track_ids, [101, 102])
+        self.assertEqual(state.position, 1)
+        self.assertEqual(state.loaded_track_id, 102)
+        self.assertFalse(state.paused)
+
+    def test_queue_payload_includes_snapshots_for_cold_browser_load(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            database = Path(tempdir) / "kukicha.sqlite"
+            connection = connect_database(database)
+            try:
+                insert_library_track(connection, 101, title="One")
+                connection.commit()
+            finally:
+                connection.close()
+            runtime = PlayerRuntime(database)
+
+            payload = update_queue_command(
+                runtime,
+                {
+                    "track_ids": [101],
+                    "position": 0,
+                    "loaded_track_id": 101,
+                    "paused": True,
+                },
+            )
+
+        self.assertEqual(payload["track_snapshots"][0]["trackId"], 101)
+        self.assertEqual(payload["track_snapshots"][0]["title"], "One")
+        self.assertEqual(payload["track_snapshots"][0]["albumArtist"], "Artist")
+
+    def test_queue_load_refreshes_stale_snapshots_from_library(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            database = Path(tempdir) / "kukicha.sqlite"
+            connection = connect_database(database)
+            try:
+                insert_library_track(connection, 500, title="Actual Title")
+                connection.execute(
+                    """
+                    INSERT INTO player_queue_items (
+                        position,
+                        playback_id,
+                        snapshot_json,
+                        errored
+                    ) VALUES (?, ?, ?, ?)
+                    """,
+                    (0, 500, '{"trackId": 500, "title": "Track 500"}', 0),
+                )
+                connection.execute(
+                    """
+                    INSERT INTO player_queue_state (
+                        state_id,
+                        position,
+                        paused,
+                        updated_at
+                    ) VALUES (?, ?, ?, ?)
+                    """,
+                    (1, 0, 1, "2026-05-03T00:00:00Z"),
+                )
+                connection.commit()
+            finally:
+                connection.close()
+
+            state = load_queue_state_database(database)
+
+        self.assertEqual(state.loaded_track_id, 500)
+        self.assertEqual(state.snapshots[0]["title"], "Actual Title")
+        self.assertEqual(state.snapshots[0]["albumArtist"], "Artist")
+
+    def test_append_queue_creates_paused_queue_when_empty(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            database = Path(tempdir) / "kukicha.sqlite"
+            connection = connect_database(database)
+            try:
+                insert_library_track(connection, 101, title="One")
+                connection.commit()
+            finally:
+                connection.close()
+            runtime = PlayerRuntime(database)
+
+            payload = append_queue_command(runtime, {"track_ids": [101]})
+
+        self.assertEqual(payload["track_ids"], [101])
+        self.assertEqual(payload["position"], 0)
+        self.assertEqual(payload["loaded_track_id"], 101)
+        self.assertTrue(payload["paused"])
+
+    def test_append_queue_preserves_existing_current_track(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            database = Path(tempdir) / "kukicha.sqlite"
+            connection = connect_database(database)
+            try:
+                insert_library_track(connection, 101, title="One")
+                insert_library_track(connection, 102, title="Two")
+                connection.commit()
+            finally:
+                connection.close()
+            runtime = PlayerRuntime(database)
+            update_queue_command(
+                runtime,
+                {
+                    "track_ids": [101],
+                    "position": 0,
+                    "loaded_track_id": 101,
+                    "paused": False,
+                },
+            )
+
+            payload = append_queue_command(runtime, {"track_ids": [102]})
+
+        self.assertEqual(payload["track_ids"], [101, 102])
+        self.assertEqual(payload["position"], 0)
+        self.assertEqual(payload["loaded_track_id"], 101)
+        self.assertFalse(payload["paused"])
+
+    def test_remove_current_queue_item_advances_to_next_when_playing(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            database = Path(tempdir) / "kukicha.sqlite"
+            connection = connect_database(database)
+            try:
+                insert_library_track(connection, 101, title="One")
+                insert_library_track(connection, 102, title="Two")
+                connection.commit()
+            finally:
+                connection.close()
+            runtime = PlayerRuntime(database)
+            update_queue_command(
+                runtime,
+                {
+                    "track_ids": [101, 102],
+                    "position": 0,
+                    "loaded_track_id": 101,
+                    "paused": False,
+                },
+            )
+
+            payload = remove_queue_item_command(runtime, {"position": 0})
+
+        self.assertEqual(payload["queue"]["track_ids"], [102])
+        self.assertEqual(payload["queue"]["position"], 0)
+        self.assertEqual(payload["queue"]["loaded_track_id"], 102)
+        self.assertTrue(payload["play_next"])
+        self.assertFalse(payload["queue"]["paused"])
+
+    def test_remove_non_current_queue_item_preserves_current_track(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            database = Path(tempdir) / "kukicha.sqlite"
+            connection = connect_database(database)
+            try:
+                insert_library_track(connection, 101, title="One")
+                insert_library_track(connection, 102, title="Two")
+                connection.commit()
+            finally:
+                connection.close()
+            runtime = PlayerRuntime(database)
+            update_queue_command(
+                runtime,
+                {
+                    "track_ids": [101, 102],
+                    "position": 0,
+                    "loaded_track_id": 101,
+                    "paused": False,
+                },
+            )
+
+            payload = remove_queue_item_command(runtime, {"position": 1})
+
+        self.assertEqual(payload["queue"]["track_ids"], [101])
+        self.assertEqual(payload["queue"]["loaded_track_id"], 101)
+        self.assertFalse(payload["play_next"])
+        self.assertFalse(payload["queue"]["paused"])
+
+    def test_queue_keeps_missing_items_as_unavailable_snapshots(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            database = Path(tempdir) / "kukicha.sqlite"
+            connection = connect_database(database)
+            try:
+                insert_library_track(connection, 101, title="One")
+                connection.commit()
+            finally:
+                connection.close()
+            runtime = PlayerRuntime(database)
+            update_queue_command(
+                runtime,
+                {
+                    "track_ids": [101],
+                    "position": 0,
+                    "loaded_track_id": 101,
+                    "paused": False,
+                },
+            )
+            connection = connect_database(database, create=False)
+            try:
+                clear_library(connection)
+                connection.commit()
+            finally:
+                connection.close()
+
+            state = load_queue_state_database(database)
+
+        self.assertEqual(state.track_ids, [101])
+        self.assertEqual(state.unavailable_track_ids, [101])
+        self.assertEqual(state.position, 1)
+        self.assertIsNone(state.loaded_track_id)
+        self.assertTrue(state.paused)
+        self.assertEqual(state.snapshots[0]["title"], "One")
 
     def test_jobs_are_published_to_subscribers(self) -> None:
         runtime = PlayerRuntime(Path("/tmp/kukicha-test.sqlite"))
@@ -906,6 +1191,31 @@ class PlayerPlaylistMembershipTest(unittest.TestCase):
 
         self.assertIn('<th class="queue-status-head">Queue</th>', html)
         self.assertIn('<span class="queue-status-label">Error</span>', html)
+
+    def test_track_table_renders_queue_delete_control_and_unavailable_marker(self) -> None:
+        view = make_track_view(
+            7,
+            root_position=0,
+            path="/music/Album/07.mp3",
+        )
+
+        html = build_template_environment().get_template("player/_track_table.html").render(
+            table_rows=[
+                {
+                    "track": view,
+                    "group_label": "",
+                    "queue_position": 0,
+                    "queue_status": "Unavailable",
+                    "queue_unavailable": True,
+                }
+            ],
+            is_queue=True,
+            queue_state=PlayerQueueState(track_ids=[7], unavailable_track_ids=[7]),
+        )
+
+        self.assertIn('data-delete-queue-track', html)
+        self.assertIn('data-unavailable="1"', html)
+        self.assertIn('<span class="queue-status-label">Unavailable</span>', html)
 
     def test_valid_playback_ids_accepts_tracks_and_external_playlist_items(self) -> None:
         api = Mock()
@@ -3006,6 +3316,92 @@ class PlayerWebAdapterTest(unittest.TestCase):
             self.assertEqual(response.status_code, 200)
             self.assertEqual(response.get_json(), {"paused": False})
             command.assert_called_once_with(runtime, {"paused": False})
+
+    def test_queue_append_and_remove_routes_persist_queue(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            database = temp_path / "kukicha.sqlite"
+            save_library(
+                MusicLibrary(
+                    roots=["/music"],
+                    tracks=[
+                        TrackRecord(
+                            path="/music/Artist/Album/01.mp3",
+                            file_type="mp3",
+                            artist="Artist",
+                            album_artist="Artist",
+                            album="Album",
+                            title="One",
+                        ),
+                        TrackRecord(
+                            path="/music/Artist/Album/02.mp3",
+                            file_type="mp3",
+                            artist="Artist",
+                            album_artist="Artist",
+                            album="Album",
+                            title="Two",
+                        ),
+                    ],
+                    supported_extensions=[".mp3"],
+                    generated_at="2026-05-01T00:00:00+00:00",
+                ),
+                database,
+            )
+            app = create_player_app(self.make_options(temp_path))
+            client = app.test_client()
+
+            first = client.post("/api/queue/append", json={"track_ids": [1]})
+            second = client.post("/api/queue/append", json={"track_ids": [2]})
+            removed = client.post("/api/queue/remove", json={"position": 0})
+
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(first.get_json()["track_ids"], [1])
+        self.assertTrue(first.get_json()["paused"])
+        self.assertEqual(second.get_json()["track_ids"], [1, 2])
+        self.assertEqual(removed.get_json()["queue"]["track_ids"], [2])
+        self.assertFalse(removed.get_json()["play_next"])
+
+    def test_full_document_load_pauses_persisted_queue_without_clearing_it(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            database = temp_path / "kukicha.sqlite"
+            save_library(
+                MusicLibrary(
+                    roots=["/music"],
+                    tracks=[
+                        TrackRecord(
+                            path="/music/Artist/Album/01.mp3",
+                            file_type="mp3",
+                            artist="Artist",
+                            album_artist="Artist",
+                            album="Album",
+                            title="One",
+                        )
+                    ],
+                    supported_extensions=[".mp3"],
+                    generated_at="2026-05-01T00:00:00+00:00",
+                ),
+                database,
+            )
+            app = create_player_app(self.make_options(temp_path))
+            client = app.test_client()
+            client.post(
+                "/api/queue",
+                json={
+                    "track_ids": [1],
+                    "position": 0,
+                    "loaded_track_id": 1,
+                    "paused": False,
+                },
+            )
+
+            response = client.get("/")
+            state = load_queue_state_database(database)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(state.track_ids, [1])
+        self.assertEqual(state.loaded_track_id, 1)
+        self.assertTrue(state.paused)
 
     def test_post_json_body_rejects_invalid_json(self) -> None:
         with TemporaryDirectory() as tempdir:

@@ -1,4 +1,4 @@
-{% from "player/_icons.html" import playlist_icon, queue_add_icon %}
+{% from "player/_icons.html" import delete_icon, playlist_icon, queue_add_icon %}
 
 {% macro cover_cell(track) -%}
   <td class="cover-cell">
@@ -20,6 +20,11 @@
   <td>{{ track.queue_title }}</td>
   <td class="track-duration">{{ track.duration }}</td>
   <td class="queue-status"><span class="queue-status-label">{{ row.queue_status }}</span></td>
+  <td class="queue-action-cell">
+    <button class="delete-icon-button" type="button" data-delete-queue-track
+      aria-label="Remove {{ track.display_title }} from the queue"
+      title="Remove from queue">{{ delete_icon() }}</button>
+  </td>
 {%- endmacro %}
 
 {% macro track_cells(track) -%}
@@ -35,8 +40,7 @@
       {% endif %}
       <button class="queue-icon-button" type="button" data-queue-track data-queue-append
         aria-label="Add {{ track.display_title }} by {{ track.artist or track.album_artist or 'unknown artist' }} to the queue"
-        title="Add to queue"
-        {% if not queue_state.track_ids %}disabled{% endif %}>{{ queue_add_icon() }}</button>
+        title="Add to queue">{{ queue_add_icon() }}</button>
       {% if track.library_track_id %}
         <details class="filter-menu playlist-track-menu{% if track.has_playlist_membership %} has-playlist-membership{% endif %}" data-dropdown-menu data-playlist-menu data-library-track-id="{{ track.library_track_id }}">
           <summary class="playlist-icon-button" aria-label="Add to Playlists" title="Add to Playlists">
@@ -72,7 +76,7 @@
 
 {% set show_track_artist = show_track_artist|default(false) %}
 {% set show_track_play_button = show_track_play_button|default(true) %}
-{% set column_count = 6 if show_track_artist else 5 %}
+{% set column_count = (7 if show_track_artist else 6) if is_queue else (6 if show_track_artist else 5) %}
 
 <div class="table-wrap">
   <table>
@@ -84,6 +88,7 @@
         <col>
         <col>
         <col class="queue-status-col">
+        <col>
       </colgroup>
     {% endif %}
     <thead>
@@ -95,6 +100,7 @@
         <th>Duration</th>
         {% if not is_queue %}<th class="track-actions-head"></th>{% endif %}
         {% if is_queue %}<th class="queue-status-head">Queue</th>{% endif %}
+        {% if is_queue %}<th class="track-actions-head"></th>{% endif %}
       </tr>
     </thead>
     <tbody>
@@ -122,6 +128,7 @@
             data-audio-mime-type="{{ track.audio_mime_type }}"
             data-audio-codec="{{ track.audio_codec }}"
             data-unsupported="{{ track.audio_unsupported_reason }}"
+            data-unavailable="{{ '1' if row.queue_unavailable else '' }}"
           >
             {{ queue_cells(row) }}
           </tr>

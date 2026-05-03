@@ -31,6 +31,8 @@ class PlayerQueueState:
     loaded_track_id: int | None = None
     paused: bool = True
     errored_track_ids: list[int] = field(default_factory=list)
+    unavailable_track_ids: list[int] = field(default_factory=list)
+    snapshots: list[dict[str, object]] = field(default_factory=list)
 
 
 class PlayerJobCanceled(Exception):
@@ -276,13 +278,18 @@ class PlayerRuntime:
         )
 
     def queue_state_copy(self) -> PlayerQueueState:
+        from .use_case.commands.player import load_queue_state_database
+
         with self.queue_lock:
+            self.queue_state = load_queue_state_database(self.database)
             return PlayerQueueState(
                 track_ids=list(self.queue_state.track_ids),
                 position=self.queue_state.position,
                 loaded_track_id=self.queue_state.loaded_track_id,
                 paused=self.queue_state.paused,
                 errored_track_ids=list(self.queue_state.errored_track_ids),
+                unavailable_track_ids=list(self.queue_state.unavailable_track_ids),
+                snapshots=[dict(snapshot) for snapshot in self.queue_state.snapshots],
             )
 
     def library_filter_options(self) -> "LibraryFilterOptions":
@@ -300,10 +307,10 @@ class PlayerRuntime:
             self._library_filter_options = None
 
     def reset_queue_state(self) -> None:
-        from .player_presenters import reset_queue_state
+        from .use_case.commands.player import clear_queue_database
 
         with self.queue_lock:
-            reset_queue_state(self.queue_state)
+            self.queue_state = clear_queue_database(self.database)
 
     def job_payloads(self) -> list[dict[str, object]]:
         from .player_jobs import job_payload

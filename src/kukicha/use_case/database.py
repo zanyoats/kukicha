@@ -124,6 +124,22 @@ CREATE INDEX IF NOT EXISTS idx_player_jobs_created_at
 CREATE INDEX IF NOT EXISTS idx_player_jobs_status
     ON player_jobs (status, created_at, job_id);
 
+CREATE TABLE IF NOT EXISTS player_queue_state (
+    state_id INTEGER PRIMARY KEY CHECK (state_id = 1),
+    position INTEGER NOT NULL DEFAULT 0,
+    paused INTEGER NOT NULL DEFAULT 1 CHECK (paused IN (0, 1)),
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS player_queue_items (
+    position INTEGER PRIMARY KEY,
+    playback_id INTEGER NOT NULL,
+    snapshot_json TEXT NOT NULL DEFAULT '{}',
+    errored INTEGER NOT NULL DEFAULT 0 CHECK (errored IN (0, 1))
+);
+CREATE INDEX IF NOT EXISTS idx_player_queue_items_playback_id
+    ON player_queue_items (playback_id);
+
 CREATE TABLE IF NOT EXISTS library_albums (
     album_id TEXT PRIMARY KEY,
     album TEXT NOT NULL,
