@@ -53,6 +53,7 @@ class PlaylistItemRecord:
     track_id: int | None = None
     title: str | None = None
     duration_seconds: float | None = None
+    duration_is_indeterminate: bool = False
     genre: str | None = None
     cover_url: str | None = None
 

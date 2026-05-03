@@ -544,9 +544,10 @@ def save_library_with_options(
                         track_id,
                         title,
                         duration_seconds,
+                        duration_is_indeterminate,
                         genre,
                         cover_url
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         playlist_id,
@@ -554,7 +555,12 @@ def save_library_with_options(
                         item.path,
                         track_id,
                         None if is_tracked else item.title or item.path,
-                        None if is_tracked else item.duration_seconds,
+                        (
+                            None
+                            if is_tracked or item.duration_is_indeterminate
+                            else item.duration_seconds
+                        ),
+                        0 if is_tracked else 1 if item.duration_is_indeterminate else 0,
                         None if is_tracked else item.genre,
                         None if is_tracked else item.cover_url,
                     ),
@@ -1228,6 +1234,7 @@ def load_library(source: Path, *, include_artwork: bool = False) -> MusicLibrary
                 path,
                 title,
                 duration_seconds,
+                duration_is_indeterminate,
                 genre,
                 cover_url
             FROM library_playlist_items
@@ -1240,6 +1247,7 @@ def load_library(source: Path, *, include_artwork: bool = False) -> MusicLibrary
                     track_id=int(row["track_id"]) if row["track_id"] is not None else None,
                     title=row["title"],
                     duration_seconds=row["duration_seconds"],
+                    duration_is_indeterminate=bool(row["duration_is_indeterminate"]),
                     genre=row["genre"],
                     cover_url=row["cover_url"],
                 )

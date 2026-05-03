@@ -276,6 +276,7 @@ CREATE TABLE IF NOT EXISTS library_playlist_items (
     track_id INTEGER,
     title TEXT,
     duration_seconds REAL,
+    duration_is_indeterminate INTEGER NOT NULL DEFAULT 0,
     genre TEXT,
     cover_url TEXT,
     UNIQUE (playlist_id, position),
@@ -499,6 +500,25 @@ def migrate_library_schema(connection: sqlite3.Connection) -> None:
     if playlist_columns and "file_created_at" not in playlist_columns:
         connection.execute("ALTER TABLE library_playlists ADD COLUMN file_created_at TEXT")
         created_playlist_file_created_at = True
+
+    playlist_item_columns = table_columns(connection, "library_playlist_items")
+    if playlist_item_columns and "duration_is_indeterminate" not in playlist_item_columns:
+        connection.execute(
+            """
+            ALTER TABLE library_playlist_items
+            ADD COLUMN duration_is_indeterminate INTEGER NOT NULL DEFAULT 0
+            """
+        )
+        connection.execute(
+            """
+            UPDATE library_playlist_items
+            SET duration_is_indeterminate = 1,
+                duration_seconds = NULL
+            WHERE track_id IS NULL
+                AND duration_seconds IS NOT NULL
+                AND duration_seconds <= 0
+            """
+        )
 
     if created_track_file_created_at or created_playlist_file_created_at:
         backfill_library_file_created_at(connection)

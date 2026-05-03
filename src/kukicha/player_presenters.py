@@ -68,6 +68,7 @@ class TrackView:
     uses_playlist_cover: bool = False
     has_playlist_membership: bool = False
     playlist_options: tuple[PlaylistMenuOption, ...] | None = None
+    duration_is_indeterminate: bool = False
 
     @property
     def is_playlist_item(self) -> bool:
@@ -164,6 +165,7 @@ def track_playback_payload(track: TrackView) -> dict[str, object]:
         "albumArtists": track.album_artists,
         "album": track.display_album,
         "durationSeconds": track.duration_seconds,
+        "durationIsIndeterminate": track.duration_is_indeterminate,
         "fileType": track.file_type,
         "audioMimeType": track.audio_mime_type,
         "audioCodec": track.audio_codec,
@@ -276,6 +278,7 @@ def track_view_from_queue_snapshot(
         year=None,
         duration=snapshot_string(snapshot, "duration"),
         duration_seconds=snapshot_float(snapshot, "durationSeconds"),
+        duration_is_indeterminate=snapshot_bool(snapshot, "durationIsIndeterminate"),
         grouping="",
         genres=(),
         styles=(),
@@ -396,6 +399,7 @@ def track_view(track: PlaylistTrack) -> TrackView:
         year=track_year(track.date),
         duration=format_track_duration(track.duration_seconds),
         duration_seconds=track.duration_seconds,
+        duration_is_indeterminate=False,
         grouping=display_track_grouping(track),
         genres=track.genres,
         styles=track.styles,
@@ -437,6 +441,7 @@ def playlist_item_view(
     album_name = playlist_item_album_name(item, playlist)
     playlist_id = playlist_item_playlist_id(item, playlist)
     fallback_cover_url = playlist_item_cover_url(item, playlist, album_name)
+    duration_seconds = None if item.duration_is_indeterminate else item.duration_seconds
     return TrackView(
         track_id=item.playback_id,
         library_track_id=None,
@@ -463,8 +468,9 @@ def playlist_item_view(
         disc_number="",
         disc_total="",
         year=None,
-        duration=format_track_duration(item.duration_seconds),
-        duration_seconds=item.duration_seconds,
+        duration=format_track_duration(duration_seconds),
+        duration_seconds=duration_seconds,
+        duration_is_indeterminate=item.duration_is_indeterminate,
         grouping="",
         genres=(item.genre,) if item.genre else (),
         styles=(),

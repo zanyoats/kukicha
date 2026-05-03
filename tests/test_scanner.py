@@ -274,6 +274,8 @@ class ScannerPlaylistTest(unittest.TestCase):
         self.assertEqual(len(playlist.items), 1)
         self.assertEqual(playlist.items[0].path, "https://ice6.somafm.com/deepspaceone-128-mp3")
         self.assertEqual(playlist.items[0].title, "SomaFM: Deep Space One")
+        self.assertIsNone(playlist.items[0].duration_seconds)
+        self.assertTrue(playlist.items[0].duration_is_indeterminate)
 
     def test_build_library_skips_non_ascii_m3u_playlist(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
@@ -293,6 +295,28 @@ class ScannerPlaylistTest(unittest.TestCase):
             library = build_library([root])
 
         self.assertEqual(library.playlists, [])
+
+    def test_build_library_treats_negative_extinf_duration_as_indeterminate(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            root = Path(tempdir)
+            playlist_path = root / "streams.m3u8"
+            playlist_path.write_text(
+                "\n".join(
+                    (
+                        "#EXTM3U",
+                        "#EXTINF:-1,Live Stream",
+                        "https://example.test/live",
+                    )
+                ),
+                encoding="utf-8",
+            )
+
+            library = build_library([root])
+
+        item = library.playlists[0].items[0]
+        self.assertEqual(item.title, "Live Stream")
+        self.assertIsNone(item.duration_seconds)
+        self.assertTrue(item.duration_is_indeterminate)
 
     def test_build_library_parses_mixed_m3u8_playlist_after_tracks(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
@@ -352,6 +376,7 @@ class ScannerPlaylistTest(unittest.TestCase):
         self.assertIsNone(external_item.track_id)
         self.assertEqual(external_item.title, "External Title")
         self.assertEqual(external_item.duration_seconds, 123.0)
+        self.assertFalse(external_item.duration_is_indeterminate)
         self.assertEqual(external_item.genre, "Electronic")
         self.assertEqual(external_item.cover_url, "https://example.test/cover.jpg")
 
@@ -363,7 +388,8 @@ class ScannerPlaylistTest(unittest.TestCase):
         url_item = playlist.items[2]
         self.assertEqual(url_item.path, "https://ice6.somafm.com/deepspaceone-128-mp3")
         self.assertEqual(url_item.title, "SomaFM: Deep Space One")
-        self.assertEqual(url_item.duration_seconds, 0.0)
+        self.assertIsNone(url_item.duration_seconds)
+        self.assertTrue(url_item.duration_is_indeterminate)
 
 
 class ScannerExternalArtworkTest(unittest.TestCase):

@@ -162,6 +162,7 @@ class PlaylistItem:
     track: PlaylistTrack | None = None
     title: str | None = None
     duration_seconds: float | None = None
+    duration_is_indeterminate: bool = False
     genre: str | None = None
     cover_url: str | None = None
     playlist_cover_svg: str = ""

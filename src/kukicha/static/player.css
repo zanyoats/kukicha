@@ -1831,8 +1831,24 @@ button:disabled,
   line-height: 1;
 }
 
-#duration-time {
+#elapsed-time {
+  display: inline-flex;
+  justify-content: flex-end;
   text-align: right;
+}
+
+#duration-time {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-start;
+  text-align: left;
+}
+
+.duration-infinity-icon {
+  display: block;
+  width: 16px;
+  height: 16px;
+  color: currentColor;
 }
 
 .volume-control {
@@ -2121,6 +2137,15 @@ tbody tr.playing {
 .queue-status-head,
 .queue-status {
   white-space: nowrap;
+}
+
+.duration-indeterminate {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  min-width: 16px;
+  color: var(--muted);
+  vertical-align: middle;
 }
 
 .queue-status-head,

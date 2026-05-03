@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 from sqlite3 import Connection
 from typing import TYPE_CHECKING, Any
+from urllib.parse import urlsplit
 
 from ..database import connect_database
 from ..queries import LibraryQueries
@@ -73,6 +74,13 @@ def load_queue_state_connection(connection: Connection) -> PlayerQueueState:
         for row in rows
         if bool(row["errored"])
     ]
+    persistent_errored_track_ids = persistent_queue_error_ids(
+        connection,
+        track_ids,
+        errored_track_ids,
+    )
+    if persistent_errored_track_ids != errored_track_ids:
+        sync_queue_error_flags(connection, persistent_errored_track_ids)
     position = int(state_row["position"]) if state_row is not None else 0
     paused = bool(state_row["paused"]) if state_row is not None else True
     unavailable_track_ids = unavailable_playback_ids(connection, track_ids)
@@ -80,7 +88,7 @@ def load_queue_state_connection(connection: Connection) -> PlayerQueueState:
         track_ids,
         position=position,
         paused=paused,
-        errored_track_ids=errored_track_ids,
+        errored_track_ids=persistent_errored_track_ids,
         unavailable_track_ids=unavailable_track_ids,
         snapshots=snapshots,
     )
@@ -215,9 +223,14 @@ def write_queue_connection(
     errored_track_ids: object = (),
     unavailable_track_ids: object | None = None,
 ) -> PlayerQueueState:
-    from ...player_presenters import normalized_queue_state
+    from ...player_presenters import normalized_queue_error_ids, normalized_queue_state
 
     aligned_snapshots = aligned_queue_snapshots(track_ids, snapshots)
+    persistent_errored_track_ids = persistent_queue_error_ids(
+        connection,
+        track_ids,
+        normalized_queue_error_ids(errored_track_ids, track_ids),
+    )
     resolved_unavailable_track_ids = (
         unavailable_playback_ids(connection, track_ids)
         if unavailable_track_ids is None
@@ -227,7 +240,7 @@ def write_queue_connection(
         track_ids,
         position=position,
         paused=paused,
-        errored_track_ids=errored_track_ids,
+        errored_track_ids=persistent_errored_track_ids,
         unavailable_track_ids=resolved_unavailable_track_ids,
         snapshots=aligned_snapshots,
     )
@@ -254,6 +267,68 @@ def write_queue_connection(
         )
     save_queue_state_connection(connection, state.position, state.paused)
     return state
+
+
+def persistent_queue_error_ids(
+    connection: Connection,
+    playback_ids: Iterable[int],
+    errored_playback_ids: Iterable[int],
+) -> list[int]:
+    transient_error_ids = remote_playlist_playback_ids(connection, playback_ids)
+    return [
+        int(playback_id)
+        for playback_id in errored_playback_ids
+        if int(playback_id) not in transient_error_ids
+    ]
+
+
+def remote_playlist_playback_ids(
+    connection: Connection,
+    playback_ids: Iterable[int],
+) -> set[int]:
+    playlist_item_ids = sorted(
+        {-int(playback_id) for playback_id in playback_ids if int(playback_id) < 0}
+    )
+    if not playlist_item_ids:
+        return set()
+    placeholders = placeholders_for(playlist_item_ids)
+    return {
+        -int(row["playlist_item_id"])
+        for row in connection.execute(
+            f"""
+            SELECT playlist_item_id, path
+            FROM library_playlist_items
+            WHERE playlist_item_id IN ({placeholders})
+                AND track_id IS NULL
+            """,
+            playlist_item_ids,
+        )
+        if is_remote_url(str(row["path"]))
+    }
+
+
+def is_remote_url(value: str) -> bool:
+    parsed = urlsplit(value.strip())
+    return parsed.scheme.casefold() in {"http", "https"} and bool(parsed.netloc)
+
+
+def sync_queue_error_flags(
+    connection: Connection,
+    errored_playback_ids: Iterable[int],
+) -> None:
+    errored_ids = sorted(set(int(playback_id) for playback_id in errored_playback_ids))
+    connection.execute("UPDATE player_queue_items SET errored = 0")
+    if not errored_ids:
+        return
+    placeholders = placeholders_for(errored_ids)
+    connection.execute(
+        f"""
+        UPDATE player_queue_items
+        SET errored = 1
+        WHERE playback_id IN ({placeholders})
+        """,
+        errored_ids,
+    )
 
 
 def aligned_queue_snapshots(

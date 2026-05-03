@@ -355,6 +355,96 @@ class PlayerRuntimeTest(unittest.TestCase):
         self.assertEqual(payload["loaded_track_id"], 102)
         self.assertEqual(payload["errored_track_ids"], [101, 102])
 
+    def test_remote_playlist_stream_errors_are_not_persisted(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            database = Path(tempdir) / "kukicha.sqlite"
+            save_library(
+                MusicLibrary(
+                    roots=[],
+                    tracks=[],
+                    playlists=[
+                        PlaylistRecord(
+                            path="/music/streams.m3u8",
+                            name="Streams",
+                            items=[
+                                PlaylistItemRecord(
+                                    path="https://example.test/live",
+                                    title="Live",
+                                )
+                            ],
+                        )
+                    ],
+                    supported_extensions=[".flac"],
+                    generated_at="2026-05-01T00:00:00+00:00",
+                ),
+                database,
+            )
+            runtime = PlayerRuntime(database)
+
+            payload = update_queue_command(
+                runtime,
+                {
+                    "track_ids": [-1],
+                    "position": 0,
+                    "loaded_track_id": -1,
+                    "paused": False,
+                    "errored_track_ids": [-1],
+                },
+            )
+
+        self.assertEqual(payload["track_ids"], [-1])
+        self.assertEqual(payload["loaded_track_id"], -1)
+        self.assertEqual(payload["errored_track_ids"], [])
+
+    def test_queue_load_clears_stale_remote_playlist_stream_errors(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            database = Path(tempdir) / "kukicha.sqlite"
+            save_library(
+                MusicLibrary(
+                    roots=[],
+                    tracks=[],
+                    playlists=[
+                        PlaylistRecord(
+                            path="/music/streams.m3u8",
+                            name="Streams",
+                            items=[
+                                PlaylistItemRecord(
+                                    path="https://example.test/live",
+                                    title="Live",
+                                )
+                            ],
+                        )
+                    ],
+                    supported_extensions=[".flac"],
+                    generated_at="2026-05-01T00:00:00+00:00",
+                ),
+                database,
+            )
+            runtime = PlayerRuntime(database)
+            update_queue_command(
+                runtime,
+                {
+                    "track_ids": [-1],
+                    "position": 0,
+                    "loaded_track_id": -1,
+                    "paused": True,
+                },
+            )
+            with connect_database(database) as connection:
+                connection.execute("UPDATE player_queue_items SET errored = 1")
+
+            state = load_queue_state_database(database)
+            with connect_database(database) as connection:
+                errored = int(
+                    connection.execute(
+                        "SELECT errored FROM player_queue_items WHERE playback_id = -1"
+                    ).fetchone()["errored"]
+                )
+
+        self.assertEqual(state.track_ids, [-1])
+        self.assertEqual(state.errored_track_ids, [])
+        self.assertEqual(errored, 0)
+
     def test_queue_persists_across_runtime_instances(self) -> None:
         with TemporaryDirectory() as tempdir:
             database = Path(tempdir) / "kukicha.sqlite"
@@ -784,6 +874,7 @@ class PlayerAlbumPlaybackTrackPayloadsTest(unittest.TestCase):
             path="https://ice6.somafm.com/deepspaceone-128-mp3",
             title="SomaFM: Deep Space One",
             duration_seconds=0.0,
+            duration_is_indeterminate=True,
             genre="Ambient",
         )
         playlist = PlaylistDetails(
@@ -804,6 +895,8 @@ class PlayerAlbumPlaybackTrackPayloadsTest(unittest.TestCase):
         self.assertEqual(payload["albumArtists"], ())
         self.assertEqual(payload["albumId"], "playlist:3")
         self.assertEqual(payload["artUrl"], playlist_cover_data_url(playlist_cover_svg("Streams")))
+        self.assertIsNone(payload["durationSeconds"])
+        self.assertTrue(payload["durationIsIndeterminate"])
 
     def test_tracked_playlist_item_uses_playlist_position_as_track_number(self) -> None:
         item = PlaylistItem(
@@ -1032,6 +1125,7 @@ class PlayerPlaylistMembershipTest(unittest.TestCase):
                 position=1,
                 path="https://example.test/stream",
                 title="Stream",
+                duration_is_indeterminate=True,
             )
         )
 
@@ -1050,6 +1144,8 @@ class PlayerPlaylistMembershipTest(unittest.TestCase):
         self.assertNotIn("playlist-cover-image", tracked_html)
         self.assertIn("playlist-cover-image", external_html)
         self.assertIn("data:image/svg+xml", external_html)
+        self.assertIn('data-duration-is-indeterminate="1"', external_html)
+        self.assertIn("duration-infinity-icon", external_html)
 
     def test_track_table_fills_playlist_icon_for_playlist_membership(self) -> None:
         with TemporaryDirectory() as tempdir:
@@ -5672,6 +5768,7 @@ def make_track_view(
         year=None,
         duration="",
         duration_seconds=duration_seconds,
+        duration_is_indeterminate=False,
         grouping="",
         genres=genres,
         styles=styles,

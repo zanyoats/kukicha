@@ -483,6 +483,7 @@ class LibraryQueries:
                         items.track_id,
                         items.title,
                         items.duration_seconds,
+                        items.duration_is_indeterminate,
                         items.genre,
                         items.cover_url,
                         playlists.name AS playlist_name,
@@ -865,6 +866,7 @@ class LibraryQueries:
                     track_id,
                     title,
                     duration_seconds,
+                    duration_is_indeterminate,
                     genre,
                     cover_url
                 FROM library_playlist_items
@@ -938,6 +940,11 @@ class LibraryQueries:
                     track=tracks_by_id.get(track_id) if track_id is not None else None,
                     title=row["title"],
                     duration_seconds=row["duration_seconds"],
+                    duration_is_indeterminate=(
+                        bool(row["duration_is_indeterminate"])
+                        if "duration_is_indeterminate" in row.keys()
+                        else False
+                    ),
                     genre=row["genre"],
                     cover_url=row["cover_url"],
                     playlist_cover_svg=row_playlist_cover_svg,

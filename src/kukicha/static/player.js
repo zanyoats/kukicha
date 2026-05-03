@@ -27,6 +27,7 @@ const volumeMutedIconPathData = [
   "M13.86 5.47a.75.75 0 0 0-1.061 0l-1.47 1.47-1.47-1.47A.75.75 0 0 0 8.8 6.53L10.269 8l-1.47 1.47a.75.75 0 1 0 1.06 1.06l1.47-1.47 1.47 1.47a.75.75 0 0 0 1.06-1.06L12.39 8l1.47-1.47a.75.75 0 0 0 0-1.06",
   "M10.116 1.5A.75.75 0 0 0 8.991.85l-6.925 4a3.64 3.64 0 0 0-1.33 4.967 3.64 3.64 0 0 0 1.33 1.332l6.925 4a.75.75 0 0 0 1.125-.649v-1.906a4.7 4.7 0 0 1-1.5-.694v1.3L2.817 9.852a2.14 2.14 0 0 1-.781-2.92c.187-.324.456-.594.78-.782l5.8-3.35v1.3c.45-.313.956-.55 1.5-.694z"
 ];
+const durationInfinityIconPathData = "M20.288 9.463a4.856 4.856 0 0 0-4.336-2.3 4.586 4.586 0 0 0-3.343 1.767c.071.116.148.226.212.347l.879 1.652.134-.254a2.71 2.71 0 0 1 2.206-1.519 2.845 2.845 0 1 1 0 5.686 2.708 2.708 0 0 1-2.205-1.518L13.131 12l-1.193-2.26a4.709 4.709 0 0 0-3.89-2.581 4.845 4.845 0 1 0 0 9.682 4.586 4.586 0 0 0 3.343-1.767c-.071-.116-.148-.226-.212-.347l-.879-1.656-.134.254a2.71 2.71 0 0 1-2.206 1.519 2.855 2.855 0 0 1-2.559-1.369 2.825 2.825 0 0 1 0-2.946 2.862 2.862 0 0 1 2.442-1.374h.121a2.708 2.708 0 0 1 2.205 1.518l.7 1.327 1.193 2.26a4.709 4.709 0 0 0 3.89 2.581h.209a4.846 4.846 0 0 0 4.127-7.378z";
 
 let queueState = readInitialQueueState();
 let appHistoryDepth = initialAppHistoryDepth();
@@ -43,6 +44,7 @@ let manualPauseRequested = false;
 let activePlaylistMenu = null;
 let activePlaylistOptions = null;
 let activePlaylistSourceOptions = null;
+let pageIsUnloading = false;
 
 function readToastDelayMs(datasetKey, fallback) {
   if (!(toast instanceof HTMLElement)) {
@@ -975,15 +977,19 @@ window.addEventListener("resize", () => {
 }, {passive: true});
 
 window.addEventListener("pagehide", () => {
+  releaseAudioNetworkResources();
   saveCurrentScrollState();
   closeJobsStream();
 });
 
 window.addEventListener("pageshow", () => {
+  pageIsUnloading = false;
   syncJobsStream();
+  updatePlaybackUi();
 });
 
 window.addEventListener("beforeunload", () => {
+  releaseAudioNetworkResources();
   closeJobsStream();
 });
 
@@ -1078,8 +1084,15 @@ function finiteAudioDuration() {
 }
 
 function trackDurationSeconds(track) {
+  if (trackDurationIsIndeterminate(track)) {
+    return null;
+  }
   const duration = Number(track && track.durationSeconds);
   return Number.isFinite(duration) && duration > 0 ? duration : null;
+}
+
+function trackDurationIsIndeterminate(track) {
+  return Boolean(track && track.durationIsIndeterminate);
 }
 
 function currentQueueTrackForProgress() {
@@ -1094,8 +1107,11 @@ function currentQueueTrackForProgress() {
   return Number.isFinite(Number(trackId)) ? trackById(trackId) : null;
 }
 
-function playbackDurationForProgress() {
-  return finiteAudioDuration() || trackDurationSeconds(currentQueueTrackForProgress());
+function playbackDurationForProgress(track) {
+  if (trackDurationIsIndeterminate(track)) {
+    return null;
+  }
+  return finiteAudioDuration() || trackDurationSeconds(track);
 }
 
 function finiteAudioCurrentTime() {
@@ -1125,17 +1141,51 @@ function updateRangeFill(input, fraction) {
   input.style.setProperty("--range-fill", `${percent}%`);
 }
 
+function createDurationInfinityIcon() {
+  const icon = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  icon.setAttribute("class", "duration-infinity-icon");
+  icon.setAttribute("width", "16");
+  icon.setAttribute("height", "16");
+  icon.setAttribute("viewBox", "0 0 24 24");
+  icon.setAttribute("aria-hidden", "true");
+  icon.setAttribute("focusable", "false");
+  const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  path.setAttribute("fill", "currentColor");
+  path.setAttribute("d", durationInfinityIconPathData);
+  icon.append(path);
+  return icon;
+}
+
+function updateDurationTimeLabel(duration, isIndeterminate) {
+  if (!(durationTime instanceof HTMLElement)) {
+    return;
+  }
+  if (isIndeterminate) {
+    if (durationTime.dataset.durationIsIndeterminate !== "1") {
+      durationTime.replaceChildren(createDurationInfinityIcon());
+      durationTime.dataset.durationIsIndeterminate = "1";
+      durationTime.setAttribute("aria-label", "Indeterminate duration");
+      durationTime.setAttribute("title", "Indeterminate duration");
+    }
+    return;
+  }
+  delete durationTime.dataset.durationIsIndeterminate;
+  durationTime.removeAttribute("aria-label");
+  durationTime.removeAttribute("title");
+  durationTime.textContent = duration === null ? "--:--" : formatMediaTime(duration);
+}
+
 function updatePlaybackProgress() {
-  const duration = playbackDurationForProgress();
+  const track = currentQueueTrackForProgress();
+  const isIndeterminate = trackDurationIsIndeterminate(track);
+  const duration = playbackDurationForProgress(track);
   const currentTime = duration === null
     ? finiteAudioCurrentTime()
     : clampNumber(Number(audio.currentTime), 0, duration);
   if (elapsedTime instanceof HTMLElement) {
     elapsedTime.textContent = formatMediaTime(currentTime);
   }
-  if (durationTime instanceof HTMLElement) {
-    durationTime.textContent = duration === null ? "--:--" : formatMediaTime(duration);
-  }
+  updateDurationTimeLabel(duration, isIndeterminate);
   if (!(progressInput instanceof HTMLInputElement)) {
     return;
   }
@@ -1144,7 +1194,10 @@ function updatePlaybackProgress() {
   progressInput.disabled = !canSeek;
   if (!canSeek) {
     progressInput.value = "0";
-    progressInput.setAttribute("aria-valuetext", "No seekable duration");
+    progressInput.setAttribute(
+      "aria-valuetext",
+      isIndeterminate ? "Indeterminate duration" : "No seekable duration"
+    );
     updateRangeFill(progressInput, 0);
     return;
   }
@@ -1161,7 +1214,8 @@ function seekFromProgressInput() {
   if (!(progressInput instanceof HTMLInputElement)) {
     return;
   }
-  const duration = playbackDurationForProgress();
+  const track = currentQueueTrackForProgress();
+  const duration = playbackDurationForProgress(track);
   if (duration === null) {
     updatePlaybackProgress();
     return;
@@ -1288,6 +1342,9 @@ audio.addEventListener("seeked", () => {
 });
 
 audio.addEventListener("play", () => {
+  if (pageIsUnloading) {
+    return;
+  }
   manualPauseRequested = false;
   clearPendingPauseCommit();
   clearPauseStateSuppression();
@@ -1297,6 +1354,9 @@ audio.addEventListener("play", () => {
 });
 
 audio.addEventListener("pause", () => {
+  if (pageIsUnloading) {
+    return;
+  }
   if (manualPauseRequested) {
     manualPauseRequested = false;
     clearPauseStateSuppression();
@@ -1308,6 +1368,9 @@ audio.addEventListener("pause", () => {
 });
 
 audio.addEventListener("error", () => {
+  if (pageIsUnloading) {
+    return;
+  }
   manualPauseRequested = false;
   clearPendingPauseCommit();
   clearPauseStateSuppression();
@@ -2543,6 +2606,8 @@ function normalizeTrackPayload(payload) {
   if (!Number.isFinite(trackId)) {
     return null;
   }
+  const durationIsIndeterminate = Boolean(payload.durationIsIndeterminate);
+  const durationSeconds = Number(payload.durationSeconds);
   return {
     trackId,
     albumId: typeof payload.albumId === "string" ? payload.albumId : "",
@@ -2558,9 +2623,10 @@ function normalizeTrackPayload(payload) {
     albumArtist: typeof payload.albumArtist === "string" ? payload.albumArtist : "",
     albumArtists: normalizeAlbumArtists(payload.albumArtists, payload.albumArtist),
     album: typeof payload.album === "string" ? payload.album : "",
-    durationSeconds: Number.isFinite(Number(payload.durationSeconds))
-      ? Number(payload.durationSeconds)
-      : null,
+    durationSeconds: durationIsIndeterminate || !Number.isFinite(durationSeconds)
+      ? null
+      : durationSeconds,
+    durationIsIndeterminate,
     fileType: typeof payload.fileType === "string" ? payload.fileType : "",
     audioMimeType: typeof payload.audioMimeType === "string" ? payload.audioMimeType : "",
     audioCodec: typeof payload.audioCodec === "string" ? payload.audioCodec : "",
@@ -2627,6 +2693,8 @@ function trackFromRow(row) {
   if (!Number.isFinite(trackId)) {
     return null;
   }
+  const durationIsIndeterminate = row.dataset.durationIsIndeterminate === "1";
+  const durationSeconds = Number(row.dataset.durationSeconds);
   return {
     trackId,
     albumId: row.dataset.albumId || "",
@@ -2636,9 +2704,10 @@ function trackFromRow(row) {
     albumArtist: row.dataset.albumArtist || "",
     albumArtists: albumArtistsFromRow(row),
     album: row.dataset.album || "",
-    durationSeconds: Number.isFinite(Number(row.dataset.durationSeconds))
-      ? Number(row.dataset.durationSeconds)
-      : null,
+    durationSeconds: durationIsIndeterminate || !Number.isFinite(durationSeconds)
+      ? null
+      : durationSeconds,
+    durationIsIndeterminate,
     fileType: row.dataset.fileType || "",
     audioMimeType: row.dataset.audioMimeType || "",
     audioCodec: row.dataset.audioCodec || "",
@@ -2662,6 +2731,7 @@ function trackById(trackId) {
     albumArtists: [],
     album: "",
     durationSeconds: null,
+    durationIsIndeterminate: false,
     fileType: "",
     audioMimeType: "",
     audioCodec: "",
@@ -3267,6 +3337,21 @@ function clearLoadedPlayback() {
   audio.removeAttribute("src");
   audio.load();
   updateNowPlaying(null);
+}
+
+function releaseAudioNetworkResources() {
+  pageIsUnloading = true;
+  manualPauseRequested = false;
+  clearPendingPauseCommit();
+  clearPauseStateSuppression();
+  queueState.paused = true;
+  try {
+    audio.pause();
+    audio.removeAttribute("src");
+    audio.load();
+  } catch {
+    return;
+  }
 }
 
 async function refreshQueuePage() {

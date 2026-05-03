@@ -1,4 +1,4 @@
-{% from "player/_icons.html" import delete_icon, playlist_icon, queue_add_icon %}
+{% from "player/_icons.html" import delete_icon, infinity_icon, playlist_icon, queue_add_icon %}
 
 {% macro cover_cell(track) -%}
   <td class="cover-cell">
@@ -12,13 +12,25 @@
   {% endif %}
 {%- endmacro %}
 
+{% macro duration_cell(track) -%}
+  <td class="track-duration">
+    {% if track.duration_is_indeterminate %}
+      <span class="duration-indeterminate" title="Indeterminate duration" aria-label="Indeterminate duration">
+        {{ infinity_icon() }}
+      </span>
+    {% else %}
+      {{ track.duration }}
+    {% endif %}
+  </td>
+{%- endmacro %}
+
 {% macro queue_cells(row) -%}
   {% set track = row.track %}
   {{ cover_cell(track) }}
   {{ track_artist_cell(track) }}
   <td class="track-number">{{ track.track_number }}</td>
   <td>{{ track.queue_title }}</td>
-  <td class="track-duration">{{ track.duration }}</td>
+  {{ duration_cell(track) }}
   <td class="queue-status"><span class="queue-status-label">{{ row.queue_status }}</span></td>
   <td class="queue-action-cell">
     <button class="delete-icon-button" type="button" data-delete-queue-track
@@ -32,7 +44,7 @@
   {{ track_artist_cell(track) }}
   <td class="track-number">{{ track.track_number }}</td>
   <td>{{ track.table_title }}</td>
-  <td class="track-duration">{{ track.duration }}</td>
+  {{ duration_cell(track) }}
   <td class="track-actions-cell">
     <div class="track-actions">
       {% if show_track_play_button %}
@@ -124,6 +136,7 @@
             data-album-artists="{{ track.album_artists|tojson|forceescape }}"
             data-album="{{ track.display_album }}"
             data-duration-seconds="{{ track.duration_seconds if track.duration_seconds is not none else '' }}"
+            data-duration-is-indeterminate="{{ '1' if track.duration_is_indeterminate else '' }}"
             data-file-type="{{ track.file_type }}"
             data-audio-mime-type="{{ track.audio_mime_type }}"
             data-audio-codec="{{ track.audio_codec }}"
@@ -145,6 +158,7 @@
             data-album-artists="{{ track.album_artists|tojson|forceescape }}"
             data-album="{{ track.display_album }}"
             data-duration-seconds="{{ track.duration_seconds if track.duration_seconds is not none else '' }}"
+            data-duration-is-indeterminate="{{ '1' if track.duration_is_indeterminate else '' }}"
             data-file-type="{{ track.file_type }}"
             data-audio-mime-type="{{ track.audio_mime_type }}"
             data-audio-codec="{{ track.audio_codec }}"

@@ -226,6 +226,7 @@ def parse_m3u_playlist(
     items: list[PlaylistItemRecord] = []
     pending_title: str | None = None
     pending_duration: float | None = None
+    pending_duration_is_indeterminate = False
     pending_genre: str | None = None
     pending_cover_url: str | None = None
 
@@ -246,7 +247,11 @@ def parse_m3u_playlist(
                     name = candidate
                 continue
             if line_key.startswith(EXTINF_PREFIX.casefold()):
-                pending_duration, pending_title = parse_extinf(line[len(EXTINF_PREFIX) :])
+                (
+                    pending_duration,
+                    pending_title,
+                    pending_duration_is_indeterminate,
+                ) = parse_extinf(line[len(EXTINF_PREFIX) :])
                 continue
             if line_key.startswith(EXTGENRE_PREFIX.casefold()):
                 pending_genre = line[len(EXTGENRE_PREFIX) :].strip() or None
@@ -270,13 +275,17 @@ def parse_m3u_playlist(
                 PlaylistItemRecord(
                     path=item_path,
                     title=pending_title or item_path,
-                    duration_seconds=pending_duration,
+                    duration_seconds=(
+                        None if pending_duration_is_indeterminate else pending_duration
+                    ),
+                    duration_is_indeterminate=pending_duration_is_indeterminate,
                     genre=pending_genre,
                     cover_url=pending_cover_url,
                 )
             )
         pending_title = None
         pending_duration = None
+        pending_duration_is_indeterminate = False
         pending_genre = None
         pending_cover_url = None
 
@@ -303,11 +312,16 @@ def read_playlist_text(path: Path) -> str | None:
     return data.decode("utf-8-sig", errors="replace")
 
 
-def parse_extinf(value: str) -> tuple[float | None, str | None]:
+def parse_extinf(value: str) -> tuple[float | None, str | None, bool]:
     duration_text, separator, title = value.partition(",")
     duration = parse_playlist_duration(duration_text)
+    duration_is_indeterminate = duration is not None and duration <= 0
     resolved_title = title.strip() if separator and title.strip() else None
-    return duration, resolved_title
+    return (
+        None if duration_is_indeterminate else duration,
+        resolved_title,
+        duration_is_indeterminate,
+    )
 
 
 def parse_playlist_duration(value: str) -> float | None:
