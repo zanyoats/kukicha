@@ -53,34 +53,36 @@
       <button class="queue-icon-button" type="button" data-queue-track data-queue-append
         aria-label="Add {{ track.display_title }} by {{ track.artist or track.album_artist or 'unknown artist' }} to the queue"
         title="Add to queue">{{ queue_add_icon() }}</button>
-      {% if track.library_track_id %}
-        <details class="filter-menu playlist-track-menu{% if track.has_playlist_membership %} has-playlist-membership{% endif %}" data-dropdown-menu data-playlist-menu data-library-track-id="{{ track.library_track_id }}">
-          <summary class="playlist-icon-button" aria-label="Add to Playlists" title="Add to Playlists">
-            <span class="visually-hidden">Add to Playlists</span>
-            {{ playlist_icon(filled=track.has_playlist_membership) }}
-          </summary>
-          <div class="filter-options playlist-track-options" data-playlist-options>
-            {% if track.playlist_options is not none %}
-              {% if track.playlist_options %}
-                {% for playlist in track.playlist_options %}
-                  <label class="filter-option"{% if playlist.path %} title="{{ playlist.path }}"{% endif %}>
-                    <input type="checkbox" data-playlist-toggle data-track-id="{{ track.library_track_id }}" data-playlist-id="{{ playlist.playlist_id }}" {% if playlist.checked %}checked{% endif %}>
-                    <span>{{ playlist.name or ("Playlist " ~ playlist.playlist_id) }}</span>
-                  </label>
-                {% endfor %}
+      {% if show_playlist_track_menu %}
+        {% if track.library_track_id %}
+          <details class="filter-menu playlist-track-menu{% if track.has_playlist_membership %} has-playlist-membership{% endif %}" data-dropdown-menu data-playlist-menu data-library-track-id="{{ track.library_track_id }}">
+            <summary class="playlist-icon-button" aria-label="Add to Playlists" title="Add to Playlists">
+              <span class="visually-hidden">Add to Playlists</span>
+              {{ playlist_icon(filled=track.has_playlist_membership) }}
+            </summary>
+            <div class="filter-options playlist-track-options" data-playlist-options>
+              {% if track.playlist_options is not none %}
+                {% if track.playlist_options %}
+                  {% for playlist in track.playlist_options %}
+                    <label class="filter-option"{% if playlist.path %} title="{{ playlist.path }}"{% endif %}>
+                      <input type="checkbox" data-playlist-toggle data-track-id="{{ track.library_track_id }}" data-playlist-id="{{ playlist.playlist_id }}" {% if playlist.checked %}checked{% endif %}>
+                      <span>{{ playlist.name or ("Playlist " ~ playlist.playlist_id) }}</span>
+                    </label>
+                  {% endfor %}
+                {% else %}
+                  <div class="empty-small">No playlists found.</div>
+                {% endif %}
               {% else %}
                 <div class="empty-small">No playlists found.</div>
               {% endif %}
-            {% else %}
-              <div class="empty-small">No playlists found.</div>
-            {% endif %}
-          </div>
-        </details>
-      {% else %}
-        <button class="playlist-icon-button" type="button" aria-label="Add to Playlists" title="Add to Playlists" disabled>
-          <span class="visually-hidden">Add to Playlists</span>
-          {{ playlist_icon() }}
-        </button>
+            </div>
+          </details>
+        {% else %}
+          <button class="playlist-icon-button" type="button" aria-label="Add to Playlists" title="Add to Playlists" disabled>
+            <span class="visually-hidden">Add to Playlists</span>
+            {{ playlist_icon() }}
+          </button>
+        {% endif %}
       {% endif %}
     </div>
   </td>
@@ -88,6 +90,7 @@
 
 {% set show_track_artist = show_track_artist|default(false) %}
 {% set show_track_play_button = show_track_play_button|default(true) %}
+{% set show_playlist_track_menu = show_playlist_track_menu|default(true) %}
 {% set column_count = (7 if show_track_artist else 6) if is_queue else (6 if show_track_artist else 5) %}
 
 <div class="table-wrap">

@@ -1,12 +1,25 @@
 from __future__ import annotations
 
-from pathlib import Path
+import configparser
 import sqlite3
+from dataclasses import dataclass
+from pathlib import Path
 from time import perf_counter
 from typing import Any
 
 from .player_runtime import PlayerJobCancelToken, PlayerJobResult, PlayerJobRecord, PlayerRuntime
-from .scanner import normalize_playlist_resource
+from .scanner import (
+    normalize_playlist_resource,
+    pls_playlist_indexes,
+    pls_playlist_section_name,
+)
+
+
+@dataclass(frozen=True, slots=True)
+class PlsPlaylistEntry:
+    path: str
+    title: str | None = None
+    length: str | None = None
 
 
 def start_playlist_file_update_job(
@@ -83,14 +96,14 @@ def playlist_file_update_context(
 
 
 def playlist_file_encoding(path: Path) -> str:
-    return "ascii" if path.suffix.casefold() == ".m3u" else "utf-8"
+    return "utf-8"
 
 
 def read_playlist_file_for_edit(path: Path) -> tuple[str, str]:
     encoding = playlist_file_encoding(path)
     data = path.read_bytes()
     try:
-        return data.decode(encoding), encoding
+        return data.decode("utf-8-sig"), encoding
     except UnicodeDecodeError as error:
         raise ValueError(f"playlist file is not valid {encoding}: {path}") from error
 
@@ -104,6 +117,9 @@ def write_playlist_file_for_edit(path: Path, text: str, encoding: str) -> None:
 
 
 def append_tracked_song_to_playlist_file(path: Path, track_row: sqlite3.Row) -> None:
+    if path.suffix.casefold() == ".pls":
+        append_tracked_song_to_pls_file(path, track_row)
+        return
     text, encoding = read_playlist_file_for_edit(path)
     newline = "\r\n" if "\r\n" in text else "\n"
     prefix = "" if not text or text.endswith(("\n", "\r")) else newline
@@ -114,6 +130,9 @@ def append_tracked_song_to_playlist_file(path: Path, track_row: sqlite3.Row) -> 
 
 
 def remove_tracked_song_from_playlist_file(path: Path, track_path: str) -> None:
+    if path.suffix.casefold() == ".pls":
+        remove_tracked_song_from_pls_file(path, track_path)
+        return
     text, encoding = read_playlist_file_for_edit(path)
     lines = text.splitlines(keepends=True)
     indexes_to_remove: set[int] = set()
@@ -132,6 +151,89 @@ def remove_tracked_song_from_playlist_file(path: Path, track_path: str) -> None:
         line for index, line in enumerate(lines) if index not in indexes_to_remove
     )
     write_playlist_file_for_edit(path, updated, encoding)
+
+
+def append_tracked_song_to_pls_file(path: Path, track_row: sqlite3.Row) -> None:
+    text, encoding = read_playlist_file_for_edit(path)
+    entries = read_pls_playlist_entries(text, path)
+    entries.append(
+        PlsPlaylistEntry(
+            path=str(track_row["path"]),
+            title=playlist_extinf_title(track_row),
+            length=playlist_extinf_duration(track_row["duration_seconds"]),
+        )
+    )
+    write_playlist_file_for_edit(path, render_pls_playlist(entries, text), encoding)
+
+
+def remove_tracked_song_from_pls_file(path: Path, track_path: str) -> None:
+    text, encoding = read_playlist_file_for_edit(path)
+    entries = read_pls_playlist_entries(text, path)
+    updated_entries = [
+        entry for entry in entries if not pls_playlist_entry_matches(entry, path, track_path)
+    ]
+    if len(updated_entries) == len(entries):
+        raise ValueError("track path was not found in playlist file")
+    write_playlist_file_for_edit(path, render_pls_playlist(updated_entries, text), encoding)
+
+
+def read_pls_playlist_entries(text: str, path: Path) -> list[PlsPlaylistEntry]:
+    parser = configparser.ConfigParser(interpolation=None, strict=False)
+    parser.optionxform = str.casefold
+    try:
+        parser.read_string(text)
+    except configparser.Error as error:
+        raise ValueError(f"playlist file is not valid PLS: {path}") from error
+
+    section_name = pls_playlist_section_name(parser)
+    if section_name is None:
+        raise ValueError(f"playlist file is missing [playlist] section: {path}")
+    section = parser[section_name]
+
+    version = section.get("version", fallback=None)
+    if version is not None and version.strip() and version.strip() != "2":
+        raise ValueError(f"playlist file has unsupported PLS version: {path}")
+
+    entries: list[PlsPlaylistEntry] = []
+    for index in pls_playlist_indexes(section):
+        resource = section.get(f"file{index}", fallback="").strip()
+        if not resource:
+            continue
+        entries.append(
+            PlsPlaylistEntry(
+                path=resource,
+                title=section.get(f"title{index}", fallback="").strip() or None,
+                length=section.get(f"length{index}", fallback="").strip() or None,
+            )
+        )
+    return entries
+
+
+def render_pls_playlist(entries: list[PlsPlaylistEntry], original_text: str) -> str:
+    newline = "\r\n" if "\r\n" in original_text else "\n"
+    lines = ["[playlist]"]
+    for index, entry in enumerate(entries, start=1):
+        lines.append(f"File{index}={entry.path}")
+        if entry.title:
+            lines.append(f"Title{index}={entry.title}")
+        if entry.length:
+            lines.append(f"Length{index}={entry.length}")
+    lines.append(f"NumberOfEntries={len(entries)}")
+    lines.append("Version=2")
+    return newline.join(lines) + newline
+
+
+def pls_playlist_entry_matches(
+    entry: PlsPlaylistEntry,
+    playlist_path: Path,
+    track_path: str,
+) -> bool:
+    try:
+        return normalize_playlist_resource(entry.path, playlist_path) == str(
+            Path(track_path).expanduser().resolve(strict=False)
+        )
+    except OSError:
+        return entry.path == track_path
 
 
 def playlist_resource_line_matches(line: str, playlist_path: Path, track_path: str) -> bool:

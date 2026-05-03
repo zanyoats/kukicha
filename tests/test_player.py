@@ -1095,6 +1095,120 @@ class PlayerPlaylistMembershipTest(unittest.TestCase):
         self.assertEqual(after_remove_job_text, original_playlist_text)
         self.assertEqual(rows, [])
 
+    def test_set_track_playlist_membership_writes_utf8_m3u_for_unicode_track_path(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            root = Path(tempdir)
+            database = root / "kukicha.sqlite"
+            playlist_path = root / "mix.m3u"
+            playlist_path.write_text("#EXTM3U\n#PLAYLIST:Mix\n", encoding="ascii")
+            track_path = (
+                root
+                / "Amon Tobin"
+                / "Chaos Theory_ The Soundtrack to Tom Clancy’s Splinter Cell_ Chaos Theory"
+                / "07 Ruthless (reprise).flac"
+            )
+            save_library(
+                MusicLibrary(
+                    roots=[str(root)],
+                    tracks=[
+                        TrackRecord(
+                            path=str(track_path),
+                            root_position=0,
+                            file_type="flac",
+                            artist="Amon Tobin",
+                            album_artist="Amon Tobin",
+                            album="Chaos Theory: The Soundtrack to Tom Clancy’s Splinter Cell: Chaos Theory",
+                            title="Ruthless (reprise)",
+                            duration_seconds=267.013,
+                        )
+                    ],
+                    playlists=[
+                        PlaylistRecord(
+                            path=str(playlist_path),
+                            root_position=0,
+                            name="Mix",
+                        )
+                    ],
+                    supported_extensions=[".flac"],
+                    generated_at="2026-04-25T00:00:00+00:00",
+                ),
+                database,
+            )
+
+            added, add_job = set_track_playlist_membership_database(database, 1, 1, True)
+            self.assertIsNotNone(add_job)
+            update_playlist_file_for_membership(add_job)
+            updated_bytes = playlist_path.read_bytes()
+            updated_text = updated_bytes.decode("utf-8")
+
+        self.assertTrue(added["checked"])
+        self.assertIn("#EXTINF:267,Amon Tobin - Ruthless (reprise)", updated_text)
+        self.assertIn(str(track_path), updated_text)
+        self.assertIn(b"\xe2\x80\x99", updated_bytes)
+
+    def test_set_track_playlist_membership_updates_pls_playlist_file(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            root = Path(tempdir)
+            database = root / "kukicha.sqlite"
+            playlist_path = root / "mix.pls"
+            original_playlist_text = "\n".join(
+                (
+                    "[playlist]",
+                    "File1=https://example.test/live",
+                    "Title1=Live Stream",
+                    "Length1=-1",
+                    "NumberOfEntries=1",
+                    "Version=2",
+                    "",
+                )
+            )
+            playlist_path.write_text(original_playlist_text, encoding="utf-8")
+            track_path = root / "Amon Tobin" / "Permutation" / "12 Nova.flac"
+            save_library(
+                MusicLibrary(
+                    roots=[str(root)],
+                    tracks=[
+                        TrackRecord(
+                            path=str(track_path),
+                            root_position=0,
+                            file_type="flac",
+                            artist="Amon Tobin",
+                            album_artist="Amon Tobin",
+                            album="Permutation",
+                            title="Nova (Permutation)",
+                            duration_seconds=283.0,
+                        )
+                    ],
+                    playlists=[
+                        PlaylistRecord(
+                            path=str(playlist_path),
+                            root_position=0,
+                            name="Mix",
+                        )
+                    ],
+                    supported_extensions=[".flac"],
+                    generated_at="2026-04-25T00:00:00+00:00",
+                ),
+                database,
+            )
+
+            added, add_job = set_track_playlist_membership_database(database, 1, 1, True)
+            self.assertIsNotNone(add_job)
+            update_playlist_file_for_membership(add_job)
+            after_add_job_text = playlist_path.read_text(encoding="utf-8")
+            removed, remove_job = set_track_playlist_membership_database(database, 1, 1, False)
+            self.assertIsNotNone(remove_job)
+            update_playlist_file_for_membership(remove_job)
+            after_remove_job_text = playlist_path.read_text(encoding="utf-8")
+
+        self.assertTrue(added["checked"])
+        self.assertIn(f"File2={track_path}", after_add_job_text)
+        self.assertIn("Title2=Amon Tobin - Nova (Permutation)", after_add_job_text)
+        self.assertIn("Length2=283", after_add_job_text)
+        self.assertIn("NumberOfEntries=2", after_add_job_text)
+        self.assertFalse(removed["checked"])
+        self.assertEqual(after_remove_job_text, original_playlist_text)
+
     def test_track_table_uses_playlist_cover_only_without_real_thumbnail(self) -> None:
         environment = build_template_environment()
         template = environment.get_template("player/_track_table.html")
@@ -1243,6 +1357,44 @@ class PlayerPlaylistMembershipTest(unittest.TestCase):
 
         self.assertIn("No playlists found.", html)
         self.assertNotIn("Loading playlists...", html)
+
+    def test_playlist_page_hides_playlist_bookmark_control(self) -> None:
+        view = make_track_view(
+            7,
+            root_position=0,
+            path="/music/Album/07.mp3",
+            library_track_id=7,
+            playlist_options=(
+                PlaylistMenuOption(
+                    playlist_id=3,
+                    name="Morning",
+                    path="/music/morning.m3u8",
+                    checked=True,
+                ),
+            ),
+        )
+
+        html = build_template_environment().get_template("player/playlist.html").render(
+            playlist=PlaylistDetails(
+                playlist_id=3,
+                path="/music/morning.m3u8",
+                name="Morning",
+                root_position=0,
+                items=(PlaylistItem(playlist_item_id=1, playlist_id=3, position=0, path=view.path),),
+            ),
+            playlist_back_url="/",
+            playlist_index_url="/?is_playlist=1",
+            playlist_cover_data_url="data:image/svg+xml,cover",
+            playlist_path_text="/music/morning.m3u8",
+            table_rows=[{"track": view, "group_label": ""}],
+            playlist_track_meta=(),
+            queue_state=PlayerQueueState(track_ids=[]),
+        )
+
+        self.assertIn("data-queue-track", html)
+        self.assertNotIn("data-playlist-menu", html)
+        self.assertNotIn("data-playlist-toggle", html)
+        self.assertNotIn("Add to Playlists", html)
 
     def test_track_table_can_show_track_artist_after_cover(self) -> None:
         environment = build_template_environment()

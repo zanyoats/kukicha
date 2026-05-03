@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import binascii
+import configparser
 import json
 import mimetypes
 import re
@@ -32,7 +33,7 @@ from .models import (
 from .playlist_art import playlist_cover_svg
 
 SUPPORTED_EXTENSIONS = {".flac", ".m4a", ".m4p", ".mp3", ".ogg", ".opus"}
-PLAYLIST_EXTENSIONS = {".m3u", ".m3u8"}
+PLAYLIST_EXTENSIONS = {".m3u", ".m3u8", ".pls"}
 ARTWORK_THUMBNAIL_HEIGHT = TRACK_ARTWORK_HEIGHT
 ALBUM_ARTWORK_THUMBNAIL_HEIGHT = ALBUM_ARTWORK_HEIGHT
 ARTWORK_IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png", ".webp", ".gif")
@@ -209,10 +210,21 @@ def parse_playlists(
     }
     playlists: list[PlaylistRecord] = []
     for root_position, path in playlist_paths:
-        playlist = parse_m3u_playlist(path, tracks_by_path, root_position=root_position)
+        playlist = parse_playlist(path, tracks_by_path, root_position=root_position)
         if playlist is not None:
             playlists.append(playlist)
     return playlists
+
+
+def parse_playlist(
+    path: Path,
+    tracks_by_path: dict[str, TrackRecord],
+    *,
+    root_position: int | None = None,
+) -> PlaylistRecord | None:
+    if path.suffix.casefold() == ".pls":
+        return parse_pls_playlist(path, tracks_by_path, root_position=root_position)
+    return parse_m3u_playlist(path, tracks_by_path, root_position=root_position)
 
 
 def parse_m3u_playlist(
@@ -262,27 +274,17 @@ def parse_m3u_playlist(
             continue
 
         item_path = normalize_playlist_resource(line, resolved_path)
-        track = tracks_by_path.get(item_path) if not is_url_resource(item_path) else None
-        if track is not None:
-            items.append(
-                PlaylistItemRecord(
-                    path=track.path,
-                    track_id=track.track_id,
-                )
+        items.append(
+            playlist_item_record(
+                item_path,
+                tracks_by_path,
+                title=pending_title,
+                duration_seconds=pending_duration,
+                duration_is_indeterminate=pending_duration_is_indeterminate,
+                genre=pending_genre,
+                cover_url=pending_cover_url,
             )
-        else:
-            items.append(
-                PlaylistItemRecord(
-                    path=item_path,
-                    title=pending_title or item_path,
-                    duration_seconds=(
-                        None if pending_duration_is_indeterminate else pending_duration
-                    ),
-                    duration_is_indeterminate=pending_duration_is_indeterminate,
-                    genre=pending_genre,
-                    cover_url=pending_cover_url,
-                )
-            )
+        )
         pending_title = None
         pending_duration = None
         pending_duration_is_indeterminate = False
@@ -299,6 +301,134 @@ def parse_m3u_playlist(
     )
 
 
+def parse_pls_playlist(
+    path: Path,
+    tracks_by_path: dict[str, TrackRecord],
+    *,
+    root_position: int | None = None,
+) -> PlaylistRecord | None:
+    resolved_path = path.expanduser().resolve(strict=False)
+    name = resolved_path.stem
+    items: list[PlaylistItemRecord] = []
+
+    text = read_playlist_text(resolved_path)
+    if text is None:
+        return None
+
+    parser = configparser.ConfigParser(interpolation=None, strict=False)
+    parser.optionxform = str.casefold
+    try:
+        parser.read_string(text)
+    except configparser.Error:
+        return None
+
+    section_name = pls_playlist_section_name(parser)
+    if section_name is None:
+        return None
+    section = parser[section_name]
+
+    version = section.get("version", fallback=None)
+    if version is not None and version.strip() and version.strip() != "2":
+        return None
+
+    for index in pls_playlist_indexes(section):
+        resource = section.get(f"file{index}", fallback="").strip()
+        if not resource:
+            continue
+        title = section.get(f"title{index}", fallback="").strip() or None
+        duration, duration_is_indeterminate = parse_pls_length(
+            section.get(f"length{index}", fallback=None)
+        )
+        item_path = normalize_playlist_resource(resource, resolved_path)
+        items.append(
+            playlist_item_record(
+                item_path,
+                tracks_by_path,
+                title=title,
+                duration_seconds=duration,
+                duration_is_indeterminate=duration_is_indeterminate,
+            )
+        )
+
+    return PlaylistRecord(
+        path=str(resolved_path),
+        name=name,
+        root_position=root_position,
+        file_created_at=file_created_at(resolved_path),
+        cover_svg=playlist_cover_svg(name),
+        items=items,
+    )
+
+
+def playlist_item_record(
+    item_path: str,
+    tracks_by_path: dict[str, TrackRecord],
+    *,
+    title: str | None = None,
+    duration_seconds: float | None = None,
+    duration_is_indeterminate: bool = False,
+    genre: str | None = None,
+    cover_url: str | None = None,
+) -> PlaylistItemRecord:
+    track = tracks_by_path.get(item_path) if not is_url_resource(item_path) else None
+    if track is not None:
+        return PlaylistItemRecord(
+            path=track.path,
+            track_id=track.track_id,
+        )
+    return PlaylistItemRecord(
+        path=item_path,
+        title=title or item_path,
+        duration_seconds=None if duration_is_indeterminate else duration_seconds,
+        duration_is_indeterminate=duration_is_indeterminate,
+        genre=genre,
+        cover_url=cover_url,
+    )
+
+
+def pls_playlist_section_name(parser: configparser.ConfigParser) -> str | None:
+    for section_name in parser.sections():
+        if section_name.strip().casefold() == "playlist":
+            return section_name
+    return None
+
+
+def pls_playlist_indexes(section: configparser.SectionProxy) -> list[int]:
+    count = parse_pls_entry_count(section.get("numberofentries", fallback=None))
+    if count is not None:
+        return list(range(1, count + 1))
+    indexes: set[int] = set()
+    for key in section:
+        match = re.fullmatch(r"file(\d+)", key)
+        if match is None:
+            continue
+        index = int(match.group(1))
+        if index > 0:
+            indexes.add(index)
+    return sorted(indexes)
+
+
+def parse_pls_entry_count(value: str | None) -> int | None:
+    if value is None:
+        return None
+    try:
+        count = int(value.strip())
+    except ValueError:
+        return None
+    return count if count >= 0 else None
+
+
+def parse_pls_length(value: str | None) -> tuple[float | None, bool]:
+    if value is None:
+        return None, False
+    duration = parse_playlist_duration(value)
+    if duration is None:
+        return None, False
+    if duration < 0:
+        return None, True
+    return duration, False
+
+
 def read_playlist_text(path: Path) -> str | None:
     try:
         data = path.read_bytes()
@@ -306,7 +436,7 @@ def read_playlist_text(path: Path) -> str | None:
         return None
     if path.suffix.casefold() == ".m3u":
         try:
-            return data.decode("ascii")
+            return data.decode("utf-8-sig")
         except UnicodeDecodeError:
             return None
     return data.decode("utf-8-sig", errors="replace")
