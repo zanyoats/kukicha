@@ -670,18 +670,53 @@ class LibraryQueries:
             rows = list(
                 connection.execute(
                     """
+                    WITH resolved_links AS (
+                        SELECT
+                            links.file_album_id,
+                            COALESCE(
+                                (
+                                    SELECT tracks.album_id
+                                    FROM album_musicbrainz_track_links AS track_links
+                                    JOIN library_tracks AS tracks
+                                        ON tracks.path = track_links.path
+                                    WHERE track_links.file_album_id = links.file_album_id
+                                        AND COALESCE(track_links.release_mbid, '') =
+                                            COALESCE(NULLIF(TRIM(links.release_mbid), ''), '')
+                                        AND COALESCE(track_links.release_group_mbid, '') =
+                                            COALESCE(NULLIF(TRIM(links.release_group_mbid), ''), '')
+                                        AND COALESCE(tracks.album_id, '') != ''
+                                    GROUP BY tracks.album_id
+                                    ORDER BY COUNT(*) DESC, tracks.album_id
+                                    LIMIT 1
+                                ),
+                                (
+                                    SELECT candidate.album_id
+                                    FROM library_albums AS candidate
+                                    WHERE candidate.album_id = links.file_album_id
+                                        OR candidate.album_id LIKE links.file_album_id || '::___'
+                                    ORDER BY candidate.album_id = links.file_album_id DESC,
+                                        candidate.album_id
+                                    LIMIT 1
+                                ),
+                                links.file_album_id
+                            ) AS album_id,
+                            NULLIF(TRIM(links.release_mbid), '') AS release_mbid,
+                            NULLIF(TRIM(links.release_group_mbid), '') AS release_group_mbid
+                        FROM album_musicbrainz_links AS links
+                        WHERE
+                            COALESCE(TRIM(links.release_mbid), '') != ''
+                            OR COALESCE(TRIM(links.release_group_mbid), '') != ''
+                    )
                     SELECT
-                        links.album_id,
-                        NULLIF(TRIM(links.release_mbid), '') AS release_mbid,
-                        NULLIF(TRIM(links.release_group_mbid), '') AS release_group_mbid,
+                        resolved_links.file_album_id,
+                        resolved_links.album_id,
+                        resolved_links.release_mbid,
+                        resolved_links.release_group_mbid,
                         albums.album,
                         albums.year
-                    FROM album_musicbrainz_links AS links
+                    FROM resolved_links
                     LEFT JOIN library_albums AS albums
-                        ON albums.album_id = links.album_id
-                    WHERE
-                        COALESCE(TRIM(links.release_mbid), '') != ''
-                        OR COALESCE(TRIM(links.release_group_mbid), '') != ''
+                        ON albums.album_id = resolved_links.album_id
                     """
                 )
             )

@@ -15,6 +15,9 @@
             <div class="page-menu-heading">{{ item.title }}</div>
           {% elif item.kind == "divider" %}
             <hr class="page-menu-divider">
+          {% elif item.kind == "action" and item.key == "keyboard-shortcuts" %}
+            <button class="page-menu-link page-menu-button" type="button"
+              data-open-keyboard-shortcuts>{{ item.title }}</button>
           {% else %}
             <a class="page-menu-link{% if item.current %} active{% endif %}" href="{{ item.url }}" data-nav
               {% if item.current %}aria-current="page"{% endif %}>{{ item.title }}</a>

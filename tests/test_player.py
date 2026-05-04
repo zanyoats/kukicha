@@ -1912,6 +1912,7 @@ class PlayerPageMenuTest(unittest.TestCase):
                 ("link", "Cache", "/cache"),
                 ("divider", "", ""),
                 ("link", "Jobs", "/jobs"),
+                ("action", "Keyboard Shortcuts", ""),
                 ("link", "Help", "/help"),
             ],
         )
@@ -1941,6 +1942,9 @@ class PlayerPageMenuTest(unittest.TestCase):
         self.assertLess(html.index("Roots"), html.index("Artists Split Rules"))
         self.assertLess(html.index("Artists Split Rules"), html.index("MusicBrainz Overrides"))
         self.assertLess(html.index("MusicBrainz Overrides"), html.index("Cache"))
+        self.assertIn("data-open-keyboard-shortcuts", html)
+        self.assertLess(html.index("Jobs"), html.index("Keyboard Shortcuts"))
+        self.assertLess(html.index("Keyboard Shortcuts"), html.index("Help"))
 
     def test_player_page_heading_rejects_unknown_page(self) -> None:
         with self.assertRaisesRegex(ValueError, "unknown player page"):
@@ -2867,6 +2871,11 @@ class PlayerWebAdapterTest(unittest.TestCase):
             self.assertIn(b'class="toast-region"', full_response.data)
             self.assertIn(b'data-toast-timeout-ms="12000"', full_response.data)
             self.assertNotIn(b"data-linked-toast-timeout-ms", full_response.data)
+            self.assertIn('id="keyboard-shortcuts-dialog"', full_html)
+            self.assertIn('<h2 id="keyboard-shortcuts-title">Keyboard Shortcuts</h2>', full_html)
+            self.assertIn("<kbd>K</kbd>", full_html)
+            self.assertIn("<kbd>4</kbd>", full_html)
+            self.assertIn("<kbd>Shift</kbd><span>+</span><kbd>R</kbd>", full_html)
             self.assertIn('id="playback-progress"', full_html)
             self.assertIn('id="previous" class="transport-step-button"', full_html)
             self.assertIn('id="next" class="transport-step-button"', full_html)
@@ -2894,6 +2903,7 @@ class PlayerWebAdapterTest(unittest.TestCase):
             self.assertNotIn('id="next"', buttons_html)
             self.assertEqual(fragment_response.status_code, 200)
             self.assertNotIn(b"<!doctype html>", fragment_response.data)
+            self.assertNotIn(b'id="keyboard-shortcuts-dialog"', fragment_response.data)
             self.assertIn(b"<h1>Albums</h1>", fragment_response.data)
 
     def test_page_rendering_uses_default_toast_timeout(self) -> None:
@@ -3305,7 +3315,7 @@ class PlayerWebAdapterTest(unittest.TestCase):
                 connection.executemany(
                     """
                     INSERT INTO album_musicbrainz_links (
-                        album_id,
+                        file_album_id,
                         release_mbid,
                         release_group_mbid
                     ) VALUES (?, ?, ?)
@@ -3539,7 +3549,7 @@ class PlayerWebAdapterTest(unittest.TestCase):
                 connection.executemany(
                     """
                     INSERT INTO album_musicbrainz_links (
-                        album_id,
+                        file_album_id,
                         release_mbid,
                         release_group_mbid
                     ) VALUES (?, ?, ?)
@@ -3551,6 +3561,30 @@ class PlayerWebAdapterTest(unittest.TestCase):
                             None,
                         ),
                         (
+                            "stale-album-id",
+                            None,
+                            "22222222-2222-2222-2222-222222222222",
+                        ),
+                    ),
+                )
+                connection.executemany(
+                    """
+                    INSERT INTO album_musicbrainz_track_links (
+                        path,
+                        file_album_id,
+                        release_mbid,
+                        release_group_mbid
+                    ) VALUES (?, ?, ?, ?)
+                    """,
+                    (
+                        (
+                            "/music/a/Brian Eno/Ambient 1/01.flac",
+                            current_album_id,
+                            "11111111-1111-1111-1111-111111111111",
+                            None,
+                        ),
+                        (
+                            "/missing/stale.flac",
                             "stale-album-id",
                             None,
                             "22222222-2222-2222-2222-222222222222",
@@ -3597,7 +3631,7 @@ class PlayerWebAdapterTest(unittest.TestCase):
                         """
                         SELECT COUNT(*) AS count
                         FROM album_musicbrainz_links
-                        WHERE album_id = ?
+                        WHERE file_album_id = ?
                         """,
                         ("stale-album-id",),
                     ).fetchone()["count"]
@@ -3607,7 +3641,27 @@ class PlayerWebAdapterTest(unittest.TestCase):
                         """
                         SELECT COUNT(*) AS count
                         FROM album_musicbrainz_links
-                        WHERE album_id = ?
+                        WHERE file_album_id = ?
+                        """,
+                        (current_album_id,),
+                    ).fetchone()["count"]
+                )
+                stale_track_count = int(
+                    connection.execute(
+                        """
+                        SELECT COUNT(*) AS count
+                        FROM album_musicbrainz_track_links
+                        WHERE file_album_id = ?
+                        """,
+                        ("stale-album-id",),
+                    ).fetchone()["count"]
+                )
+                current_track_count = int(
+                    connection.execute(
+                        """
+                        SELECT COUNT(*) AS count
+                        FROM album_musicbrainz_track_links
+                        WHERE file_album_id = ?
                         """,
                         (current_album_id,),
                     ).fetchone()["count"]
@@ -3617,6 +3671,8 @@ class PlayerWebAdapterTest(unittest.TestCase):
 
             self.assertEqual(stale_count, 0)
             self.assertEqual(current_count, 0)
+            self.assertEqual(stale_track_count, 0)
+            self.assertEqual(current_track_count, 0)
 
     def test_post_json_body_is_passed_to_command(self) -> None:
         with TemporaryDirectory() as tempdir:
@@ -5059,18 +5115,18 @@ class PlayerAlbumTagEditTest(unittest.TestCase):
                     call(
                         paths[0],
                         album_artist="Brian Eno & Robert Fripp",
-                        album="Foo (expanded edition)",
+                        album="Foo",
                         genre="Electronic; Ambient",
                     ),
                     call(
                         paths[1],
                         album_artist="Brian Eno & Robert Fripp",
-                        album="Foo (expanded edition)",
+                        album="Foo",
                         genre="Electronic; Ambient",
                     ),
                 ],
             )
-            self.assertEqual(result.album, "Foo (expanded edition)")
+            self.assertEqual(result.album, "Foo")
             self.assertEqual(result.album_artist, "Brian Eno & Robert Fripp")
             self.assertEqual(result.genre, "Electronic; Ambient")
             self.assertEqual(result.tracks_updated, 2)
@@ -5083,19 +5139,51 @@ class PlayerAlbumTagEditTest(unittest.TestCase):
                     """
                     SELECT release_mbid, release_group_mbid
                     FROM album_musicbrainz_links
-                    WHERE album_id = ?
+                    WHERE file_album_id = ?
                     """,
-                    ("brian-eno-robert-fripp::foo-expanded-edition",),
+                    ("brian-eno-robert-fripp::foo",),
                 ).fetchone()
                 self.assertIsNotNone(row)
                 self.assertEqual(str(row["release_mbid"]), "11111111-1111-1111-1111-111111111111")
                 self.assertEqual(str(row["release_group_mbid"]), "22222222-2222-2222-2222-222222222222")
+                track_link_rows = [
+                    (
+                        str(row["path"]),
+                        str(row["file_album_id"]),
+                        str(row["release_mbid"]),
+                        str(row["release_group_mbid"]),
+                    )
+                    for row in connection.execute(
+                        """
+                        SELECT path, file_album_id, release_mbid, release_group_mbid
+                        FROM album_musicbrainz_track_links
+                        ORDER BY path
+                        """
+                    )
+                ]
+                self.assertEqual(
+                    track_link_rows,
+                    [
+                        (
+                            str(paths[0]),
+                            "brian-eno-robert-fripp::foo",
+                            "11111111-1111-1111-1111-111111111111",
+                            "22222222-2222-2222-2222-222222222222",
+                        ),
+                        (
+                            str(paths[1]),
+                            "brian-eno-robert-fripp::foo",
+                            "11111111-1111-1111-1111-111111111111",
+                            "22222222-2222-2222-2222-222222222222",
+                        ),
+                    ],
+                )
                 self.assertIsNone(
                     connection.execute(
                         """
                         SELECT 1
                         FROM album_musicbrainz_links
-                        WHERE album_id = ?
+                        WHERE file_album_id = ?
                         """,
                         ("old-artist::album",),
                     ).fetchone()
@@ -5234,7 +5322,7 @@ class PlayerAlbumTagEditTest(unittest.TestCase):
                     call(
                         paths[1],
                         album_artist="Aphex Twin",
-                        album="Selected Ambient Works Volume II (expanded edition)",
+                        album="Selected Ambient Works Volume II",
                         genre="Electronic; Ambient",
                     ),
                 ],
@@ -5244,31 +5332,66 @@ class PlayerAlbumTagEditTest(unittest.TestCase):
 
             connection = connect_database(database, create=False)
             try:
-                rows = {
-                    str(row["album_id"]): (
+                rows = [
+                    (
+                        str(row["file_album_id"]),
                         str(row["release_mbid"]),
                         str(row["release_group_mbid"]),
                     )
                     for row in connection.execute(
                         """
-                        SELECT album_id, release_mbid, release_group_mbid
+                        SELECT file_album_id, release_mbid, release_group_mbid
                         FROM album_musicbrainz_links
-                        ORDER BY album_id
+                        ORDER BY file_album_id, release_mbid
                         """
                     )
-                }
+                ]
                 self.assertEqual(
                     rows,
-                    {
-                        "aphex-twin::selected-ambient-works-volume-ii": (
+                    [
+                        (
+                            "aphex-twin::selected-ambient-works-volume-ii",
                             "11111111-1111-1111-1111-111111111111",
                             "33333333-3333-3333-3333-333333333333",
                         ),
-                        "aphex-twin::selected-ambient-works-volume-ii-expanded-edition": (
+                        (
+                            "aphex-twin::selected-ambient-works-volume-ii",
                             "22222222-2222-2222-2222-222222222222",
                             "44444444-4444-4444-4444-444444444444",
                         ),
-                    },
+                    ],
+                )
+                track_link_rows = [
+                    (
+                        str(row["path"]),
+                        str(row["file_album_id"]),
+                        str(row["release_mbid"]),
+                        str(row["release_group_mbid"]),
+                    )
+                    for row in connection.execute(
+                        """
+                        SELECT path, file_album_id, release_mbid, release_group_mbid
+                        FROM album_musicbrainz_track_links
+                        ORDER BY path
+                        """
+                    )
+                ]
+                self.assertEqual(
+                    track_link_rows,
+                    [
+                        (
+                            str(paths[0]),
+                            "aphex-twin::selected-ambient-works-volume-ii",
+                            "11111111-1111-1111-1111-111111111111",
+                            "33333333-3333-3333-3333-333333333333",
+                        ),
+                        (
+                            str(paths[1]),
+                            "aphex-twin::selected-ambient-works-volume-ii",
+                            "22222222-2222-2222-2222-222222222222",
+                            "44444444-4444-4444-4444-444444444444",
+                        ),
+                    ],
                 )
             finally:
                 connection.close()
@@ -5304,7 +5427,7 @@ class PlayerAlbumTagEditTest(unittest.TestCase):
                 "kukicha.use_case.commands.album_edits.edit_library_album_musicbrainz",
                 return_value=AlbumMusicBrainzEditResult(
                     album_label="Old Artist - Album",
-                    album="Foo (expanded edition)",
+                    album="Foo",
                     album_artist="Brian Eno & Robert Fripp",
                     genre="Electronic; Ambient",
                     tracks_updated=1,
@@ -5325,7 +5448,7 @@ class PlayerAlbumTagEditTest(unittest.TestCase):
                     "Rescan the library to update library filters, artists, and stats."
                 ),
             )
-            self.assertEqual(result.context["album"], "Foo (expanded edition)")
+            self.assertEqual(result.context["album"], "Foo")
             self.assertEqual(result.context["album_artist"], "Brian Eno & Robert Fripp")
             self.assertEqual(result.context["tracks_updated"], 1)
             self.assertTrue(result.context["rescan_recommended"])
@@ -5344,7 +5467,7 @@ class PlayerAlbumTagEditTest(unittest.TestCase):
                 connection.execute(
                     """
                     INSERT INTO album_musicbrainz_links (
-                        album_id, release_mbid, release_group_mbid
+                        file_album_id, release_mbid, release_group_mbid
                     ) VALUES (?, ?, ?)
                     """,
                     (
@@ -5460,7 +5583,7 @@ class PlayerAlbumTagEditTest(unittest.TestCase):
                     """
                     SELECT release_mbid, release_group_mbid
                     FROM album_musicbrainz_links
-                    WHERE album_id = ?
+                    WHERE file_album_id = ?
                     """,
                     ("old-artist::album",),
                 ).fetchone()

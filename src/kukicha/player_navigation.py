@@ -79,6 +79,7 @@ PLAYER_PAGE_MENU_ITEMS = (
     PlayerPageLink(kind="link", key="cache", title="Cache", url="/cache"),
     PlayerPageLink(kind="divider"),
     PlayerPageLink(kind="link", key="jobs", title="Jobs", url="/jobs"),
+    PlayerPageLink(kind="action", key="keyboard-shortcuts", title="Keyboard Shortcuts"),
     PlayerPageLink(kind="link", key="help", title="Help", url="/help"),
 )
 

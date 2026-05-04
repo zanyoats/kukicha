@@ -46,6 +46,12 @@ Run a specific test module:
 python -m unittest tests.test_search
 ```
 
+Run the lightweight browser-player JavaScript tests:
+
+```bash
+npm test
+```
+
 ## Build The Taxonomy TSV
 
 The repo-local taxonomy tool builds the TSV consumed by the runtime `kukicha`

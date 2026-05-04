@@ -27,7 +27,13 @@ from .database import (
     rebuild_root_scan_stats,
     set_metadata,
 )
-from ..discogs import LocalAlbum, group_library_albums
+from ..discogs import (
+    LocalAlbum,
+    file_album_id_from_album_id,
+    group_library_albums,
+    local_album_id,
+    normalize_release_variant,
+)
 from ..album_artists import (
     DEFAULT_ALBUM_ARTIST_SPLIT_PATTERNS,
     album_artist_has_mapping_pattern,
@@ -58,11 +64,17 @@ from .musicbrainz import (
     MusicBrainzAlbumLink,
     MusicBrainzClient,
     MusicBrainzLookupStats,
+    album_musicbrainz_link_for_album_id,
     clean_mbid,
     get_musicbrainz_entity,
+    load_album_musicbrainz_track_links,
     load_album_musicbrainz_links,
     musicbrainz_genres,
+    musicbrainz_release_fingerprint,
     musicbrainz_release_group_mbid,
+    normalize_musicbrainz_mbid,
+    store_album_musicbrainz_link,
+    store_album_musicbrainz_track_link,
     store_album_musicbrainz_release_group_if_missing,
 )
 from ..playlist_art import playlist_cover_svg
@@ -317,10 +329,17 @@ def save_library_with_options(
             library.tracks,
             split_patterns=album_artist_split_patterns,
         )
+        copy_track_musicbrainz_links_from_existing_album_ids(connection)
+        apply_musicbrainz_release_variants(connection, library.tracks)
         albums = group_library_albums(library)
         copy_album_musicbrainz_links_from_legacy_album_ids(connection, albums)
+        store_scanned_album_musicbrainz_links(connection, albums)
         album_ids_by_key = {
-            (normalize_text(album.artist_id_text), normalize_text(album.album)): album.album_id
+            album_lookup_key(
+                album.artist_id_text,
+                album.album,
+                album.release_variant,
+            ): album.album_id
             for album in albums
         }
         existing_track_ids_by_path = {
@@ -592,7 +611,7 @@ def copy_album_musicbrainz_links_from_legacy_album_ids(
                 """
                 SELECT release_mbid, release_group_mbid
                 FROM album_musicbrainz_links
-                WHERE album_id = ?
+                WHERE file_album_id = ?
                 """,
                 (legacy_album_id,),
             ).fetchone()
@@ -604,45 +623,65 @@ def copy_album_musicbrainz_links_from_legacy_album_ids(
             if not release_mbid and not release_group_mbid:
                 continue
 
-            connection.execute(
-                """
-                INSERT INTO album_musicbrainz_links (
-                    album_id,
-                    release_mbid,
-                    release_group_mbid
-                ) VALUES (?, ?, ?)
-                ON CONFLICT(album_id) DO UPDATE SET
-                    release_mbid = CASE
-                        WHEN COALESCE(album_musicbrainz_links.release_mbid, '') = ''
-                        THEN excluded.release_mbid
-                        ELSE album_musicbrainz_links.release_mbid
-                    END,
-                    release_group_mbid = CASE
-                        WHEN COALESCE(album_musicbrainz_links.release_group_mbid, '') = ''
-                        THEN excluded.release_group_mbid
-                        ELSE album_musicbrainz_links.release_group_mbid
-                    END
-                """,
-                (album.album_id, release_mbid, release_group_mbid),
+            store_album_musicbrainz_link(
+                connection,
+                album.file_album_id,
+                release_mbid=release_mbid,
+                release_group_mbid=release_group_mbid,
             )
+
+
+def copy_track_musicbrainz_links_from_existing_album_ids(
+    connection: sqlite3.Connection,
+) -> None:
+    rows = list(
+        connection.execute(
+            """
+            SELECT path, album_id
+            FROM library_tracks
+            WHERE COALESCE(path, '') != ''
+                AND COALESCE(album_id, '') != ''
+            """
+        )
+    )
+    for row in rows:
+        album_id = str(row["album_id"])
+        file_album_id = file_album_id_from_album_id(album_id)
+        if file_album_id == album_id:
+            continue
+
+        link = album_musicbrainz_link_for_album_id(connection, album_id)
+        if link is None or not link.has_identifier:
+            continue
+
+        store_album_musicbrainz_track_link(
+            connection,
+            str(row["path"]),
+            file_album_id,
+            release_mbid=link.release_mbid,
+            release_group_mbid=link.release_group_mbid,
+        )
 
 
 def legacy_album_musicbrainz_album_ids(album: LocalAlbum) -> tuple[str, ...]:
     artists = tuple(artist for artist in album.artists if artist)
-    if len(artists) < 2:
-        return ()
-
     album_slug = normalize_slug_text(album.album)
     if not album_slug:
         return ()
 
     legacy_ids: list[str] = []
     seen: set[str] = set()
+    if album.release_variant:
+        seen.add(album.album_id)
+        legacy_ids.append(album.album_id)
+
+    if len(artists) < 2:
+        return tuple(legacy_ids)
+
     for artist_text in legacy_album_artist_id_texts(artists):
-        artist_slug = normalize_slug_text(artist_text)
-        if not artist_slug:
+        album_id = local_album_id(artist_text, album.album)
+        if not album_id.split("::", 1)[0]:
             continue
-        album_id = f"{artist_slug}::{album_slug}"
         if album_id == album.album_id or album_id in seen:
             continue
         seen.add(album_id)
@@ -653,6 +692,231 @@ def legacy_album_musicbrainz_album_ids(album: LocalAlbum) -> tuple[str, ...]:
 def legacy_album_artist_id_texts(artists: tuple[str, ...]) -> tuple[str, ...]:
     joined = (" and ".join(artists), " with ".join(artists))
     return tuple(dict.fromkeys(joined))
+
+
+def apply_musicbrainz_release_variants(
+    connection: sqlite3.Connection,
+    tracks: Iterable[TrackRecord],
+    *,
+    stats: MusicBrainzLookupStats | None = None,
+    log: Callable[[str], None] | None = None,
+) -> None:
+    lookup_stats = stats or MusicBrainzLookupStats()
+    client = MusicBrainzClient(stats=lookup_stats, log=log)
+    track_list = list(tracks)
+    tracks_by_release: dict[str, list[TrackRecord]] = defaultdict(list)
+    for track in track_list:
+        release_mbid = normalized_track_musicbrainz_mbid(track, entity_type="release")
+        release_group_mbid = normalized_track_musicbrainz_mbid(
+            track,
+            entity_type="release-group",
+        )
+        track.musicbrainz_release_mbid = release_mbid
+        track.musicbrainz_release_group_mbid = release_group_mbid
+        if release_mbid and not normalize_release_variant(track.musicbrainz_release_variant):
+            tracks_by_release[release_mbid].append(track)
+
+    apply_musicbrainz_track_links_to_tracks(
+        connection,
+        track_list,
+        tracks_by_release,
+    )
+    apply_musicbrainz_link_variants_to_tracks(
+        connection,
+        track_list,
+        tracks_by_release,
+    )
+
+    for release_mbid, release_tracks in tracks_by_release.items():
+        payload = get_musicbrainz_entity(
+            connection,
+            client,
+            entity_type="release",
+            mbid=release_mbid,
+        )
+        if payload is None:
+            continue
+        release_variant = musicbrainz_release_fingerprint(
+            payload,
+            fallback_release_mbid=release_mbid,
+        )
+        release_group_mbid = musicbrainz_release_group_mbid(payload)
+        for track in release_tracks:
+            track.musicbrainz_release_variant = release_variant
+            if release_group_mbid and not track.musicbrainz_release_group_mbid:
+                track.musicbrainz_release_group_mbid = release_group_mbid
+
+
+def apply_musicbrainz_track_links_to_tracks(
+    connection: sqlite3.Connection,
+    tracks: Iterable[TrackRecord],
+    tracks_by_release: dict[str, list[TrackRecord]],
+) -> None:
+    track_list = list(tracks)
+    links_by_path = load_album_musicbrainz_track_links(
+        connection,
+        (track.path for track in track_list),
+    )
+    if not links_by_path:
+        return
+
+    for track in track_list:
+        if normalize_release_variant(track.musicbrainz_release_variant):
+            continue
+        link = links_by_path.get(track.path)
+        if link is None:
+            continue
+        base_album_id = track_base_album_id(track)
+        if base_album_id != link.file_album_id:
+            continue
+
+        if not track.musicbrainz_release_mbid and link.release_mbid:
+            track.musicbrainz_release_mbid = link.release_mbid
+        if not track.musicbrainz_release_group_mbid and link.release_group_mbid:
+            track.musicbrainz_release_group_mbid = link.release_group_mbid
+        if track.musicbrainz_release_mbid:
+            release_tracks = tracks_by_release[track.musicbrainz_release_mbid]
+            if not any(existing is track for existing in release_tracks):
+                release_tracks.append(track)
+
+
+def apply_musicbrainz_link_variants_to_tracks(
+    connection: sqlite3.Connection,
+    tracks: Iterable[TrackRecord],
+    tracks_by_release: dict[str, list[TrackRecord]],
+) -> None:
+    tracks_by_base_album_id: dict[str, list[TrackRecord]] = defaultdict(list)
+    for track in tracks:
+        if normalize_release_variant(track.musicbrainz_release_variant):
+            continue
+        base_album_id = track_base_album_id(track)
+        if base_album_id:
+            tracks_by_base_album_id[base_album_id].append(track)
+
+    if not tracks_by_base_album_id:
+        return
+
+    musicbrainz_links = load_album_musicbrainz_links(connection)
+    for base_album_id, album_tracks in tracks_by_base_album_id.items():
+        candidates: dict[tuple[str | None, str | None], tuple[str | None, str | None, str | None]] = {}
+        for link_group in musicbrainz_links.values():
+            for link in link_group:
+                release_variant = release_variant_from_link_album_id(
+                    link.file_album_id,
+                    base_album_id,
+                )
+                if link.file_album_id != base_album_id and release_variant is None:
+                    continue
+                if release_variant is not None and not link.release_mbid:
+                    continue
+                key = (link.release_mbid, link.release_group_mbid)
+                existing = candidates.get(key)
+                if existing is None or (existing[0] is None and release_variant is not None):
+                    candidates[key] = (
+                        release_variant,
+                        link.release_mbid,
+                        link.release_group_mbid,
+                    )
+
+        if len(candidates) != 1:
+            continue
+
+        release_variant, release_mbid, release_group_mbid = next(iter(candidates.values()))
+        for track in album_tracks:
+            if release_mbid:
+                track.musicbrainz_release_mbid = release_mbid
+            if release_group_mbid:
+                track.musicbrainz_release_group_mbid = release_group_mbid
+            if release_variant:
+                track.musicbrainz_release_variant = release_variant
+            elif release_mbid:
+                tracks_by_release[release_mbid].append(track)
+
+
+def release_variant_from_link_album_id(
+    link_album_id: str,
+    base_album_id: str,
+) -> str | None:
+    prefix = f"{base_album_id}::"
+    if not link_album_id.startswith(prefix):
+        return None
+    release_variant = link_album_id[len(prefix) :]
+    if not release_variant or "::" in release_variant:
+        return None
+    return normalize_release_variant(release_variant)
+
+
+def track_base_album_id(track: TrackRecord) -> str | None:
+    artist = "\n".join(track_album_artist_values(track))
+    album = track.album
+    if not artist or not album:
+        return None
+    if not normalize_text(artist) or not normalize_text(album):
+        return None
+    return local_album_id(artist, album)
+
+
+def normalized_track_musicbrainz_mbid(
+    track: TrackRecord,
+    *,
+    entity_type: str,
+) -> str | None:
+    value = (
+        track.musicbrainz_release_mbid
+        if entity_type == "release"
+        else track.musicbrainz_release_group_mbid
+    )
+    if not value:
+        return None
+    try:
+        return normalize_musicbrainz_mbid(str(value), entity_type=entity_type)
+    except ValueError:
+        return None
+
+
+def store_scanned_album_musicbrainz_links(
+    connection: sqlite3.Connection,
+    albums: Iterable[LocalAlbum],
+) -> None:
+    for album in albums:
+        release_mbid = clean_mbid(album.musicbrainz_release_mbid)
+        release_group_mbid = clean_mbid(album.musicbrainz_release_group_mbid)
+        if not release_mbid and not release_group_mbid:
+            continue
+        store_album_musicbrainz_link(
+            connection,
+            album.file_album_id,
+            release_mbid=release_mbid,
+            release_group_mbid=release_group_mbid,
+        )
+
+
+def musicbrainz_link_for_track(
+    musicbrainz_links: dict[str, tuple[MusicBrainzAlbumLink, ...]],
+    track: TrackRecord,
+) -> MusicBrainzAlbumLink | None:
+    base_album_id = track_base_album_id(track)
+    if not base_album_id:
+        return None
+
+    candidates = list(musicbrainz_links.get(base_album_id, ()))
+    release_variant = normalize_release_variant(track.musicbrainz_release_variant)
+    if release_variant:
+        candidates.extend(musicbrainz_links.get(f"{base_album_id}::{release_variant}", ()))
+
+    release_mbid = clean_mbid(track.musicbrainz_release_mbid)
+    if release_mbid:
+        for candidate in candidates:
+            if candidate.release_mbid == release_mbid:
+                return candidate
+
+    release_group_mbid = clean_mbid(track.musicbrainz_release_group_mbid)
+    if release_group_mbid:
+        for candidate in candidates:
+            if candidate.release_group_mbid == release_group_mbid:
+                return candidate
+
+    return candidates[0] if len(candidates) == 1 else None
 
 
 def resolve_library_genres(
@@ -679,16 +943,26 @@ def resolve_library_genres(
             library.tracks,
             split_patterns=album_artist_split_patterns,
         )
+        apply_musicbrainz_release_variants(
+            connection,
+            library.tracks,
+            stats=mb_lookup_stats,
+            log=log,
+        )
+        albums = group_library_albums(library)
         copy_album_musicbrainz_links_from_legacy_album_ids(
             connection,
-            group_library_albums(library),
+            albums,
+        )
+        store_scanned_album_musicbrainz_links(
+            connection,
+            albums,
         )
         musicbrainz_links = load_album_musicbrainz_links(connection)
         musicbrainz_client = MusicBrainzClient(stats=mb_lookup_stats, log=log)
 
         for tracks in genre_resolution_groups(library.tracks):
-            album_id = track_album_id(tracks[0])
-            musicbrainz_link = musicbrainz_links.get(album_id) if album_id else None
+            musicbrainz_link = musicbrainz_link_for_track(musicbrainz_links, tracks[0])
             album_match = None
             if (
                 not ignore_musicbrainz
@@ -873,7 +1147,8 @@ def maybe_set_release_group_from_release_payload(
     if not store_album_musicbrainz_release_group_if_missing(
         connection,
         musicbrainz_link.album_id,
-        release_group_mbid,
+        release_mbid=musicbrainz_link.release_mbid,
+        release_group_mbid=release_group_mbid,
     ):
         return
 
@@ -932,17 +1207,22 @@ def resolve_library_cover_art(
             library.tracks,
             split_patterns=album_artist_split_patterns,
         )
+        apply_musicbrainz_release_variants(connection, library.tracks, log=log)
+        albums = group_library_albums(library)
         copy_album_musicbrainz_links_from_legacy_album_ids(
             connection,
-            group_library_albums(library),
+            albums,
+        )
+        store_scanned_album_musicbrainz_links(
+            connection,
+            albums,
         )
         musicbrainz_links = load_album_musicbrainz_links(connection)
         caa_client = CoverArtArchiveClient(stats=caa_stats, log=log)
         itunes_client = ItunesLookupClient(stats=itunes_stats, log=log)
 
         for tracks in genre_resolution_groups(library.tracks):
-            album_id = track_album_id(tracks[0])
-            musicbrainz_link = musicbrainz_links.get(album_id) if album_id else None
+            musicbrainz_link = musicbrainz_link_for_track(musicbrainz_links, tracks[0])
             chosen_artwork = itunes_artwork_for_album(
                 connection,
                 tracks,
@@ -1356,18 +1636,34 @@ def batched(values: list[str], *, size: int) -> Iterable[list[str]]:
 
 def track_album_id(
     track: TrackRecord,
-    album_ids_by_key: dict[tuple[str, str], str] | None = None,
+    album_ids_by_key: dict[tuple[str, str, str], str] | None = None,
 ) -> str | None:
     artist = "\n".join(track_album_artist_values(track))
     album = track.album
     if not artist or not album:
         return None
-    key = (normalize_text(artist), normalize_text(album))
+    key = album_lookup_key(artist, album, track.musicbrainz_release_variant)
     if not key[0] or not key[1]:
         return None
     if album_ids_by_key is None:
-        return f"{normalize_slug_text(artist)}::{normalize_slug_text(album)}"
+        return local_album_id(
+            artist,
+            album,
+            release_variant=track.musicbrainz_release_variant,
+        )
     return album_ids_by_key.get(key)
+
+
+def album_lookup_key(
+    artist: str,
+    album: str,
+    release_variant: str | None,
+) -> tuple[str, str, str]:
+    return (
+        normalize_text(artist),
+        normalize_text(album),
+        normalize_release_variant(release_variant) or "",
+    )
 
 
 def load_taxonomy_genre_matcher(source: Path) -> TaxonomyGenreMatcher:

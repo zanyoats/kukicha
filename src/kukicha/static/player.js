@@ -15,6 +15,8 @@ const volumeToggle = document.getElementById("volume-toggle");
 const volumeIcon = document.getElementById("volume-icon");
 const toast = document.getElementById("toast");
 const jobToasts = document.getElementById("job-toasts");
+const keyboardShortcutsDialog = document.getElementById("keyboard-shortcuts-dialog");
+const keyboardShortcutsClose = document.querySelector("[data-close-keyboard-shortcuts]");
 const trackCache = new Map();
 const albumPlaybackCache = new Map();
 const dropdownMenuSelector = "details[data-dropdown-menu]";
@@ -45,6 +47,8 @@ let activePlaylistMenu = null;
 let activePlaylistOptions = null;
 let activePlaylistSourceOptions = null;
 let pageIsUnloading = false;
+let keyboardShortcutsReturnFocus = null;
+let rescanLibraryPending = false;
 
 function readToastDelayMs(datasetKey, fallback) {
   if (!(toast instanceof HTMLElement)) {
@@ -55,7 +59,6 @@ function readToastDelayMs(datasetKey, fallback) {
 }
 
 initializeHistoryState();
-focusInitialSearch();
 syncFilterSummaries();
 syncAlbumMusicBrainzFormValues();
 syncAlbumArtistMappingForms();
@@ -178,22 +181,6 @@ function emptyQueueState() {
     errored_track_ids: [],
     unavailable_track_ids: []
   };
-}
-
-function focusInitialSearch() {
-  const target = view.querySelector("[data-initial-focus]");
-  if (!(target instanceof HTMLElement)) {
-    return;
-  }
-
-  const scrollX = window.scrollX;
-  const scrollY = window.scrollY;
-  try {
-    target.focus({preventScroll: true});
-  } catch {
-    target.focus();
-    window.scrollTo(scrollX, scrollY);
-  }
 }
 
 function syncAlbumMusicBrainzFormValues() {
@@ -748,6 +735,28 @@ document.addEventListener("click", (event) => {
   if (!(event.target instanceof Element)) {
     return;
   }
+  const closeKeyboardShortcutsButton = event.target.closest("[data-close-keyboard-shortcuts]");
+  if (closeKeyboardShortcutsButton) {
+    event.preventDefault();
+    closeKeyboardShortcutsDialog();
+    return;
+  }
+  if (event.target.matches("[data-keyboard-shortcuts-dialog]")) {
+    event.preventDefault();
+    closeKeyboardShortcutsDialog();
+    return;
+  }
+  const openKeyboardShortcutsButton = event.target.closest("[data-open-keyboard-shortcuts]");
+  if (openKeyboardShortcutsButton) {
+    event.preventDefault();
+    const menu = openKeyboardShortcutsButton.closest("details");
+    const returnFocus = menu instanceof HTMLDetailsElement
+      ? menu.querySelector("summary")
+      : null;
+    closeOpenDropdownMenus();
+    showKeyboardShortcutsDialog(returnFocus);
+    return;
+  }
   const closeToastButton = event.target.closest("[data-close-toast]");
   if (closeToastButton) {
     event.preventDefault();
@@ -769,7 +778,7 @@ document.addEventListener("click", (event) => {
   const rescanLibraryButton = event.target.closest("[data-rescan-library]");
   if (rescanLibraryButton) {
     event.preventDefault();
-    rescanLibrary(rescanLibraryButton);
+    void rescanLibrary(rescanLibraryButton);
     return;
   }
   const deleteMusicBrainzOverrideButton = event.target.closest("[data-delete-musicbrainz-override]");
@@ -859,6 +868,10 @@ document.addEventListener("click", (event) => {
     : null;
   saveCurrentScrollState({anchor: scrollAnchor});
   navigate(url);
+});
+
+document.addEventListener("keydown", (event) => {
+  handleKeyboardShortcut(event);
 });
 
 document.addEventListener("dblclick", (event) => {
@@ -1023,6 +1036,13 @@ function togglePlayback() {
     audio.pause();
     return;
   }
+  if (queueIsExhausted()) {
+    const firstPlayablePosition = nextPlayableQueuePosition(-1);
+    if (firstPlayablePosition !== -1) {
+      playQueuePosition(firstPlayablePosition);
+    }
+    return;
+  }
   const controlsPosition = queuePositionForControls();
   const queuedTrackId = queueState.track_ids[controlsPosition] ?? null;
   const firstPlayablePosition = nextPlayableQueuePosition(-1);
@@ -1037,6 +1057,10 @@ function togglePlayback() {
     return;
   }
   playTrack(trackById(trackId), {restart: false});
+}
+
+function queueIsExhausted() {
+  return queueState.track_ids.length > 0 && queueState.position >= queueState.track_ids.length;
 }
 
 function clearPauseStateSuppression() {
@@ -2210,13 +2234,17 @@ async function deleteMusicBrainzOverride(button) {
   }
 }
 
-async function rescanLibrary(button) {
-  if (!(button instanceof HTMLButtonElement) || button.disabled) {
+async function rescanLibrary(sourceButton = null) {
+  const button = sourceButton instanceof HTMLButtonElement ? sourceButton : null;
+  if ((button && button.disabled) || rescanLibraryPending) {
     return;
   }
 
-  button.disabled = true;
-  button.setAttribute("aria-busy", "true");
+  rescanLibraryPending = true;
+  if (button) {
+    button.disabled = true;
+    button.setAttribute("aria-busy", "true");
+  }
   try {
     const response = await fetch("/api/roots/rescan", {method: "POST"});
     const payload = await response.json().catch(() => ({}));
@@ -2238,7 +2266,8 @@ async function rescanLibrary(button) {
   } catch {
     showToast("Unable to rescan library.", {error: true});
   } finally {
-    if (button.isConnected) {
+    rescanLibraryPending = false;
+    if (button && button.isConnected) {
       button.disabled = false;
       button.removeAttribute("aria-busy");
     }
@@ -2738,11 +2767,224 @@ function cacheTracks(tracks) {
   }
 }
 
-function isTextInputTarget(target) {
-  if (!(target instanceof Element)) {
+function handleKeyboardShortcut(event) {
+  if (event.defaultPrevented || event.isComposing) {
+    return;
+  }
+  if (event.key === "Escape") {
+    handleEscapeShortcut(event);
+    return;
+  }
+  if (keyboardShortcutsDialogIsOpen()) {
+    return;
+  }
+  if (
+    event.repeat
+    || event.metaKey
+    || event.ctrlKey
+    || event.altKey
+    || isTextInputTarget(event.target)
+  ) {
+    return;
+  }
+
+  if (event.key === "?") {
+    event.preventDefault();
+    showKeyboardShortcutsDialog();
+    return;
+  }
+  if (event.shiftKey && event.key.toLowerCase() === "r") {
+    event.preventDefault();
+    void rescanLibrary();
+    return;
+  }
+  if (event.shiftKey) {
+    return;
+  }
+
+  switch (event.key.toLowerCase()) {
+    case "k":
+      event.preventDefault();
+      togglePlayback();
+      break;
+    case "j":
+      event.preventDefault();
+      moveQueue(-1);
+      break;
+    case "l":
+      event.preventDefault();
+      moveQueue(1);
+      break;
+    case "/":
+      event.preventDefault();
+      void focusSearchShortcut();
+      break;
+    case "1":
+      event.preventDefault();
+      navigateToShortcutPage("/");
+      break;
+    case "2":
+      event.preventDefault();
+      navigateToShortcutPage("/artists");
+      break;
+    case "3":
+      event.preventDefault();
+      navigateToShortcutPage("/playlists");
+      break;
+    case "4":
+      event.preventDefault();
+      navigateToShortcutPage("/queue");
+      break;
+  }
+}
+
+function handleEscapeShortcut(event) {
+  if (closeKeyboardShortcutsDialog()) {
+    event.preventDefault();
+    return;
+  }
+  if (closeDismissibleToasts()) {
+    event.preventDefault();
+    return;
+  }
+  if (closeOpenDropdownMenus()) {
+    event.preventDefault();
+    return;
+  }
+  if (blurShortcutInput(event.target)) {
+    event.preventDefault();
+  }
+}
+
+function closeDismissibleToasts() {
+  let closed = false;
+  document.querySelectorAll("[data-close-toast]").forEach((button) => {
+    if (button instanceof HTMLElement) {
+      closeToast(button);
+      closed = true;
+    }
+  });
+  document.querySelectorAll("[data-close-job-toast]").forEach((button) => {
+    if (button instanceof HTMLButtonElement) {
+      closeJobToast(button);
+      closed = true;
+    }
+  });
+  return closed;
+}
+
+function closeOpenDropdownMenus() {
+  let closed = false;
+  document.querySelectorAll(`${dropdownMenuSelector}[open]`).forEach((details) => {
+    details.open = false;
+    closed = true;
+  });
+  if (activePlaylistMenu) {
+    closeActivePlaylistMenu();
+    closed = true;
+  }
+  return closed;
+}
+
+function blurShortcutInput(target) {
+  const editableTarget = shortcutInputTarget(target);
+  if (!(editableTarget instanceof HTMLElement)) {
     return false;
   }
-  return Boolean(target.closest("input, textarea, select, audio, [contenteditable='true']"));
+  editableTarget.blur();
+  return true;
+}
+
+function showKeyboardShortcutsDialog(returnFocus = null) {
+  if (!(keyboardShortcutsDialog instanceof HTMLElement)) {
+    return;
+  }
+  if (keyboardShortcutsDialog.hidden) {
+    keyboardShortcutsReturnFocus = returnFocus instanceof HTMLElement
+      ? returnFocus
+      : document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null;
+  }
+  keyboardShortcutsDialog.hidden = false;
+  if (keyboardShortcutsClose instanceof HTMLElement) {
+    try {
+      keyboardShortcutsClose.focus({preventScroll: true});
+    } catch {
+      keyboardShortcutsClose.focus();
+    }
+  }
+}
+
+function keyboardShortcutsDialogIsOpen() {
+  return keyboardShortcutsDialog instanceof HTMLElement && !keyboardShortcutsDialog.hidden;
+}
+
+function closeKeyboardShortcutsDialog(options = {}) {
+  if (
+    !(keyboardShortcutsDialog instanceof HTMLElement)
+    || keyboardShortcutsDialog.hidden
+  ) {
+    return false;
+  }
+  keyboardShortcutsDialog.hidden = true;
+  const restoreFocus = options.restoreFocus !== false;
+  if (
+    restoreFocus
+    && keyboardShortcutsReturnFocus instanceof HTMLElement
+    && keyboardShortcutsReturnFocus.isConnected
+  ) {
+    try {
+      keyboardShortcutsReturnFocus.focus({preventScroll: true});
+    } catch {
+      keyboardShortcutsReturnFocus.focus();
+    }
+  }
+  keyboardShortcutsReturnFocus = null;
+  return true;
+}
+
+async function focusSearchShortcut() {
+  const searchInput = searchShortcutInput();
+  if (searchInput) {
+    focusAndSelectSearchInput(searchInput);
+    return;
+  }
+  await navigate("/");
+  const nextSearchInput = searchShortcutInput();
+  if (nextSearchInput) {
+    focusAndSelectSearchInput(nextSearchInput);
+  }
+}
+
+function searchShortcutInput() {
+  const input = view.querySelector("[data-initial-focus], input[type='search']");
+  return input instanceof HTMLInputElement ? input : null;
+}
+
+function focusAndSelectSearchInput(input) {
+  try {
+    input.focus({preventScroll: true});
+  } catch {
+    input.focus();
+  }
+  input.select();
+}
+
+function navigateToShortcutPage(path) {
+  saveCurrentScrollState({anchor: null});
+  navigate(path);
+}
+
+function isTextInputTarget(target) {
+  return shortcutInputTarget(target) !== null;
+}
+
+function shortcutInputTarget(target) {
+  if (!(target instanceof Element)) {
+    return null;
+  }
+  return target.closest("input, textarea, select, audio, [contenteditable='true']");
 }
 
 function hydrateVisibleTracks() {

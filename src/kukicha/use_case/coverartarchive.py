@@ -60,6 +60,7 @@ class CoverArtArchiveClient:
             if error.code == 404:
                 self.stats.missing_art += 1
                 self._emit(f"Cover Art Archive has no {entity_type} art for {mbid}")
+                return {"images": []}, url
             else:
                 self.stats.fetch_failures += 1
                 self._emit(

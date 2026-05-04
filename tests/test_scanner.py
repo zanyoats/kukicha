@@ -7,7 +7,7 @@ import unittest
 from unittest.mock import patch
 
 from kukicha.discogs import group_library_albums
-from kukicha.models import TrackRecord, UNKNOWN_METADATA_TAG
+from kukicha.models import MusicLibrary, TrackRecord, UNKNOWN_METADATA_TAG
 from kukicha.scanner import (
     PRIMARY_TAG_FIELDS,
     build_library,
@@ -216,6 +216,49 @@ class ScannerTagNormalizationTest(unittest.TestCase):
         self.assertEqual(len(albums), 1)
         self.assertEqual(albums[0].album_id, "test-album-artist::test-album")
         self.assertEqual(albums[0].year, 1984)
+
+    def test_release_variants_split_same_artist_and_album(self) -> None:
+        library = MusicLibrary(
+            roots=[],
+            tracks=[
+                TrackRecord(
+                    path="/music/ok-computer-us.flac",
+                    artist="Radiohead",
+                    album_artist="Radiohead",
+                    album="OK Computer",
+                    title="Airbag",
+                    musicbrainz_release_variant="a7f",
+                ),
+                TrackRecord(
+                    path="/music/ok-computer-uk.flac",
+                    artist="Radiohead",
+                    album_artist="Radiohead",
+                    album="OK Computer",
+                    title="Airbag",
+                    musicbrainz_release_variant="19c",
+                ),
+                TrackRecord(
+                    path="/music/ok-computer-untagged.flac",
+                    artist="Radiohead",
+                    album_artist="Radiohead",
+                    album="OK Computer",
+                    title="Airbag",
+                ),
+            ],
+            supported_extensions=[],
+            generated_at="2026-04-22T00:00:00+00:00",
+        )
+
+        albums = group_library_albums(library)
+
+        self.assertEqual(
+            [album.album_id for album in albums],
+            [
+                "radiohead::ok-computer::a7f",
+                "radiohead::ok-computer::19c",
+                "radiohead::ok-computer",
+            ],
+        )
 
 
 class ScannerProgressTest(unittest.TestCase):

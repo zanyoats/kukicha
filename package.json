@@ -1,0 +1,7 @@
+{
+  "private": true,
+  "scripts": {
+    "test": "node --test tests/js",
+    "test:js": "node --test tests/js"
+  }
+}

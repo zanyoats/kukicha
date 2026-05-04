@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 import sqlite3
@@ -7,10 +8,12 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
+
+from ..discogs import file_album_id_from_album_id, normalize_release_variant
 
 
 MUSICBRAINZ_API_ROOT = "https://musicbrainz.org/ws/2"
@@ -75,13 +78,25 @@ MUSICBRAINZ_MBID_PATTERN = re.compile(
 
 @dataclass(slots=True)
 class MusicBrainzAlbumLink:
-    album_id: str
+    file_album_id: str
     release_mbid: str | None = None
     release_group_mbid: str | None = None
 
     @property
     def has_identifier(self) -> bool:
         return bool(self.release_mbid or self.release_group_mbid)
+
+    @property
+    def album_id(self) -> str:
+        return self.file_album_id
+
+
+@dataclass(slots=True)
+class MusicBrainzTrackLink:
+    path: str
+    file_album_id: str
+    release_mbid: str | None = None
+    release_group_mbid: str | None = None
 
 
 @dataclass(slots=True)
@@ -194,40 +209,108 @@ class MusicBrainzClient:
 
 def load_album_musicbrainz_links(
     connection: sqlite3.Connection,
-) -> dict[str, MusicBrainzAlbumLink]:
-    links: dict[str, MusicBrainzAlbumLink] = {}
+) -> dict[str, tuple[MusicBrainzAlbumLink, ...]]:
+    links: dict[str, list[MusicBrainzAlbumLink]] = {}
     for row in connection.execute(
         """
-        SELECT album_id, release_mbid, release_group_mbid
+        SELECT file_album_id, release_mbid, release_group_mbid
         FROM album_musicbrainz_links
         WHERE COALESCE(release_mbid, '') != ''
             OR COALESCE(release_group_mbid, '') != ''
         """
     ):
-        album_id = str(row["album_id"])
-        links[album_id] = MusicBrainzAlbumLink(
-            album_id=album_id,
-            release_mbid=clean_mbid(row["release_mbid"]),
-            release_group_mbid=clean_mbid(row["release_group_mbid"]),
+        file_album_id = str(row["file_album_id"])
+        links.setdefault(file_album_id, []).append(
+            MusicBrainzAlbumLink(
+                file_album_id=file_album_id,
+                release_mbid=clean_mbid(row["release_mbid"]),
+                release_group_mbid=clean_mbid(row["release_group_mbid"]),
+            )
         )
-    return links
+    return {file_album_id: tuple(items) for file_album_id, items in links.items()}
+
+
+def album_musicbrainz_link_for_album_id(
+    connection: sqlite3.Connection,
+    album_id: str,
+) -> MusicBrainzAlbumLink | None:
+    links = load_album_musicbrainz_links(connection)
+    file_album_id = file_album_id_from_album_id(album_id)
+    candidates = list(links.get(file_album_id, ()))
+    if file_album_id != album_id:
+        candidates.extend(links.get(album_id, ()))
+
+    release_variant = release_variant_from_album_id(album_id)
+    if release_variant:
+        direct_matches = [
+            link for link in candidates
+            if link.file_album_id == album_id
+        ]
+        if len(direct_matches) == 1:
+            return direct_matches[0]
+
+        fingerprint_matches = [
+            link for link in candidates
+            if musicbrainz_link_release_variant(connection, link) == release_variant
+        ]
+        if len(fingerprint_matches) == 1:
+            return fingerprint_matches[0]
+
+    return candidates[0] if len(candidates) == 1 else None
+
+
+def release_variant_from_album_id(album_id: str) -> str | None:
+    file_album_id = file_album_id_from_album_id(album_id)
+    prefix = f"{file_album_id}::"
+    if file_album_id == album_id or not album_id.startswith(prefix):
+        return None
+    release_variant = normalize_release_variant(album_id[len(prefix) :])
+    if release_variant and len(release_variant) == 3 and all(
+        character in "0123456789abcdef" for character in release_variant
+    ):
+        return release_variant
+    return None
+
+
+def musicbrainz_link_release_variant(
+    connection: sqlite3.Connection,
+    link: MusicBrainzAlbumLink,
+) -> str | None:
+    if not link.release_mbid:
+        return None
+    payload = load_cached_musicbrainz_entity(
+        connection,
+        entity_type="release",
+        mbid=link.release_mbid,
+    )
+    if payload is None:
+        return None
+    return musicbrainz_release_fingerprint(
+        payload,
+        fallback_release_mbid=link.release_mbid,
+    )
 
 
 def store_album_musicbrainz_link(
     connection: sqlite3.Connection,
-    album_id: str,
+    file_album_id: str,
     *,
     release_mbid: str | None | object = _UNCHANGED,
     release_group_mbid: str | None | object = _UNCHANGED,
 ) -> None:
-    existing = connection.execute(
-        """
-        SELECT release_mbid, release_group_mbid
-        FROM album_musicbrainz_links
-        WHERE album_id = ?
-        """,
-        (album_id,),
-    ).fetchone()
+    if release_mbid is _UNCHANGED or release_group_mbid is _UNCHANGED:
+        existing = connection.execute(
+            """
+            SELECT release_mbid, release_group_mbid
+            FROM album_musicbrainz_links
+            WHERE file_album_id = ?
+            ORDER BY release_mbid = '' ASC, release_mbid, release_group_mbid
+            LIMIT 1
+            """,
+            (file_album_id,),
+        ).fetchone()
+    else:
+        existing = None
 
     next_release_mbid = (
         clean_mbid(existing["release_mbid"])
@@ -242,45 +325,156 @@ def store_album_musicbrainz_link(
 
     if not next_release_mbid and not next_release_group_mbid:
         connection.execute(
-            "DELETE FROM album_musicbrainz_links WHERE album_id = ?",
-            (album_id,),
+            "DELETE FROM album_musicbrainz_links WHERE file_album_id = ?",
+            (file_album_id,),
         )
+        return
+
+    if next_release_mbid:
+        connection.execute(
+            """
+            DELETE FROM album_musicbrainz_links
+            WHERE file_album_id = ?
+                AND release_mbid = ?
+                AND (
+                    COALESCE(release_group_mbid, '') = ''
+                    OR release_group_mbid = ?
+                )
+            """,
+            (file_album_id, next_release_mbid, next_release_group_mbid or ""),
+        )
+
+    connection.execute(
+        """
+        INSERT OR IGNORE INTO album_musicbrainz_links (
+            file_album_id,
+            release_mbid,
+            release_group_mbid
+        ) VALUES (?, ?, ?)
+        """,
+        (file_album_id, next_release_mbid, next_release_group_mbid),
+    )
+
+
+def load_album_musicbrainz_track_links(
+    connection: sqlite3.Connection,
+    paths: Iterable[str],
+) -> dict[str, MusicBrainzTrackLink]:
+    requested_paths = tuple(dict.fromkeys(path for path in paths if path))
+    if not requested_paths:
+        return {}
+
+    links: dict[str, MusicBrainzTrackLink] = {}
+    batch_size = 500
+    for index in range(0, len(requested_paths), batch_size):
+        batch = requested_paths[index : index + batch_size]
+        placeholders = ", ".join("?" for _path in batch)
+        for row in connection.execute(
+            f"""
+            SELECT path, file_album_id, release_mbid, release_group_mbid
+            FROM album_musicbrainz_track_links
+            WHERE path IN ({placeholders})
+            """,
+            batch,
+        ):
+            path = str(row["path"])
+            links[path] = MusicBrainzTrackLink(
+                path=path,
+                file_album_id=str(row["file_album_id"]),
+                release_mbid=clean_mbid(row["release_mbid"]),
+                release_group_mbid=clean_mbid(row["release_group_mbid"]),
+            )
+    return links
+
+
+def store_album_musicbrainz_track_link(
+    connection: sqlite3.Connection,
+    path: str,
+    file_album_id: str,
+    *,
+    release_mbid: str | None,
+    release_group_mbid: str | None,
+) -> None:
+    cleaned_path = str(path or "").strip()
+    cleaned_file_album_id = str(file_album_id or "").strip()
+    cleaned_release_mbid = clean_mbid(release_mbid)
+    cleaned_release_group_mbid = clean_mbid(release_group_mbid)
+    if (
+        not cleaned_path
+        or not cleaned_file_album_id
+        or (not cleaned_release_mbid and not cleaned_release_group_mbid)
+    ):
+        if cleaned_path:
+            connection.execute(
+                "DELETE FROM album_musicbrainz_track_links WHERE path = ?",
+                (cleaned_path,),
+            )
         return
 
     connection.execute(
         """
-        INSERT INTO album_musicbrainz_links (
-            album_id,
+        INSERT INTO album_musicbrainz_track_links (
+            path,
+            file_album_id,
             release_mbid,
             release_group_mbid
-        ) VALUES (?, ?, ?)
-        ON CONFLICT(album_id) DO UPDATE SET
+        ) VALUES (?, ?, ?, ?)
+        ON CONFLICT(path) DO UPDATE SET
+            file_album_id = excluded.file_album_id,
             release_mbid = excluded.release_mbid,
             release_group_mbid = excluded.release_group_mbid
         """,
-        (album_id, next_release_mbid, next_release_group_mbid),
+        (
+            cleaned_path,
+            cleaned_file_album_id,
+            cleaned_release_mbid,
+            cleaned_release_group_mbid,
+        ),
     )
+
+
+def delete_album_musicbrainz_track_links(
+    connection: sqlite3.Connection,
+    paths: Iterable[str],
+) -> None:
+    requested_paths = tuple(dict.fromkeys(path for path in paths if path))
+    if not requested_paths:
+        return
+
+    batch_size = 500
+    for index in range(0, len(requested_paths), batch_size):
+        batch = requested_paths[index : index + batch_size]
+        placeholders = ", ".join("?" for _path in batch)
+        connection.execute(
+            f"DELETE FROM album_musicbrainz_track_links WHERE path IN ({placeholders})",
+            batch,
+        )
 
 
 def store_album_musicbrainz_release_group_if_missing(
     connection: sqlite3.Connection,
-    album_id: str,
+    file_album_id: str,
+    *,
+    release_mbid: str | None = None,
     release_group_mbid: str,
 ) -> bool:
+    cleaned_release_mbid = clean_mbid(release_mbid) or ""
     current = connection.execute(
         """
         SELECT release_group_mbid
         FROM album_musicbrainz_links
-        WHERE album_id = ?
+        WHERE file_album_id = ?
+            AND COALESCE(release_mbid, '') = ?
         """,
-        (album_id,),
+        (file_album_id, cleaned_release_mbid),
     ).fetchone()
     if current is not None and clean_mbid(current["release_group_mbid"]):
         return False
 
     store_album_musicbrainz_link(
         connection,
-        album_id,
+        file_album_id,
+        release_mbid=cleaned_release_mbid,
         release_group_mbid=release_group_mbid,
     )
     return True
@@ -406,6 +600,74 @@ def musicbrainz_release_group_mbid(payload: dict[str, object]) -> str | None:
     if not isinstance(release_group, dict):
         return None
     return clean_mbid(release_group.get("id"))
+
+
+def musicbrainz_release_fingerprint(
+    release: dict[str, object],
+    *,
+    fallback_release_mbid: str | None = None,
+    bits: int = 12,
+) -> str:
+    source = musicbrainz_release_variant_source(
+        release,
+        fallback_release_mbid=fallback_release_mbid,
+    )
+    digest = hashlib.sha1(source.encode("utf-8")).hexdigest()
+    return digest[: bits // 4]
+
+
+def musicbrainz_release_variant_source(
+    release: dict[str, object],
+    *,
+    fallback_release_mbid: str | None = None,
+) -> str:
+    country = normalize_musicbrainz_variant_value(release.get("country")) or "unknown-country"
+    year = musicbrainz_release_year(release)
+    primary_format = musicbrainz_release_primary_format(release)
+    external_id = (
+        normalize_musicbrainz_variant_value(release.get("barcode"))
+        or musicbrainz_release_catalog_number(release)
+        or normalize_musicbrainz_variant_value(release.get("id"))[:8]
+        or normalize_musicbrainz_variant_value(fallback_release_mbid)[:8]
+        or "unknown-id"
+    )
+    return f"{country}:{year}:{primary_format}:{external_id}"
+
+
+def normalize_musicbrainz_variant_value(value: object) -> str:
+    if not value:
+        return ""
+    return str(value).strip().lower()
+
+
+def musicbrainz_release_year(release: dict[str, object]) -> str:
+    date = release.get("date")
+    if not isinstance(date, str):
+        return "unknown-year"
+    return date[:4] if len(date) >= 4 else "unknown-year"
+
+
+def musicbrainz_release_primary_format(release: dict[str, object]) -> str:
+    media = release.get("media")
+    if not isinstance(media, list) or not media:
+        return "unknown-format"
+    first = media[0]
+    if not isinstance(first, dict):
+        return "unknown-format"
+    return normalize_musicbrainz_variant_value(first.get("format")) or "unknown-format"
+
+
+def musicbrainz_release_catalog_number(release: dict[str, object]) -> str | None:
+    label_info = release.get("label-info")
+    if not isinstance(label_info, list):
+        return None
+    for item in label_info:
+        if not isinstance(item, dict):
+            continue
+        catalog_number = normalize_musicbrainz_variant_value(item.get("catalog-number"))
+        if catalog_number:
+            return catalog_number
+    return None
 
 
 def build_lookup_url(entity_type: str, mbid: str) -> str:

@@ -6,6 +6,7 @@ from pathlib import Path
 import sqlite3
 from tempfile import TemporaryDirectory
 import unittest
+import urllib.error
 from unittest.mock import patch
 
 from kukicha.use_case import AlbumListQuery, LibraryQueries
@@ -30,6 +31,12 @@ from kukicha.use_case import (
     UNKNOWN_GENRE_TAG,
 )
 from kukicha.use_case.library import load_library
+from kukicha.use_case.coverartarchive import (
+    CoverArtArchiveClient,
+    CoverArtArchiveStats,
+    front_image_url,
+    get_cover_art_archive_entity,
+)
 from kukicha.models import (
     MusicLibrary,
     PlaylistItemRecord,
@@ -43,6 +50,8 @@ from kukicha.use_case.queries.library import (
     album_sort_select_sql,
     decode_album_page_cursor,
 )
+from kukicha.use_case.queries.musicbrainz import album_musicbrainz_link
+from kukicha.use_case.musicbrainz import store_musicbrainz_entity
 from kukicha.use_case.queries.filters import album_where_clause
 
 
@@ -851,7 +860,7 @@ class LibraryMusicBrainzPersistenceTest(unittest.TestCase):
                 connection.execute(
                     """
                     INSERT INTO album_musicbrainz_links (
-                        album_id, release_mbid, release_group_mbid
+                        file_album_id, release_mbid, release_group_mbid
                     ) VALUES (?, ?, ?)
                     """,
                     ("artist::album", "release-1", "group-1"),
@@ -882,7 +891,7 @@ class LibraryMusicBrainzPersistenceTest(unittest.TestCase):
                     """
                     SELECT release_mbid, release_group_mbid
                     FROM album_musicbrainz_links
-                    WHERE album_id = ?
+                    WHERE file_album_id = ?
                     """,
                     ("artist::album",),
                 ).fetchone()
@@ -891,6 +900,697 @@ class LibraryMusicBrainzPersistenceTest(unittest.TestCase):
                 self.assertEqual(str(row["release_group_mbid"]), "group-1")
             finally:
                 connection.close()
+
+    def test_save_library_uses_musicbrainz_release_fingerprints_for_album_ids(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            database = Path(tempdir) / "kukicha.sqlite"
+            release_payloads = {
+                "11111111-1111-1111-1111-111111111111": {
+                    "country": "US",
+                    "date": "1997-05-21",
+                    "media": [{"format": "CD"}],
+                    "barcode": "724385522921",
+                    "release-group": {
+                        "id": "33333333-3333-3333-3333-333333333333"
+                    },
+                },
+                "22222222-2222-2222-2222-222222222222": {
+                    "country": "GB",
+                    "date": "1997",
+                    "media": [{"format": "Vinyl"}],
+                    "label-info": [{"catalog-number": "NODATA 02"}],
+                    "release-group": {
+                        "id": "44444444-4444-4444-4444-444444444444"
+                    },
+                },
+            }
+
+            def fake_get_musicbrainz_entity(
+                _connection: object,
+                _client: object,
+                *,
+                entity_type: str,
+                mbid: str,
+            ) -> dict[str, object] | None:
+                self.assertEqual(entity_type, "release")
+                return release_payloads[mbid]
+
+            library = MusicLibrary(
+                roots=[],
+                tracks=[
+                    TrackRecord(
+                        path="/music/us/01.flac",
+                        artist="Radiohead",
+                        album_artist="Radiohead",
+                        album="OK Computer",
+                        title="Airbag",
+                        musicbrainz_release_mbid="11111111-1111-1111-1111-111111111111",
+                    ),
+                    TrackRecord(
+                        path="/music/uk/01.flac",
+                        artist="Radiohead",
+                        album_artist="Radiohead",
+                        album="OK Computer",
+                        title="Airbag",
+                        musicbrainz_release_mbid="22222222-2222-2222-2222-222222222222",
+                    ),
+                    TrackRecord(
+                        path="/music/plain/01.flac",
+                        artist="Radiohead",
+                        album_artist="Radiohead",
+                        album="OK Computer",
+                        title="Airbag",
+                    ),
+                ],
+                supported_extensions=[],
+                generated_at="2026-04-22T00:00:00+00:00",
+            )
+
+            with patch(
+                "kukicha.use_case.library.get_musicbrainz_entity",
+                side_effect=fake_get_musicbrainz_entity,
+            ):
+                save_library(library, database)
+
+            connection = connect_database(database, create=False)
+            try:
+                album_ids = [
+                    str(row["album_id"])
+                    for row in connection.execute(
+                        "SELECT album_id FROM library_albums ORDER BY album_id"
+                    )
+                ]
+                self.assertEqual(
+                    album_ids,
+                    [
+                        "radiohead::ok-computer",
+                        "radiohead::ok-computer::14e",
+                        "radiohead::ok-computer::608",
+                    ],
+                )
+                rows = [
+                    (
+                        str(row["file_album_id"]),
+                        str(row["release_mbid"]),
+                        str(row["release_group_mbid"]),
+                    )
+                    for row in connection.execute(
+                        """
+                        SELECT file_album_id, release_mbid, release_group_mbid
+                        FROM album_musicbrainz_links
+                        ORDER BY file_album_id, release_mbid
+                        """
+                    )
+                ]
+                self.assertEqual(
+                    rows,
+                    [
+                        (
+                            "radiohead::ok-computer",
+                            "11111111-1111-1111-1111-111111111111",
+                            "33333333-3333-3333-3333-333333333333",
+                        ),
+                        (
+                            "radiohead::ok-computer",
+                            "22222222-2222-2222-2222-222222222222",
+                            "44444444-4444-4444-4444-444444444444",
+                        ),
+                    ],
+                )
+            finally:
+                connection.close()
+
+    def test_save_library_reuses_single_suffixed_musicbrainz_link_for_rescan(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            database = Path(tempdir) / "kukicha.sqlite"
+            connection = connect_database(database)
+            try:
+                connection.execute(
+                    """
+                    INSERT INTO album_musicbrainz_links (
+                        file_album_id, release_mbid, release_group_mbid
+                    ) VALUES (?, ?, ?)
+                    """,
+                    (
+                        "radiohead::ok-computer::608",
+                        "11111111-1111-1111-1111-111111111111",
+                        "33333333-3333-3333-3333-333333333333",
+                    ),
+                )
+                connection.commit()
+            finally:
+                connection.close()
+
+            library = MusicLibrary(
+                roots=[],
+                tracks=[
+                    TrackRecord(
+                        path="/music/us/01.flac",
+                        artist="Radiohead",
+                        album_artist="Radiohead",
+                        album="OK Computer",
+                        title="Airbag",
+                    ),
+                ],
+                supported_extensions=[],
+                generated_at="2026-04-22T00:00:00+00:00",
+            )
+
+            with patch(
+                "kukicha.use_case.musicbrainz.MusicBrainzClient.fetch_lookup",
+                side_effect=AssertionError("unexpected MusicBrainz lookup"),
+            ):
+                save_library(library, database)
+            connection = connect_database(database, create=False)
+            try:
+                row = connection.execute(
+                    "SELECT album_id FROM library_albums"
+                ).fetchone()
+                self.assertIsNotNone(row)
+                self.assertEqual(str(row["album_id"]), "radiohead::ok-computer::608")
+            finally:
+                connection.close()
+
+    def test_save_library_derives_release_album_id_from_file_album_link(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            database = Path(tempdir) / "kukicha.sqlite"
+            connection = connect_database(database)
+            try:
+                connection.execute(
+                    """
+                    INSERT INTO album_musicbrainz_links (
+                        file_album_id, release_mbid, release_group_mbid
+                    ) VALUES (?, ?, ?)
+                    """,
+                    (
+                        "radiohead::ok-computer",
+                        "11111111-1111-1111-1111-111111111111",
+                        "33333333-3333-3333-3333-333333333333",
+                    ),
+                )
+                connection.commit()
+            finally:
+                connection.close()
+
+            library = MusicLibrary(
+                roots=[],
+                tracks=[
+                    TrackRecord(
+                        path="/music/us/01.flac",
+                        artist="Radiohead",
+                        album_artist="Radiohead",
+                        album="OK Computer",
+                        title="Airbag",
+                    ),
+                ],
+                supported_extensions=[],
+                generated_at="2026-04-22T00:00:00+00:00",
+            )
+            release_payload = {
+                "country": "US",
+                "date": "1997-05-21",
+                "media": [{"format": "CD"}],
+                "barcode": "724385522921",
+                "release-group": {
+                    "id": "33333333-3333-3333-3333-333333333333"
+                },
+            }
+
+            with patch(
+                "kukicha.use_case.library.get_musicbrainz_entity",
+                return_value=release_payload,
+            ) as get_musicbrainz_entity:
+                save_library(library, database)
+
+            get_musicbrainz_entity.assert_called_once()
+            connection = connect_database(database, create=False)
+            try:
+                row = connection.execute(
+                    "SELECT album_id FROM library_albums"
+                ).fetchone()
+                self.assertIsNotNone(row)
+                self.assertEqual(str(row["album_id"]), "radiohead::ok-computer::608")
+            finally:
+                connection.close()
+
+    def test_save_library_uses_track_musicbrainz_links_to_split_untagged_rescan(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            database = Path(tempdir) / "kukicha.sqlite"
+            release_payloads = {
+                "11111111-1111-1111-1111-111111111111": {
+                    "country": "US",
+                    "date": "1997-05-21",
+                    "media": [{"format": "CD"}],
+                    "barcode": "724385522921",
+                    "release-group": {
+                        "id": "33333333-3333-3333-3333-333333333333"
+                    },
+                },
+                "22222222-2222-2222-2222-222222222222": {
+                    "country": "GB",
+                    "date": "1997",
+                    "media": [{"format": "Vinyl"}],
+                    "label-info": [{"catalog-number": "NODATA 02"}],
+                    "release-group": {
+                        "id": "44444444-4444-4444-4444-444444444444"
+                    },
+                },
+            }
+            connection = connect_database(database)
+            try:
+                for release_mbid, release_group_mbid in (
+                    (
+                        "11111111-1111-1111-1111-111111111111",
+                        "33333333-3333-3333-3333-333333333333",
+                    ),
+                    (
+                        "22222222-2222-2222-2222-222222222222",
+                        "44444444-4444-4444-4444-444444444444",
+                    ),
+                ):
+                    connection.execute(
+                        """
+                        INSERT INTO album_musicbrainz_links (
+                            file_album_id, release_mbid, release_group_mbid
+                        ) VALUES (?, ?, ?)
+                        """,
+                        ("radiohead::ok-computer", release_mbid, release_group_mbid),
+                    )
+                connection.execute(
+                    """
+                    INSERT INTO album_musicbrainz_track_links (
+                        path, file_album_id, release_mbid, release_group_mbid
+                    ) VALUES (?, ?, ?, ?)
+                    """,
+                    (
+                        "/music/us/01.flac",
+                        "radiohead::ok-computer",
+                        "11111111-1111-1111-1111-111111111111",
+                        "33333333-3333-3333-3333-333333333333",
+                    ),
+                )
+                connection.execute(
+                    """
+                    INSERT INTO album_musicbrainz_track_links (
+                        path, file_album_id, release_mbid, release_group_mbid
+                    ) VALUES (?, ?, ?, ?)
+                    """,
+                    (
+                        "/music/uk/01.flac",
+                        "radiohead::ok-computer",
+                        "22222222-2222-2222-2222-222222222222",
+                        "44444444-4444-4444-4444-444444444444",
+                    ),
+                )
+                connection.commit()
+            finally:
+                connection.close()
+
+            library = MusicLibrary(
+                roots=[],
+                tracks=[
+                    TrackRecord(
+                        path="/music/us/01.flac",
+                        artist="Radiohead",
+                        album_artist="Radiohead",
+                        album="OK Computer",
+                        title="Airbag",
+                    ),
+                    TrackRecord(
+                        path="/music/uk/01.flac",
+                        artist="Radiohead",
+                        album_artist="Radiohead",
+                        album="OK Computer",
+                        title="Airbag",
+                    ),
+                ],
+                supported_extensions=[],
+                generated_at="2026-04-22T00:00:00+00:00",
+            )
+
+            with patch(
+                "kukicha.use_case.library.get_musicbrainz_entity",
+                side_effect=lambda _connection, _client, *, entity_type, mbid: (
+                    release_payloads[mbid] if entity_type == "release" else None
+                ),
+            ):
+                save_library(library, database)
+
+            connection = connect_database(database, create=False)
+            try:
+                album_ids = [
+                    str(row["album_id"])
+                    for row in connection.execute(
+                        "SELECT album_id FROM library_albums ORDER BY album_id"
+                    )
+                ]
+                self.assertEqual(
+                    album_ids,
+                    [
+                        "radiohead::ok-computer::14e",
+                        "radiohead::ok-computer::608",
+                    ],
+                )
+                track_rows = [
+                    (str(row["path"]), str(row["album_id"]))
+                    for row in connection.execute(
+                        "SELECT path, album_id FROM library_tracks ORDER BY path"
+                    )
+                ]
+                self.assertEqual(
+                    track_rows,
+                    [
+                        ("/music/uk/01.flac", "radiohead::ok-computer::14e"),
+                        ("/music/us/01.flac", "radiohead::ok-computer::608"),
+                    ],
+                )
+            finally:
+                connection.close()
+
+    def test_save_library_backfills_track_musicbrainz_links_from_existing_suffixed_albums(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            database = Path(tempdir) / "kukicha.sqlite"
+            release_payloads = {
+                "11111111-1111-1111-1111-111111111111": {
+                    "country": "US",
+                    "date": "1997-05-21",
+                    "media": [{"format": "CD"}],
+                    "barcode": "724385522921",
+                },
+                "22222222-2222-2222-2222-222222222222": {
+                    "country": "GB",
+                    "date": "1997",
+                    "media": [{"format": "Vinyl"}],
+                    "label-info": [{"catalog-number": "NODATA 02"}],
+                },
+            }
+            connection = connect_database(database)
+            try:
+                for release_mbid, payload in release_payloads.items():
+                    store_musicbrainz_entity(
+                        connection,
+                        entity_type="release",
+                        mbid=release_mbid,
+                        endpoint_url=f"https://musicbrainz.org/ws/2/release/{release_mbid}",
+                        payload=payload,
+                    )
+                for album_id in (
+                    "radiohead::ok-computer::608",
+                    "radiohead::ok-computer::14e",
+                ):
+                    connection.execute(
+                        """
+                        INSERT INTO library_albums (
+                            album_id, album, year, track_count
+                        ) VALUES (?, ?, ?, ?)
+                        """,
+                        (album_id, "OK Computer", 1997, 1),
+                    )
+                for release_mbid, release_group_mbid in (
+                    (
+                        "11111111-1111-1111-1111-111111111111",
+                        "33333333-3333-3333-3333-333333333333",
+                    ),
+                    (
+                        "22222222-2222-2222-2222-222222222222",
+                        "44444444-4444-4444-4444-444444444444",
+                    ),
+                ):
+                    connection.execute(
+                        """
+                        INSERT INTO album_musicbrainz_links (
+                            file_album_id, release_mbid, release_group_mbid
+                        ) VALUES (?, ?, ?)
+                        """,
+                        ("radiohead::ok-computer", release_mbid, release_group_mbid),
+                    )
+                connection.execute(
+                    """
+                    INSERT INTO library_tracks (
+                        album_id, path, album_artist, artist, album, title
+                    ) VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        "radiohead::ok-computer::608",
+                        "/music/us/01.flac",
+                        "Radiohead",
+                        "Radiohead",
+                        "OK Computer",
+                        "Airbag",
+                    ),
+                )
+                connection.execute(
+                    """
+                    INSERT INTO library_tracks (
+                        album_id, path, album_artist, artist, album, title
+                    ) VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        "radiohead::ok-computer::14e",
+                        "/music/uk/01.flac",
+                        "Radiohead",
+                        "Radiohead",
+                        "OK Computer",
+                        "Airbag",
+                    ),
+                )
+                connection.commit()
+            finally:
+                connection.close()
+
+            library = MusicLibrary(
+                roots=[],
+                tracks=[
+                    TrackRecord(
+                        path="/music/us/01.flac",
+                        artist="Radiohead",
+                        album_artist="Radiohead",
+                        album="OK Computer",
+                        title="Airbag",
+                    ),
+                    TrackRecord(
+                        path="/music/uk/01.flac",
+                        artist="Radiohead",
+                        album_artist="Radiohead",
+                        album="OK Computer",
+                        title="Airbag",
+                    ),
+                ],
+                supported_extensions=[],
+                generated_at="2026-04-22T00:00:00+00:00",
+            )
+
+            with patch(
+                "kukicha.use_case.musicbrainz.MusicBrainzClient.fetch_lookup",
+                side_effect=AssertionError("unexpected MusicBrainz lookup"),
+            ):
+                save_library(library, database)
+            connection = connect_database(database, create=False)
+            try:
+                album_ids = [
+                    str(row["album_id"])
+                    for row in connection.execute(
+                        "SELECT album_id FROM library_albums ORDER BY album_id"
+                    )
+                ]
+                self.assertEqual(
+                    album_ids,
+                    [
+                        "radiohead::ok-computer::14e",
+                        "radiohead::ok-computer::608",
+                    ],
+                )
+                track_link_count = int(
+                    connection.execute(
+                        """
+                        SELECT COUNT(*) AS count
+                        FROM album_musicbrainz_track_links
+                        """
+                    ).fetchone()["count"]
+                )
+                self.assertEqual(track_link_count, 2)
+            finally:
+                connection.close()
+
+    def test_album_musicbrainz_link_matches_suffixed_album_id_with_shared_file_album_id(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            database = Path(tempdir) / "kukicha.sqlite"
+            connection = connect_database(database)
+            try:
+                release_payloads = {
+                    "11111111-1111-1111-1111-111111111111": {
+                        "country": "US",
+                        "date": "1997-05-21",
+                        "media": [{"format": "CD"}],
+                        "barcode": "724385522921",
+                    },
+                    "22222222-2222-2222-2222-222222222222": {
+                        "country": "GB",
+                        "date": "1997",
+                        "media": [{"format": "Vinyl"}],
+                        "label-info": [{"catalog-number": "NODATA 02"}],
+                    },
+                }
+                for release_mbid, payload in release_payloads.items():
+                    store_musicbrainz_entity(
+                        connection,
+                        entity_type="release",
+                        mbid=release_mbid,
+                        endpoint_url=f"https://musicbrainz.org/ws/2/release/{release_mbid}",
+                        payload=payload,
+                    )
+                connection.execute(
+                    """
+                    INSERT INTO album_musicbrainz_links (
+                        file_album_id, release_mbid, release_group_mbid
+                    ) VALUES (?, ?, ?)
+                    """,
+                    (
+                        "radiohead::ok-computer",
+                        "11111111-1111-1111-1111-111111111111",
+                        "33333333-3333-3333-3333-333333333333",
+                    ),
+                )
+                connection.execute(
+                    """
+                    INSERT INTO album_musicbrainz_links (
+                        file_album_id, release_mbid, release_group_mbid
+                    ) VALUES (?, ?, ?)
+                    """,
+                    (
+                        "radiohead::ok-computer",
+                        "22222222-2222-2222-2222-222222222222",
+                        "44444444-4444-4444-4444-444444444444",
+                    ),
+                )
+                connection.commit()
+            finally:
+                connection.close()
+
+            link = album_musicbrainz_link(database, "radiohead::ok-computer::14e")
+            self.assertIsNotNone(link)
+            self.assertEqual(
+                link.release_mbid,
+                "22222222-2222-2222-2222-222222222222",
+            )
+
+    def test_album_musicbrainz_overrides_use_track_links_for_suffixed_album_ids(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            database = Path(tempdir) / "kukicha.sqlite"
+            connection = connect_database(database)
+            try:
+                album_rows = (
+                    ("radiohead::ok-computer::608", "OK Computer", 1997, 1),
+                    ("radiohead::ok-computer::14e", "OK Computer", 1997, 1),
+                )
+                connection.executemany(
+                    """
+                    INSERT INTO library_albums (
+                        album_id, album, year, track_count
+                    ) VALUES (?, ?, ?, ?)
+                    """,
+                    album_rows,
+                )
+                connection.executemany(
+                    """
+                    INSERT INTO library_album_artists (album_id, position, artist)
+                    VALUES (?, ?, ?)
+                    """,
+                    (
+                        ("radiohead::ok-computer::608", 0, "Radiohead"),
+                        ("radiohead::ok-computer::14e", 0, "Radiohead"),
+                    ),
+                )
+                connection.executemany(
+                    """
+                    INSERT INTO library_tracks (
+                        album_id, path, album_artist, artist, album, title
+                    ) VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        (
+                            "radiohead::ok-computer::608",
+                            "/music/us/01.flac",
+                            "Radiohead",
+                            "Radiohead",
+                            "OK Computer",
+                            "Airbag",
+                        ),
+                        (
+                            "radiohead::ok-computer::14e",
+                            "/music/uk/01.flac",
+                            "Radiohead",
+                            "Radiohead",
+                            "OK Computer",
+                            "Airbag",
+                        ),
+                    ),
+                )
+                connection.executemany(
+                    """
+                    INSERT INTO album_musicbrainz_links (
+                        file_album_id, release_mbid, release_group_mbid
+                    ) VALUES (?, ?, ?)
+                    """,
+                    (
+                        (
+                            "radiohead::ok-computer",
+                            "11111111-1111-1111-1111-111111111111",
+                            "33333333-3333-3333-3333-333333333333",
+                        ),
+                        (
+                            "radiohead::ok-computer",
+                            "22222222-2222-2222-2222-222222222222",
+                            "44444444-4444-4444-4444-444444444444",
+                        ),
+                    ),
+                )
+                connection.executemany(
+                    """
+                    INSERT INTO album_musicbrainz_track_links (
+                        path, file_album_id, release_mbid, release_group_mbid
+                    ) VALUES (?, ?, ?, ?)
+                    """,
+                    (
+                        (
+                            "/music/us/01.flac",
+                            "radiohead::ok-computer",
+                            "11111111-1111-1111-1111-111111111111",
+                            "33333333-3333-3333-3333-333333333333",
+                        ),
+                        (
+                            "/music/uk/01.flac",
+                            "radiohead::ok-computer",
+                            "22222222-2222-2222-2222-222222222222",
+                            "44444444-4444-4444-4444-444444444444",
+                        ),
+                    ),
+                )
+                connection.commit()
+            finally:
+                connection.close()
+
+            overrides = LibraryQueries(database).album_musicbrainz_overrides()
+            album_ids_by_release = {
+                override.release_mbid: override.album_id
+                for override in overrides
+            }
+
+            self.assertEqual(
+                album_ids_by_release,
+                {
+                    "11111111-1111-1111-1111-111111111111": (
+                        "radiohead::ok-computer::608"
+                    ),
+                    "22222222-2222-2222-2222-222222222222": (
+                        "radiohead::ok-computer::14e"
+                    ),
+                },
+            )
+            self.assertEqual(
+                {override.artist for override in overrides},
+                {"Radiohead"},
+            )
 
     def test_save_library_keeps_itunes_lookup_cache_when_library_is_cleared(self) -> None:
         with TemporaryDirectory() as tempdir:
@@ -973,7 +1673,7 @@ class LibraryMusicBrainzPersistenceTest(unittest.TestCase):
                 connection.execute(
                     """
                     INSERT INTO album_musicbrainz_links (
-                        album_id, release_mbid, release_group_mbid
+                        file_album_id, release_mbid, release_group_mbid
                     ) VALUES (?, ?, ?)
                     """,
                     ("artist::album", "release-1", "group-1"),
@@ -1021,7 +1721,7 @@ class LibraryMusicBrainzPersistenceTest(unittest.TestCase):
                     """
                     SELECT release_mbid, release_group_mbid
                     FROM album_musicbrainz_links
-                    WHERE album_id = ?
+                    WHERE file_album_id = ?
                     """,
                     ("artist::album",),
                 ).fetchone()
@@ -1192,7 +1892,7 @@ class LibraryMusicBrainzPersistenceTest(unittest.TestCase):
                     """
                     SELECT release_mbid, release_group_mbid
                     FROM album_musicbrainz_links
-                    WHERE album_id = ?
+                    WHERE file_album_id = ?
                     """,
                     ("artist::album",),
                 ).fetchone()
@@ -1212,6 +1912,64 @@ class LibraryMusicBrainzPersistenceTest(unittest.TestCase):
                     )
                 ]
                 self.assertEqual(artist_rows, ["Artist"])
+            finally:
+                connection.close()
+
+    def test_connect_database_migrates_album_musicbrainz_link_album_id_to_file_album_id(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            database = Path(tempdir) / "kukicha.sqlite"
+            connection = sqlite3.connect(database)
+            try:
+                connection.execute(
+                    """
+                    CREATE TABLE album_musicbrainz_links (
+                        album_id TEXT PRIMARY KEY,
+                        release_mbid TEXT,
+                        release_group_mbid TEXT,
+                        CHECK (
+                            COALESCE(release_mbid, '') != ''
+                            OR COALESCE(release_group_mbid, '') != ''
+                        )
+                    )
+                    """
+                )
+                connection.execute(
+                    """
+                    INSERT INTO album_musicbrainz_links (
+                        album_id, release_mbid, release_group_mbid
+                    ) VALUES (?, ?, ?)
+                    """,
+                    ("artist::album", "release-1", "group-1"),
+                )
+                connection.commit()
+            finally:
+                connection.close()
+
+            connection = connect_database(database, create=False)
+            try:
+                columns = {
+                    str(row["name"])
+                    for row in connection.execute("PRAGMA table_info(album_musicbrainz_links)")
+                }
+                self.assertIn("file_album_id", columns)
+                self.assertNotIn("album_id", columns)
+                row = connection.execute(
+                    """
+                    SELECT release_mbid, release_group_mbid
+                    FROM album_musicbrainz_links
+                    WHERE file_album_id = ?
+                    """,
+                    ("artist::album",),
+                ).fetchone()
+                self.assertIsNotNone(row)
+                self.assertEqual(str(row["release_mbid"]), "release-1")
+                self.assertEqual(str(row["release_group_mbid"]), "group-1")
+                index_names = {
+                    str(row["name"])
+                    for row in connection.execute("PRAGMA index_list(album_musicbrainz_links)")
+                }
+                self.assertIn("idx_album_musicbrainz_links_unique", index_names)
+                self.assertIn("idx_album_musicbrainz_links_file_album", index_names)
             finally:
                 connection.close()
 
@@ -2321,7 +3079,7 @@ class LibraryGenreResolutionTest(unittest.TestCase):
                 connection.execute(
                     """
                     INSERT INTO album_musicbrainz_links (
-                        album_id, release_mbid, release_group_mbid
+                        file_album_id, release_mbid, release_group_mbid
                     ) VALUES (?, ?, ?)
                     """,
                     ("artist::album", None, "11111111-1111-1111-1111-111111111111"),
@@ -2361,7 +3119,7 @@ class LibraryGenreResolutionTest(unittest.TestCase):
                 connection.execute(
                     """
                     INSERT INTO album_musicbrainz_links (
-                        album_id, release_mbid, release_group_mbid
+                        file_album_id, release_mbid, release_group_mbid
                     ) VALUES (?, ?, ?)
                     """,
                     ("artist::album", None, "11111111-1111-1111-1111-111111111111"),
@@ -2408,7 +3166,7 @@ class LibraryGenreResolutionTest(unittest.TestCase):
                 connection.execute(
                     """
                     INSERT INTO album_musicbrainz_links (
-                        album_id, release_mbid, release_group_mbid
+                        file_album_id, release_mbid, release_group_mbid
                     ) VALUES (?, ?, ?)
                     """,
                     ("artist::album", None, "11111111-1111-1111-1111-111111111111"),
@@ -2444,6 +3202,58 @@ class LibraryGenreResolutionTest(unittest.TestCase):
 
 
 class LibraryCoverArtResolutionTest(unittest.TestCase):
+    def test_cover_art_archive_caches_missing_metadata(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            database = Path(tempdir) / "kukicha.sqlite"
+            connection = connect_database(database)
+            try:
+                stats = CoverArtArchiveStats()
+                client = CoverArtArchiveClient(stats=stats)
+                error = urllib.error.HTTPError(
+                    "https://coverartarchive.org/release/release-1/",
+                    404,
+                    "Not Found",
+                    hdrs=None,
+                    fp=None,
+                )
+
+                with patch(
+                    "kukicha.use_case.coverartarchive.urllib.request.urlopen",
+                    side_effect=error,
+                ):
+                    payload = get_cover_art_archive_entity(
+                        connection,
+                        client,
+                        entity_type="release",
+                        mbid="release-1",
+                    )
+
+                self.assertEqual(payload, {"images": []})
+                self.assertIsNone(front_image_url(payload))
+                self.assertEqual(stats.metadata_api_calls, 1)
+                self.assertEqual(stats.metadata_cached_calls, 0)
+                self.assertEqual(stats.missing_art, 1)
+
+                cached_stats = CoverArtArchiveStats()
+                cached_client = CoverArtArchiveClient(stats=cached_stats)
+                with patch(
+                    "kukicha.use_case.coverartarchive.urllib.request.urlopen",
+                    side_effect=AssertionError("unexpected Cover Art Archive lookup"),
+                ):
+                    cached_payload = get_cover_art_archive_entity(
+                        connection,
+                        cached_client,
+                        entity_type="release",
+                        mbid="release-1",
+                    )
+
+                self.assertEqual(cached_payload, {"images": []})
+                self.assertEqual(cached_stats.metadata_api_calls, 0)
+                self.assertEqual(cached_stats.metadata_cached_calls, 1)
+                self.assertEqual(cached_stats.missing_art, 0)
+            finally:
+                connection.close()
+
     def test_get_itunes_lookup_image_caches_missing_artwork_results(self) -> None:
         with TemporaryDirectory() as tempdir:
             database = Path(tempdir) / "kukicha.sqlite"
@@ -2491,7 +3301,7 @@ class LibraryCoverArtResolutionTest(unittest.TestCase):
                 connection.execute(
                     """
                     INSERT INTO album_musicbrainz_links (
-                        album_id, release_mbid, release_group_mbid
+                        file_album_id, release_mbid, release_group_mbid
                     ) VALUES (?, ?, ?)
                     """,
                     ("artist::album", "release-1", None),
@@ -2566,7 +3376,7 @@ class LibraryCoverArtResolutionTest(unittest.TestCase):
                 connection.execute(
                     """
                     INSERT INTO album_musicbrainz_links (
-                        album_id, release_mbid, release_group_mbid
+                        file_album_id, release_mbid, release_group_mbid
                     ) VALUES (?, ?, ?)
                     """,
                     ("artist::album", "release-1", None),
@@ -2652,7 +3462,7 @@ class LibraryCoverArtResolutionTest(unittest.TestCase):
                 connection.execute(
                     """
                     INSERT INTO album_musicbrainz_links (
-                        album_id, release_mbid, release_group_mbid
+                        file_album_id, release_mbid, release_group_mbid
                     ) VALUES (?, ?, ?)
                     """,
                     (old_album_id, "release-1", "group-1"),
@@ -2709,7 +3519,7 @@ class LibraryCoverArtResolutionTest(unittest.TestCase):
                     """
                     SELECT release_mbid, release_group_mbid
                     FROM album_musicbrainz_links
-                    WHERE album_id = ?
+                    WHERE file_album_id = ?
                     """,
                     (new_album_id,),
                 ).fetchone()

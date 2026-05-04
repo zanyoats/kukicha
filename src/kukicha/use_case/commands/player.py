@@ -7,6 +7,7 @@ from sqlite3 import Connection
 from typing import TYPE_CHECKING, Any
 from urllib.parse import urlsplit
 
+from ...discogs import file_album_id_from_album_id
 from ..database import connect_database
 from ..queries import LibraryQueries
 from ..queries.sql import placeholders_for
@@ -636,7 +637,8 @@ def delete_album_musicbrainz_override(
     from ...player_errors import PlayerNotFoundError
 
     album_id = str(album_id or "").strip()
-    if not album_id:
+    file_album_id = file_album_id_from_album_id(album_id)
+    if not file_album_id:
         raise ValueError("album id is required")
 
     with connect_database(runtime.database) as connection:
@@ -644,20 +646,24 @@ def delete_album_musicbrainz_override(
             """
             SELECT 1
             FROM album_musicbrainz_links
-            WHERE album_id = ?
+            WHERE file_album_id = ?
                 AND (
                     COALESCE(TRIM(release_mbid), '') != ''
                     OR COALESCE(TRIM(release_group_mbid), '') != ''
                 )
             """,
-            (album_id,),
+            (file_album_id,),
         ).fetchone()
         if override is None:
             raise PlayerNotFoundError(f"MusicBrainz override does not exist: {album_id}")
 
         connection.execute(
-            "DELETE FROM album_musicbrainz_links WHERE album_id = ?",
-            (album_id,),
+            "DELETE FROM album_musicbrainz_links WHERE file_album_id = ?",
+            (file_album_id,),
+        )
+        connection.execute(
+            "DELETE FROM album_musicbrainz_track_links WHERE file_album_id = ?",
+            (file_album_id,),
         )
 
     return {

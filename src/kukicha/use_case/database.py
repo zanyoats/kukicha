@@ -241,7 +241,7 @@ CREATE INDEX IF NOT EXISTS idx_library_album_root_genre_styles_genre_style
     ON library_album_root_genre_styles (root_position, genre, style, album_id);
 
 CREATE TABLE IF NOT EXISTS album_musicbrainz_links (
-    album_id TEXT PRIMARY KEY,
+    file_album_id TEXT NOT NULL,
     release_mbid TEXT,
     release_group_mbid TEXT,
     CHECK (
@@ -253,6 +253,23 @@ CREATE INDEX IF NOT EXISTS idx_album_musicbrainz_links_release
     ON album_musicbrainz_links (release_mbid);
 CREATE INDEX IF NOT EXISTS idx_album_musicbrainz_links_release_group
     ON album_musicbrainz_links (release_group_mbid);
+
+CREATE TABLE IF NOT EXISTS album_musicbrainz_track_links (
+    path TEXT PRIMARY KEY,
+    file_album_id TEXT NOT NULL,
+    release_mbid TEXT,
+    release_group_mbid TEXT,
+    CHECK (
+        COALESCE(release_mbid, '') != ''
+        OR COALESCE(release_group_mbid, '') != ''
+    )
+);
+CREATE INDEX IF NOT EXISTS idx_album_musicbrainz_track_links_file_album
+    ON album_musicbrainz_track_links (file_album_id);
+CREATE INDEX IF NOT EXISTS idx_album_musicbrainz_track_links_release
+    ON album_musicbrainz_track_links (release_mbid);
+CREATE INDEX IF NOT EXISTS idx_album_musicbrainz_track_links_release_group
+    ON album_musicbrainz_track_links (release_group_mbid);
 
 CREATE TABLE IF NOT EXISTS library_playlists (
     playlist_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -416,6 +433,7 @@ def connect_database(
         connection.executescript(DATABASE_SCHEMA)
         migrate_player_jobs_schema(connection)
         migrate_library_schema(connection)
+        migrate_album_musicbrainz_link_key_schema(connection)
         migrate_album_musicbrainz_schema(connection)
         migrate_album_search_schema(connection)
         migrate_itunes_lookup_cache_schema(connection)
@@ -742,8 +760,8 @@ def migrate_album_musicbrainz_schema(connection: sqlite3.Connection) -> None:
         where_clauses.append("COALESCE(TRIM(musicbrainz_release_group_mbid), '') != ''")
     connection.execute(
         f"""
-        INSERT INTO album_musicbrainz_links (
-            album_id,
+        INSERT OR IGNORE INTO album_musicbrainz_links (
+            file_album_id,
             release_mbid,
             release_group_mbid
         )
@@ -753,17 +771,6 @@ def migrate_album_musicbrainz_schema(connection: sqlite3.Connection) -> None:
             {release_group_select}
         FROM library_albums
         WHERE {" OR ".join(where_clauses)}
-        ON CONFLICT(album_id) DO UPDATE SET
-            release_mbid = CASE
-                WHEN COALESCE(album_musicbrainz_links.release_mbid, '') = ''
-                THEN excluded.release_mbid
-                ELSE album_musicbrainz_links.release_mbid
-            END,
-            release_group_mbid = CASE
-                WHEN COALESCE(album_musicbrainz_links.release_group_mbid, '') = ''
-                THEN excluded.release_group_mbid
-                ELSE album_musicbrainz_links.release_group_mbid
-            END
         """
     )
     connection.execute("DROP INDEX IF EXISTS idx_library_albums_musicbrainz_release")
@@ -772,6 +779,83 @@ def migrate_album_musicbrainz_schema(connection: sqlite3.Connection) -> None:
         connection.execute("ALTER TABLE library_albums DROP COLUMN musicbrainz_release_mbid")
     if has_release_group_mbid:
         connection.execute("ALTER TABLE library_albums DROP COLUMN musicbrainz_release_group_mbid")
+
+
+def migrate_album_musicbrainz_link_key_schema(connection: sqlite3.Connection) -> None:
+    table_info = list(connection.execute("PRAGMA table_info(album_musicbrainz_links)"))
+    columns = {str(row["name"]) for row in table_info}
+    if "album_id" not in columns:
+        ensure_album_musicbrainz_link_indexes(connection)
+        return
+    connection.execute("DROP INDEX IF EXISTS idx_album_musicbrainz_links_unique")
+    connection.execute("DROP INDEX IF EXISTS idx_album_musicbrainz_links_release")
+    connection.execute("DROP INDEX IF EXISTS idx_album_musicbrainz_links_release_group")
+    connection.execute("DROP INDEX IF EXISTS idx_album_musicbrainz_links_file_album")
+    connection.execute("ALTER TABLE album_musicbrainz_links RENAME TO album_musicbrainz_links_old")
+    connection.execute(
+        """
+        CREATE TABLE album_musicbrainz_links (
+            file_album_id TEXT NOT NULL,
+            release_mbid TEXT,
+            release_group_mbid TEXT,
+            CHECK (
+                COALESCE(release_mbid, '') != ''
+                OR COALESCE(release_group_mbid, '') != ''
+            )
+        )
+        """
+    )
+    old_columns = table_columns(connection, "album_musicbrainz_links_old")
+    old_file_album_column = "file_album_id" if "file_album_id" in old_columns else "album_id"
+    connection.execute(
+        f"""
+        INSERT OR IGNORE INTO album_musicbrainz_links (
+            file_album_id,
+            release_mbid,
+            release_group_mbid
+        )
+        SELECT
+            {old_file_album_column},
+            NULLIF(TRIM(release_mbid), ''),
+            NULLIF(TRIM(release_group_mbid), '')
+        FROM album_musicbrainz_links_old
+        WHERE COALESCE(TRIM(release_mbid), '') != ''
+            OR COALESCE(TRIM(release_group_mbid), '') != ''
+        """
+    )
+    connection.execute("DROP TABLE album_musicbrainz_links_old")
+    ensure_album_musicbrainz_link_indexes(connection)
+
+
+def ensure_album_musicbrainz_link_indexes(connection: sqlite3.Connection) -> None:
+    connection.execute(
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_album_musicbrainz_links_unique
+            ON album_musicbrainz_links (
+                file_album_id,
+                COALESCE(release_mbid, ''),
+                COALESCE(release_group_mbid, '')
+            )
+        """
+    )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_album_musicbrainz_links_file_album
+            ON album_musicbrainz_links (file_album_id)
+        """
+    )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_album_musicbrainz_links_release
+            ON album_musicbrainz_links (release_mbid)
+        """
+    )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_album_musicbrainz_links_release_group
+            ON album_musicbrainz_links (release_group_mbid)
+        """
+    )
 
 
 def migrate_album_search_schema(connection: sqlite3.Connection) -> None:

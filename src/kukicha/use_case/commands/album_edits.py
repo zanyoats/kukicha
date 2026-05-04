@@ -20,6 +20,7 @@ from ...album_artists import (
     mapped_album_artists_from_text,
 )
 from ...display import display_album_title
+from ...discogs import file_album_id_from_album_id, local_album_id
 from ..library import (
     CoverArtResolutionStats,
     GenreResolutionStats,
@@ -35,11 +36,13 @@ from ...models import (
 from ..musicbrainz import (
     MusicBrainzClient,
     MusicBrainzLookupStats,
+    delete_album_musicbrainz_track_links,
     get_musicbrainz_entity,
     musicbrainz_genres,
     musicbrainz_release_group_mbid,
     normalize_musicbrainz_mbid,
     store_album_musicbrainz_link,
+    store_album_musicbrainz_track_link,
 )
 from ...player_common import optional_int, placeholders_for
 from ...player_runtime import PlayerJobCancelToken, PlayerJobResult, PlayerRuntime
@@ -637,9 +640,17 @@ def edit_library_album_musicbrainz(
             if cancel_check is not None:
                 cancel_check()
 
+            request_file_album_id = file_album_id_from_album_id(job.request.album_id)
             connection.execute(
-                "DELETE FROM album_musicbrainz_links WHERE album_id = ?",
-                (job.request.album_id,),
+                """
+                DELETE FROM album_musicbrainz_links
+                WHERE file_album_id IN (?, ?)
+                """,
+                (request_file_album_id, job.request.album_id),
+            )
+            delete_album_musicbrainz_track_links(
+                connection,
+                (snapshot.path for snapshot in job.tracks),
             )
 
             pending_groups = [
@@ -702,17 +713,25 @@ def edit_library_album_musicbrainz(
                     )
                     total_tracks_updated += 1
 
-                target_album_id = musicbrainz_audio_tag_album_id(
+                target_file_album_id = musicbrainz_audio_tag_file_album_id(
                     connection,
                     tag_values,
                     split_patterns=album_artist_split_patterns,
                 )
                 store_album_musicbrainz_link(
                     connection,
-                    target_album_id,
+                    target_file_album_id,
                     release_mbid=group.request.musicbrainz_release_mbid,
                     release_group_mbid=release_group_mbid,
                 )
+                for snapshot in group.tracks:
+                    store_album_musicbrainz_track_link(
+                        connection,
+                        snapshot.path,
+                        target_file_album_id,
+                        release_mbid=group.request.musicbrainz_release_mbid,
+                        release_group_mbid=release_group_mbid,
+                    )
             if cancel_check is not None:
                 cancel_check()
             connection.execute("RELEASE SAVEPOINT edit_album_musicbrainz")
@@ -826,15 +845,7 @@ def musicbrainz_album_tag_title(payload: MusicBrainzPayload) -> str:
     title = payload.payload.get("title")
     if not isinstance(title, str) or not title.strip():
         raise ValueError(f"MusicBrainz {payload.entity_type} payload is missing a title.")
-
-    album = title.strip()
-    if payload.entity_type != "release":
-        return album
-
-    disambiguation = payload.payload.get("disambiguation")
-    if isinstance(disambiguation, str) and disambiguation.strip():
-        return f"{album} ({disambiguation.strip()})"
-    return album
+    return title.strip()
 
 
 def musicbrainz_album_artist_tag_value(payload: MusicBrainzPayload) -> str:
@@ -899,7 +910,7 @@ def musicbrainz_audio_genre_values(
     return genre_values, stats
 
 
-def musicbrainz_audio_tag_album_id(
+def musicbrainz_audio_tag_file_album_id(
     connection: sqlite3.Connection,
     tag_values: AlbumMusicBrainzAudioTags,
     *,
@@ -920,7 +931,7 @@ def musicbrainz_audio_tag_album_id(
     album_slug = normalize_slug_text(album)
     if not artist_slug or not album_slug:
         raise ValueError("MusicBrainz album and album artist are required.")
-    return f"{artist_slug}::{album_slug}"
+    return local_album_id(artist_id, album)
 
 
 def musicbrainz_audio_tag_album_artists(

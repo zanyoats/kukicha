@@ -35,6 +35,9 @@ class TrackRecord:
     track_number: str | None = None
     disc_number: str | None = None
     date: str | None = None
+    musicbrainz_release_mbid: str | None = None
+    musicbrainz_release_group_mbid: str | None = None
+    musicbrainz_release_variant: str | None = None
     itunes_store_track_id: str | None = None
     itunes_store_album_id: str | None = None
     genres: list[str] = field(default_factory=list)

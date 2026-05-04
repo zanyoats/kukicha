@@ -44,6 +44,7 @@ kukicha --help
 Updates can be installed using force flag:
 
 ```bash
+# when we move to versions use `pipx upgrade kukicha`
 pipx install --force .
 ```
 

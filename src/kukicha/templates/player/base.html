@@ -112,6 +112,64 @@
       data-toast-timeout-ms="{{ toast_timeout_ms }}"></div>
     <div id="job-toasts" class="job-toasts" aria-live="polite"></div>
   </div>
+  <div id="keyboard-shortcuts-dialog" class="keyboard-shortcuts-dialog" role="dialog"
+    aria-modal="true" aria-labelledby="keyboard-shortcuts-title" hidden
+    data-keyboard-shortcuts-dialog>
+    <section class="keyboard-shortcuts-panel">
+      <div class="keyboard-shortcuts-header">
+        <h2 id="keyboard-shortcuts-title">Keyboard Shortcuts</h2>
+        <button class="keyboard-shortcuts-close" type="button"
+          aria-label="Close keyboard shortcuts" title="Close"
+          data-close-keyboard-shortcuts>x</button>
+      </div>
+      <dl class="keyboard-shortcut-list">
+        <div>
+          <dt><kbd>K</kbd></dt>
+          <dd>Play / pause</dd>
+        </div>
+        <div>
+          <dt><kbd>J</kbd></dt>
+          <dd>Previous queue track</dd>
+        </div>
+        <div>
+          <dt><kbd>L</kbd></dt>
+          <dd>Next queue track</dd>
+        </div>
+        <div>
+          <dt><kbd>/</kbd></dt>
+          <dd>Focus search</dd>
+        </div>
+        <div>
+          <dt><kbd>1</kbd></dt>
+          <dd>Albums</dd>
+        </div>
+        <div>
+          <dt><kbd>2</kbd></dt>
+          <dd>Artists</dd>
+        </div>
+        <div>
+          <dt><kbd>3</kbd></dt>
+          <dd>Playlists</dd>
+        </div>
+        <div>
+          <dt><kbd>4</kbd></dt>
+          <dd>Queue</dd>
+        </div>
+        <div>
+          <dt><kbd>Shift</kbd><span>+</span><kbd>R</kbd></dt>
+          <dd>Rescan library</dd>
+        </div>
+        <div>
+          <dt><kbd>?</kbd></dt>
+          <dd>Show this sheet</dd>
+        </div>
+        <div>
+          <dt><kbd>Esc</kbd></dt>
+          <dd>Close / cancel</dd>
+        </div>
+      </dl>
+    </section>
+  </div>
   <script type="application/json" id="queue-state">{{ queue_state|tojson }}</script>
   <script src="/static/player.js"></script>
 </body>
