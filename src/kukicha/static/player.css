@@ -392,28 +392,16 @@ button:disabled,
 }
 
 .keyboard-shortcuts-header {
+  display: block;
+}
+
+.keyboard-shortcuts-actions {
   display: flex;
-  gap: 12px;
-  align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
 }
 
 .keyboard-shortcuts-close {
-  min-width: 32px;
-  width: 32px;
-  min-height: 32px;
-  height: 32px;
-  border-color: transparent;
-  border-radius: 50%;
-  background: transparent;
-  color: var(--muted);
-  line-height: 1;
-  padding: 0;
-}
-
-.keyboard-shortcuts-close:hover {
-  border-color: var(--accent);
-  color: var(--accent);
+  min-width: 84px;
 }
 
 .keyboard-shortcut-list {
