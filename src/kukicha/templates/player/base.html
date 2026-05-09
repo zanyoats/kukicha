@@ -26,6 +26,25 @@
       --accent-foreground: {{ accent_theme.accent_foreground }};
       --control-accent: {{ control_accent }};
     }
+    {% if system_appearance_theme %}
+    @media (prefers-color-scheme: dark) {
+      :root {
+        color-scheme: {{ system_appearance_theme.color_scheme }};
+        --bg: {{ system_appearance_theme.bg }};
+        --surface: {{ system_appearance_theme.surface }};
+        --surface-alt: {{ system_appearance_theme.surface_alt }};
+        --surface-hover: {{ system_appearance_theme.surface_hover }};
+        --surface-overlay: {{ system_appearance_theme.surface_overlay }};
+        --surface-overlay-hover: {{ system_appearance_theme.surface_overlay_hover }};
+        --text: {{ system_appearance_theme.text }};
+        --muted: {{ system_appearance_theme.muted }};
+        --line: {{ system_appearance_theme.line }};
+        --track-row-highlight: {{ system_appearance_theme.track_row_highlight }};
+        --track-row-highlight-text: {{ system_appearance_theme.track_row_highlight_text }};
+        --control-accent: {{ system_control_accent }};
+      }
+    }
+    {% endif %}
   </style>
 </head>
 <body data-page="{{ page_name }}">

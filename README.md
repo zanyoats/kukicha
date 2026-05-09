@@ -98,7 +98,9 @@ Supported keys:
 - `OpenSubsonicPort`: TCP port for the OpenSubsonic API, defaulting to `4533`.
 - `AccentColor`: palette name or matching hex code. Run `kukicha --help` for the
   full palette list.
-- `Appearance`: `light`, `dark`, or `dim`.
+- `Appearance`: `light`, `dark`, `dim`, or `system`. `system` follows the
+  browser's `prefers-color-scheme`, using `light` for light mode and `dim` for
+  dark mode. Defaults to `system`.
 - `ToastTimeoutMs`: positive toast timeout in milliseconds.
 - `AlbumArtistSplitPatterns`: strings used when splitting album artist names.
 

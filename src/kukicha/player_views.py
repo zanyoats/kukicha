@@ -15,32 +15,26 @@ def base_player_context(runtime: PlayerRuntime, **context: Any) -> dict[str, Any
         DEFAULT_ACCENT_COLOR,
         DEFAULT_APPEARANCE,
         DEFAULT_TOAST_TIMEOUT_MS,
-        derived_control_accent,
-        player_accent_theme,
-        player_appearance_theme,
+        player_theme_context,
     )
     from .player_presenters import queue_state_payload
 
-    accent_theme = player_accent_theme(
-        player_option_string(runtime, "accent_color", DEFAULT_ACCENT_COLOR)
-    )
-    appearance_theme = player_appearance_theme(
-        player_option_string(runtime, "appearance", DEFAULT_APPEARANCE)
-    )
     base = {
         "app_title": "kukicha",
         "queue_state": queue_state_payload(runtime.queue_state_copy()),
         "queue_url": "/queue",
-        "accent_color": accent_theme.accent,
-        "accent_theme": accent_theme,
-        "appearance_theme": appearance_theme,
-        "control_accent": derived_control_accent(accent_theme.accent, appearance_theme),
         "toast_timeout_ms": player_option_int(
             runtime,
             "toast_timeout_ms",
             DEFAULT_TOAST_TIMEOUT_MS,
         ),
     }
+    base.update(
+        player_theme_context(
+            player_option_string(runtime, "accent_color", DEFAULT_ACCENT_COLOR),
+            player_option_string(runtime, "appearance", DEFAULT_APPEARANCE),
+        )
+    )
     base.update(context)
     return base
 

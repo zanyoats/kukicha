@@ -1645,7 +1645,7 @@ class PlayerConfigTest(unittest.TestCase):
             self.assertEqual(options.open_subsonic_port, DEFAULT_OPEN_SUBSONIC_PORT)
             self.assertEqual(options.log_level, DEFAULT_PLAYER_LOG_LEVEL)
             self.assertEqual(options.accent_color, DEFAULT_ACCENT_COLOR)
-            self.assertEqual(options.appearance, DEFAULT_APPEARANCE)
+            self.assertEqual(options.appearance, "system")
             self.assertEqual(options.toast_timeout_ms, DEFAULT_TOAST_TIMEOUT_MS)
             self.assertEqual(
                 options.album_artist_split_patterns,
@@ -1794,6 +1794,15 @@ class PlayerConfigTest(unittest.TestCase):
             with self.assertRaisesRegex(PlayerConfigError, "Appearance must be a non-empty string"):
                 load_player_options(config_path)
 
+    def test_load_player_options_accepts_system_appearance(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            config_path = Path(tempdir) / "kukicha.toml"
+            config_path.write_text("Appearance = 'SYSTEM'\n", encoding="utf-8")
+
+            options = load_player_options(config_path)
+
+        self.assertEqual(options.appearance, "system")
+
     def test_load_player_options_accepts_palette_accent_color_code(self) -> None:
         with TemporaryDirectory() as tempdir:
             config_path = Path(tempdir) / "kukicha.toml"
@@ -1866,7 +1875,10 @@ class PlayerConfigTest(unittest.TestCase):
                 help_text,
             )
             self.assertNotIn("LinkedToastTimeoutMs", help_text)
-            self.assertIn("Appearance accepts these values:\n  light\n  dark\n  dim", help_text)
+            self.assertIn(
+                "Appearance accepts these values:\n  light\n  dark\n  dim\n  system",
+                help_text,
+            )
             self.assertIn(
                 "AccentColor accepts these palette names or matching hex codes:\n  "
                 + " ".join(ACCENT_COLOR_CODES),
@@ -3632,6 +3644,33 @@ class PlayerWebAdapterTest(unittest.TestCase):
                 APPEARANCE_THEMES["dark"],
             )
             self.assertIn(f"--control-accent: {dark_control_accent};".encode(), response.data)
+
+    def test_player_page_renders_system_appearance_theme_media_query(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            config_path = Path(tempdir) / "kukicha.toml"
+            config_path.write_text("Appearance = 'system'\n", encoding="utf-8")
+            app = create_player_app(load_player_options(config_path))
+
+            response = app.test_client().get("/help")
+
+            self.assertEqual(response.status_code, 200)
+            self.assertIn(b"<code>system</code>", response.data)
+            self.assertIn(b"color-scheme: light;", response.data)
+            self.assertIn(b"--bg: #f4f4f5;", response.data)
+            self.assertIn(b"--surface: #ffffff;", response.data)
+            self.assertIn(b"@media (prefers-color-scheme: dark)", response.data)
+            dark_media = response.data.split(
+                b"@media (prefers-color-scheme: dark)",
+                1,
+            )[1]
+            self.assertIn(b"--bg: #1e293b;", dark_media)
+            self.assertIn(b"--surface: #475569;", dark_media)
+            self.assertIn(b"--track-row-highlight: #334155;", dark_media)
+            dim_control_accent = derived_control_accent(
+                player_accent_theme(DEFAULT_ACCENT_COLOR).accent,
+                APPEARANCE_THEMES["dim"],
+            )
+            self.assertIn(f"--control-accent: {dim_control_accent};".encode(), dark_media)
 
     def test_settings_pages_render_roots_artist_split_rules_musicbrainz_and_cache(self) -> None:
         with TemporaryDirectory() as tempdir:

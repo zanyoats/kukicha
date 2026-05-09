@@ -40,8 +40,7 @@ from .player_config import (
     LOGGER,
     PlayerServerOptions,
     build_template_environment,
-    player_accent_theme,
-    player_appearance_theme,
+    player_theme_context,
     validate_player_startup,
 )
 from .player_errors import PlayerConfigError, PlayerConflictError, PlayerNotFoundError
@@ -135,13 +134,7 @@ def create_player_app(options: PlayerServerOptions) -> Flask:
 
     @app.context_processor
     def inject_player_theme() -> dict[str, object]:
-        accent_theme = player_accent_theme(options.accent_color)
-        appearance_theme = player_appearance_theme(options.appearance)
-        return {
-            "accent_color": accent_theme.accent,
-            "accent_theme": accent_theme,
-            "appearance_theme": appearance_theme,
-        }
+        return player_theme_context(options.accent_color, options.appearance)
 
     @app.errorhandler(PlayerConflictError)
     def handle_conflict(error: PlayerConflictError) -> Response:

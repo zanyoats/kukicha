@@ -29,7 +29,10 @@ DEFAULT_OPEN_SUBSONIC_HOST = DEFAULT_PLAYER_HOST
 DEFAULT_OPEN_SUBSONIC_PORT = 4533
 DEFAULT_TOAST_TIMEOUT_MS = 5000
 DEFAULT_ACCENT_COLOR = "warm-brown"
-DEFAULT_APPEARANCE = "light"
+SYSTEM_APPEARANCE = "system"
+SYSTEM_LIGHT_APPEARANCE = "light"
+SYSTEM_DARK_APPEARANCE = "dim"
+DEFAULT_APPEARANCE = SYSTEM_APPEARANCE
 DEFAULT_PREFER_MUSICBRAINZ_ENGLISH_ALIASES = True
 PLAYER_CONFIG_FILENAME = "kukicha.toml"
 PLAYER_DATABASE_FILENAME = "kukicha.sqlite"
@@ -232,6 +235,7 @@ APPEARANCE_THEMES = {
         track_row_highlight_text="#f4f4f5",
     ),
 }
+APPEARANCE_NAMES = (*APPEARANCE_THEMES, SYSTEM_APPEARANCE)
 
 
 def default_player_config_dir() -> Path:
@@ -351,7 +355,7 @@ def player_config_help_text(config_path: str | Path | None = None) -> str:
     lines.extend(("", "Supported keys:"))
     lines.extend(f"  {key}" for key in summary.supported_keys)
     lines.extend(("", "Appearance accepts these values:"))
-    lines.extend(f"  {name}" for name in APPEARANCE_THEMES)
+    lines.extend(f"  {name}" for name in APPEARANCE_NAMES)
     lines.extend(("", "AccentColor accepts these palette names or matching hex codes:"))
     lines.append(f"  {' '.join(ACCENT_COLOR_CODES)}")
     return "\n".join(lines)
@@ -551,10 +555,13 @@ def parse_accent_color(value: object) -> str:
 def parse_appearance(value: object) -> str:
     if not isinstance(value, str) or not value.strip():
         raise PlayerConfigError("Appearance must be a non-empty string")
-    appearance = value.strip().lower()
-    if appearance not in APPEARANCE_THEMES:
-        raise PlayerConfigError(f"Appearance must be one of: {', '.join(APPEARANCE_THEMES)}")
+    appearance = normalize_appearance_name(value)
+    if appearance not in APPEARANCE_NAMES:
+        raise PlayerConfigError(f"Appearance must be one of: {', '.join(APPEARANCE_NAMES)}")
     return appearance
+
+def normalize_appearance_name(value: str) -> str:
+    return value.strip().lower()
 
 def normalize_accent_color_name(value: str) -> str:
     color = value.strip().lower()
@@ -578,7 +585,34 @@ def player_accent_theme(name: str) -> PlayerAccentTheme:
     )
 
 def player_appearance_theme(name: str) -> PlayerAppearanceTheme:
-    return APPEARANCE_THEMES.get(name.strip().lower(), APPEARANCE_THEMES[DEFAULT_APPEARANCE])
+    appearance = normalize_appearance_name(name)
+    if appearance == SYSTEM_APPEARANCE:
+        appearance = SYSTEM_LIGHT_APPEARANCE
+    return APPEARANCE_THEMES.get(appearance, APPEARANCE_THEMES[SYSTEM_LIGHT_APPEARANCE])
+
+def player_theme_context(accent_color: str, appearance: str) -> dict[str, object]:
+    accent_theme = player_accent_theme(accent_color)
+    appearance_name = normalize_appearance_name(appearance)
+    if appearance_name not in APPEARANCE_NAMES:
+        appearance_name = DEFAULT_APPEARANCE
+    appearance_theme = player_appearance_theme(appearance_name)
+    context: dict[str, object] = {
+        "accent_color": accent_theme.accent,
+        "accent_theme": accent_theme,
+        "appearance": appearance_name,
+        "appearance_theme": appearance_theme,
+        "control_accent": derived_control_accent(accent_theme.accent, appearance_theme),
+        "system_appearance_theme": None,
+        "system_control_accent": "",
+    }
+    if appearance_name == SYSTEM_APPEARANCE:
+        system_appearance_theme = APPEARANCE_THEMES[SYSTEM_DARK_APPEARANCE]
+        context["system_appearance_theme"] = system_appearance_theme
+        context["system_control_accent"] = derived_control_accent(
+            accent_theme.accent,
+            system_appearance_theme,
+        )
+    return context
 
 def derived_accent_strong(accent: str, accent_soft: str) -> str:
     accent_rgb = hex_to_rgb(accent)
