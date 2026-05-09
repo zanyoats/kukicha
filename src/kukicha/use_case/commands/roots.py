@@ -568,7 +568,7 @@ def reconcile_library_albums(
                 track_count = excluded.track_count,
                 file_created_at = excluded.file_created_at
             """,
-            (album_id, album, year, len(rows), file_created_at),
+            (album_id, album, year, len(rows), file_created_at or ""),
         )
         connection.execute(
             "DELETE FROM library_album_artists WHERE album_id = ?",

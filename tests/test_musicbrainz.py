@@ -4,12 +4,18 @@ import hashlib
 import unittest
 
 from kukicha.use_case.musicbrainz import (
+    build_lookup_url,
     musicbrainz_release_fingerprint,
     musicbrainz_release_variant_source,
 )
 
 
 class MusicBrainzReleaseFingerprintTest(unittest.TestCase):
+    def test_release_lookup_requests_aliases(self) -> None:
+        url = build_lookup_url("release", "cc3af5d1-caf1-45c9-9fe8-37b07e77f894")
+
+        self.assertIn("aliases", url)
+
     def test_release_fingerprint_uses_barcode_before_catalog_number(self) -> None:
         release = {
             "country": "US",

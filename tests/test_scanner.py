@@ -260,6 +260,28 @@ class ScannerTagNormalizationTest(unittest.TestCase):
             ],
         )
 
+    def test_group_library_albums_keeps_unicode_artist_names(self) -> None:
+        library = MusicLibrary(
+            roots=[],
+            tracks=[
+                TrackRecord(
+                    path="/music/quiet-forest.flac",
+                    artist="吉村弘",
+                    album_artist="吉村弘",
+                    album="Quiet Forest",
+                    title="Sleep",
+                ),
+            ],
+            supported_extensions=[],
+            generated_at="2026-05-04T00:00:00+00:00",
+        )
+
+        albums = group_library_albums(library)
+
+        self.assertEqual(len(albums), 1)
+        self.assertEqual(albums[0].album_id, "吉村弘::quiet-forest")
+        self.assertEqual(albums[0].artist, "吉村弘")
+
 
 class ScannerProgressTest(unittest.TestCase):
     def test_build_library_reports_progress_every_500_music_files(self) -> None:

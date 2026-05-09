@@ -29,7 +29,7 @@
       </div>
       <div class="album-detail-copy">
         <h2 title="{{ album.album }}">
-          <span class="album-detail-title-text" title="{{ album.album }}">{{ album.album|display_album_title }}</span>{% if album_year_text %}<span class="album-title-year-meta">{{ album_year_text }}</span>{% endif %}{% if album_root_links %}<span class="album-title-root-links">({%- for item in album_root_links -%}<a class="album-detail-meta-link" href="{{ item.url }}" data-nav>{{ item.label }}</a>{% if not loop.last %},&nbsp;{% endif %}{%- endfor -%})</span>{% endif %}
+          <span class="album-detail-title-text" title="{{ album.album }}">{{ album.album|display_album_title }}</span>{% if album_year_text %}<span class="album-title-year-meta">{{ album_year_text }}</span>{% endif %}
         </h2>
         {% if album_artist_links or album_genre_links %}
           <ul class="meta-list album-artist-meta">

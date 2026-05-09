@@ -14,7 +14,7 @@
       {% endif %}
       <div class="album-detail-copy">
         <h2 title="{{ album.album }}">
-          <span class="album-detail-title-text" title="{{ album.album }}">{{ album.album|display_album_title }}</span>{% if album_year_text %}<span class="album-title-year-meta">{{ album_year_text }}</span>{% endif %}{% if album_root_links %}<span class="album-title-root-links">({%- for item in album_root_links -%}{{ item.label }}{% if not loop.last %},&nbsp;{% endif %}{%- endfor -%})</span>{% endif %}
+          <span class="album-detail-title-text" title="{{ album.album }}">{{ album.album|display_album_title }}</span>{% if album_year_text %}<span class="album-title-year-meta">{{ album_year_text }}</span>{% endif %}
         </h2>
         {% if album_artist_parts or album_genre_parts %}
           <ul class="meta-list album-artist-meta">
@@ -36,17 +36,45 @@
   </header>
 
   <div class="album-edit-sections">
+    {% set has_multiple_musicbrainz_groups = album_musicbrainz_sections|length > 1 %}
+    {% set album_level_fields_musicbrainz_disabled = (
+      not has_multiple_musicbrainz_groups
+      and album_musicbrainz_sections|length == 1
+      and (
+        album_musicbrainz_sections[0].musicbrainz_url
+        or album_musicbrainz_release_mbid
+        or album_musicbrainz_release_group_mbid
+      )
+    ) %}
     <section class="album-edit-panel settings-panel album-edit-section">
-      <div class="album-edit-section-forms">
-        <div class="album-edit-form-block album-musicbrainz-section">
-          <h4 class="album-edit-form-title">MusicBrainz IDs</h4>
-          <form class="album-edit-form" action="{{ album_musicbrainz_action_url }}" method="post" autocomplete="off" data-album-musicbrainz-form>
+      <p class="album-edit-notice">
+        These actions queue jobs that edit the metadata stored in the audio files on disk. On rescan,
+        Kukicha will extract the updated metadata into Kukicha's library database.
+      </p>
+      <form
+        class="album-edit-form"
+        action="{{ album_edit_action_url }}"
+        method="post"
+        autocomplete="off"
+        data-album-edit-form
+      >
+        <div class="album-edit-actions album-edit-actions-top">
+          <button class="primary" type="submit" data-apply-album-edit>Apply</button>
+        </div>
+        <div class="album-edit-section-forms">
+          <div class="album-edit-form-block album-musicbrainz-section">
+            <h4 class="album-edit-form-title">MusicBrainz IDs</h4>
+            <p class="album-edit-form-description">
+              Saves the release or release-group link for this album and writes MusicBrainz-derived album artist,
+              album, and genre tags to the matching audio files. Clearing the URL removes the saved IDs without
+              rewriting tags.
+            </p>
             <div class="album-musicbrainz-groups">
               {% for section in album_musicbrainz_sections %}
-                {% set musicbrainz_value = "" %}
-                {% if album_musicbrainz_sections|length == 1 and album_musicbrainz_release_mbid %}
+                {% set musicbrainz_value = section.musicbrainz_url %}
+                {% if not musicbrainz_value and album_musicbrainz_sections|length == 1 and album_musicbrainz_release_mbid %}
                   {% set musicbrainz_value = "https://musicbrainz.org/release/" ~ album_musicbrainz_release_mbid %}
-                {% elif album_musicbrainz_sections|length == 1 and album_musicbrainz_release_group_mbid %}
+                {% elif not musicbrainz_value and album_musicbrainz_sections|length == 1 and album_musicbrainz_release_group_mbid %}
                   {% set musicbrainz_value = "https://musicbrainz.org/release-group/" ~ album_musicbrainz_release_group_mbid %}
                 {% endif %}
                 <section class="album-musicbrainz-group" data-musicbrainz-group>
@@ -82,28 +110,33 @@
                 </section>
               {% endfor %}
             </div>
-            <div class="album-edit-actions">
-              <button class="primary" type="submit" data-save-album-musicbrainz>Save MusicBrainz IDs</button>
-            </div>
-            <div class="settings-status" data-album-musicbrainz-status aria-live="polite"></div>
-          </form>
-        </div>
-        {% if album_tag_edit_section is defined %}
-          <div class="album-edit-form-block album-tag-edit-section">
-            <h4 class="album-edit-form-title">Update Audio Tags</h4>
-            {% set section = album_tag_edit_section %}
-            <form class="album-edit-form" action="{{ album_tag_edit_action_url }}" method="post" data-album-tag-form>
+          </div>
+          {% if album_tag_edit_section is defined and not has_multiple_musicbrainz_groups %}
+            <div class="album-edit-form-block album-tag-edit-section">
+              <h4 class="album-edit-form-title">Update Audio Tags</h4>
+              <p class="album-edit-form-description">
+                Writes the album, album artist, genre, track artist, track number, and title fields directly to
+                these audio files.
+              </p>
+              <p
+                class="album-edit-form-description"
+                data-album-level-musicbrainz-note
+                {% if not album_level_fields_musicbrainz_disabled %}hidden{% endif %}
+              >
+                Album, album artist, and genre are disabled because the MusicBrainz URL will write those album-level tags.
+              </p>
+              {% set section = album_tag_edit_section %}
               <label class="album-edit-field">
                 <span class="album-edit-label">Album</span>
-                <input class="settings-input" type="text" value="{{ section.album }}" data-album-input>
+                <input class="settings-input" type="text" value="{{ section.album }}" data-album-input{% if album_level_fields_musicbrainz_disabled %} disabled{% endif %}>
               </label>
               <label class="album-edit-field">
                 <span class="album-edit-label">Album artist</span>
-                <input class="settings-input" type="text" value="{{ section.album_artist }}" data-album-artist-input>
+                <input class="settings-input" type="text" value="{{ section.album_artist }}" data-album-artist-input{% if album_level_fields_musicbrainz_disabled %} disabled{% endif %}>
               </label>
               <label class="album-edit-field">
                 <span class="album-edit-label">Genre</span>
-                <input class="settings-input" type="text" value="{{ section.genre }}" data-album-genre-input>
+                <input class="settings-input" type="text" value="{{ section.genre }}" data-album-genre-input{% if album_level_fields_musicbrainz_disabled %} disabled{% endif %}>
               </label>
               <div class="album-edit-track-list">
                 {% for item in section.tracks %}
@@ -150,14 +183,18 @@
                   </div>
                 {% endfor %}
               </div>
-              <div class="album-edit-actions">
-                <button class="primary" type="submit" data-save-album-tag>Edit Audio Tags</button>
-              </div>
-              <div class="settings-status" data-album-tag-status aria-live="polite"></div>
-            </form>
-          </div>
-        {% endif %}
-      </div>
+            </div>
+          {% endif %}
+        </div>
+        <div class="album-edit-actions">
+          <button class="primary" type="submit" data-apply-album-edit>Apply</button>
+        </div>
+        <div
+          class="settings-status"
+          data-album-edit-status
+          aria-live="polite"
+        ></div>
+      </form>
     </section>
   </div>
 </div>

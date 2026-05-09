@@ -14,17 +14,18 @@ from ..taxonomy_data import parse_taxonomy_tsv
 TAXONOMY_METADATA_KEY = "taxonomy_tsv_sha256"
 UNKNOWN_GENRE_TAG = UNKNOWN_METADATA_TAG
 ALBUM_SEARCH_METADATA_KEY = "album_search_index_version"
-ALBUM_SEARCH_INDEX_VERSION = "4"
-ALBUM_SEARCH_TRACK_SEPARATOR = " kukichatrackboundarytoken "
+ALBUM_SEARCH_INDEX_VERSION = "5"
+ALBUM_SEARCH_COLUMNS = {"album_id", "artist", "album"}
 ALBUM_ROLLUP_METADATA_KEY = "album_rollup_version"
 ALBUM_ROLLUP_COUNT_METADATA_KEY = "album_rollup_album_count"
 ALBUM_ROLLUP_VERSION = "3"
 ROOT_SCAN_STATS_METADATA_KEY = "root_scan_stats_version"
 ROOT_SCAN_STATS_ROOT_COUNT_METADATA_KEY = "root_scan_stats_root_count"
 ROOT_SCAN_STATS_TRACK_COUNT_METADATA_KEY = "root_scan_stats_track_count"
+ROOT_SCAN_STATS_ALBUM_COUNT_METADATA_KEY = "root_scan_stats_album_count"
 ROOT_SCAN_STATS_ALBUM_ROOT_COUNT_METADATA_KEY = "root_scan_stats_album_root_count"
 ROOT_SCAN_STATS_PLAYLIST_COUNT_METADATA_KEY = "root_scan_stats_playlist_count"
-ROOT_SCAN_STATS_VERSION = "4"
+ROOT_SCAN_STATS_VERSION = "5"
 
 LIBRARY_TRACK_ARTWORK_SCHEMA = """
 CREATE TABLE IF NOT EXISTS library_track_artwork (
@@ -145,13 +146,10 @@ CREATE TABLE IF NOT EXISTS library_albums (
     album TEXT NOT NULL,
     year INTEGER,
     track_count INTEGER NOT NULL,
-    file_created_at TEXT,
+    file_created_at TEXT NOT NULL DEFAULT '',
     artist_sort_key TEXT NOT NULL DEFAULT '',
     album_sort_key TEXT NOT NULL DEFAULT '',
     genre_sort_key TEXT NOT NULL DEFAULT '',
-    has_cover INTEGER NOT NULL DEFAULT 0,
-    is_compilation INTEGER NOT NULL DEFAULT 0,
-    is_work INTEGER NOT NULL DEFAULT 0,
     art_track_id INTEGER
 );
 CREATE INDEX IF NOT EXISTS idx_library_albums_album ON library_albums (album);
@@ -170,9 +168,6 @@ CREATE TABLE IF NOT EXISTS library_album_roots (
     album_id TEXT NOT NULL,
     root_position INTEGER NOT NULL,
     track_count INTEGER NOT NULL,
-    has_cover INTEGER NOT NULL DEFAULT 0,
-    is_compilation INTEGER NOT NULL DEFAULT 0,
-    is_work INTEGER NOT NULL DEFAULT 0,
     genre_sort_key TEXT NOT NULL DEFAULT '',
     art_track_id INTEGER,
     PRIMARY KEY (album_id, root_position),
@@ -357,8 +352,6 @@ CREATE VIRTUAL TABLE IF NOT EXISTS library_album_search USING fts5(
     album_id UNINDEXED,
     artist,
     album,
-    title,
-    composer,
     tokenize = 'unicode61'
 );
 
@@ -474,8 +467,14 @@ def migrate_library_schema(connection: sqlite3.Connection) -> None:
     album_columns = table_columns(connection, "library_albums")
     created_album_file_created_at = False
     if album_columns and "file_created_at" not in album_columns:
-        connection.execute("ALTER TABLE library_albums ADD COLUMN file_created_at TEXT")
+        connection.execute(
+            "ALTER TABLE library_albums ADD COLUMN file_created_at TEXT NOT NULL DEFAULT ''"
+        )
         created_album_file_created_at = True
+    if album_columns and "file_created_at" in table_columns(connection, "library_albums"):
+        connection.execute(
+            "UPDATE library_albums SET file_created_at = '' WHERE file_created_at IS NULL"
+        )
     if album_columns and "artist_sort_key" not in album_columns:
         connection.execute(
             "ALTER TABLE library_albums ADD COLUMN artist_sort_key TEXT NOT NULL DEFAULT ''"
@@ -487,18 +486,6 @@ def migrate_library_schema(connection: sqlite3.Connection) -> None:
     if album_columns and "genre_sort_key" not in album_columns:
         connection.execute(
             "ALTER TABLE library_albums ADD COLUMN genre_sort_key TEXT NOT NULL DEFAULT ''"
-        )
-    if album_columns and "has_cover" not in album_columns:
-        connection.execute(
-            "ALTER TABLE library_albums ADD COLUMN has_cover INTEGER NOT NULL DEFAULT 0"
-        )
-    if album_columns and "is_compilation" not in album_columns:
-        connection.execute(
-            "ALTER TABLE library_albums ADD COLUMN is_compilation INTEGER NOT NULL DEFAULT 0"
-        )
-    if album_columns and "is_work" not in album_columns:
-        connection.execute(
-            "ALTER TABLE library_albums ADD COLUMN is_work INTEGER NOT NULL DEFAULT 0"
         )
     if album_columns and "art_track_id" not in album_columns:
         connection.execute("ALTER TABLE library_albums ADD COLUMN art_track_id INTEGER")
@@ -624,24 +611,9 @@ def migrate_library_schema(connection: sqlite3.Connection) -> None:
             )
         """
     )
-    connection.execute(
-        """
-        CREATE INDEX IF NOT EXISTS idx_library_albums_has_cover
-            ON library_albums (has_cover)
-        """
-    )
-    connection.execute(
-        """
-        CREATE INDEX IF NOT EXISTS idx_library_albums_is_compilation
-            ON library_albums (is_compilation)
-        """
-    )
-    connection.execute(
-        """
-        CREATE INDEX IF NOT EXISTS idx_library_albums_is_work
-            ON library_albums (is_work)
-        """
-    )
+    connection.execute("DROP INDEX IF EXISTS idx_library_albums_has_cover")
+    connection.execute("DROP INDEX IF EXISTS idx_library_albums_is_compilation")
+    connection.execute("DROP INDEX IF EXISTS idx_library_albums_is_work")
     connection.execute(
         """
         CREATE INDEX IF NOT EXISTS idx_library_playlists_file_created_at
@@ -707,10 +679,13 @@ def backfill_library_album_file_created_at(connection: sqlite3.Connection) -> No
     connection.execute(
         """
         UPDATE library_albums
-        SET file_created_at = (
-            SELECT MIN(NULLIF(library_tracks.file_created_at, ''))
-            FROM library_tracks
-            WHERE library_tracks.album_id = library_albums.album_id
+        SET file_created_at = COALESCE(
+            (
+                SELECT MIN(NULLIF(library_tracks.file_created_at, ''))
+                FROM library_tracks
+                WHERE library_tracks.album_id = library_albums.album_id
+            ),
+            ''
         )
         WHERE COALESCE(file_created_at, '') = ''
         """
@@ -860,7 +835,7 @@ def ensure_album_musicbrainz_link_indexes(connection: sqlite3.Connection) -> Non
 
 def migrate_album_search_schema(connection: sqlite3.Connection) -> None:
     columns = table_columns(connection, "library_album_search")
-    if "composer" in columns:
+    if columns == ALBUM_SEARCH_COLUMNS:
         return
     connection.execute("DROP TABLE IF EXISTS library_album_search")
     connection.execute(
@@ -869,8 +844,6 @@ def migrate_album_search_schema(connection: sqlite3.Connection) -> None:
             album_id UNINDEXED,
             artist,
             album,
-            title,
-            composer,
             tokenize = 'unicode61'
         )
         """
@@ -1038,54 +1011,17 @@ def rebuild_album_search_index(connection: sqlite3.Connection) -> None:
                 group_concat(artist, ' ') AS artist
             FROM ordered_album_artists
             GROUP BY album_id
-        ),
-        ordered_track_titles AS (
-            SELECT album_id, title
-            FROM library_tracks
-            WHERE album_id IS NOT NULL
-                AND album_id != ''
-                AND COALESCE(title, '') != ''
-            ORDER BY album_id, track_id
-        ),
-        track_titles AS (
-            SELECT
-                album_id,
-                group_concat(title, ?) AS title
-            FROM ordered_track_titles
-            GROUP BY album_id
-        ),
-        ordered_track_composers AS (
-            SELECT DISTINCT album_id, composer
-            FROM library_tracks
-            WHERE album_id IS NOT NULL
-                AND album_id != ''
-                AND COALESCE(composer, '') != ''
-            ORDER BY album_id, composer COLLATE NOCASE
-        ),
-        track_composers AS (
-            SELECT
-                album_id,
-                group_concat(composer, ?) AS composer
-            FROM ordered_track_composers
-            GROUP BY album_id
         )
-        INSERT INTO library_album_search (album_id, artist, album, title, composer)
+        INSERT INTO library_album_search (album_id, artist, album)
         SELECT
             albums.album_id,
             COALESCE(album_artists.artist, ''),
-            albums.album,
-            COALESCE(track_titles.title, ''),
-            COALESCE(track_composers.composer, '')
+            albums.album
         FROM library_albums AS albums
         LEFT JOIN album_artists
             ON album_artists.album_id = albums.album_id
-        LEFT JOIN track_titles
-            ON track_titles.album_id = albums.album_id
-        LEFT JOIN track_composers
-            ON track_composers.album_id = albums.album_id
         ORDER BY albums.album_id
-        """,
-        (ALBUM_SEARCH_TRACK_SEPARATOR, ALBUM_SEARCH_TRACK_SEPARATOR),
+        """
     )
     set_metadata(
         connection,
@@ -1226,41 +1162,6 @@ def rebuild_album_rollups(
                 ),
                 0
             ),
-            has_cover = CASE
-                WHEN EXISTS (
-                    SELECT 1
-                    FROM library_tracks AS tracks
-                    JOIN library_track_artwork AS artwork
-                        ON artwork.track_id = tracks.track_id
-                    WHERE tracks.album_id = library_albums.album_id
-                        AND artwork.height_px = {ALBUM_ARTWORK_HEIGHT}
-                )
-                THEN 1
-                ELSE 0
-            END,
-            is_compilation = CASE
-                WHEN EXISTS (
-                    SELECT 1
-                    FROM library_tracks AS tracks
-                    WHERE tracks.album_id = library_albums.album_id
-                        AND tracks.is_compilation = 1
-                )
-                THEN 1
-                ELSE 0
-            END,
-            is_work = CASE
-                WHEN EXISTS (
-                    SELECT 1
-                    FROM library_tracks AS tracks
-                    WHERE tracks.album_id = library_albums.album_id
-                        AND (
-                            COALESCE(tracks.work, '') != ''
-                            OR COALESCE(tracks.grouping, '') != ''
-                        )
-                )
-                THEN 1
-                ELSE 0
-            END,
             art_track_id = (
                 SELECT MIN(tracks.track_id)
                 FROM library_tracks AS tracks
@@ -1289,25 +1190,12 @@ def rebuild_album_rollups(
             album_id,
             root_position,
             track_count,
-            has_cover,
-            is_compilation,
-            is_work,
             art_track_id
         )
         SELECT
             tracks.album_id,
             tracks.root_position,
             COUNT(*) AS track_count,
-            MAX(CASE WHEN artwork.track_id IS NULL THEN 0 ELSE 1 END) AS has_cover,
-            MAX(tracks.is_compilation) AS is_compilation,
-            MAX(
-                CASE
-                    WHEN COALESCE(tracks.work, '') != ''
-                        OR COALESCE(tracks.grouping, '') != ''
-                    THEN 1
-                    ELSE 0
-                END
-            ) AS is_work,
             MIN(artwork.track_id) AS art_track_id
         FROM library_tracks AS tracks
         LEFT JOIN (
@@ -1466,6 +1354,7 @@ def ensure_root_scan_stats(connection: sqlite3.Connection) -> None:
     metadata_count_keys = {
         "roots": ROOT_SCAN_STATS_ROOT_COUNT_METADATA_KEY,
         "tracks": ROOT_SCAN_STATS_TRACK_COUNT_METADATA_KEY,
+        "albums": ROOT_SCAN_STATS_ALBUM_COUNT_METADATA_KEY,
         "album_roots": ROOT_SCAN_STATS_ALBUM_ROOT_COUNT_METADATA_KEY,
         "playlists": ROOT_SCAN_STATS_PLAYLIST_COUNT_METADATA_KEY,
     }
@@ -1562,10 +1451,18 @@ def rebuild_root_scan_stats(
         )
         SELECT
             1 AS stats_id,
-            COALESCE(SUM(tracks_scanned), 0) AS tracks_scanned,
-            COALESCE(SUM(albums_scanned), 0) AS albums_scanned,
-            COALESCE(SUM(playlists_scanned), 0) AS playlists_scanned
-        FROM library_root_stats
+            (
+                SELECT COUNT(*)
+                FROM library_tracks
+            ) AS tracks_scanned,
+            (
+                SELECT COUNT(*)
+                FROM library_albums
+            ) AS albums_scanned,
+            (
+                SELECT COUNT(*)
+                FROM library_playlists
+            ) AS playlists_scanned
         """
     )
     connection.execute(
@@ -1576,11 +1473,14 @@ def rebuild_root_scan_stats(
             albums_scanned
         )
         SELECT
-            MIN(album_artist) AS album_artist,
-            SUM(tracks_scanned) AS tracks_scanned,
-            SUM(albums_scanned) AS albums_scanned
-        FROM library_root_album_artist_stats
-        GROUP BY album_artist COLLATE NOCASE
+            MIN(artists.artist) AS album_artist,
+            COUNT(tracks.track_id) AS tracks_scanned,
+            COUNT(DISTINCT artists.album_id) AS albums_scanned
+        FROM library_album_artists AS artists
+        LEFT JOIN library_tracks AS tracks
+            ON tracks.album_id = artists.album_id
+        WHERE COALESCE(artists.artist, '') != ''
+        GROUP BY artists.artist COLLATE NOCASE
         ORDER BY album_artist COLLATE NOCASE
         """
     )
@@ -1597,6 +1497,11 @@ def root_scan_stats_source_counts(connection: sqlite3.Connection) -> dict[str, i
         "tracks": int(
             connection.execute(
                 "SELECT COUNT(*) AS count FROM library_tracks"
+            ).fetchone()["count"]
+        ),
+        "albums": int(
+            connection.execute(
+                "SELECT COUNT(*) AS count FROM library_albums"
             ).fetchone()["count"]
         ),
         "album_roots": int(
@@ -1629,6 +1534,11 @@ def set_root_scan_stats_metadata(
         connection,
         ROOT_SCAN_STATS_TRACK_COUNT_METADATA_KEY,
         str(source_counts["tracks"]),
+    )
+    set_metadata(
+        connection,
+        ROOT_SCAN_STATS_ALBUM_COUNT_METADATA_KEY,
+        str(source_counts["albums"]),
     )
     set_metadata(
         connection,

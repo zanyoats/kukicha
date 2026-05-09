@@ -1,143 +1,93 @@
-{% from "player/_icons.html" import play_icon, queue_add_icon, sort_icon %}
+{% from "player/_icons.html" import delete_icon, play_icon, queue_add_icon, search_icon %}
 
 <div class="view-page" data-page="{{ page_key }}">
   <header class="view-header">
     {% include "player/_page_title.html" %}
 
-    <form id="filters" class="filters" action="{{ filter_action_url }}" method="get" data-filter-form
-      data-default-sort="{{ sort_options[0][0] }}">
-      <input type="hidden" name="per_page" value="{% if query.per_page != default_per_page %}{{ query.per_page }}{% endif %}">
-      {% for artist in query.artists %}
-        <input type="hidden" name="artist" value="{{ artist }}">
-      {% endfor %}
-      <div class="search-controls">
-        <div class="search-submit-group">
-          <label class="search-field">
-            <span class="visually-hidden">Search</span>
-            <input type="search" name="search" value="{{ query.search or '' }}"
-              placeholder="{{ search_placeholder }}" autocomplete="off" spellcheck="false"
-              data-initial-focus>
-          </label>
-          <button class="search-button" type="submit" aria-label="Search" title="Search">
-            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12"
-              fill="none" viewBox="0 0 18 18" aria-hidden="true" focusable="false">
-              <path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round"
-                d="m16.75 16.75-3.867-3.867m2.09-5.022a7.111 7.111 0 1 1-14.223 0 7.111 7.111 0 0 1 14.222 0"></path>
-            </svg>
-          </button>
-        </div>
-        {% if show_sort_controls %}
-        <details class="filter-menu sort-menu" data-dropdown-menu>
-          <summary aria-label="Sort" title="Sort">{{ sort_icon() }}</summary>
-          <div class="filter-options sort-options">
-            {% for value, label in sort_options %}
-              <label class="filter-option">
-                <input type="radio" name="sort" value="{{ value }}" {% if query.sort == value %}checked{% endif %}>
-                <span>{{ label }}</span>
-              </label>
-            {% endfor %}
-          </div>
-        </details>
-        {% endif %}
-        {% if not show_filter_controls %}
-        <a class="button-link" href="{{ clear_url }}" data-nav>Clear</a>
-        {% endif %}
-      </div>
-      {% if show_filter_controls %}
-      <div class="filter-controls">
-        <details class="filter-menu" data-dropdown-menu>
-          <summary data-filter-summary="roots" data-summary-label="Roots">Roots{% if selected_roots %}: {{ selected_roots|length }}{% endif %}</summary>
-          <div class="filter-options">
-            {% for root in roots %}
-              <label class="filter-option" title="{{ root.path }}">
-                <input type="checkbox" name="root" value="{{ root.position }}" {% if root.position in selected_roots %}checked{% endif %}>
-                <span>{{ root.label }}</span>
-              </label>
-            {% else %}
-              <div class="empty-small">No roots found.</div>
-            {% endfor %}
-          </div>
-        </details>
-
-        <details class="filter-menu" data-dropdown-menu>
-          <summary data-filter-summary="genres" data-summary-label="Genres">Genres{% if selected_genre_filter_count %}: {{ selected_genre_filter_count }}{% endif %}</summary>
-          <div class="filter-options">
-            {% for group in filters.genre_groups %}
-              {% set group_index = loop.index0 %}
-              <div class="filter-group">
-                <label class="filter-option filter-option-parent">
-                  <input type="hidden" name="genre[{{ group_index }}][p]" value="{{ group.genre }}" data-genre-parent-param {% if group.genre not in selected_genres %}disabled{% endif %}>
-                  <input type="checkbox" value="{{ group.genre }}" data-genre-parent-control {% if (group.styles and group.genre in checked_genres) or (not group.styles and group.genre in selected_genres) %}checked{% endif %}>
-                  <span>{{ group.genre }}</span>
-                </label>
-                {% for style in group.styles %}
-                  <label class="filter-option filter-option-child">
-                    <input type="checkbox" name="genre[{{ group_index }}][c][]" value="{{ style }}" data-genre-child-control {% if style in selected_styles %}checked{% endif %}>
-                    <span>{{ style }}</span>
+    {% if show_filter_form %}
+      <form id="filters" class="filters" action="{{ filter_action_url }}" method="get" data-filter-form
+        data-default-sort="{{ sort_options[0][0] }}">
+        <input type="hidden" name="per_page" value="{% if query.per_page != default_per_page %}{{ query.per_page }}{% endif %}">
+        {% for artist in query.artists %}
+          <input type="hidden" name="artist" value="{{ artist }}">
+        {% endfor %}
+        <div class="search-controls">
+          {% if show_filter_controls %}
+          <details class="filter-menu" data-dropdown-menu>
+            <summary data-filter-summary="genres" data-summary-label="Genres">Genres{% if selected_genre_filter_count %}: {{ selected_genre_filter_count }}{% endif %}</summary>
+            <div class="filter-options">
+              {% for group in filters.genre_groups %}
+                {% set group_index = loop.index0 %}
+                <div class="filter-group">
+                  <label class="filter-option filter-option-parent">
+                    <input type="hidden" name="genre[{{ group_index }}][p]" value="{{ group.genre }}" data-genre-parent-param {% if group.genre not in selected_genres %}disabled{% endif %}>
+                    <input type="checkbox" value="{{ group.genre }}" data-genre-parent-control {% if (group.styles and group.genre in checked_genres) or (not group.styles and group.genre in selected_genres) %}checked{% endif %}>
+                    <span>{{ group.genre }}</span>
                   </label>
-                {% endfor %}
+                  {% for style in group.styles %}
+                    <label class="filter-option filter-option-child">
+                      <input type="checkbox" name="genre[{{ group_index }}][c][]" value="{{ style }}" data-genre-child-control {% if style in selected_styles %}checked{% endif %}>
+                      <span>{{ style }}</span>
+                    </label>
+                  {% endfor %}
+                </div>
+              {% else %}
+                <div class="empty-small">No genres found.</div>
+              {% endfor %}
+            </div>
+          </details>
+          {% endif %}
+          <details class="filter-menu search-menu" data-dropdown-menu data-search-menu>
+            <summary data-filter-summary="search" data-summary-label="Search"
+              title="{% if query.search %}Search: {{ query.search }}{% else %}Search{% endif %}">
+              <span class="search-menu-label">Search{% if query.search %}:{% endif %}</span>
+              {% if query.search %}
+                <span class="search-menu-value">{{ query.search }}</span>
+              {% endif %}
+            </summary>
+            <div class="filter-options search-options">
+              <div class="search-submit-group">
+                <label class="search-field">
+                  <span class="visually-hidden">Search</span>
+                  <input type="search" name="search" value="{{ query.search or '' }}"
+                    placeholder="{{ search_placeholder }}" autocomplete="off" spellcheck="false"
+                    data-initial-focus>
+                </label>
+                <button class="search-button" type="submit" aria-label="Search" title="Search">
+                  {{ search_icon("search-submit-icon") }}
+                </button>
               </div>
-            {% else %}
-              <div class="empty-small">No genres found.</div>
-            {% endfor %}
-          </div>
-        </details>
-
-        <details class="filter-menu" data-dropdown-menu>
-          <summary data-filter-summary="properties" data-summary-label="Properties">Properties{% if selected_property_count %}: {{ selected_property_count }}{% endif %}</summary>
-          <div class="filter-options">
-            <div class="filter-group">
-              <div class="filter-subheader">Cover</div>
-              <label class="filter-option filter-option-child">
-                <input type="radio" name="has_cover" value="" {% if query.has_cover is none %}checked{% endif %}>
-                <span>Any</span>
-              </label>
-              <label class="filter-option filter-option-child">
-                <input type="radio" name="has_cover" value="1" {% if query.has_cover is sameas true %}checked{% endif %}>
-                <span>Has cover</span>
-              </label>
-              <label class="filter-option filter-option-child">
-                <input type="radio" name="has_cover" value="0" {% if query.has_cover is sameas false %}checked{% endif %}>
-                <span>No cover</span>
-              </label>
             </div>
-            <div class="filter-group">
-              <div class="filter-subheader">Compilation</div>
-              <label class="filter-option filter-option-child">
-                <input type="radio" name="compilation" value="" {% if query.is_compilation is none %}checked{% endif %}>
-                <span>Any</span>
-              </label>
-              <label class="filter-option filter-option-child">
-                <input type="radio" name="compilation" value="1" {% if query.is_compilation is sameas true %}checked{% endif %}>
-                <span>Compilation</span>
-              </label>
-              <label class="filter-option filter-option-child">
-                <input type="radio" name="compilation" value="0" {% if query.is_compilation is sameas false %}checked{% endif %}>
-                <span>Not compilation</span>
-              </label>
+          </details>
+          {% if show_sort_controls %}
+          {% set selected_sort = namespace(label=sort_options[0][1]) %}
+          {% for value, label in sort_options %}
+            {% if query.sort == value %}
+              {% set selected_sort.label = label %}
+            {% endif %}
+          {% endfor %}
+          <details class="filter-menu sort-menu" data-dropdown-menu>
+            <summary data-filter-summary="sort" data-summary-label="Sort"
+              title="Sort: {{ selected_sort.label }}">
+              <span class="sort-menu-label">Sort:</span>
+              <span class="sort-menu-value">{{ selected_sort.label }}</span>
+            </summary>
+            <div class="filter-options sort-options">
+              {% for value, label in sort_options %}
+                <label class="filter-option">
+                  <input type="radio" name="sort" value="{{ value }}" {% if query.sort == value %}checked{% endif %}>
+                  <span>{{ label }}</span>
+                </label>
+              {% endfor %}
             </div>
-            <div class="filter-group">
-              <div class="filter-subheader">Work</div>
-              <label class="filter-option filter-option-child">
-                <input type="radio" name="work" value="" {% if query.is_work is none %}checked{% endif %}>
-                <span>Any</span>
-              </label>
-              <label class="filter-option filter-option-child">
-                <input type="radio" name="work" value="1" {% if query.is_work is sameas true %}checked{% endif %}>
-                <span>Work</span>
-              </label>
-              <label class="filter-option filter-option-child">
-                <input type="radio" name="work" value="0" {% if query.is_work is sameas false %}checked{% endif %}>
-                <span>Not work</span>
-              </label>
-            </div>
-          </div>
-        </details>
-
-        <a class="button-link" href="{{ clear_url }}" data-nav>Clear</a>
-      </div>
-      {% endif %}
-    </form>
+          </details>
+          {% endif %}
+          <a class="button-link clear-filter-button" href="{{ clear_url }}" data-nav aria-label="Clear" title="Clear">
+            {{ delete_icon("clear-icon") }}<span class="visually-hidden">Clear</span>
+          </a>
+        </div>
+      </form>
+    {% endif %}
   </header>
 
   <div data-library-results>
@@ -166,13 +116,18 @@
                 </div>
               {% endif %}
             </div>
-            <a class="album-card-link" href="{{ album|album_url(query) }}" data-nav data-album-nav
-              aria-label="{{ album.album|display_album_title }} by {{ album.artist }}">
-              <span class="album-copy">
+            <span class="album-copy">
+              <a class="album-card-link" href="{{ album|album_url(query) }}" data-nav data-album-nav
+                aria-label="{{ album.album|display_album_title }} by {{ album.artist }}">
                 <span class="album-name" title="{{ album.album|display_album_title }}">{{ album.album|display_album_title }}</span>
+              </a>
+              {% set artist_url = album|album_artist_url(query) %}
+              {% if artist_url %}
+                <a class="album-artist album-artist-link" href="{{ artist_url }}" data-nav title="{{ album.artist }}">{{ album.artist }}</a>
+              {% else %}
                 <span class="album-artist" title="{{ album.artist }}">{% if album.is_playlist %}Playlist{% else %}{{ album.artist }}{% endif %}</span>
-              </span>
-            </a>
+              {% endif %}
+            </span>
           </div>
         {% endfor %}
       </div>

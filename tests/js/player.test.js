@@ -96,7 +96,23 @@ class TestElement {
   }
 
   append(...nodes) {
+    for (const node of nodes) {
+      const index = this.children.indexOf(node);
+      if (index !== -1) {
+        this.children.splice(index, 1);
+      }
+    }
     this.children.push(...nodes);
+  }
+
+  prepend(...nodes) {
+    for (const node of nodes) {
+      const index = this.children.indexOf(node);
+      if (index !== -1) {
+        this.children.splice(index, 1);
+      }
+    }
+    this.children.unshift(...nodes);
   }
 
   replaceChildren(...nodes) {
@@ -113,7 +129,7 @@ class TestElement {
     if (Array.isArray(value)) {
       return value[0] || null;
     }
-    return value || null;
+    return value || findDescendant(this, selector);
   }
 
   querySelectorAll(selector) {
@@ -121,7 +137,7 @@ class TestElement {
     if (Array.isArray(value)) {
       return value;
     }
-    return value ? [value] : [];
+    return value ? [value] : findDescendants(this, selector);
   }
 
   setAttribute(name, value) {
@@ -168,6 +184,40 @@ class TestElement {
   getBoundingClientRect() {
     return {top: 0};
   }
+}
+
+function findDescendant(element, selector) {
+  return findDescendants(element, selector)[0] || null;
+}
+
+function findDescendants(element, selector) {
+  const matches = [];
+  for (const child of element.children) {
+    if (matchesSelector(child, selector)) {
+      matches.push(child);
+    }
+    matches.push(...findDescendants(child, selector));
+  }
+  return matches;
+}
+
+function matchesSelector(element, selector) {
+  if (selector.startsWith(".")) {
+    return element.className.split(/\s+/).includes(selector.slice(1));
+  }
+  const dataMatch = selector.match(/^\[data-([a-z0-9-]+)(?:="([^"]*)")?\]$/i);
+  if (dataMatch) {
+    const key = datasetKey(dataMatch[1]);
+    if (dataMatch[2] === undefined) {
+      return Object.prototype.hasOwnProperty.call(element.dataset, key);
+    }
+    return String(element.dataset[key] ?? "") === dataMatch[2];
+  }
+  return false;
+}
+
+function datasetKey(attributeName) {
+  return attributeName.replace(/-([a-z])/g, (_match, letter) => letter.toUpperCase());
 }
 
 class TestAudioElement extends TestElement {
@@ -353,8 +403,10 @@ function createHarness(initialQueueState, options = {}) {
 
   return {
     audio: elements.audio,
+    context,
     document,
     fetchCalls,
+    jobToasts: elements["job-toasts"],
     meta,
     nextButton: elements.next,
     playButton: elements.play,
@@ -365,6 +417,296 @@ function createHarness(initialQueueState, options = {}) {
     },
   };
 }
+
+test("filter form submit helper closes search menu", () => {
+  const harness = createHarness({
+    track_ids: [],
+    position: 0,
+    loaded_track_id: null,
+    paused: true,
+    errored_track_ids: [],
+    unavailable_track_ids: [],
+  });
+  const form = harness.document.createElement("form");
+  const menu = harness.document.createElement("details");
+  menu.open = true;
+  form.setQueryResult("details[data-search-menu]", menu);
+
+  harness.context.closeSearchMenu(form);
+
+  assert.equal(menu.open, false);
+});
+
+test("combined album edit submit includes prefilled and cleared MusicBrainz URLs", async () => {
+  const harness = createHarness({
+    track_ids: [],
+    position: 0,
+    loaded_track_id: null,
+    paused: true,
+    errored_track_ids: [],
+    unavailable_track_ids: [],
+  });
+
+  const form = harness.document.createElement("form");
+  form.action = "/api/albums/old-artist::album/edit";
+  const topButton = harness.document.createElement("button");
+  const bottomButton = harness.document.createElement("button");
+  const status = harness.document.createElement("div");
+  const albumInput = harness.document.createElement("input");
+  const albumArtistInput = harness.document.createElement("input");
+  const genreInput = harness.document.createElement("input");
+  albumInput.value = "Manual Album";
+  albumArtistInput.value = "Manual Artist";
+  genreInput.value = "Manual Genre";
+
+  const trackOneRow = harness.document.createElement("div");
+  trackOneRow.dataset.trackId = "1";
+  const trackOneArtist = harness.document.createElement("input");
+  const trackOneNumber = harness.document.createElement("input");
+  const trackOneTitle = harness.document.createElement("input");
+  trackOneArtist.value = "Track Artist 1";
+  trackOneNumber.value = "1";
+  trackOneTitle.value = "Track Title 1";
+  trackOneRow.setQueryResult("[data-track-artist-input]", trackOneArtist);
+  trackOneRow.setQueryResult("[data-track-number-input]", trackOneNumber);
+  trackOneRow.setQueryResult("[data-track-title-input]", trackOneTitle);
+
+  const trackTwoRow = harness.document.createElement("div");
+  trackTwoRow.dataset.trackId = "2";
+  const trackTwoArtist = harness.document.createElement("input");
+  const trackTwoNumber = harness.document.createElement("input");
+  const trackTwoTitle = harness.document.createElement("input");
+  trackTwoArtist.value = "Track Artist 2";
+  trackTwoNumber.value = "2";
+  trackTwoTitle.value = "Track Title 2";
+  trackTwoRow.setQueryResult("[data-track-artist-input]", trackTwoArtist);
+  trackTwoRow.setQueryResult("[data-track-number-input]", trackTwoNumber);
+  trackTwoRow.setQueryResult("[data-track-title-input]", trackTwoTitle);
+
+  function musicBrainzGroup(value, serverValue, trackId) {
+    const group = harness.document.createElement("section");
+    const urlInput = harness.document.createElement("input");
+    urlInput.value = value;
+    urlInput.setAttribute("data-server-value", serverValue);
+    const trackIdInput = harness.document.createElement("input");
+    trackIdInput.value = String(trackId);
+    group.setQueryResult("[data-musicbrainz-url-input]", urlInput);
+    group.setQueryResult("[data-musicbrainz-track-id]", [trackIdInput]);
+    return {group, urlInput, trackIdInput};
+  }
+
+  const keptGroup = musicBrainzGroup(
+    "https://musicbrainz.org/release/11111111-1111-1111-1111-111111111111",
+    "https://musicbrainz.org/release/11111111-1111-1111-1111-111111111111",
+    1
+  );
+  const clearedGroup = musicBrainzGroup(
+    "",
+    "https://musicbrainz.org/release/22222222-2222-2222-2222-222222222222",
+    2
+  );
+  const unchangedBlankGroup = musicBrainzGroup("", "", 3);
+
+  form.setQueryResult("[data-apply-album-edit]", [topButton, bottomButton]);
+  form.setQueryResult("[data-album-edit-status]", status);
+  form.setQueryResult("[data-album-input]", albumInput);
+  form.setQueryResult("[data-album-artist-input]", albumArtistInput);
+  form.setQueryResult("[data-album-genre-input]", genreInput);
+  form.setQueryResult("[data-track-tag-row]", [trackOneRow, trackTwoRow]);
+  form.setQueryResult(
+    "[data-musicbrainz-group]",
+    [keptGroup.group, clearedGroup.group, unchangedBlankGroup.group]
+  );
+  form.setQueryResult("input, textarea, select, button", [
+    topButton,
+    bottomButton,
+    albumInput,
+    albumArtistInput,
+    genreInput,
+    trackOneArtist,
+    trackOneNumber,
+    trackOneTitle,
+    trackTwoArtist,
+    trackTwoNumber,
+    trackTwoTitle,
+    keptGroup.urlInput,
+    keptGroup.trackIdInput,
+    clearedGroup.urlInput,
+    clearedGroup.trackIdInput,
+    unchangedBlankGroup.urlInput,
+    unchangedBlankGroup.trackIdInput,
+  ]);
+
+  await harness.context.submitAlbumEditForm(form);
+  await harness.flush();
+
+  assert.equal(harness.fetchCalls.length, 1);
+  assert.equal(harness.fetchCalls[0].url, "/api/albums/old-artist::album/edit");
+  assert.deepEqual(harness.fetchCalls[0].body, {
+    tags: {
+      album: "Manual Album",
+      album_artist: "Manual Artist",
+      genre: "Manual Genre",
+      tracks: [
+        {
+          track_id: 1,
+          artist: "Track Artist 1",
+          track_number: "1",
+          title: "Track Title 1",
+        },
+        {
+          track_id: 2,
+          artist: "Track Artist 2",
+          track_number: "2",
+          title: "Track Title 2",
+        },
+      ],
+    },
+    musicbrainz: {
+      groups: [
+        {
+          musicbrainz_url: "https://musicbrainz.org/release/11111111-1111-1111-1111-111111111111",
+          track_ids: [1],
+        },
+        {
+          musicbrainz_url: "",
+          track_ids: [2],
+        },
+      ],
+    },
+  });
+  assert.equal(status.textContent, "Tag edit queued.");
+  assert.equal(topButton.disabled, false);
+  assert.equal(bottomButton.getAttribute("aria-busy"), null);
+});
+
+test("album edit submit can send MusicBrainz-only groups", async () => {
+  const harness = createHarness({
+    track_ids: [],
+    position: 0,
+    loaded_track_id: null,
+    paused: true,
+    errored_track_ids: [],
+    unavailable_track_ids: [],
+  });
+
+  const form = harness.document.createElement("form");
+  form.action = "/api/albums/old-artist::album/edit";
+  const topButton = harness.document.createElement("button");
+  const bottomButton = harness.document.createElement("button");
+  const status = harness.document.createElement("div");
+
+  function musicBrainzGroup(value, serverValue, trackId) {
+    const group = harness.document.createElement("section");
+    const urlInput = harness.document.createElement("input");
+    urlInput.value = value;
+    urlInput.setAttribute("data-server-value", serverValue);
+    const trackIdInput = harness.document.createElement("input");
+    trackIdInput.value = String(trackId);
+    group.setQueryResult("[data-musicbrainz-url-input]", urlInput);
+    group.setQueryResult("[data-musicbrainz-track-id]", [trackIdInput]);
+    return {group, urlInput, trackIdInput};
+  }
+
+  const setGroup = musicBrainzGroup(
+    "https://musicbrainz.org/release/11111111-1111-1111-1111-111111111111",
+    "",
+    1
+  );
+  const clearedGroup = musicBrainzGroup(
+    "",
+    "https://musicbrainz.org/release/22222222-2222-2222-2222-222222222222",
+    2
+  );
+
+  form.setQueryResult("[data-apply-album-edit]", [topButton, bottomButton]);
+  form.setQueryResult("[data-album-edit-status]", status);
+  form.setQueryResult("[data-musicbrainz-group]", [setGroup.group, clearedGroup.group]);
+  form.setQueryResult("input, textarea, select, button", [
+    topButton,
+    bottomButton,
+    setGroup.urlInput,
+    setGroup.trackIdInput,
+    clearedGroup.urlInput,
+    clearedGroup.trackIdInput,
+  ]);
+
+  await harness.context.submitAlbumEditForm(form);
+  await harness.flush();
+
+  assert.equal(harness.fetchCalls.length, 1);
+  assert.equal(harness.fetchCalls[0].url, "/api/albums/old-artist::album/edit");
+  assert.deepEqual(harness.fetchCalls[0].body, {
+    musicbrainz: {
+      groups: [
+        {
+          musicbrainz_url: "https://musicbrainz.org/release/11111111-1111-1111-1111-111111111111",
+          track_ids: [1],
+        },
+        {
+          musicbrainz_url: "",
+          track_ids: [2],
+        },
+      ],
+    },
+  });
+  assert.equal(status.textContent, "Tag edit queued.");
+  assert.equal(topButton.disabled, false);
+  assert.equal(bottomButton.getAttribute("aria-busy"), null);
+});
+
+test("album edit MusicBrainz URL disables only album-level tag fields", () => {
+  const harness = createHarness({
+    track_ids: [],
+    position: 0,
+    loaded_track_id: null,
+    paused: true,
+    errored_track_ids: [],
+    unavailable_track_ids: [],
+  });
+
+  const form = harness.document.createElement("form");
+  form.setAttribute("data-album-edit-form", "");
+  const group = harness.document.createElement("section");
+  const urlInput = harness.document.createElement("input");
+  const albumInput = harness.document.createElement("input");
+  const albumArtistInput = harness.document.createElement("input");
+  const genreInput = harness.document.createElement("input");
+  const trackArtistInput = harness.document.createElement("input");
+  const trackNumberInput = harness.document.createElement("input");
+  const trackTitleInput = harness.document.createElement("input");
+  const note = harness.document.createElement("p");
+  note.hidden = true;
+
+  form.setQueryResult("[data-musicbrainz-group]", [group]);
+  form.setQueryResult("[data-musicbrainz-url-input]", urlInput);
+  form.setQueryResult("[data-album-input]", albumInput);
+  form.setQueryResult("[data-album-artist-input]", albumArtistInput);
+  form.setQueryResult("[data-album-genre-input]", genreInput);
+  form.setQueryResult("[data-album-level-musicbrainz-note]", note);
+
+  urlInput.value = "https://musicbrainz.org/release/11111111-1111-1111-1111-111111111111";
+  harness.context.syncAlbumEditAlbumLevelFields(form);
+
+  assert.equal(albumInput.disabled, true);
+  assert.equal(albumArtistInput.disabled, true);
+  assert.equal(genreInput.disabled, true);
+  assert.equal(trackArtistInput.disabled, false);
+  assert.equal(trackNumberInput.disabled, false);
+  assert.equal(trackTitleInput.disabled, false);
+  assert.equal(note.hidden, false);
+
+  urlInput.value = "";
+  harness.context.syncAlbumEditAlbumLevelFields(form);
+
+  assert.equal(albumInput.disabled, false);
+  assert.equal(albumArtistInput.disabled, false);
+  assert.equal(genreInput.disabled, false);
+  assert.equal(trackArtistInput.disabled, false);
+  assert.equal(trackNumberInput.disabled, false);
+  assert.equal(trackTitleInput.disabled, false);
+  assert.equal(note.hidden, true);
+});
 
 test("play restarts from the first playable track after a non-empty queue is exhausted", async () => {
   const harness = createHarness({
@@ -414,4 +756,74 @@ test("queue page played count follows next and previous queue selection", async 
 
   assert.equal(harness.meta.textContent, "3 tracks - 1 played");
   assert.equal(harness.audio.src, "/audio/2");
+});
+
+test("job toast does not rewind from running to queued", () => {
+  const harness = createHarness({
+    track_ids: [],
+    position: 0,
+    loaded_track_id: null,
+    paused: true,
+    errored_track_ids: [],
+    unavailable_track_ids: [],
+  });
+
+  harness.context.showJobToast({
+    job_id: 60,
+    kind: "rescan_library",
+    kind_label: "Rescan",
+    status: "running",
+    status_label: "Running",
+    message: "Rescan running.",
+    updated_at: "2026-05-05T11:24:46Z",
+  });
+  harness.context.showJobToast({
+    job_id: 60,
+    kind: "rescan_library",
+    kind_label: "Rescan",
+    status: "queued",
+    status_label: "Queued",
+    message: "Rescan queued.",
+    updated_at: "2026-05-05T11:24:45Z",
+  });
+
+  const toast = harness.jobToasts.children[0];
+  assert.equal(harness.jobToasts.children.length, 1);
+  assert.equal(toast.className, "job-toast running");
+  assert.equal(toast.querySelector(".job-toast-message").textContent, "Rescan running.");
+});
+
+test("terminal job toast does not rewind to running", () => {
+  const harness = createHarness({
+    track_ids: [],
+    position: 0,
+    loaded_track_id: null,
+    paused: true,
+    errored_track_ids: [],
+    unavailable_track_ids: [],
+  });
+
+  harness.context.showJobToast({
+    job_id: 61,
+    kind: "edit_album",
+    kind_label: "Tag edit",
+    status: "succeeded",
+    status_label: "Succeeded",
+    message: "Tags saved.",
+    updated_at: "2026-05-05T11:27:26Z",
+  });
+  harness.context.showJobToast({
+    job_id: 61,
+    kind: "edit_album",
+    kind_label: "Tag edit",
+    status: "running",
+    status_label: "Running",
+    message: "Tag edit running.",
+    updated_at: "2026-05-05T11:27:25Z",
+  });
+
+  const toast = harness.jobToasts.children[0];
+  assert.equal(harness.jobToasts.children.length, 1);
+  assert.equal(toast.className, "job-toast succeeded");
+  assert.equal(toast.querySelector(".job-toast-message").textContent, "Tags saved.");
 });

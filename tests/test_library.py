@@ -153,6 +153,155 @@ class LibraryAlbumPathQueryTest(unittest.TestCase):
         self.assertIn("album_id=?", details)
         self.assertNotIn("SCAN albums", details)
 
+    def test_unfiltered_album_sort_plans_use_sort_indexes(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            database = Path(tempdir) / "kukicha.sqlite"
+            with connect_database(database) as connection:
+                for index in range(100):
+                    connection.execute(
+                        """
+                        INSERT INTO library_albums (
+                            album_id,
+                            album,
+                            year,
+                            track_count,
+                            file_created_at,
+                            artist_sort_key,
+                            album_sort_key,
+                            genre_sort_key
+                        ) VALUES (?, ?, ?, 1, ?, ?, ?, ?)
+                        """,
+                        (
+                            f"album-{index}",
+                            f"Album {index}",
+                            None if index % 10 == 0 else 2000 + index % 20,
+                            (
+                                ""
+                                if index % 7 == 0
+                                else f"2026-01-{(index % 28) + 1:02d}T12:00:00+00:00"
+                            ),
+                            f"artist {index % 5}",
+                            f"album {index}",
+                            "" if index % 6 == 0 else f"genre {index % 3}",
+                        ),
+                    )
+
+                expected_indexes = {
+                    ALBUM_LIST_SORT_RECENTLY_ADDED: "idx_library_albums_recently_added_sort",
+                    ALBUM_LIST_SORT_ARTIST: "idx_library_albums_artist_sort",
+                    ALBUM_LIST_SORT_GENRE: "idx_library_albums_genre_sort",
+                }
+                details_by_sort: dict[str, str] = {}
+                for sort in expected_indexes:
+                    query = AlbumListQuery(sort=sort)
+                    where_sql, params = album_where_clause(query)
+                    sort_columns = album_sort_columns(query)
+                    plan_rows = list(
+                        connection.execute(
+                            f"""
+                            EXPLAIN QUERY PLAN
+                            SELECT
+                                albums.album_id,
+                                albums.album,
+                                albums.year,
+                                albums.track_count,
+                                albums.file_created_at,
+                                albums.art_track_id
+                                {album_sort_select_sql(sort_columns)}
+                            FROM library_albums AS albums
+                            {where_sql}
+                            {album_order_by_clause(sort_columns)}
+                            LIMIT ?
+                            """,
+                            [*params, 201],
+                        )
+                    )
+                    details_by_sort[sort] = "\n".join(
+                        str(row["detail"]) for row in plan_rows
+                    )
+
+        for sort, index_name in expected_indexes.items():
+            with self.subTest(sort=sort):
+                self.assertIn(index_name, details_by_sort[sort])
+                self.assertNotIn("USE TEMP B-TREE FOR ORDER BY", details_by_sort[sort])
+
+    def test_album_sort_columns_match_sort_index_expressions(self) -> None:
+        sort_expressions = {
+            ALBUM_LIST_SORT_RECENTLY_ADDED: [
+                "CASE WHEN NULLIF(albums.file_created_at, '') IS NULL THEN 1 ELSE 0 END",
+                "albums.file_created_at",
+                "albums.artist_sort_key",
+                "CASE WHEN albums.year IS NULL THEN 1 ELSE 0 END",
+                "albums.year",
+                "albums.album_sort_key",
+                "albums.album_id",
+            ],
+            ALBUM_LIST_SORT_ARTIST: [
+                "albums.artist_sort_key",
+                "CASE WHEN albums.year IS NULL THEN 1 ELSE 0 END",
+                "albums.year",
+                "albums.album_sort_key",
+                "albums.album_id",
+            ],
+            ALBUM_LIST_SORT_GENRE: [
+                "CASE WHEN NULLIF(albums.genre_sort_key, '') IS NULL THEN 1 ELSE 0 END",
+                "albums.genre_sort_key",
+                "albums.artist_sort_key",
+                "CASE WHEN albums.year IS NULL THEN 1 ELSE 0 END",
+                "albums.year",
+                "albums.album_sort_key",
+                "albums.album_id",
+            ],
+        }
+
+        for sort, expected in sort_expressions.items():
+            with self.subTest(sort=sort):
+                columns = album_sort_columns(AlbumListQuery(sort=sort))
+                self.assertEqual([column.expression for column in columns], expected)
+
+    def test_migrates_null_album_file_created_at_to_empty_text(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            database = Path(tempdir) / "kukicha.sqlite"
+            legacy_connection = sqlite3.connect(database)
+            try:
+                legacy_connection.execute(
+                    """
+                    CREATE TABLE library_albums (
+                        album_id TEXT PRIMARY KEY,
+                        album TEXT NOT NULL,
+                        year INTEGER,
+                        track_count INTEGER NOT NULL,
+                        file_created_at TEXT
+                    )
+                    """
+                )
+                legacy_connection.execute(
+                    """
+                    INSERT INTO library_albums (
+                        album_id,
+                        album,
+                        year,
+                        track_count,
+                        file_created_at
+                    ) VALUES ('artist::album', 'Album', 2026, 1, NULL)
+                    """
+                )
+                legacy_connection.commit()
+            finally:
+                legacy_connection.close()
+
+            with connect_database(database) as connection:
+                row = connection.execute(
+                    """
+                    SELECT file_created_at
+                    FROM library_albums
+                    WHERE album_id = 'artist::album'
+                    """
+                ).fetchone()
+
+        self.assertIsNotNone(row)
+        self.assertEqual(str(row["file_created_at"]), "")
+
     def test_album_details_paths_come_from_tracks_in_case_insensitive_path_order(self) -> None:
         with TemporaryDirectory() as tempdir:
             database = Path(tempdir) / "kukicha.sqlite"
@@ -193,6 +342,39 @@ class LibraryAlbumPathQueryTest(unittest.TestCase):
                 "/music/artist/album/a.flac",
                 "/music/Artist/Album/B.flac",
             ),
+        )
+
+    def test_album_details_sort_alphanumeric_track_numbers_naturally(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            database = Path(tempdir) / "kukicha.sqlite"
+            track_numbers = ("B3", "A1", "B1", "B2", "A2", "A3")
+            save_library(
+                MusicLibrary(
+                    roots=["/music"],
+                    tracks=[
+                        TrackRecord(
+                            path=f"/music/Artist/Album/{track_number}.flac",
+                            root_position=0,
+                            file_type="flac",
+                            artist="Artist",
+                            album_artist="Artist",
+                            album="Album",
+                            title=track_number,
+                            track_number=track_number,
+                        )
+                        for track_number in track_numbers
+                    ],
+                    supported_extensions=[".flac"],
+                    generated_at="2026-04-22T00:00:00+00:00",
+                ),
+                database,
+            )
+
+            album = LibraryQueries(database).get_album("artist::album")
+
+        self.assertEqual(
+            [track.track_number for track in album.tracks],
+            ["A1", "A2", "A3", "B1", "B2", "B3"],
         )
 
     def test_album_details_paths_respect_root_filter(self) -> None:
@@ -291,12 +473,6 @@ class LibraryAlbumPathQueryTest(unittest.TestCase):
             root_b_page = api.list_album_page(
                 AlbumListQuery(root_positions=(1,))
             )
-            root_b_cover_page = api.list_album_page(
-                AlbumListQuery(root_positions=(1,), has_cover=True)
-            )
-            root_a_cover_page = api.list_album_page(
-                AlbumListQuery(root_positions=(0,), has_cover=True)
-            )
             root_b_genre_page = api.list_album_page(
                 AlbumListQuery(root_positions=(1,), genres=("Jazz",))
             )
@@ -305,8 +481,6 @@ class LibraryAlbumPathQueryTest(unittest.TestCase):
         self.assertEqual(root_b_page.items[0].track_count, 1)
         self.assertIsNone(root_b_page.items[0].art_track_id)
         self.assertFalse(hasattr(root_b_page.items[0], "track_ids"))
-        self.assertEqual(root_b_cover_page.items, ())
-        self.assertEqual([album.album for album in root_a_cover_page.items], ["Album"])
         self.assertEqual([album.album for album in root_b_genre_page.items], ["Album"])
 
     def test_album_art_track_id_uses_track_that_has_album_artwork(self) -> None:
@@ -581,6 +755,72 @@ class LibraryAlbumPathQueryTest(unittest.TestCase):
                 for artist in total_stats.album_artists
             ],
             [("The Sea And Cake", 2, 2)],
+        )
+
+    def test_total_album_stats_count_album_spanning_roots_once(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            database = Path(tempdir) / "kukicha.sqlite"
+            save_library(
+                MusicLibrary(
+                    roots=["/music/a", "/music/b"],
+                    tracks=[
+                        TrackRecord(
+                            path="/music/a/Artist/Split Album/01.flac",
+                            root_position=0,
+                            file_type="flac",
+                            artist="Artist",
+                            album_artist="Artist",
+                            album="Split Album",
+                            title="One",
+                        ),
+                        TrackRecord(
+                            path="/music/b/Artist/Split Album/02.flac",
+                            root_position=1,
+                            file_type="flac",
+                            artist="Artist",
+                            album_artist="Artist",
+                            album="Split Album",
+                            title="Two",
+                        ),
+                    ],
+                    supported_extensions=[".flac"],
+                    generated_at="2026-05-08T00:00:00+00:00",
+                ),
+                database,
+            )
+
+            api = LibraryQueries(database)
+            root_stats = api.library_root_stats()
+            total_stats = api.library_stats()
+
+        self.assertEqual(
+            [
+                (
+                    stat.root_position,
+                    stat.tracks_scanned,
+                    stat.albums_scanned,
+                    stat.playlists_scanned,
+                )
+                for stat in root_stats
+            ],
+            [
+                (0, 1, 1, 0),
+                (1, 1, 1, 0),
+            ],
+        )
+        self.assertEqual(total_stats.tracks_scanned, 2)
+        self.assertEqual(total_stats.albums_scanned, 1)
+        self.assertEqual(total_stats.playlists_scanned, 0)
+        self.assertEqual(
+            [
+                (
+                    artist.album_artist,
+                    artist.tracks_scanned,
+                    artist.albums_scanned,
+                )
+                for artist in total_stats.album_artists
+            ],
+            [("Artist", 2, 1)],
         )
 
 
@@ -1262,6 +1502,174 @@ class LibraryMusicBrainzPersistenceTest(unittest.TestCase):
                     [
                         ("/music/uk/01.flac", "radiohead::ok-computer::14e"),
                         ("/music/us/01.flac", "radiohead::ok-computer::608"),
+                    ],
+                )
+            finally:
+                connection.close()
+
+    def test_save_library_does_not_overwrite_track_links_with_single_album_link(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            database = Path(tempdir) / "kukicha.sqlite"
+            release_payloads = {
+                "11111111-1111-1111-1111-111111111111": {
+                    "country": "US",
+                    "date": "1997-05-21",
+                    "media": [{"format": "CD"}],
+                    "barcode": "724385522921",
+                    "release-group": {
+                        "id": "33333333-3333-3333-3333-333333333333"
+                    },
+                },
+                "22222222-2222-2222-2222-222222222222": {
+                    "country": "GB",
+                    "date": "1997",
+                    "media": [{"format": "Vinyl"}],
+                    "label-info": [{"catalog-number": "NODATA 02"}],
+                    "release-group": {
+                        "id": "44444444-4444-4444-4444-444444444444"
+                    },
+                },
+            }
+            connection = connect_database(database)
+            try:
+                connection.execute(
+                    """
+                    INSERT INTO library_albums (
+                        album_id, album, year, track_count
+                    ) VALUES (?, ?, ?, ?)
+                    """,
+                    ("radiohead::ok-computer::608", "OK Computer", 1997, 2),
+                )
+                connection.execute(
+                    """
+                    INSERT INTO library_album_artists (album_id, position, artist)
+                    VALUES (?, ?, ?)
+                    """,
+                    ("radiohead::ok-computer::608", 0, "Radiohead"),
+                )
+                connection.executemany(
+                    """
+                    INSERT INTO library_tracks (
+                        album_id, path, album_artist, artist, album, title
+                    ) VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        (
+                            "radiohead::ok-computer::608",
+                            "/music/us/01.flac",
+                            "Radiohead",
+                            "Radiohead",
+                            "OK Computer",
+                            "Airbag",
+                        ),
+                        (
+                            "radiohead::ok-computer::608",
+                            "/music/uk/01.flac",
+                            "Radiohead",
+                            "Radiohead",
+                            "OK Computer",
+                            "Airbag",
+                        ),
+                    ),
+                )
+                connection.execute(
+                    """
+                    INSERT INTO album_musicbrainz_links (
+                        file_album_id, release_mbid, release_group_mbid
+                    ) VALUES (?, ?, ?)
+                    """,
+                    (
+                        "radiohead::ok-computer",
+                        "22222222-2222-2222-2222-222222222222",
+                        "44444444-4444-4444-4444-444444444444",
+                    ),
+                )
+                connection.executemany(
+                    """
+                    INSERT INTO album_musicbrainz_track_links (
+                        path, file_album_id, release_mbid, release_group_mbid
+                    ) VALUES (?, ?, ?, ?)
+                    """,
+                    (
+                        (
+                            "/music/us/01.flac",
+                            "radiohead::ok-computer",
+                            "11111111-1111-1111-1111-111111111111",
+                            "33333333-3333-3333-3333-333333333333",
+                        ),
+                        (
+                            "/music/uk/01.flac",
+                            "radiohead::ok-computer",
+                            "22222222-2222-2222-2222-222222222222",
+                            "44444444-4444-4444-4444-444444444444",
+                        ),
+                    ),
+                )
+                connection.commit()
+            finally:
+                connection.close()
+
+            library = MusicLibrary(
+                roots=[],
+                tracks=[
+                    TrackRecord(
+                        path="/music/us/01.flac",
+                        artist="Radiohead",
+                        album_artist="Radiohead",
+                        album="OK Computer",
+                        title="Airbag",
+                    ),
+                    TrackRecord(
+                        path="/music/uk/01.flac",
+                        artist="Radiohead",
+                        album_artist="Radiohead",
+                        album="OK Computer",
+                        title="Airbag",
+                    ),
+                ],
+                supported_extensions=[],
+                generated_at="2026-04-22T00:00:00+00:00",
+            )
+
+            with patch(
+                "kukicha.use_case.library.get_musicbrainz_entity",
+                side_effect=lambda _connection, _client, *, entity_type, mbid: (
+                    release_payloads[mbid] if entity_type == "release" else None
+                ),
+            ):
+                save_library(library, database)
+
+            connection = connect_database(database, create=False)
+            try:
+                track_rows = [
+                    (str(row["path"]), str(row["album_id"]))
+                    for row in connection.execute(
+                        "SELECT path, album_id FROM library_tracks ORDER BY path"
+                    )
+                ]
+                self.assertEqual(
+                    track_rows,
+                    [
+                        ("/music/uk/01.flac", "radiohead::ok-computer::14e"),
+                        ("/music/us/01.flac", "radiohead::ok-computer::608"),
+                    ],
+                )
+                track_link_counts = [
+                    (str(row["release_mbid"]), int(row["count"]))
+                    for row in connection.execute(
+                        """
+                        SELECT release_mbid, COUNT(*) AS count
+                        FROM album_musicbrainz_track_links
+                        GROUP BY release_mbid
+                        ORDER BY release_mbid
+                        """
+                    )
+                ]
+                self.assertEqual(
+                    track_link_counts,
+                    [
+                        ("11111111-1111-1111-1111-111111111111", 1),
+                        ("22222222-2222-2222-2222-222222222222", 1),
                     ],
                 )
             finally:
@@ -2705,7 +3113,7 @@ class LibraryAlbumCursorPaginationTest(unittest.TestCase):
                         [item.album for item in first.items],
                     )
 
-    def test_album_cursor_pagination_respects_search_root_genre_and_property_filters(self) -> None:
+    def test_album_cursor_pagination_respects_search_root_and_genre_filters(self) -> None:
         with TemporaryDirectory() as tempdir:
             database = Path(tempdir) / "kukicha.sqlite"
             save_library(
@@ -2779,7 +3187,6 @@ class LibraryAlbumCursorPaginationTest(unittest.TestCase):
                 AlbumListQuery(
                     root_positions=(0,),
                     genre_filters=(GenreStyleFilter(genre="Ambient"),),
-                    has_cover=True,
                     sort=ALBUM_LIST_SORT_GENRE,
                     per_page=1,
                 )
@@ -2788,7 +3195,6 @@ class LibraryAlbumCursorPaginationTest(unittest.TestCase):
                 AlbumListQuery(
                     root_positions=(0,),
                     genre_filters=(GenreStyleFilter(genre="Ambient"),),
-                    has_cover=True,
                     sort=ALBUM_LIST_SORT_GENRE,
                     per_page=1,
                     page=2,
@@ -2850,7 +3256,13 @@ class LibraryAlbumCursorPaginationTest(unittest.TestCase):
             {"artist_sort_key", "album_sort_key", "genre_sort_key"},
             album_columns,
         )
+        self.assertTrue(
+            {"has_cover", "is_compilation", "is_work"}.isdisjoint(album_columns)
+        )
         self.assertIn("genre_sort_key", root_columns)
+        self.assertTrue(
+            {"has_cover", "is_compilation", "is_work"}.isdisjoint(root_columns)
+        )
         self.assertLessEqual(
             {
                 "idx_library_albums_recently_added_sort",
@@ -2858,6 +3270,13 @@ class LibraryAlbumCursorPaginationTest(unittest.TestCase):
                 "idx_library_albums_genre_sort",
             },
             album_indexes,
+        )
+        self.assertTrue(
+            {
+                "idx_library_albums_has_cover",
+                "idx_library_albums_is_compilation",
+                "idx_library_albums_is_work",
+            }.isdisjoint(album_indexes)
         )
         self.assertIn("idx_library_album_roots_genre_sort", root_indexes)
         self.assertIsNotNone(album_row)

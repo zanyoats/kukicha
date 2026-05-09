@@ -348,6 +348,8 @@ def save_library_with_options(
                 "SELECT path, track_id FROM library_tracks"
             )
         }
+        existing_playlist_ids_by_path = playlist_ids_by_path(connection)
+        existing_playlist_item_ids = playlist_item_ids_by_playlist_path(connection)
         for track in library.tracks:
             if track.track_id is None:
                 track.track_id = existing_track_ids_by_path.get(track.path)
@@ -376,7 +378,7 @@ def save_library_with_options(
                     album.album,
                     album.year,
                     album.track_count,
-                    album.file_created_at,
+                    album.file_created_at or "",
                 ),
             )
             for position, artist in enumerate(album.artists):
@@ -518,6 +520,7 @@ def save_library_with_options(
                         (track_id, height_px, artwork.mime_type, artwork.data),
                     )
 
+        playlist_item_occurrences: dict[tuple[str, str], int] = defaultdict(int)
         for playlist in library.playlists:
             root_position = playlist.root_position
             if (
@@ -531,17 +534,20 @@ def save_library_with_options(
                     playlist.path,
                     library_roots,
                 )
+            existing_playlist_id = existing_playlist_ids_by_path.get(playlist.path)
             cursor = connection.execute(
                 """
                 INSERT INTO library_playlists (
+                    playlist_id,
                     root_position,
                     path,
                     name,
                     cover_svg,
                     file_created_at
-                ) VALUES (?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?)
                 """,
                 (
+                    existing_playlist_id,
                     root_position,
                     playlist.path,
                     playlist.name,
@@ -549,14 +555,25 @@ def save_library_with_options(
                     playlist.file_created_at,
                 ),
             )
-            playlist_id = int(cursor.lastrowid)
+            playlist_id = (
+                int(existing_playlist_id)
+                if existing_playlist_id is not None
+                else int(cursor.lastrowid)
+            )
             playlist.playlist_id = playlist_id
             for position, item in enumerate(playlist.items):
                 track_id = item.track_id or track_ids_by_path.get(item.path)
                 is_tracked = track_id is not None
+                occurrence_key = (playlist.path, item.path)
+                occurrence = playlist_item_occurrences[occurrence_key]
+                playlist_item_occurrences[occurrence_key] += 1
+                existing_playlist_item_id = existing_playlist_item_ids.get(
+                    (playlist.path, item.path, occurrence)
+                )
                 connection.execute(
                     """
                     INSERT INTO library_playlist_items (
+                        playlist_item_id,
                         playlist_id,
                         position,
                         path,
@@ -566,9 +583,10 @@ def save_library_with_options(
                         duration_is_indeterminate,
                         genre,
                         cover_url
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
+                        existing_playlist_item_id,
                         playlist_id,
                         position,
                         item.path,
@@ -599,6 +617,48 @@ def save_library_with_options(
     finally:
         if owns_connection:
             connection.close()
+
+
+def playlist_ids_by_path(connection: sqlite3.Connection) -> dict[str, int]:
+    return {
+        str(row["path"]): int(row["playlist_id"])
+        for row in connection.execute(
+            """
+            SELECT path, playlist_id
+            FROM library_playlists
+            """
+        )
+    }
+
+
+def playlist_item_ids_by_playlist_path(
+    connection: sqlite3.Connection,
+) -> dict[tuple[str, str, int], int]:
+    occurrences: dict[tuple[str, str], int] = defaultdict(int)
+    item_ids: dict[tuple[str, str, int], int] = {}
+    for row in connection.execute(
+        """
+        SELECT
+            playlists.path AS playlist_path,
+            items.path AS item_path,
+            items.playlist_item_id
+        FROM library_playlist_items AS items
+        JOIN library_playlists AS playlists
+            ON playlists.playlist_id = items.playlist_id
+        ORDER BY playlists.path, items.position, items.playlist_item_id
+        """
+    ):
+        occurrence_key = (str(row["playlist_path"]), str(row["item_path"]))
+        occurrence = occurrences[occurrence_key]
+        occurrences[occurrence_key] += 1
+        item_ids[
+            (
+                str(row["playlist_path"]),
+                str(row["item_path"]),
+                occurrence,
+            )
+        ] = int(row["playlist_item_id"])
+    return item_ids
 
 
 def copy_album_musicbrainz_links_from_legacy_album_ids(
@@ -644,7 +704,14 @@ def copy_track_musicbrainz_links_from_existing_album_ids(
             """
         )
     )
+    existing_track_links = load_album_musicbrainz_track_links(
+        connection,
+        (str(row["path"]) for row in rows),
+    )
     for row in rows:
+        path = str(row["path"])
+        if path in existing_track_links:
+            continue
         album_id = str(row["album_id"])
         file_album_id = file_album_id_from_album_id(album_id)
         if file_album_id == album_id:
@@ -656,7 +723,7 @@ def copy_track_musicbrainz_links_from_existing_album_ids(
 
         store_album_musicbrainz_track_link(
             connection,
-            str(row["path"]),
+            path,
             file_album_id,
             release_mbid=link.release_mbid,
             release_group_mbid=link.release_group_mbid,
@@ -823,6 +890,8 @@ def apply_musicbrainz_link_variants_to_tracks(
 
         release_variant, release_mbid, release_group_mbid = next(iter(candidates.values()))
         for track in album_tracks:
+            if track.musicbrainz_release_mbid or track.musicbrainz_release_group_mbid:
+                continue
             if release_mbid:
                 track.musicbrainz_release_mbid = release_mbid
             if release_group_mbid:

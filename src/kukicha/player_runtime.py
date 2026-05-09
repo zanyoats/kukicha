@@ -276,6 +276,10 @@ class PlayerRuntime:
             )
         )
 
+    @property
+    def prefer_musicbrainz_english_aliases(self) -> bool:
+        return bool(getattr(self.options, "prefer_musicbrainz_english_aliases", True))
+
     def queue_state_copy(self) -> PlayerQueueState:
         from .use_case.commands.player import load_queue_state_database
 

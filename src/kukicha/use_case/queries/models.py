@@ -62,9 +62,6 @@ class AlbumListQuery:
     genres: tuple[str, ...] = ()
     styles: tuple[str, ...] = ()
     genre_filters: tuple[GenreStyleFilter, ...] = ()
-    has_cover: bool | None = None
-    is_compilation: bool | None = None
-    is_work: bool | None = None
     is_playlist: bool | None = None
     page: int = 1
     per_page: int = 200

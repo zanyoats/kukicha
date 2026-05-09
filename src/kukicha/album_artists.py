@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from collections.abc import Iterable
 
-DEFAULT_ALBUM_ARTIST_SPLIT_PATTERNS = ("with", "and", "&", ",", "/")
+DEFAULT_ALBUM_ARTIST_SPLIT_PATTERNS = ("with", "and", "&", ",", ";", "/")
 WITH_WORD_RE = re.compile(r"(?<!\w)with(?!\w)", re.IGNORECASE)
 
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, quote
@@ -61,13 +62,9 @@ def album_index_query_from_query_string(query_string: str) -> AlbumListQuery:
     return AlbumListQuery(
         artists=parsed.artists,
         album=parsed.album,
-        root_positions=parsed.root_positions,
         genres=parsed.genres,
         styles=parsed.styles,
         genre_filters=parsed.genre_filters,
-        has_cover=parsed.has_cover,
-        is_compilation=parsed.is_compilation,
-        is_work=parsed.is_work,
         page=parsed.page,
         per_page=parsed.per_page,
         search=parsed.search,
@@ -77,12 +74,8 @@ def album_index_query_from_query_string(query_string: str) -> AlbumListQuery:
     )
 
 
-def playlist_index_query_from_query_string(query_string: str) -> AlbumListQuery:
-    parsed = album_list_query_from_params(parse_qs(query_string))
+def playlist_index_query_from_query_string(_query_string: str) -> AlbumListQuery:
     return AlbumListQuery(
-        search=parsed.search,
-        page=parsed.page,
-        per_page=parsed.per_page,
         sort=ALBUM_LIST_SORT_RECENTLY_ADDED,
         is_playlist=True,
     )
@@ -95,7 +88,6 @@ def build_index_context(runtime: PlayerRuntime, query_string: str) -> dict[str, 
         album_index_url,
         checked_genre_values,
         player_page_context,
-        property_filter_count,
         selected_genre_filter_count,
         selected_genre_values,
         selected_style_values,
@@ -112,13 +104,10 @@ def build_index_context(runtime: PlayerRuntime, query_string: str) -> dict[str, 
         albums=album_page.items,
         query=query,
         filters=filters,
-        roots=filters.roots,
-        selected_roots=set(query.root_positions),
         selected_genres=selected_genre_values(filters, query),
         checked_genres=checked_genre_values(filters, query),
         selected_styles=selected_style_values(filters, query),
         selected_genre_filter_count=selected_genre_filter_count(filters, query),
-        selected_property_count=property_filter_count(query),
         previous_url=album_index_url(
             query,
             cursor=album_page.previous_cursor,
@@ -133,9 +122,10 @@ def build_index_context(runtime: PlayerRuntime, query_string: str) -> dict[str, 
         else "",
         clear_url="/",
         filter_action_url="/",
+        show_filter_form=True,
         show_filter_controls=True,
         show_sort_controls=True,
-        search_placeholder="Search albums, artists, tracks",
+        search_placeholder="Search albums and artists",
         empty_message="No albums matched these filters.",
         pagination_label="Album pages",
         show_pagination_controls=True,
@@ -147,12 +137,7 @@ def build_index_context(runtime: PlayerRuntime, query_string: str) -> dict[str, 
 
 
 def build_playlist_index_context(runtime: PlayerRuntime, query_string: str) -> dict[str, Any]:
-    from .player_navigation import (
-        ALBUM_SORT_OPTIONS,
-        DEFAULT_ALBUMS_PER_PAGE,
-        playlist_index_url,
-        player_page_context,
-    )
+    from .player_navigation import player_page_context
 
     api = LibraryQueries(runtime.database)
     query = playlist_index_query_from_query_string(query_string)
@@ -165,16 +150,10 @@ def build_playlist_index_context(runtime: PlayerRuntime, query_string: str) -> d
         query=query,
         previous_url="",
         next_url="",
-        clear_url="/playlists",
-        filter_action_url="/playlists",
-        show_filter_controls=False,
-        show_sort_controls=False,
-        search_placeholder="Search playlists",
-        empty_message="No playlists matched this search.",
+        empty_message="No playlists found.",
         pagination_label="Playlist pages",
+        show_filter_form=False,
         show_pagination_controls=False,
-        sort_options=ALBUM_SORT_OPTIONS,
-        default_per_page=DEFAULT_ALBUMS_PER_PAGE,
     )
     context.update(player_page_context("playlists"))
     return context
@@ -183,16 +162,10 @@ def build_playlist_index_context(runtime: PlayerRuntime, query_string: str) -> d
 def album_playback_payload(
     database: Path,
     album_id: str,
-    query_string: str,
 ) -> tuple[dict[str, object], ...]:
     from .player_presenters import track_playback_payloads, track_view
 
-    api = LibraryQueries(database)
-    query = api.expand_album_list_query(album_index_query_from_query_string(query_string))
-    album = api.get_album(
-        album_id,
-        root_positions=query.root_positions,
-    )
+    album = LibraryQueries(database).get_album(album_id)
     return track_playback_payloads(track_view(track) for track in album.tracks)
 
 
@@ -383,7 +356,6 @@ def build_album_context(
         album_edit_url,
         album_genre_links,
         album_index_url,
-        album_root_links,
         album_style_links,
     )
     from .player_presenters import (
@@ -395,10 +367,7 @@ def build_album_context(
 
     api = LibraryQueries(runtime.database)
     query = api.expand_album_list_query(album_index_query_from_query_string(query_string))
-    album = api.get_album(
-        album_id,
-        root_positions=query.root_positions,
-    )
+    album = api.get_album(album_id)
     track_views = track_views_with_playlist_options(
         runtime.database,
         [track_view(track) for track in album.tracks],
@@ -414,7 +383,6 @@ def build_album_context(
         query=query,
         tracks=track_views,
         track_sections=track_sections,
-        album_root_links=album_root_links(album, roots),
         album_artist_links=album_artist_links(album, query),
         album_genre_links=album_genre_links(album, query, filters),
         album_year_text=str(album.year) if album.year else "",
@@ -474,7 +442,6 @@ def build_album_edit_context(
 ) -> dict[str, Any]:
     from .player_navigation import (
         album_artist_parts,
-        album_root_links,
         album_genre_parts,
         album_style_parts,
         album_url,
@@ -487,13 +454,16 @@ def build_album_edit_context(
 
     api = LibraryQueries(runtime.database)
     query = api.expand_album_list_query(album_index_query_from_query_string(query_string))
-    album = api.get_album(
-        album_id,
-        root_positions=query.root_positions,
-    )
+    album = api.get_album(album_id)
     track_views = [track_view(track) for track in album.tracks]
     musicbrainz_link = album_musicbrainz_link(runtime.database, album.album_id)
     roots = api.library_roots()
+    musicbrainz_sections = album_musicbrainz_edit_sections(
+        runtime.database,
+        album.album_id,
+        track_views,
+        roots,
+    )
     return base_player_context(
         runtime,
         page_name="album-edit",
@@ -501,16 +471,14 @@ def build_album_edit_context(
         album=album,
         query=query,
         tracks=track_views,
-        album_musicbrainz_sections=album_tag_edit_sections(track_views, roots),
+        album_musicbrainz_sections=musicbrainz_sections,
         album_tag_edit_section=album_tag_edit_section_for_tracks(track_views),
-        album_root_links=album_root_links(album, roots),
         album_artist_parts=album_artist_parts(album),
         album_year_text=str(album.year) if album.year else "",
         album_genre_parts=album_genre_parts(album),
         album_style_parts=album_style_parts(album),
         album_back_url=album_url(album, query),
-        album_musicbrainz_action_url=f"/api/albums/{quote(album.album_id, safe=':')}/musicbrainz",
-        album_tag_edit_action_url=f"/api/albums/{quote(album.album_id, safe=':')}/tags",
+        album_edit_action_url=f"/api/albums/{quote(album.album_id, safe=':')}/edit",
         album_musicbrainz_release_mbid=(
             musicbrainz_link.release_mbid if musicbrainz_link is not None else ""
         ),
@@ -518,6 +486,71 @@ def build_album_edit_context(
             musicbrainz_link.release_group_mbid if musicbrainz_link is not None else ""
         ),
     )
+
+
+def album_musicbrainz_edit_sections(
+    database: Path,
+    album_id: str,
+    track_views: list[Any],
+    roots: tuple[Any, ...],
+) -> list[Any]:
+    from .player_presenters import album_tag_edit_sections
+    from .use_case.database import connect_database
+    from .use_case.musicbrainz import load_album_musicbrainz_track_links
+
+    sections = album_tag_edit_sections(track_views, roots)
+    paths = tuple(
+        item.track.path
+        for section in sections
+        for item in section.tracks
+        if item.track.path
+    )
+    with connect_database(database, create=False) as connection:
+        track_links = load_album_musicbrainz_track_links(connection, paths)
+
+    fallback_url = ""
+    if len(sections) == 1:
+        fallback_url = musicbrainz_url_for_album_link(album_musicbrainz_link(database, album_id))
+
+    resolved_sections = []
+    for section in sections:
+        link_values = tuple(
+            dict.fromkeys(
+                (
+                    link.release_mbid or "",
+                    link.release_group_mbid or "",
+                )
+                for item in section.tracks
+                for link in (track_links.get(item.track.path),)
+                if link is not None and (link.release_mbid or link.release_group_mbid)
+            )
+        )
+        section_url = (
+            musicbrainz_url_for_link(*link_values[0])
+            if len(link_values) == 1
+            else ""
+        )
+        resolved_sections.append(
+            replace(section, musicbrainz_url=section_url or fallback_url)
+        )
+    return resolved_sections
+
+
+def musicbrainz_url_for_album_link(link: Any) -> str:
+    if link is None:
+        return ""
+    return musicbrainz_url_for_link(link.release_mbid, link.release_group_mbid)
+
+
+def musicbrainz_url_for_link(
+    release_mbid: str | None,
+    release_group_mbid: str | None,
+) -> str:
+    if release_mbid:
+        return f"https://musicbrainz.org/release/{release_mbid}"
+    if release_group_mbid:
+        return f"https://musicbrainz.org/release-group/{release_group_mbid}"
+    return ""
 
 
 def build_queue_context(runtime: PlayerRuntime) -> dict[str, Any]:

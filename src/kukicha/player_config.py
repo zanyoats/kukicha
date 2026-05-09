@@ -17,7 +17,7 @@ from .album_artists import (
 )
 from .display import display_album_title
 from .player_errors import PlayerConfigError
-from .player_navigation import album_art_url, album_summary_text, album_url
+from .player_navigation import album_art_url, album_artist_url, album_summary_text, album_url
 from .use_case import prepare_player_database
 
 DEFAULT_PLAYER_LOG_LEVEL = "DEBUG"
@@ -26,6 +26,7 @@ DEFAULT_PLAYER_PORT = 65042
 DEFAULT_TOAST_TIMEOUT_MS = 5000
 DEFAULT_ACCENT_COLOR = "warm-brown"
 DEFAULT_APPEARANCE = "light"
+DEFAULT_PREFER_MUSICBRAINZ_ENGLISH_ALIASES = True
 PLAYER_CONFIG_FILENAME = "kukicha.toml"
 PLAYER_DATABASE_FILENAME = "kukicha.sqlite"
 PLAYER_CONFIG_KEY_ORDER = (
@@ -33,6 +34,8 @@ PLAYER_CONFIG_KEY_ORDER = (
     "DatabasePath",
     "Roots",
     "FFmpegPath",
+    "YoutubeDownloadPath",
+    "PreferMusicBrainzEnglishAliases",
     "Host",
     "Port",
     "Appearance",
@@ -64,6 +67,8 @@ class PlayerServerOptions:
     appearance: str = DEFAULT_APPEARANCE
     toast_timeout_ms: int = DEFAULT_TOAST_TIMEOUT_MS
     album_artist_split_patterns: tuple[str, ...] = DEFAULT_ALBUM_ARTIST_SPLIT_PATTERNS
+    youtube_download_path: Path | None = None
+    prefer_musicbrainz_english_aliases: bool = DEFAULT_PREFER_MUSICBRAINZ_ENGLISH_ALIASES
 
 
 @dataclass(frozen=True, slots=True)
@@ -243,6 +248,11 @@ def load_player_options(config_path: str | Path | None = None) -> PlayerServerOp
         key="FFmpegPath",
         base_dir=config_dir,
     )
+    youtube_download_path = parse_optional_config_path(
+        config.get("YoutubeDownloadPath", ""),
+        key="YoutubeDownloadPath",
+        base_dir=config_dir,
+    )
     roots = parse_config_path_list(
         config.get("Roots", ()),
         key="Roots",
@@ -259,12 +269,20 @@ def load_player_options(config_path: str | Path | None = None) -> PlayerServerOp
     album_artist_split_patterns = parse_album_artist_split_patterns(
         config.get("AlbumArtistSplitPatterns", DEFAULT_ALBUM_ARTIST_SPLIT_PATTERNS)
     )
+    prefer_musicbrainz_english_aliases = parse_config_bool(
+        config.get(
+            "PreferMusicBrainzEnglishAliases",
+            DEFAULT_PREFER_MUSICBRAINZ_ENGLISH_ALIASES,
+        ),
+        key="PreferMusicBrainzEnglishAliases",
+    )
 
     return PlayerServerOptions(
         config_path=resolved_config_path,
         database=database,
         roots=roots,
         ffmpeg_path=ffmpeg_path,
+        youtube_download_path=youtube_download_path,
         host=host,
         port=port,
         log_level=log_level,
@@ -272,6 +290,7 @@ def load_player_options(config_path: str | Path | None = None) -> PlayerServerOp
         appearance=appearance,
         toast_timeout_ms=toast_timeout_ms,
         album_artist_split_patterns=album_artist_split_patterns,
+        prefer_musicbrainz_english_aliases=prefer_musicbrainz_english_aliases,
     )
 
 def player_config_help_text(config_path: str | Path | None = None) -> str:
@@ -353,6 +372,12 @@ def player_config_values(
         "DatabasePath": str(options.database),
         "Roots": format_player_config_path_list(options.roots),
         "FFmpegPath": format_player_config_optional_path(options.ffmpeg_path),
+        "YoutubeDownloadPath": format_player_config_optional_path(
+            options.youtube_download_path
+        ),
+        "PreferMusicBrainzEnglishAliases": format_player_config_bool(
+            options.prefer_musicbrainz_english_aliases
+        ),
         "Host": options.host,
         "Port": str(options.port),
         "AccentColor": options.accent_color,
@@ -391,6 +416,9 @@ def format_player_config_optional_path(path: Path | None) -> str:
 
 def format_player_config_string_list(values: tuple[str, ...]) -> str:
     return "[" + ", ".join(repr(value) for value in values) + "]"
+
+def format_player_config_bool(value: bool) -> str:
+    return "true" if value else "false"
 
 def format_player_config_path_list(values: tuple[Path, ...]) -> str:
     return "[" + ", ".join(repr(str(value)) for value in values) + "]"
@@ -597,6 +625,11 @@ def parse_album_artist_split_patterns(value: object) -> tuple[str, ...]:
             raise PlayerConfigError("AlbumArtistSplitPatterns must be an array of strings")
     return normalize_album_artist_split_patterns(value)
 
+def parse_config_bool(value: object, *, key: str) -> bool:
+    if not isinstance(value, bool):
+        raise PlayerConfigError(f"{key} must be true or false")
+    return value
+
 def parse_config_path(
     value: object,
     *,
@@ -743,6 +776,7 @@ def build_template_environment() -> Environment:
         autoescape=select_autoescape(("html", "xml")),
     )
     environment.filters["album_url"] = album_url
+    environment.filters["album_artist_url"] = album_artist_url
     environment.filters["album_art_url"] = album_art_url
     environment.filters["album_summary"] = album_summary_text
     environment.filters["display_album_title"] = display_album_title

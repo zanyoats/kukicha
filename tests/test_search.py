@@ -55,25 +55,21 @@ class AlbumSearchPredicateTest(unittest.TestCase):
                 album_id UNINDEXED,
                 artist,
                 album,
-                title,
-                composer,
                 tokenize = 'unicode61'
             )
             """
         )
-        self.insert_album("eno_hopkins", "Brian Eno", "Small Craft", "Emerald Rush")
+        self.insert_album("eno_hopkins", "Brian Eno", "Small Craft")
         self.insert_album(
             "eno_abrahams",
             "Brian Eno with Jon Hopkins & Leo Abrahams",
             "Small Craft",
-            "Slow Ice",
         )
-        self.insert_album("ok_computer", "Radiohead", "OK Computer", "No Surprises")
+        self.insert_album("ok_computer", "Radiohead", "OK Computer")
         self.insert_album(
             "debussy",
             "Claude Debussy",
             "Montreal Recital",
-            "Suite bergamasque",
         )
 
     def tearDown(self) -> None:
@@ -84,8 +80,6 @@ class AlbumSearchPredicateTest(unittest.TestCase):
         album_id: str,
         artist: str,
         album: str,
-        title: str,
-        composer: str = "",
     ) -> None:
         self.connection.execute(
             "INSERT INTO library_albums (album_id) VALUES (?)",
@@ -93,10 +87,10 @@ class AlbumSearchPredicateTest(unittest.TestCase):
         )
         self.connection.execute(
             """
-                INSERT INTO library_album_search (album_id, artist, album, title, composer)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO library_album_search (album_id, artist, album)
+                VALUES (?, ?, ?)
                 """,
-            (album_id, artist, album, title, composer),
+            (album_id, artist, album),
         )
 
     def search(self, value: str) -> list[str]:
@@ -127,19 +121,12 @@ class AlbumSearchPredicateTest(unittest.TestCase):
     def test_minus_excludes_matches(self) -> None:
         self.assertEqual(self.search("eno -abrahams"), ["eno_hopkins"])
 
-    def test_matches_composer_column(self) -> None:
-        self.insert_album(
-            "vivaldi_four_seasons",
-            "Itzhak Perlman, London Philharmonic Orchestra & Rodney Friend",
-            "Vivaldi: The Four Seasons",
-            "The Four Seasons, Concerto No. 1 in E Major",
-            "Antonio Vivaldi",
-        )
-
-        self.assertEqual(self.search("Antonio"), ["vivaldi_four_seasons"])
+    def test_does_not_match_track_level_terms(self) -> None:
+        self.assertEqual(self.search("Emerald"), [])
+        self.assertEqual(self.search("Suite"), [])
 
 
-class AlbumComposerSearchIndexTest(unittest.TestCase):
+class AlbumSearchIndexTest(unittest.TestCase):
     def test_connect_database_context_manager_closes_connection(self) -> None:
         with TemporaryDirectory() as tempdir:
             database = Path(tempdir) / "library.sqlite"
@@ -149,7 +136,7 @@ class AlbumComposerSearchIndexTest(unittest.TestCase):
             with self.assertRaisesRegex(sqlite3.ProgrammingError, "closed database"):
                 connection.execute("SELECT 1")
 
-    def test_saved_library_indexes_track_composer(self) -> None:
+    def test_saved_library_indexes_album_artist_and_album_only(self) -> None:
         with TemporaryDirectory() as tempdir:
             database = Path(tempdir) / "library.sqlite"
             save_library(
@@ -177,23 +164,35 @@ class AlbumComposerSearchIndexTest(unittest.TestCase):
                 database,
             )
 
-            page = LibraryQueries(database).list_album_page(AlbumListQuery(search="Antonio"))
+            api = LibraryQueries(database)
+            artist_page = api.list_album_page(AlbumListQuery(search="Rodney"))
+            album_page = api.list_album_page(AlbumListQuery(search="Vivaldi"))
+            composer_page = api.list_album_page(AlbumListQuery(search="Antonio"))
+            title_page = api.list_album_page(AlbumListQuery(search="Allegro"))
 
         self.assertEqual(
-            [album.album for album in page.items],
+            [album.album for album in artist_page.items],
             ["Vivaldi: The Four Seasons"],
         )
+        self.assertEqual(
+            [album.album for album in album_page.items],
+            ["Vivaldi: The Four Seasons"],
+        )
+        self.assertEqual([album.album for album in composer_page.items], [])
+        self.assertEqual([album.album for album in title_page.items], [])
 
-    def test_connect_database_migrates_legacy_composer_search_schema(self) -> None:
+    def test_connect_database_migrates_legacy_track_level_search_schema(self) -> None:
         with TemporaryDirectory() as tempdir:
             database = Path(tempdir) / "library.sqlite"
             connection = sqlite3.connect(database)
             try:
-                connection.execute("CREATE TABLE app_metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+                connection.execute(
+                    "CREATE TABLE app_metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL)"
+                )
                 connection.execute(
                     """
                     INSERT INTO app_metadata (key, value)
-                    VALUES (?, '1')
+                    VALUES (?, '4')
                     """,
                     (ALBUM_SEARCH_METADATA_KEY,),
                 )
@@ -229,6 +228,7 @@ class AlbumComposerSearchIndexTest(unittest.TestCase):
                         artist,
                         album,
                         title,
+                        composer,
                         tokenize = 'unicode61'
                     )
                     """
@@ -252,7 +252,7 @@ class AlbumComposerSearchIndexTest(unittest.TestCase):
                 ).fetchone()["value"]
 
         self.assertIn("composer", track_columns)
-        self.assertIn("composer", search_columns)
+        self.assertEqual(search_columns, {"album_id", "artist", "album"})
         self.assertEqual(search_version, ALBUM_SEARCH_INDEX_VERSION)
 
 
@@ -350,6 +350,48 @@ class AlbumFacetFilterSemanticsTest(unittest.TestCase):
         )
 
         self.assertEqual([album.album for album in page.items], ["Court Dances"])
+
+    def test_genre_and_style_queries_are_canonicalized_before_filtering(self) -> None:
+        api = LibraryQueries(self.build_database())
+        query = AlbumListQuery(genres=("jazz",), styles=("modal",))
+        expanded = api.expand_album_list_query(query)
+
+        self.assertEqual(expanded.genres, ("Jazz",))
+        self.assertEqual(expanded.styles, ("Modal",))
+
+        page = api.list_album_page(query)
+        self.assertEqual([album.album for album in page.items], ["Blue Session"])
+
+    def test_grouped_genre_filters_are_canonicalized_before_filtering(self) -> None:
+        api = LibraryQueries(self.build_database())
+        query = AlbumListQuery(
+            genre_filters=(
+                GenreStyleFilter(genre="classical", styles=("baroque",)),
+            )
+        )
+        expanded = api.expand_album_list_query(query)
+
+        self.assertEqual(
+            expanded.genre_filters,
+            (GenreStyleFilter(genre="Classical"),),
+        )
+
+        page = api.list_album_page(query)
+        self.assertEqual([album.album for album in page.items], ["Court Dances"])
+
+    def test_genre_style_predicates_use_binary_comparisons(self) -> None:
+        plain_sql, _plain_params = album_where_clause(
+            AlbumListQuery(genres=("Jazz",), styles=("Modal",))
+        )
+        grouped_sql, _grouped_params = album_where_clause(
+            AlbumListQuery(
+                genre_filters=(
+                    GenreStyleFilter(genre="Jazz", styles=("Modal",)),
+                )
+            )
+        )
+
+        self.assertNotIn("COLLATE NOCASE", f"{plain_sql}\n{grouped_sql}")
 
 
 class AlbumExpandedGenreSelectionTest(unittest.TestCase):
@@ -661,7 +703,9 @@ class AlbumGenreFilterOptionsTest(unittest.TestCase):
 
             api = LibraryQueries(database)
             options = api.filter_options()
-            page = api.list_album_page(AlbumListQuery(genres=(UNKNOWN_GENRE_TAG,)))
+            page = api.list_album_page(
+                AlbumListQuery(genres=(UNKNOWN_GENRE_TAG.casefold(),))
+            )
 
         self.assertIn(
             UNKNOWN_GENRE_TAG,

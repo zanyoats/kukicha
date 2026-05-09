@@ -108,6 +108,7 @@ class AlbumTagEditSection:
     album: str
     album_artist: str
     genre: str
+    musicbrainz_url: str = ""
 
 def album_track_meta(album: AlbumDetails, tracks: list[TrackView]) -> tuple[str, ...]:
     parts = [f"{album.track_count} {plural(album.track_count, 'track', 'tracks')}"]
@@ -653,13 +654,19 @@ def album_tag_edit_section_for_tracks(
 
 def album_tag_edit_tracks(tracks: Iterable[TrackView]) -> tuple[AlbumTagEditTrack, ...]:
     section_tracks = tuple(tracks)
-    track_numbers_by_id = {
-        track.track_id: str(position)
-        for position, track in enumerate(
-            sorted(section_tracks, key=album_tag_edit_track_number_sort_key),
-            start=1,
-        )
-    }
+    if any(track.track_number.strip() for track in section_tracks):
+        track_numbers_by_id = {
+            track.track_id: track.track_number
+            for track in section_tracks
+        }
+    else:
+        track_numbers_by_id = {
+            track.track_id: str(position)
+            for position, track in enumerate(
+                sorted(section_tracks, key=album_tag_edit_track_number_sort_key),
+                start=1,
+            )
+        }
     return tuple(
         AlbumTagEditTrack(
             track=track,
@@ -980,7 +987,7 @@ def format_track_duration(value: float | None) -> str:
     if value is None or value <= 0:
         return ""
 
-    total_seconds = round(value)
+    total_seconds = int(value)
     minutes, seconds = divmod(total_seconds, 60)
     hours, minutes = divmod(minutes, 60)
     if hours:

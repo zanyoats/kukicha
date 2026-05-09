@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 from sqlite3 import Connection, Row
 
-from ...models import normalize_genre_values
+from ..database import UNKNOWN_GENRE_TAG
 from ...search import SearchFactor, parse_album_search_query
 from .artists import canonical_album_artist_values
 from .models import AlbumListQuery, GenreStyleFilter, normalize_match
@@ -19,21 +19,26 @@ def expanded_album_list_query(
         if query.artists
         else query.artists
     )
+    genres = canonical_taxonomy_values(connection, query.genres, kind="genre")
+    styles = canonical_taxonomy_values(connection, query.styles, kind="style")
     genre_filters = query.genre_filters
     if query.genre_filters:
-        genre_filters = expanded_genre_style_filters(connection, query.genre_filters)
-    if artists == query.artists and genre_filters == query.genre_filters:
+        genre_filters = canonical_genre_style_filters(connection, query.genre_filters)
+        genre_filters = expanded_genre_style_filters(connection, genre_filters)
+    if (
+        artists == query.artists
+        and genres == query.genres
+        and styles == query.styles
+        and genre_filters == query.genre_filters
+    ):
         return query
     return AlbumListQuery(
         artists=artists,
         album=query.album,
         root_positions=query.root_positions,
-        genres=query.genres,
-        styles=query.styles,
+        genres=genres,
+        styles=styles,
         genre_filters=genre_filters,
-        has_cover=query.has_cover,
-        is_compilation=query.is_compilation,
-        is_work=query.is_work,
         is_playlist=query.is_playlist,
         page=query.page,
         per_page=query.per_page,
@@ -41,6 +46,98 @@ def expanded_album_list_query(
         sort=query.sort,
         cursor=query.cursor,
     )
+
+
+def canonical_genre_style_filters(
+    connection: Connection,
+    filters: tuple[GenreStyleFilter, ...],
+) -> tuple[GenreStyleFilter, ...]:
+    genre_lookup = taxonomy_canonical_lookup(connection, kind="genre")
+    style_lookup = taxonomy_canonical_lookup(connection, kind="style")
+    return tuple(
+        GenreStyleFilter(
+            genre=canonical_taxonomy_value(filter_item.genre, genre_lookup),
+            styles=tuple(
+                canonical_taxonomy_value(style, style_lookup)
+                for style in filter_item.styles
+            ),
+        )
+        for filter_item in filters
+        if filter_item.genre
+    )
+
+
+def canonical_taxonomy_values(
+    connection: Connection,
+    values: Iterable[str],
+    *,
+    kind: str,
+) -> tuple[str, ...]:
+    values = tuple(values)
+    if not values:
+        return ()
+    lookup = taxonomy_canonical_lookup(connection, kind=kind)
+    canonical: dict[str, str] = {}
+    for value in values:
+        text = str(value).strip()
+        if not text:
+            continue
+        resolved = canonical_taxonomy_value(text, lookup)
+        canonical.setdefault(normalize_match(resolved), resolved)
+    return tuple(canonical.values())
+
+
+def canonical_taxonomy_value(value: str, lookup: dict[str, str]) -> str:
+    text = value.strip()
+    for key in taxonomy_lookup_keys(text):
+        canonical = lookup.get(key)
+        if canonical:
+            return canonical
+    return text
+
+
+def taxonomy_canonical_lookup(connection: Connection, *, kind: str) -> dict[str, str]:
+    if kind == "genre":
+        table = "taxonomy_genres"
+        column = "genre"
+    elif kind == "style":
+        table = "taxonomy_styles"
+        column = "style"
+    else:
+        raise ValueError(f"unsupported taxonomy kind: {kind}")
+
+    lookup: dict[str, str] = {}
+    if kind == "genre":
+        for key in taxonomy_lookup_keys(UNKNOWN_GENRE_TAG):
+            lookup.setdefault(key, UNKNOWN_GENRE_TAG)
+
+    for row in connection.execute(f"SELECT {column} AS value FROM {table}"):
+        value = str(row["value"])
+        for key in taxonomy_lookup_keys(value):
+            lookup.setdefault(key, value)
+
+    for row in connection.execute(
+        """
+        SELECT alias, canonical
+        FROM taxonomy_aliases
+        WHERE canonical_kind = ?
+        """,
+        (kind,),
+    ):
+        canonical = str(row["canonical"])
+        for key in taxonomy_lookup_keys(str(row["alias"])):
+            lookup.setdefault(key, canonical)
+    return lookup
+
+
+def taxonomy_lookup_keys(value: str) -> tuple[str, ...]:
+    normalized = normalize_match(value)
+    compact = normalized.replace(" ", "")
+    keys: dict[str, str] = {}
+    for key in (value.strip().casefold(), normalized, compact):
+        if key:
+            keys.setdefault(key, key)
+    return tuple(keys)
 
 
 def expanded_genre_style_filters(
@@ -77,7 +174,7 @@ def library_styles_by_genre(
     connection: Connection,
     genres: Iterable[str],
 ) -> dict[str, tuple[str, ...]]:
-    ordered_genres = tuple(normalize_genre_values(genres))
+    ordered_genres = normalized_query_values(genres)
     if not ordered_genres:
         return {}
     placeholders = placeholders_for(ordered_genres)
@@ -89,7 +186,7 @@ def library_styles_by_genre(
         FROM library_album_styles
         JOIN taxonomy_styles
             ON taxonomy_styles.style = library_album_styles.style
-        WHERE taxonomy_styles.parent_genre COLLATE NOCASE IN ({placeholders})
+        WHERE taxonomy_styles.parent_genre IN ({placeholders})
         """,
         ordered_genres,
     )
@@ -98,9 +195,18 @@ def library_styles_by_genre(
         genre_key = normalize_match(str(row["parent_genre"]))
         styles_by_genre.setdefault(genre_key, []).append(str(row["style"]))
     return {
-        genre_key: tuple(normalize_genre_values(values))
+        genre_key: normalized_query_values(values)
         for genre_key, values in styles_by_genre.items()
     }
+
+
+def normalized_query_values(values: Iterable[str]) -> tuple[str, ...]:
+    normalized: dict[str, str] = {}
+    for value in values:
+        text = str(value).strip()
+        if text:
+            normalized.setdefault(normalize_match(text), text)
+    return tuple(normalized.values())
 
 
 def playlist_query_can_match(query: AlbumListQuery) -> bool:
@@ -110,9 +216,6 @@ def playlist_query_can_match(query: AlbumListQuery) -> bool:
         or query.genres
         or query.styles
         or query.genre_filters
-        or query.has_cover is not None
-        or query.is_compilation is not None
-        or query.is_work is not None
     )
 
 
@@ -221,30 +324,6 @@ def album_where_clause(query: AlbumListQuery) -> tuple[str, list[object]]:
         )
         clauses.append(style_clause)
         params.extend(style_params)
-    if query.has_cover is not None:
-        cover_clause, cover_params = album_flag_clause(
-            query,
-            column="has_cover",
-            value=query.has_cover,
-        )
-        clauses.append(cover_clause)
-        params.extend(cover_params)
-    if query.is_compilation is not None:
-        compilation_clause, compilation_params = album_flag_clause(
-            query,
-            column="is_compilation",
-            value=query.is_compilation,
-        )
-        clauses.append(compilation_clause)
-        params.extend(compilation_params)
-    if query.is_work is not None:
-        work_clause, work_params = album_flag_clause(
-            query,
-            column="is_work",
-            value=query.is_work,
-        )
-        clauses.append(work_clause)
-        params.extend(work_params)
     if not clauses:
         return "", params
     return "WHERE " + " AND ".join(f"({clause})" for clause in clauses), params
@@ -317,8 +396,8 @@ def grouped_genre_style_clause(
                 FROM library_album_root_genre_styles AS album_values
                 WHERE album_values.album_id = albums.album_id
                     AND album_values.root_position IN ({root_placeholders})
-                    AND album_values.genre COLLATE NOCASE = ?
-                    AND album_values.style COLLATE NOCASE IN ({style_placeholders})
+                    AND album_values.genre = ?
+                    AND album_values.style IN ({style_placeholders})
             )
         """
         return clause, [*root_positions, genre_filter.genre, *genre_filter.styles]
@@ -328,8 +407,8 @@ def grouped_genre_style_clause(
             SELECT 1
             FROM library_album_genre_styles AS album_values
             WHERE album_values.album_id = albums.album_id
-                AND album_values.genre COLLATE NOCASE = ?
-                AND album_values.style COLLATE NOCASE IN ({style_placeholders})
+                AND album_values.genre = ?
+                AND album_values.style IN ({style_placeholders})
         )
     """
     return clause, [genre_filter.genre, *genre_filter.styles]
@@ -352,7 +431,7 @@ def album_value_clause(
                 FROM {root_table} AS album_values
                 WHERE album_values.album_id = albums.album_id
                     AND album_values.root_position IN ({root_placeholders})
-                    AND album_values.{column} COLLATE NOCASE IN ({value_placeholders})
+                    AND album_values.{column} IN ({value_placeholders})
             )
         """
         return clause, [*query.root_positions, *values]
@@ -362,45 +441,10 @@ def album_value_clause(
             SELECT 1
             FROM {table} AS album_values
             WHERE album_values.album_id = albums.album_id
-                AND album_values.{column} COLLATE NOCASE IN ({value_placeholders})
+                AND album_values.{column} IN ({value_placeholders})
         )
     """
     return clause, list(values)
-
-
-def album_flag_clause(
-    query: AlbumListQuery,
-    *,
-    column: str,
-    value: bool,
-) -> tuple[str, list[object]]:
-    if not query.root_positions:
-        return f"albums.{column} = ?", [1 if value else 0]
-
-    root_placeholders = placeholders_for(query.root_positions)
-    has_selected_root_clause = f"""
-        EXISTS (
-            SELECT 1
-            FROM library_album_roots AS album_roots
-            WHERE album_roots.album_id = albums.album_id
-                AND album_roots.root_position IN ({root_placeholders})
-        )
-    """
-    flag_clause = f"""
-        EXISTS (
-            SELECT 1
-            FROM library_album_roots AS album_roots
-            WHERE album_roots.album_id = albums.album_id
-                AND album_roots.root_position IN ({root_placeholders})
-                AND album_roots.{column} = 1
-        )
-    """
-    if value:
-        return flag_clause, list(query.root_positions)
-    return (
-        f"({has_selected_root_clause}) AND NOT ({flag_clause})",
-        [*query.root_positions, *query.root_positions],
-    )
 
 
 def album_search_clause(value: str) -> tuple[str, list[object]]:

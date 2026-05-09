@@ -1176,7 +1176,7 @@ def album_sort_columns(query: AlbumListQuery) -> tuple[AlbumSortColumn, ...]:
         "CASE WHEN albums.year IS NULL THEN 1 ELSE 0 END",
         "sort_year_missing",
     )
-    year_column = AlbumSortColumn("COALESCE(albums.year, 0)", "sort_year")
+    year_column = AlbumSortColumn("albums.year", "sort_year")
     album_column = AlbumSortColumn("albums.album_sort_key", "sort_album_key")
     album_id_column = AlbumSortColumn("albums.album_id", "sort_album_id")
 
@@ -1195,13 +1195,12 @@ def album_sort_columns(query: AlbumListQuery) -> tuple[AlbumSortColumn, ...]:
             if query.root_positions
             else "albums.genre_sort_key"
         )
-        genre_value = f"COALESCE(NULLIF({genre_expression}, ''), '')"
         return (
             AlbumSortColumn(
                 f"CASE WHEN NULLIF({genre_expression}, '') IS NULL THEN 1 ELSE 0 END",
                 "sort_genre_missing",
             ),
-            AlbumSortColumn(genre_value, "sort_genre_key"),
+            AlbumSortColumn(genre_expression, "sort_genre_key"),
             artist_column,
             year_missing_column,
             year_column,
@@ -1215,7 +1214,7 @@ def album_sort_columns(query: AlbumListQuery) -> tuple[AlbumSortColumn, ...]:
             "sort_file_created_missing",
         ),
         AlbumSortColumn(
-            "COALESCE(albums.file_created_at, '')",
+            "albums.file_created_at",
             "sort_file_created_at",
             direction="DESC",
         ),
@@ -1267,18 +1266,27 @@ def album_cursor_where_clause(
     clauses: list[str] = []
     for index, column in enumerate(sort_columns):
         comparisons: list[str] = []
+        comparison_params: list[object] = []
         for previous_index, previous_column in enumerate(sort_columns[:index]):
-            comparisons.append(f"{previous_column.expression} = ?")
-            params.append(cursor.values[previous_index])
+            previous_value = cursor.values[previous_index]
+            if previous_value is None:
+                comparisons.append(f"{previous_column.expression} IS NULL")
+            else:
+                comparisons.append(f"{previous_column.expression} = ?")
+                comparison_params.append(previous_value)
 
+        value = cursor.values[index]
+        if value is None:
+            continue
         is_ascending = column.direction == "ASC"
         if cursor.direction == ALBUM_PAGE_CURSOR_NEXT:
             operator = ">" if is_ascending else "<"
         else:
             operator = "<" if is_ascending else ">"
         comparisons.append(f"{column.expression} {operator} ?")
-        params.append(cursor.values[index])
+        comparison_params.append(value)
         clauses.append("(" + " AND ".join(comparisons) + ")")
+        params.extend(comparison_params)
 
     return " OR ".join(clauses), params
 
@@ -1332,7 +1340,7 @@ def decode_album_page_cursor(
         return None
     if len(values) != len(sort_columns) - 1:
         return None
-    if not all(isinstance(item, (int, str)) for item in values):
+    if not all(item is None or isinstance(item, (int, str)) for item in values):
         return None
     return AlbumPageCursor(
         direction=direction,
@@ -1340,11 +1348,11 @@ def decode_album_page_cursor(
     )
 
 
-def cursor_json_value(value: Any) -> str | int:
+def cursor_json_value(value: Any) -> str | int | None:
     if isinstance(value, int):
         return value
     if value is None:
-        return ""
+        return None
     return str(value)
 
 

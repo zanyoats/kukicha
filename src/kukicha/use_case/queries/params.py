@@ -19,11 +19,7 @@ def album_list_query_from_params(params: dict[str, list[str]]) -> AlbumListQuery
         artists=tuple(params.get("artist", ())),
         album=first_value(params.get("album", ())),
         search=first_value(params.get("search", ())),
-        root_positions=tuple(params.get("root", ())),
         genre_filters=genre_filters_from_params(params),
-        has_cover=optional_bool(first_value(params.get("has_cover", ()))),
-        is_compilation=optional_bool(first_value(params.get("compilation", ()))),
-        is_work=optional_bool(first_value(params.get("work", ()))),
         page=parse_positive_int(first_value(params.get("page", ())), default=1),
         per_page=parse_positive_int(
             first_value(params.get("per_page", ())),
@@ -71,17 +67,6 @@ def parse_positive_int(value: str | None, *, default: int) -> int:
     return max(1, parsed)
 
 
-def optional_bool(value: str | None) -> bool | None:
-    if value is None:
-        return None
-    normalized = value.casefold().strip()
-    if normalized in {"1", "true", "yes", "on"}:
-        return True
-    if normalized in {"0", "false", "no", "off"}:
-        return False
-    return None
-
-
 def album_query_params(
     query: AlbumListQuery,
     *,
@@ -94,19 +79,12 @@ def album_query_params(
         params.append(("album", query.album))
     if query.search:
         params.append(("search", query.search))
-    params.extend(("root", root_position) for root_position in query.root_positions)
     for index, genre_filter in enumerate(query.genre_filters):
         params.append((f"genre[{index}][p]", genre_filter.genre))
         params.extend(
             (f"genre[{index}][c][]", style)
             for style in genre_filter.styles
         )
-    if query.has_cover is not None:
-        params.append(("has_cover", int(query.has_cover)))
-    if query.is_compilation is not None:
-        params.append(("compilation", int(query.is_compilation)))
-    if query.is_work is not None:
-        params.append(("work", int(query.is_work)))
     if query.sort != ALBUM_LIST_SORT_RECENTLY_ADDED:
         params.append(("sort", query.sort))
     resolved_cursor = query.cursor if cursor is _UNSET else cursor
@@ -123,6 +101,5 @@ __all__ = [
     "album_query_params",
     "first_value",
     "genre_filters_from_params",
-    "optional_bool",
     "parse_positive_int",
 ]

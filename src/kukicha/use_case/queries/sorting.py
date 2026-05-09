@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
+import re
 
 from .models import (
     ALBUM_LIST_SORT_ARTIST,
@@ -10,6 +11,8 @@ from .models import (
     AlbumSummary,
     PlaylistTrack,
 )
+
+TRACK_NUMBER_SEGMENT_RE = re.compile(r"\d+|\D+")
 
 
 def album_page_sort_key(
@@ -74,12 +77,20 @@ def parsed_iso_timestamp(value: str | None) -> float | None:
 
 def playlist_track_sort_key(
     track: PlaylistTrack,
-) -> tuple[str, str, int, int, str, str, str]:
+) -> tuple[
+    str,
+    str,
+    tuple[int, tuple[tuple[int, object], ...], str],
+    tuple[int, tuple[tuple[int, object], ...], str],
+    str,
+    str,
+    str,
+]:
     return (
         normalize_sort_value(track.album_artist or track.artist),
         normalize_sort_value(track.album),
-        parse_track_index(track.disc_number),
-        parse_track_index(track.track_number),
+        track_index_sort_key(track.disc_number),
+        track_index_sort_key(track.track_number),
         normalize_sort_value(track.artist),
         normalize_sort_value(track.title or Path(track.path).name),
         track.path.casefold(),
@@ -90,8 +101,18 @@ def normalize_sort_value(value: str | None) -> str:
     return value.casefold().strip() if value else ""
 
 
-def parse_track_index(value: str | None) -> int:
+def track_index_sort_key(
+    value: str | None,
+) -> tuple[int, tuple[tuple[int, object], ...], str]:
     if not value:
-        return 0
+        return (0, (), "")
     number = value.split("/", maxsplit=1)[0].strip()
-    return int(number) if number.isdigit() else 0
+    if not number:
+        return (0, (), "")
+    segments: list[tuple[int, object]] = []
+    for segment in TRACK_NUMBER_SEGMENT_RE.findall(number):
+        if segment.isdigit():
+            segments.append((0, int(segment)))
+        else:
+            segments.append((1, segment.casefold()))
+    return (1, tuple(segments), number.casefold())

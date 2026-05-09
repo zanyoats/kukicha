@@ -38,6 +38,14 @@ let isRestoringScroll = false;
 let scrollRestoreToken = 0;
 const toastTimeouts = new WeakMap();
 const jobToastTimeouts = new WeakMap();
+const jobStatusRanks = new Map([
+  ["queued", 0],
+  ["running", 1],
+  ["succeeded", 2],
+  ["failed", 2],
+  ["canceled", 2]
+]);
+const jobLatestStates = new Map();
 let jobsSource = null;
 let jobsStreamLoadPending = false;
 let suppressPauseStateUntilPlay = false;
@@ -61,6 +69,7 @@ function readToastDelayMs(datasetKey, fallback) {
 initializeHistoryState();
 syncFilterSummaries();
 syncAlbumMusicBrainzFormValues();
+syncAlbumEditAlbumLevelFields();
 syncAlbumArtistMappingForms();
 localizeJobTimes();
 syncJobsStream();
@@ -195,6 +204,42 @@ function syncAlbumMusicBrainzFormValues() {
   });
 }
 
+function syncAlbumEditAlbumLevelFields(scope = view) {
+  if (!(scope instanceof Element)) {
+    return;
+  }
+  const forms = scope instanceof HTMLFormElement && scope.hasAttribute("data-album-edit-form")
+    ? [scope]
+    : Array.from(scope.querySelectorAll("form[data-album-edit-form]"));
+  forms.forEach((form) => {
+    if (!(form instanceof HTMLFormElement)) {
+      return;
+    }
+    const groupCount = form.querySelectorAll("[data-musicbrainz-group]").length;
+    if (groupCount > 1) {
+      return;
+    }
+    const musicBrainzUrlInput = form.querySelector("[data-musicbrainz-url-input]");
+    const hasMusicBrainzUrl = (
+      musicBrainzUrlInput instanceof HTMLInputElement
+      && musicBrainzUrlInput.value.trim() !== ""
+    );
+    [
+      form.querySelector("[data-album-input]"),
+      form.querySelector("[data-album-artist-input]"),
+      form.querySelector("[data-album-genre-input]")
+    ].forEach((input) => {
+      if (input instanceof HTMLInputElement) {
+        input.disabled = hasMusicBrainzUrl;
+      }
+    });
+    const note = form.querySelector("[data-album-level-musicbrainz-note]");
+    if (note instanceof HTMLElement) {
+      note.hidden = !hasMusicBrainzUrl;
+    }
+  });
+}
+
 function parseFragment(html) {
   const template = document.createElement("template");
   template.innerHTML = html.trim();
@@ -264,6 +309,7 @@ function renderFragment(html, url, options = {}) {
   updatePlaybackUi();
   syncFilterSummaries();
   syncAlbumMusicBrainzFormValues();
+  syncAlbumEditAlbumLevelFields();
   syncAlbumArtistMappingForms();
   localizeJobTimes();
   syncJobsStream();
@@ -564,24 +610,65 @@ function syncFilterSummaries(form = view.querySelector("form[data-filter-form]")
     return;
   }
   syncGenreFilterStates(form);
-  updateFilterSummary(form, "roots", checkedInputCount(form, "root"));
+  updateSearchSummary(form);
+  updateSortSummary(form);
   updateFilterSummary(form, "genres", selectedGenreFilterCount(form));
-  updateFilterSummary(form, "properties", selectedPropertyCount(form));
 }
 
-function checkedInputCount(form, name) {
-  return form.querySelectorAll(`input[name="${name}"]:checked`).length;
-}
-
-function selectedPropertyCount(form) {
-  let count = 0;
-  for (const name of ["has_cover", "compilation", "work"]) {
-    const input = form.querySelector(`input[name="${name}"]:checked`);
-    if (input instanceof HTMLInputElement && input.value) {
-      count += 1;
-    }
+function updateSearchSummary(form) {
+  const summary = form.querySelector('[data-filter-summary="search"]');
+  if (!(summary instanceof HTMLElement)) {
+    return;
   }
-  return count;
+  const label = summary.dataset.summaryLabel || "Search";
+  const input = form.querySelector('input[name="search"]');
+  const value = input instanceof HTMLInputElement ? input.value.trim() : "";
+  summary.replaceChildren();
+  const labelElement = document.createElement("span");
+  labelElement.className = "search-menu-label";
+  labelElement.textContent = value ? `${label}:` : label;
+  summary.append(labelElement);
+  if (value) {
+    const valueElement = document.createElement("span");
+    valueElement.className = "search-menu-value";
+    valueElement.textContent = value;
+    summary.append(valueElement);
+  }
+  summary.title = value ? `${label}: ${value}` : label;
+}
+
+function updateSortSummary(form) {
+  const summary = form.querySelector('[data-filter-summary="sort"]');
+  if (!(summary instanceof HTMLElement)) {
+    return;
+  }
+  const label = summary.dataset.summaryLabel || "Sort";
+  const input = form.querySelector('input[name="sort"]:checked');
+  const optionLabel = sortOptionLabel(input);
+  summary.replaceChildren();
+  const labelElement = document.createElement("span");
+  labelElement.className = "sort-menu-label";
+  labelElement.textContent = `${label}:`;
+  summary.append(labelElement);
+  if (optionLabel) {
+    const valueElement = document.createElement("span");
+    valueElement.className = "sort-menu-value";
+    valueElement.textContent = optionLabel;
+    summary.append(valueElement);
+  }
+  summary.title = optionLabel ? `${label}: ${optionLabel}` : label;
+}
+
+function sortOptionLabel(input) {
+  if (!(input instanceof HTMLInputElement)) {
+    return "";
+  }
+  const option = input.closest(".filter-option");
+  const label = option ? option.querySelector("span") : null;
+  if (label instanceof HTMLElement) {
+    return label.textContent.trim();
+  }
+  return input.value.trim();
 }
 
 function updateFilterSummary(form, key, count) {
@@ -890,16 +977,10 @@ document.addEventListener("dblclick", (event) => {
 });
 
 document.addEventListener("submit", (event) => {
-  const albumMusicBrainzForm = event.target.closest("form[data-album-musicbrainz-form]");
-  if (albumMusicBrainzForm) {
+  const albumEditForm = event.target.closest("form[data-album-edit-form]");
+  if (albumEditForm) {
     event.preventDefault();
-    submitAlbumMusicBrainzForm(albumMusicBrainzForm);
-    return;
-  }
-  const albumTagForm = event.target.closest("form[data-album-tag-form]");
-  if (albumTagForm) {
-    event.preventDefault();
-    submitAlbumTagForm(albumTagForm);
+    submitAlbumEditForm(albumEditForm);
     return;
   }
   const albumArtistMappingForm = event.target.closest("form[data-album-artist-mapping-form]");
@@ -913,6 +994,7 @@ document.addEventListener("submit", (event) => {
     return;
   }
   event.preventDefault();
+  closeSearchMenu(form);
   syncFilterSummaries(form);
   saveCurrentScrollState({anchor: null});
   navigate(formUrl(form));
@@ -944,6 +1026,15 @@ document.addEventListener("input", (event) => {
   if (!(event.target instanceof Element)) {
     return;
   }
+  if (
+    event.target instanceof HTMLInputElement
+    && event.target.hasAttribute("data-musicbrainz-url-input")
+  ) {
+    const albumEditForm = event.target.closest("form[data-album-edit-form]");
+    if (albumEditForm) {
+      syncAlbumEditAlbumLevelFields(albumEditForm);
+    }
+  }
   const albumArtistMappingForm = event.target.closest("form[data-album-artist-mapping-form]");
   if (albumArtistMappingForm) {
     syncAlbumArtistMappingFormState(albumArtistMappingForm);
@@ -970,6 +1061,9 @@ document.addEventListener("toggle", (event) => {
       details.open = false;
     }
   });
+  if (event.target.matches("[data-search-menu]")) {
+    focusSearchMenuInput(event.target);
+  }
 }, true);
 
 document.addEventListener("click", (event) => {
@@ -1013,6 +1107,7 @@ window.addEventListener("pageshow", (event) => {
   pageIsUnloading = false;
   if (!event.persisted) {
     syncAlbumMusicBrainzFormValues();
+    syncAlbumEditAlbumLevelFields();
   }
   syncJobsStream();
   updatePlaybackUi();
@@ -1891,147 +1986,17 @@ function formatBrowserDateTime(value, fallback = "") {
   }
 }
 
-async function submitAlbumMusicBrainzForm(form) {
-  if (!(form instanceof HTMLFormElement)) {
-    return;
-  }
-  const submitButton = form.querySelector("[data-save-album-musicbrainz]");
-  if (!(submitButton instanceof HTMLButtonElement)) {
-    return;
-  }
-
-  const groupElements = Array.from(form.querySelectorAll("[data-musicbrainz-group]"));
-  const requestGroups = [];
-  const fieldScopes = groupElements.length ? groupElements : [form];
-  let hasInvalidGroupTracks = false;
-  fieldScopes.forEach((scope) => {
-    const musicBrainzUrlInput = scope.querySelector("[data-musicbrainz-url-input]");
-    const releaseMbidInput = scope.querySelector("[data-musicbrainz-release-mbid-input]");
-    const releaseGroupMbidInput = scope.querySelector("[data-musicbrainz-release-group-mbid-input]");
-    if (!(musicBrainzUrlInput instanceof HTMLInputElement)
-      && !(releaseMbidInput instanceof HTMLInputElement)
-      && !(releaseGroupMbidInput instanceof HTMLInputElement)) {
-      return;
-    }
-    const trackIdInputs = Array.from(scope.querySelectorAll("[data-musicbrainz-track-id]"));
-    const trackIds = trackIdInputs.map((input) => (
-      input instanceof HTMLInputElement ? Number(input.value || "") : NaN
-    )).filter((trackId) => Number.isInteger(trackId) && trackId > 0);
-    if (trackIdInputs.length && !trackIds.length) {
-      hasInvalidGroupTracks = true;
-    }
-    if (musicBrainzUrlInput instanceof HTMLInputElement) {
-      requestGroups.push({
-        musicbrainz_url: musicBrainzUrlInput.value.trim(),
-        track_ids: trackIds
-      });
-    } else {
-      requestGroups.push({
-        musicbrainz_release_mbid: releaseMbidInput instanceof HTMLInputElement
-          ? releaseMbidInput.value.trim()
-          : "",
-        musicbrainz_release_group_mbid: releaseGroupMbidInput instanceof HTMLInputElement
-          ? releaseGroupMbidInput.value.trim()
-          : "",
-        track_ids: trackIds
-      });
-    }
-  });
-  if (hasInvalidGroupTracks) {
-    setAlbumMusicBrainzStatus(form, "No tracks available to edit.", true);
-    return;
-  }
-  if (!requestGroups.length) {
-    setAlbumMusicBrainzStatus(form, "No MusicBrainz fields available to edit.", true);
-    return;
-  }
-
-  setAlbumMusicBrainzStatus(form, "Submitting MusicBrainz edit...");
-  submitButton.disabled = true;
-  submitButton.setAttribute("aria-busy", "true");
-  const musicBrainzInputs = Array.from(
-    form.querySelectorAll(
-      "[data-musicbrainz-url-input], [data-musicbrainz-release-mbid-input], [data-musicbrainz-release-group-mbid-input]"
-    )
-  );
-  musicBrainzInputs.forEach((input) => {
-    if (input instanceof HTMLInputElement) {
-      input.disabled = true;
-    }
-  });
-  try {
-    let requestBody;
-    if (groupElements.length) {
-      requestBody = {groups: requestGroups};
-    } else {
-      requestBody = requestGroups[0].musicbrainz_url !== undefined
-        ? {musicbrainz_url: requestGroups[0].musicbrainz_url}
-        : {
-            musicbrainz_release_mbid: requestGroups[0].musicbrainz_release_mbid,
-            musicbrainz_release_group_mbid: requestGroups[0].musicbrainz_release_group_mbid
-          };
-      if (requestGroups[0].track_ids.length) {
-        requestBody.track_ids = requestGroups[0].track_ids;
-      }
-    }
-    const response = await fetch(form.action, {
-      method: "POST",
-      headers: {"Content-Type": "application/json"},
-      body: JSON.stringify(requestBody)
-    });
-    const payload = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      const message = payload && typeof payload.error === "string" && payload.error.trim()
-        ? payload.error
-        : "Unable to save MusicBrainz IDs.";
-      setAlbumMusicBrainzStatus(form, message, true);
-      showToast(message, {error: true});
-      return;
-    }
-    const message = payload && typeof payload.message === "string" && payload.message.trim()
-      ? payload.message
-      : "Tag edit queued.";
-    setAlbumMusicBrainzStatus(form, message);
-    if (payload && payload.job) {
-      showJobToast(payload.job);
-    } else {
-      showToast(message);
-    }
-  } catch {
-    setAlbumMusicBrainzStatus(form, "Unable to save MusicBrainz IDs.", true);
-    showToast("Unable to save MusicBrainz IDs.", {error: true});
-  } finally {
-    submitButton.removeAttribute("aria-busy");
-    submitButton.disabled = false;
-    musicBrainzInputs.forEach((input) => {
-      if (input instanceof HTMLInputElement) {
-        input.disabled = false;
-      }
-    });
-  }
-}
-
-async function submitAlbumTagForm(form) {
-  if (!(form instanceof HTMLFormElement)) {
-    return;
-  }
+function albumEditTagPayload(form) {
   const albumInput = form.querySelector("[data-album-input]");
   const genreInput = form.querySelector("[data-album-genre-input]");
   const albumArtistInput = form.querySelector("[data-album-artist-input]");
-  const submitButton = form.querySelector("[data-save-album-tag]");
   const trackRows = Array.from(form.querySelectorAll("[data-track-tag-row]"));
-  const trackTagInputs = Array.from(
-    form.querySelectorAll(
-      "[data-track-artist-input], [data-track-number-input], [data-track-title-input]"
-    )
-  );
   if (
     !(albumInput instanceof HTMLInputElement)
     || !(genreInput instanceof HTMLInputElement)
     || !(albumArtistInput instanceof HTMLInputElement)
-    || !(submitButton instanceof HTMLButtonElement)
   ) {
-    return;
+    return {payload: null, error: "Album tag fields are unavailable."};
   }
 
   const tracks = trackRows.map((row) => {
@@ -2053,64 +2018,169 @@ async function submitAlbumTagForm(form) {
     };
   }).filter((item) => item && Number.isInteger(item.track_id) && item.track_id > 0);
   if (!tracks.length) {
-    setAlbumTagStatus(form, "No tracks available to edit.", true);
+    return {payload: null, error: "No tracks available to edit."};
+  }
+
+  return {
+    payload: {
+      album: albumInput.value.trim(),
+      genre: genreInput.value.trim(),
+      album_artist: albumArtistInput.value.trim(),
+      tracks
+    },
+    error: ""
+  };
+}
+
+function albumEditMusicBrainzPayload(form) {
+  const groupElements = Array.from(form.querySelectorAll("[data-musicbrainz-group]"));
+  const fieldScopes = groupElements.length ? groupElements : [form];
+  const requestGroups = [];
+  let hasInvalidGroupTracks = false;
+
+  fieldScopes.forEach((scope) => {
+    const musicBrainzUrlInput = scope.querySelector("[data-musicbrainz-url-input]");
+    const releaseMbidInput = scope.querySelector("[data-musicbrainz-release-mbid-input]");
+    const releaseGroupMbidInput = scope.querySelector("[data-musicbrainz-release-group-mbid-input]");
+    if (!(musicBrainzUrlInput instanceof HTMLInputElement)
+      && !(releaseMbidInput instanceof HTMLInputElement)
+      && !(releaseGroupMbidInput instanceof HTMLInputElement)) {
+      return;
+    }
+
+    const trackIdInputs = Array.from(scope.querySelectorAll("[data-musicbrainz-track-id]"));
+    const trackIds = trackIdInputs.map((input) => (
+      input instanceof HTMLInputElement ? Number(input.value || "") : NaN
+    )).filter((trackId) => Number.isInteger(trackId) && trackId > 0);
+    if (trackIdInputs.length && !trackIds.length) {
+      hasInvalidGroupTracks = true;
+    }
+
+    if (musicBrainzUrlInput instanceof HTMLInputElement) {
+      const musicBrainzUrl = musicBrainzUrlInput.value.trim();
+      const serverValue = (musicBrainzUrlInput.getAttribute("data-server-value") || "").trim();
+      if (!musicBrainzUrl && !serverValue) {
+        return;
+      }
+      requestGroups.push({
+        musicbrainz_url: musicBrainzUrl,
+        track_ids: trackIds
+      });
+      return;
+    }
+
+    const releaseMbid = releaseMbidInput instanceof HTMLInputElement
+      ? releaseMbidInput.value.trim()
+      : "";
+    const releaseGroupMbid = releaseGroupMbidInput instanceof HTMLInputElement
+      ? releaseGroupMbidInput.value.trim()
+      : "";
+    if (!releaseMbid && !releaseGroupMbid) {
+      return;
+    }
+    requestGroups.push({
+      musicbrainz_release_mbid: releaseMbid,
+      musicbrainz_release_group_mbid: releaseGroupMbid,
+      track_ids: trackIds
+    });
+  });
+
+  if (hasInvalidGroupTracks) {
+    return {payload: null, error: "No tracks available to edit."};
+  }
+  if (!requestGroups.length) {
+    return {payload: null, error: ""};
+  }
+  return {
+    payload: {groups: requestGroups},
+    error: ""
+  };
+}
+
+async function submitAlbumEditForm(form) {
+  if (!(form instanceof HTMLFormElement)) {
+    return;
+  }
+  const submitButtons = Array.from(form.querySelectorAll("[data-apply-album-edit]"))
+    .filter((button) => button instanceof HTMLButtonElement);
+  if (!submitButtons.length) {
     return;
   }
 
-  setAlbumTagStatus(form, "Submitting tag edit...");
-  submitButton.disabled = true;
-  submitButton.setAttribute("aria-busy", "true");
-  trackTagInputs.forEach((input) => {
-    if (input instanceof HTMLInputElement) {
-      input.disabled = true;
-    }
+  const hasTagFields = Boolean(
+    form.querySelector("[data-album-input]")
+    || form.querySelector("[data-album-artist-input]")
+    || form.querySelector("[data-album-genre-input]")
+    || form.querySelector("[data-track-tag-row]")
+  );
+  const tagRequest = hasTagFields
+    ? albumEditTagPayload(form)
+    : {payload: null, error: ""};
+  if (tagRequest.error) {
+    setAlbumEditStatus(form, tagRequest.error, true);
+    return;
+  }
+  const musicBrainzRequest = albumEditMusicBrainzPayload(form);
+  if (musicBrainzRequest.error) {
+    setAlbumEditStatus(form, musicBrainzRequest.error, true);
+    return;
+  }
+
+  const requestBody = {};
+  if (tagRequest.payload) {
+    requestBody.tags = tagRequest.payload;
+  }
+  if (musicBrainzRequest.payload) {
+    requestBody.musicbrainz = musicBrainzRequest.payload;
+  }
+  if (!requestBody.tags && !requestBody.musicbrainz) {
+    setAlbumEditStatus(form, "No album edit fields are available.", true);
+    return;
+  }
+
+  setAlbumEditStatus(form, "Submitting album edit...");
+  const formControls = Array.from(form.querySelectorAll("input, textarea, select, button"));
+  formControls.forEach((control) => {
+    control.disabled = true;
   });
-  albumInput.disabled = true;
-  genreInput.disabled = true;
-  albumArtistInput.disabled = true;
+  submitButtons.forEach((button) => {
+    button.setAttribute("aria-busy", "true");
+  });
   try {
     const response = await fetch(form.action, {
       method: "POST",
       headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({
-        album: albumInput.value.trim(),
-        genre: genreInput.value.trim(),
-        album_artist: albumArtistInput.value.trim(),
-        tracks
-      })
+      body: JSON.stringify(requestBody)
     });
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) {
       const message = payload && typeof payload.error === "string" && payload.error.trim()
         ? payload.error
-        : "Unable to edit tags.";
-      setAlbumTagStatus(form, message, true);
+        : "Unable to apply edit.";
+      setAlbumEditStatus(form, message, true);
       showToast(message, {error: true});
       return;
     }
     const message = payload && typeof payload.message === "string" && payload.message.trim()
       ? payload.message
       : "Tag edit queued.";
-    setAlbumTagStatus(form, message);
+    setAlbumEditStatus(form, message);
     if (payload && payload.job) {
       showJobToast(payload.job);
     } else {
       showToast(message);
     }
   } catch {
-    setAlbumTagStatus(form, "Unable to edit tags.", true);
-    showToast("Unable to edit tags.", {error: true});
+    setAlbumEditStatus(form, "Unable to apply edit.", true);
+    showToast("Unable to apply edit.", {error: true});
   } finally {
-    submitButton.removeAttribute("aria-busy");
-    submitButton.disabled = false;
-    trackTagInputs.forEach((input) => {
-      if (input instanceof HTMLInputElement) {
-        input.disabled = false;
-      }
+    submitButtons.forEach((button) => {
+      button.removeAttribute("aria-busy");
     });
-    albumInput.disabled = false;
-    genreInput.disabled = false;
-    albumArtistInput.disabled = false;
+    formControls.forEach((control) => {
+      control.disabled = false;
+    });
+    syncAlbumEditAlbumLevelFields(form);
   }
 }
 
@@ -2285,12 +2355,8 @@ function setStatusMessage(formOrElement, selector, message, isError = false) {
   element.classList.toggle("error", isError);
 }
 
-function setAlbumMusicBrainzStatus(formOrElement, message, isError = false) {
-  setStatusMessage(formOrElement, "[data-album-musicbrainz-status]", message, isError);
-}
-
-function setAlbumTagStatus(formOrElement, message, isError = false) {
-  setStatusMessage(formOrElement, "[data-album-tag-status]", message, isError);
+function setAlbumEditStatus(formOrElement, message, isError = false) {
+  setStatusMessage(formOrElement, "[data-album-edit-status]", message, isError);
 }
 
 function setAlbumArtistMappingStatus(formOrElement, message, isError = false) {
@@ -2386,12 +2452,17 @@ function showJobToast(job) {
   if (!message) {
     return;
   }
+  if (!shouldApplyJobUpdate(jobId, job)) {
+    return;
+  }
   const toastElement = jobToastElement(jobId);
   clearJobToastTimeout(toastElement);
   toastElement.className = `job-toast ${status}`;
   toastElement.dataset.jobToastId = String(jobId);
+  toastElement.dataset.jobStatus = status;
   toastElement.replaceChildren(...jobToastChildren(job));
   jobToasts.prepend(toastElement);
+  rememberJobUpdate(jobId, job);
   if (isTemporaryBookmarkJobToast(job)) {
     const timeout = window.setTimeout(() => {
       removeJobToast(toastElement);
@@ -2399,6 +2470,77 @@ function showJobToast(job) {
     jobToastTimeouts.set(toastElement, timeout);
   }
   updateVisibleJobCard(job);
+}
+
+function shouldApplyJobUpdate(jobId, job) {
+  const current = latestJobState(jobId);
+  if (!current) {
+    return true;
+  }
+  const nextStatus = typeof job.status === "string" ? job.status : "";
+  const nextRank = jobStatusRank(nextStatus);
+  if (nextRank < current.rank) {
+    return false;
+  }
+  const nextUpdatedAt = jobUpdatedAt(job);
+  return !(current.updatedAt && nextUpdatedAt && nextUpdatedAt < current.updatedAt);
+}
+
+function latestJobState(jobId) {
+  const remembered = jobLatestStates.get(jobId);
+  if (remembered) {
+    return remembered;
+  }
+  const renderedStatus = renderedJobStatus(jobId);
+  if (!renderedStatus) {
+    return null;
+  }
+  const state = {
+    status: renderedStatus,
+    rank: jobStatusRank(renderedStatus),
+    updatedAt: ""
+  };
+  jobLatestStates.set(jobId, state);
+  return state;
+}
+
+function renderedJobStatus(jobId) {
+  const toastElement = jobToasts instanceof HTMLElement
+    ? jobToasts.querySelector(`[data-job-toast-id="${jobId}"]`)
+    : null;
+  if (toastElement instanceof HTMLElement) {
+    return toastElement.dataset.jobStatus || jobStatusFromClassName(toastElement.className);
+  }
+  const card = view.querySelector(`[data-job-id="${jobId}"]`);
+  if (!(card instanceof HTMLElement)) {
+    return "";
+  }
+  const statusElement = card.querySelector(".job-status");
+  return statusElement instanceof HTMLElement
+    ? jobStatusFromClassName(statusElement.className)
+    : "";
+}
+
+function rememberJobUpdate(jobId, job) {
+  const status = typeof job.status === "string" ? job.status : "";
+  jobLatestStates.set(jobId, {
+    status,
+    rank: jobStatusRank(status),
+    updatedAt: jobUpdatedAt(job)
+  });
+}
+
+function jobStatusRank(status) {
+  return jobStatusRanks.has(status) ? jobStatusRanks.get(status) : 0;
+}
+
+function jobUpdatedAt(job) {
+  return typeof job.updated_at === "string" ? job.updated_at : "";
+}
+
+function jobStatusFromClassName(className) {
+  const names = typeof className === "string" ? className.split(/\s+/) : [];
+  return names.find((name) => jobStatusRanks.has(name)) || "";
 }
 
 function jobToastElement(jobId) {
@@ -2662,21 +2804,7 @@ function albumPlaybackUrl(button) {
     `/api/albums/${encodeURIComponent(albumId).replace(/%3A/gi, ":")}/playback`,
     window.location.origin
   );
-  for (const rootValue of selectedRootValuesForPlayback()) {
-    url.searchParams.append("root", rootValue);
-  }
   return url.toString();
-}
-
-function selectedRootValuesForPlayback() {
-  const form = view.querySelector("form[data-filter-form]");
-  if (form instanceof HTMLFormElement) {
-    return Array.from(form.querySelectorAll('input[name="root"]:checked'))
-      .map((input) => input.value.trim())
-      .filter(Boolean);
-  }
-  const url = new URL(window.location.href);
-  return url.searchParams.getAll("root").map((value) => value.trim()).filter(Boolean);
 }
 
 async function fetchAlbumTracks(playbackUrl) {
@@ -2962,7 +3090,30 @@ function searchShortcutInput() {
   return input instanceof HTMLInputElement ? input : null;
 }
 
-function focusAndSelectSearchInput(input) {
+function focusSearchMenuInput(menu) {
+  const input = menu.querySelector("input[type='search']");
+  if (!(input instanceof HTMLInputElement)) {
+    return;
+  }
+  requestAnimationFrame(() => {
+    if (menu.open && input.isConnected) {
+      focusAndSelectSearchInput(input, {openMenu: false});
+    }
+  });
+}
+
+function closeSearchMenu(form) {
+  const menu = form.querySelector("details[data-search-menu]");
+  if (menu instanceof HTMLDetailsElement) {
+    menu.open = false;
+  }
+}
+
+function focusAndSelectSearchInput(input, options = {}) {
+  const menu = input.closest("details[data-search-menu]");
+  if (options.openMenu !== false && menu instanceof HTMLDetailsElement) {
+    menu.open = true;
+  }
   try {
     input.focus({preventScroll: true});
   } catch {

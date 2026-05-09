@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import os
+from dataclasses import replace
 from pathlib import Path
 from queue import Queue
 from tempfile import TemporaryDirectory
@@ -43,6 +44,7 @@ from kukicha.player_config import (
     DEFAULT_PLAYER_HOST,
     DEFAULT_PLAYER_LOG_LEVEL,
     DEFAULT_PLAYER_PORT,
+    DEFAULT_PREFER_MUSICBRAINZ_ENGLISH_ALIASES,
     DEFAULT_TOAST_TIMEOUT_MS,
     APPEARANCE_THEMES,
     CONTROL_ACCENT_MINIMUM_CONTRAST,
@@ -57,6 +59,7 @@ from kukicha.player_config import (
 )
 from kukicha.use_case import (
     append_queue as append_queue_command,
+    edit_library_album_edit,
     edit_library_album_musicbrainz,
     edit_library_album_tags,
     library_job_detail_lines,
@@ -68,6 +71,7 @@ from kukicha.use_case import (
     list_player_jobs,
     mark_stale_player_jobs_canceled,
     playlist_menu_options_by_track_id,
+    prepare_album_edit_job,
     prepare_album_musicbrainz_edit_job,
     prepare_album_musicbrainz_edit_request,
     prepare_album_tag_edit_job,
@@ -76,7 +80,7 @@ from kukicha.use_case import (
     sync_library_roots,
     set_track_playlist_membership,
     set_track_playlist_membership_database,
-    start_album_tag_edit,
+    start_album_edit,
     update_playback as update_playback_command,
     update_player_job,
     update_queue as update_queue_command,
@@ -85,10 +89,10 @@ from kukicha.player_errors import PlayerConfigError, PlayerConflictError
 from kukicha.player_media import audio_mime_type
 from kukicha.player_navigation import (
     album_artist_links,
+    album_artist_url,
     album_genre_links,
     album_index_url,
     album_meta_query,
-    album_root_links,
     album_style_links,
     artist_cloud_links,
     player_page_heading,
@@ -106,6 +110,7 @@ from kukicha.player_presenters import (
     album_tag_edit_section_for_tracks,
     album_tag_edit_sections,
     album_track_sections,
+    format_track_duration,
     normalized_queue_state,
     playlist_item_view,
     queue_meta_text,
@@ -115,7 +120,7 @@ from kukicha.player_presenters import (
     track_view,
     valid_playback_ids,
 )
-from kukicha.player_views import base_player_context
+from kukicha.player_views import album_musicbrainz_edit_sections, base_player_context
 
 from kukicha.player_runtime import (
     PlayerJobCanceled,
@@ -445,6 +450,50 @@ class PlayerRuntimeTest(unittest.TestCase):
         self.assertEqual(state.track_ids, [-1])
         self.assertEqual(state.errored_track_ids, [])
         self.assertEqual(errored, 0)
+
+    def test_queue_load_keeps_remote_playlist_stream_available_after_rescan(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            database = Path(tempdir) / "kukicha.sqlite"
+
+            def stream_library() -> MusicLibrary:
+                return MusicLibrary(
+                    roots=[],
+                    tracks=[],
+                    playlists=[
+                        PlaylistRecord(
+                            path="/music/streams.m3u8",
+                            name="Streams",
+                            items=[
+                                PlaylistItemRecord(
+                                    path="https://example.test/live",
+                                    title="Live",
+                                    duration_is_indeterminate=True,
+                                )
+                            ],
+                        )
+                    ],
+                    supported_extensions=[".flac"],
+                    generated_at="2026-05-01T00:00:00+00:00",
+                )
+
+            save_library(stream_library(), database)
+            runtime = PlayerRuntime(database)
+            update_queue_command(
+                runtime,
+                {
+                    "track_ids": [-1],
+                    "position": 0,
+                    "loaded_track_id": -1,
+                    "paused": False,
+                },
+            )
+
+            save_library(stream_library(), database)
+            state = load_queue_state_database(database)
+
+        self.assertEqual(state.track_ids, [-1])
+        self.assertEqual(state.loaded_track_id, -1)
+        self.assertEqual(state.unavailable_track_ids, [])
 
     def test_queue_persists_across_runtime_instances(self) -> None:
         with TemporaryDirectory() as tempdir:
@@ -813,6 +862,13 @@ class PlayerRuntimeTest(unittest.TestCase):
 class PlayerAudioMimeTypeTest(unittest.TestCase):
     def test_opus_uses_ogg_audio_mime_type(self) -> None:
         self.assertEqual(audio_mime_type(Path("track.opus")), "audio/ogg")
+
+
+class PlayerTrackDurationTest(unittest.TestCase):
+    def test_track_duration_uses_whole_elapsed_seconds_without_rounding(self) -> None:
+        self.assertEqual(format_track_duration(59.999), "0:59")
+        self.assertEqual(format_track_duration(60.999), "1:00")
+        self.assertEqual(format_track_duration(3600.999), "1:00:00")
 
 
 class PlayerAlbumPlaybackTrackPayloadsTest(unittest.TestCase):
@@ -1516,6 +1572,8 @@ class PlayerConfigTest(unittest.TestCase):
                         "DatabasePath = 'library.sqlite'",
                         "Roots = ['music-a', 'music-b']",
                         "FFmpegPath = 'bin/ffmpeg'",
+                        "YoutubeDownloadPath = 'youtube'",
+                        "PreferMusicBrainzEnglishAliases = false",
                         "Host = '0.0.0.0'",
                         "Port = 43210",
                         "AccentColor = 'Dark-Sky-Blue'",
@@ -1539,6 +1597,11 @@ class PlayerConfigTest(unittest.TestCase):
                 ),
             )
             self.assertEqual(options.ffmpeg_path, (temp_path / "bin" / "ffmpeg").resolve())
+            self.assertEqual(
+                options.youtube_download_path,
+                (temp_path / "youtube").resolve(),
+            )
+            self.assertFalse(options.prefer_musicbrainz_english_aliases)
             self.assertEqual(options.host, "0.0.0.0")
             self.assertEqual(options.port, 43210)
             self.assertEqual(options.log_level, "INFO")
@@ -1556,6 +1619,11 @@ class PlayerConfigTest(unittest.TestCase):
             self.assertEqual(options.config_path, (config_home / "kukicha" / "kukicha.toml").resolve())
             self.assertEqual(options.database, (config_home / "kukicha" / "kukicha.sqlite").resolve())
             self.assertIsNone(options.ffmpeg_path)
+            self.assertIsNone(options.youtube_download_path)
+            self.assertEqual(
+                options.prefer_musicbrainz_english_aliases,
+                DEFAULT_PREFER_MUSICBRAINZ_ENGLISH_ALIASES,
+            )
             self.assertEqual(options.roots, ())
             self.assertEqual(options.host, DEFAULT_PLAYER_HOST)
             self.assertEqual(options.port, DEFAULT_PLAYER_PORT)
@@ -1649,6 +1717,20 @@ class PlayerConfigTest(unittest.TestCase):
             with self.assertRaisesRegex(PlayerConfigError, "ToastTimeoutMs must be greater than 0"):
                 load_player_options(config_path)
 
+    def test_load_player_options_rejects_invalid_musicbrainz_alias_preference(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            config_path = Path(tempdir) / "kukicha.toml"
+            config_path.write_text(
+                "PreferMusicBrainzEnglishAliases = 'yes'\n",
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(
+                PlayerConfigError,
+                "PreferMusicBrainzEnglishAliases must be true or false",
+            ):
+                load_player_options(config_path)
+
     def test_load_player_options_rejects_invalid_accent_color(self) -> None:
         with TemporaryDirectory() as tempdir:
             config_path = Path(tempdir) / "kukicha.toml"
@@ -1739,6 +1821,8 @@ class PlayerConfigTest(unittest.TestCase):
             self.assertIn(f"LogLevel: {DEFAULT_PLAYER_LOG_LEVEL} (default)", help_text)
             self.assertIn(f"DatabasePath: {(config_home / 'kukicha' / 'kukicha.sqlite').resolve()} (default)", help_text)
             self.assertIn("Roots: [] (default)", help_text)
+            self.assertIn("YoutubeDownloadPath: <unset> (default)", help_text)
+            self.assertIn("PreferMusicBrainzEnglishAliases: true (default)", help_text)
             self.assertIn(f"Host: {DEFAULT_PLAYER_HOST} (default)", help_text)
             self.assertIn(f"Port: {DEFAULT_PLAYER_PORT} (default)", help_text)
             self.assertIn(f"AccentColor: {DEFAULT_ACCENT_COLOR} (default)", help_text)
@@ -1746,7 +1830,7 @@ class PlayerConfigTest(unittest.TestCase):
             self.assertIn(f"ToastTimeoutMs: {DEFAULT_TOAST_TIMEOUT_MS} (default)", help_text)
             self.assertIn("FFmpegPath: <unset> (default)", help_text)
             self.assertIn(
-                "AlbumArtistSplitPatterns: ['with', 'and', '&', ',', '/'] (default)",
+                "AlbumArtistSplitPatterns: ['with', 'and', '&', ',', ';', '/'] (default)",
                 help_text,
             )
             self.assertLess(
@@ -1754,7 +1838,8 @@ class PlayerConfigTest(unittest.TestCase):
                 help_text.index(f"AccentColor: {DEFAULT_ACCENT_COLOR} (default)"),
             )
             self.assertIn(
-                "Supported keys:\n  LogLevel\n  DatabasePath\n  Roots\n  FFmpegPath\n  Host\n  Port\n"
+                "Supported keys:\n  LogLevel\n  DatabasePath\n  Roots\n  FFmpegPath\n"
+                "  YoutubeDownloadPath\n  PreferMusicBrainzEnglishAliases\n  Host\n  Port\n"
                 "  Appearance\n  AccentColor\n  ToastTimeoutMs\n  AlbumArtistSplitPatterns",
                 help_text,
             )
@@ -1903,7 +1988,7 @@ class PlayerPageMenuTest(unittest.TestCase):
                 ("heading", "LIBRARY", ""),
                 ("link", "Albums", "/"),
                 ("link", "Artists", "/artists"),
-                ("link", "Playlist", "/playlists"),
+                ("link", "Playlists", "/playlists"),
                 ("divider", "", ""),
                 ("heading", "SETTINGS", ""),
                 ("link", "Roots", "/roots"),
@@ -1936,8 +2021,8 @@ class PlayerPageMenuTest(unittest.TestCase):
         self.assertIn('class="page-menu-divider"', html)
         self.assertLess(html.index("LIBRARY"), html.index("Albums"))
         self.assertLess(html.index("Artists"), html.index('class="page-menu-divider"'))
-        self.assertLess(html.index("Artists"), html.index("Playlist"))
-        self.assertLess(html.index("Playlist"), html.index('class="page-menu-divider"'))
+        self.assertLess(html.index("Artists"), html.index("Playlists"))
+        self.assertLess(html.index("Playlists"), html.index('class="page-menu-divider"'))
         self.assertLess(html.index("SETTINGS"), html.index("Roots"))
         self.assertLess(html.index("Roots"), html.index("Artists Split Rules"))
         self.assertLess(html.index("Artists Split Rules"), html.index("MusicBrainz Overrides"))
@@ -2037,6 +2122,14 @@ class PlayerGenreFilterQueryParamsTest(unittest.TestCase):
         self.assertEqual(query.genres, ())
         self.assertEqual(query.styles, ())
 
+    def test_ignores_removed_root_and_property_filter_params(self) -> None:
+        query = album_list_query_from_params(
+            parse_qs("root=1&has_cover=1&compilation=0&work=1")
+        )
+
+        self.assertEqual(query.root_positions, ())
+        self.assertEqual(album_index_url(AlbumListQuery(root_positions=(1,))), "/")
+
     def test_album_index_url_uses_grouped_genre_filter_params(self) -> None:
         url = album_index_url(
             AlbumListQuery(
@@ -2095,7 +2188,7 @@ class PlayerGenreFilterQueryParamsTest(unittest.TestCase):
         self.assertIsNone(query.is_playlist)
         self.assertEqual(album_index_url(AlbumListQuery(is_playlist=True, search="Road")), "/?search=Road")
 
-    def test_album_cursor_query_param_round_trips_and_playlist_urls_ignore_pagination(self) -> None:
+    def test_album_cursor_query_param_round_trips_and_playlist_urls_ignore_playlist_query_state(self) -> None:
         query = album_list_query_from_params(parse_qs("cursor=abc123&page=3"))
 
         self.assertEqual(query.cursor, "abc123")
@@ -2116,20 +2209,17 @@ class PlayerGenreFilterQueryParamsTest(unittest.TestCase):
                 AlbumListQuery(search="Road", page=3, per_page=80, cursor="abc123"),
                 page=4,
             ),
-            "/playlists?search=Road",
+            "/playlists",
         )
 
 
 class PlayerAlbumDetailLinksTest(unittest.TestCase):
-    def test_album_meta_query_replaces_content_filters_and_preserves_root_and_property_filters(self) -> None:
+    def test_album_meta_query_replaces_content_filters_and_preserves_display_options(self) -> None:
         query = AlbumListQuery(
             artists=("Current Artist",),
             album="Selected Ambient Works Volume II",
             root_positions=(0, 2),
             genre_filters=(GenreStyleFilter(genre="Ambient", styles=("IDM",)),),
-            has_cover=True,
-            is_compilation=False,
-            is_work=True,
             page=4,
             per_page=80,
             search="aphex",
@@ -2147,10 +2237,7 @@ class PlayerAlbumDetailLinksTest(unittest.TestCase):
             linked.genre_filters,
             (GenreStyleFilter(genre="Electronic", styles=("Techno",)),),
         )
-        self.assertEqual(linked.root_positions, (0, 2))
-        self.assertTrue(linked.has_cover)
-        self.assertFalse(linked.is_compilation)
-        self.assertTrue(linked.is_work)
+        self.assertEqual(linked.root_positions, ())
         self.assertEqual(linked.page, 1)
         self.assertEqual(linked.per_page, 80)
         self.assertEqual(linked.sort, ALBUM_LIST_SORT_ARTIST)
@@ -2175,7 +2262,6 @@ class PlayerAlbumDetailLinksTest(unittest.TestCase):
         )
         query = AlbumListQuery(
             root_positions=(1,),
-            has_cover=True,
             per_page=80,
             search="ignored",
         )
@@ -2186,41 +2272,28 @@ class PlayerAlbumDetailLinksTest(unittest.TestCase):
                 GenreFilterGroup(genre="Field Recording"),
             )
         )
-        roots = (
-            LibraryRootFilterOption(position=1, path="/music/a", label=".../a"),
-            LibraryRootFilterOption(position=2, path="/music/b", label=".../b"),
-        )
-
         artist_links = album_artist_links(album, query)
-        root_links = album_root_links(album, roots)
         genre_links = album_genre_links(album, query, filters)
         style_links = album_style_links(album, query, filters)
 
         self.assertEqual(
             [(item.label, item.url) for item in artist_links],
-            [("Aphex Twin", "/?artist=Aphex+Twin&root=1&has_cover=1&per_page=80")],
-        )
-        self.assertEqual(
-            [(item.label, item.url) for item in root_links],
-            [
-                (".../b", "/?root=2"),
-                (".../a", "/?root=1"),
-            ],
+            [("Aphex Twin", "/?artist=Aphex+Twin&per_page=80")],
         )
         self.assertEqual(
             [(item.label, item.url) for item in genre_links],
             [
                 (
                     "Electronic",
-                    "/?root=1&genre[0][p]=Electronic&has_cover=1&per_page=80",
+                    "/?genre[0][p]=Electronic&per_page=80",
                 ),
                 (
                     "Jazz",
-                    "/?root=1&genre[0][p]=Jazz&has_cover=1&per_page=80",
+                    "/?genre[0][p]=Jazz&per_page=80",
                 ),
                 (
                     "Field Recording",
-                    "/?root=1&genre[0][p]=Field+Recording&has_cover=1&per_page=80",
+                    "/?genre[0][p]=Field+Recording&per_page=80",
                 ),
             ],
         )
@@ -2229,16 +2302,37 @@ class PlayerAlbumDetailLinksTest(unittest.TestCase):
             [
                 (
                     "IDM",
-                    "/?root=1&genre[0][p]=Electronic&genre[0][c][]=IDM"
-                    "&has_cover=1&per_page=80",
+                    "/?genre[0][p]=Electronic&genre[0][c][]=IDM&per_page=80",
                 ),
                 (
                     "Bebop",
-                    "/?root=1&genre[0][p]=Jazz&genre[0][c][]=Bebop"
-                    "&has_cover=1&per_page=80",
+                    "/?genre[0][p]=Jazz&genre[0][c][]=Bebop&per_page=80",
                 ),
             ],
         )
+
+    def test_album_artist_url_builds_filtered_library_url_for_album_cards(self) -> None:
+        album = AlbumDetails(
+            album_id="brian-eno-robert-fripp::no-pussyfooting",
+            artist="Brian Eno, Robert Fripp",
+            album_artists=("Brian Eno", "Robert Fripp"),
+            album="No Pussyfooting",
+            year=1973,
+            track_count=2,
+        )
+        query = AlbumListQuery(
+            genre_filters=(GenreStyleFilter(genre="Ambient"),),
+            per_page=80,
+            search="ignored",
+            sort=ALBUM_LIST_SORT_ARTIST,
+        )
+
+        self.assertEqual(
+            album_artist_url(album, query),
+            "/?artist=Brian+Eno&artist=Robert+Fripp&sort=artist&per_page=80",
+        )
+        self.assertEqual(album_artist_url(replace(album, is_playlist=True), query), "")
+        self.assertEqual(album_artist_url(replace(album, album_artists=()), query), "")
 
 
     def test_album_template_renders_individual_album_artist_labels_with_commas(self) -> None:
@@ -2377,8 +2471,7 @@ class PlayerAlbumDetailLinksTest(unittest.TestCase):
             album_year_text="1995",
             album_genre_parts=("Electronic", "Experimental"),
             album_style_parts=("IDM", "Ambient Techno"),
-            album_musicbrainz_action_url="/api/albums/autechre::tri-repetae/musicbrainz",
-            album_tag_edit_action_url="/api/albums/autechre::tri-repetae/tags",
+            album_edit_action_url="/api/albums/autechre::tri-repetae/edit",
             album_tag_edit_sections=(),
             album_musicbrainz_release_mbid="",
             album_musicbrainz_release_group_mbid="",
@@ -2407,7 +2500,7 @@ class PlayerAlbumDetailLinksTest(unittest.TestCase):
         self.assertIn("Electronic,&nbsp;Experimental", html)
         self.assertIn("IDM,&nbsp;Ambient Techno", html)
 
-    def test_album_edit_template_renders_musicbrainz_groups_and_single_tag_form(self) -> None:
+    def test_album_edit_template_renders_multiple_musicbrainz_groups_only(self) -> None:
         album = AlbumDetails(
             album_id="unknown::unknown",
             artist="__Unknown",
@@ -2450,26 +2543,36 @@ class PlayerAlbumDetailLinksTest(unittest.TestCase):
         html = template.render(
             album=album,
             album_back_url="/albums/unknown::unknown",
-            album_root_links=album_root_links(album, roots),
+            album_root_links=(),
             album_artist_parts=("__Unknown",),
             album_year_text="",
             album_genre_parts=("__Unknown",),
             album_style_parts=(),
-            album_musicbrainz_action_url="/api/albums/unknown::unknown/musicbrainz",
-            album_tag_edit_action_url="/api/albums/unknown::unknown/tags",
+            album_edit_action_url="/api/albums/unknown::unknown/edit",
             album_musicbrainz_sections=musicbrainz_sections,
             album_tag_edit_section=tag_section,
             album_musicbrainz_release_mbid="",
             album_musicbrainz_release_group_mbid="",
         )
 
-        self.assertEqual(html.count("data-album-tag-form"), 1)
-        self.assertEqual(html.count("data-album-musicbrainz-form"), 1)
-        self.assertEqual(html.count("data-musicbrainz-group"), 2)
+        self.assertEqual(html.count("data-album-edit-form"), 1)
+        self.assertEqual(html.count("data-apply-album-edit"), 2)
+        self.assertEqual(html.count("data-album-edit-status"), 1)
+        self.assertNotIn("data-album-musicbrainz-status", html)
         self.assertIn(
-            'method="post" autocomplete="off" data-album-musicbrainz-form',
+            "These actions queue jobs that edit the metadata stored in the audio files on disk",
             html,
         )
+        self.assertIn("On rescan", html)
+        self.assertIn("extract the updated metadata into Kukicha's library database", html)
+        self.assertIn("writes MusicBrainz-derived album artist", html)
+        self.assertIn("Clearing the URL removes the saved IDs without", html)
+        self.assertNotIn(
+            "Writes the album, album artist, genre, track artist, track number, and title fields",
+            html,
+        )
+        self.assertEqual(html.count("data-musicbrainz-group"), 2)
+        self.assertIn('action="/api/albums/unknown::unknown/edit"', html)
         self.assertEqual(html.count("data-musicbrainz-url-input"), 2)
         self.assertNotIn("data-musicbrainz-release-mbid-input", html)
         self.assertNotIn("data-musicbrainz-release-group-mbid-input", html)
@@ -2481,32 +2584,299 @@ class PlayerAlbumDetailLinksTest(unittest.TestCase):
         self.assertEqual(html.count("data-musicbrainz-track-id"), 2)
         self.assertIn(".../downloads/Unknown/", html)
         self.assertIn(".../downloads/Artist/Album/", html)
-        self.assertIn('value="__Unknown"', html)
-        self.assertIn('value="__Unknown; Electronic; Ambient"', html)
-        self.assertIn('data-track-id="1"', html)
-        self.assertIn('data-track-id="2"', html)
-        self.assertIn("data-album-input", html)
-        self.assertIn("data-track-number-input", html)
-        self.assertIn("data-track-title-input", html)
+        self.assertNotIn("data-track-id=", html)
+        self.assertNotIn("data-album-input", html)
+        self.assertNotIn("data-album-artist-input", html)
+        self.assertNotIn("data-album-genre-input", html)
+        self.assertNotIn("data-track-artist-input", html)
+        self.assertNotIn("data-track-number-input", html)
+        self.assertNotIn("data-track-title-input", html)
         first_section_start = html.index(".../downloads/Unknown/")
         first_musicbrainz_input = html.index("data-musicbrainz-url-input", first_section_start)
         second_section_start = html.index(".../downloads/Artist/Album/")
         second_musicbrainz_input = html.index("data-musicbrainz-url-input", second_section_start)
-        tag_form_start = html.index("data-album-tag-form")
         self.assertLess(first_section_start, first_musicbrainz_input)
         self.assertLess(first_musicbrainz_input, second_section_start)
         self.assertLess(second_section_start, second_musicbrainz_input)
-        self.assertLess(second_musicbrainz_input, tag_form_start)
-        self.assertLess(html.index(">Album</span>", tag_form_start), html.index(">Album artist</span>", tag_form_start))
-        self.assertLess(html.index(">Album artist</span>", tag_form_start), html.index(">Genre</span>", tag_form_start))
-        first_track_start = html.index('data-track-id="1"')
-        second_track_start = html.index('data-track-id="2"')
-        self.assertLess(tag_form_start, first_track_start)
-        self.assertLess(first_track_start, second_track_start)
-        self.assertLess(html.index(">Artist</span>", first_track_start), html.index(">Track</span>", first_track_start))
-        self.assertLess(html.index(">Track</span>", first_track_start), html.index(">Title</span>", first_track_start))
+        self.assertNotIn("Update Audio Tags", html)
 
-    def test_album_templates_render_comma_separated_root_labels_after_year(self) -> None:
+    def test_album_edit_template_renders_single_group_combined_form_without_musicbrainz_url(self) -> None:
+        album = AlbumDetails(
+            album_id="brian-eno::ambient-1",
+            artist="Brian Eno",
+            album_artists=("Brian Eno",),
+            album="Ambient 1",
+            year=1978,
+            track_count=2,
+        )
+        roots = (
+            LibraryRootFilterOption(position=0, path="/music/downloads", label=".../downloads"),
+        )
+        tracks = [
+            make_track_view(
+                1,
+                root_position=0,
+                path="/music/downloads/Brian Eno/Ambient 1/01.flac",
+                album_id=album.album_id,
+                album_artist="Brian Eno",
+                album="Ambient 1",
+                genres=("Ambient",),
+            ),
+            make_track_view(
+                2,
+                root_position=0,
+                path="/music/downloads/Brian Eno/Ambient 1/02.flac",
+                album_id=album.album_id,
+                album_artist="Brian Eno",
+                album="Ambient 1",
+                genres=("Ambient",),
+            ),
+        ]
+        musicbrainz_sections = album_tag_edit_sections(tracks, roots)
+        template = build_template_environment().get_template("player/album_edit.html")
+
+        html = template.render(
+            album=album,
+            album_back_url="/albums/brian-eno::ambient-1",
+            album_root_links=(),
+            album_artist_parts=("Brian Eno",),
+            album_year_text="1978",
+            album_genre_parts=("Ambient",),
+            album_style_parts=(),
+            album_edit_action_url="/api/albums/brian-eno::ambient-1/edit",
+            album_musicbrainz_sections=musicbrainz_sections,
+            album_tag_edit_section=album_tag_edit_section_for_tracks(tracks),
+            album_musicbrainz_release_mbid="",
+            album_musicbrainz_release_group_mbid="",
+        )
+
+        self.assertEqual(html.count("data-album-edit-form"), 1)
+        self.assertEqual(html.count("data-apply-album-edit"), 2)
+        self.assertIn('action="/api/albums/brian-eno::ambient-1/edit"', html)
+        self.assertEqual(html.count("data-musicbrainz-group"), 1)
+        self.assertIn("Update Audio Tags", html)
+        self.assertIn("data-album-input", html)
+        self.assertIn("data-album-artist-input", html)
+        self.assertIn("data-album-genre-input", html)
+        self.assertIn("data-track-artist-input", html)
+        self.assertIn("data-track-number-input", html)
+        self.assertIn("data-track-title-input", html)
+        self.assertNotIn("data-album-input disabled", html)
+        self.assertNotIn("data-album-artist-input disabled", html)
+        self.assertNotIn("data-album-genre-input disabled", html)
+        note_start = html.index("data-album-level-musicbrainz-note")
+        note_end = html.index(">", note_start)
+        self.assertIn("hidden", html[note_start:note_end])
+
+    def test_album_edit_template_disables_single_group_album_fields_with_musicbrainz_url(self) -> None:
+        album = AlbumDetails(
+            album_id="brian-eno::ambient-1",
+            artist="Brian Eno",
+            album_artists=("Brian Eno",),
+            album="Ambient 1",
+            year=1978,
+            track_count=1,
+        )
+        roots = (
+            LibraryRootFilterOption(position=0, path="/music/downloads", label=".../downloads"),
+        )
+        tracks = [
+            make_track_view(
+                1,
+                root_position=0,
+                path="/music/downloads/Brian Eno/Ambient 1/01.flac",
+                album_id=album.album_id,
+                album_artist="Brian Eno",
+                album="Ambient 1",
+                genres=("Ambient",),
+            ),
+        ]
+        sections = album_tag_edit_sections(tracks, roots)
+        musicbrainz_sections = [
+            replace(
+                sections[0],
+                musicbrainz_url=(
+                    "https://musicbrainz.org/release/"
+                    "11111111-1111-1111-1111-111111111111"
+                ),
+            )
+        ]
+        template = build_template_environment().get_template("player/album_edit.html")
+
+        html = template.render(
+            album=album,
+            album_back_url="/albums/brian-eno::ambient-1",
+            album_root_links=(),
+            album_artist_parts=("Brian Eno",),
+            album_year_text="1978",
+            album_genre_parts=("Ambient",),
+            album_style_parts=(),
+            album_edit_action_url="/api/albums/brian-eno::ambient-1/edit",
+            album_musicbrainz_sections=musicbrainz_sections,
+            album_tag_edit_section=album_tag_edit_section_for_tracks(tracks),
+            album_musicbrainz_release_mbid="",
+            album_musicbrainz_release_group_mbid="",
+        )
+
+        self.assertEqual(html.count("data-album-edit-form"), 1)
+        self.assertIn("data-album-input disabled", html)
+        self.assertIn("data-album-artist-input disabled", html)
+        self.assertIn("data-album-genre-input disabled", html)
+        self.assertEqual(html.count(" disabled>"), 3)
+        self.assertIn("data-track-artist-input", html)
+        self.assertIn("data-track-number-input", html)
+        self.assertIn("data-track-title-input", html)
+        note_start = html.index("data-album-level-musicbrainz-note")
+        note_end = html.index(">", note_start)
+        self.assertNotIn("hidden", html[note_start:note_end])
+
+    def test_album_edit_template_prefills_group_musicbrainz_urls(self) -> None:
+        album = AlbumDetails(
+            album_id="aphex-twin::selected-ambient-works-volume-ii::09f",
+            artist="Aphex Twin",
+            album_artists=("Aphex Twin",),
+            album="Selected Ambient Works, Volume II",
+            year=1994,
+            track_count=2,
+        )
+        roots = (
+            LibraryRootFilterOption(position=0, path="/music/downloaded", label=".../downloaded"),
+            LibraryRootFilterOption(position=1, path="/music/amazon", label=".../amazon"),
+        )
+        tracks = [
+            make_track_view(
+                1,
+                root_position=0,
+                path="/music/downloaded/Aphex Twin/Selected Ambient Works, Volume II/01.flac",
+                album_id=album.album_id,
+                album="Selected Ambient Works, Volume II",
+            ),
+            make_track_view(
+                2,
+                root_position=1,
+                path="/music/amazon/Aphex Twin/Selected Ambient Works Volume II/01.mp3",
+                album_id=album.album_id,
+                album="Selected Ambient Works, Volume II",
+            ),
+        ]
+        sections = album_tag_edit_sections(tracks, roots)
+        musicbrainz_sections = [
+            replace(
+                sections[0],
+                musicbrainz_url=(
+                    "https://musicbrainz.org/release/"
+                    "6d0aaf02-f571-4c03-8677-23018ff628ee"
+                ),
+            ),
+            replace(
+                sections[1],
+                musicbrainz_url=(
+                    "https://musicbrainz.org/release/"
+                    "6439fcbe-b404-4cf4-ac58-4816c43cf2e3"
+                ),
+            ),
+        ]
+        template = build_template_environment().get_template("player/album_edit.html")
+
+        html = template.render(
+            album=album,
+            album_back_url="/albums/aphex-twin::selected-ambient-works-volume-ii::09f",
+            album_root_links=(),
+            album_artist_parts=("Aphex Twin",),
+            album_year_text="1994",
+            album_genre_parts=("Electronic",),
+            album_style_parts=("Ambient",),
+            album_edit_action_url=(
+                "/api/albums/aphex-twin::selected-ambient-works-volume-ii::09f/edit"
+            ),
+            album_musicbrainz_sections=musicbrainz_sections,
+            album_tag_edit_section=album_tag_edit_section_for_tracks(tracks),
+            album_musicbrainz_release_mbid="",
+            album_musicbrainz_release_group_mbid="",
+        )
+
+        self.assertIn(
+            'value="https://musicbrainz.org/release/6d0aaf02-f571-4c03-8677-23018ff628ee"',
+            html,
+        )
+        self.assertIn(
+            'data-server-value="https://musicbrainz.org/release/6439fcbe-b404-4cf4-ac58-4816c43cf2e3"',
+            html,
+        )
+
+    def test_album_musicbrainz_edit_sections_prefill_urls_from_track_links(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            database = Path(tempdir) / "kukicha.sqlite"
+            connection = connect_database(database)
+            try:
+                connection.executemany(
+                    """
+                    INSERT INTO album_musicbrainz_track_links (
+                        path, file_album_id, release_mbid, release_group_mbid
+                    ) VALUES (?, ?, ?, ?)
+                    """,
+                    (
+                        (
+                            "/music/downloaded/Aphex Twin/Selected Ambient Works, Volume II/01.flac",
+                            "aphex-twin::selected-ambient-works-volume-ii",
+                            "6d0aaf02-f571-4c03-8677-23018ff628ee",
+                            "0e7a233f-81f8-3e63-ad07-6cdfe2faecc3",
+                        ),
+                        (
+                            "/music/amazon/Aphex Twin/Selected Ambient Works Volume II/01.mp3",
+                            "aphex-twin::selected-ambient-works-volume-ii",
+                            "6439fcbe-b404-4cf4-ac58-4816c43cf2e3",
+                            "0e7a233f-81f8-3e63-ad07-6cdfe2faecc3",
+                        ),
+                    ),
+                )
+                connection.commit()
+            finally:
+                connection.close()
+
+            roots = (
+                LibraryRootFilterOption(position=0, path="/music/downloaded", label=".../downloaded"),
+                LibraryRootFilterOption(position=1, path="/music/amazon", label=".../amazon"),
+            )
+            tracks = [
+                make_track_view(
+                    1,
+                    root_position=0,
+                    path="/music/downloaded/Aphex Twin/Selected Ambient Works, Volume II/01.flac",
+                    album_id="aphex-twin::selected-ambient-works-volume-ii::09f",
+                    album="Selected Ambient Works, Volume II",
+                ),
+                make_track_view(
+                    2,
+                    root_position=1,
+                    path="/music/amazon/Aphex Twin/Selected Ambient Works Volume II/01.mp3",
+                    album_id="aphex-twin::selected-ambient-works-volume-ii::09f",
+                    album="Selected Ambient Works, Volume II",
+                ),
+            ]
+
+            sections = album_musicbrainz_edit_sections(
+                database,
+                "aphex-twin::selected-ambient-works-volume-ii::09f",
+                tracks,
+                roots,
+            )
+
+            self.assertEqual(
+                [section.musicbrainz_url for section in sections],
+                [
+                    (
+                        "https://musicbrainz.org/release/"
+                        "6d0aaf02-f571-4c03-8677-23018ff628ee"
+                    ),
+                    (
+                        "https://musicbrainz.org/release/"
+                        "6439fcbe-b404-4cf4-ac58-4816c43cf2e3"
+                    ),
+                ],
+            )
+
+    def test_album_templates_render_year_without_root_title_links(self) -> None:
         album = AlbumDetails(
             album_id="brian-eno-robert-fripp::no-pussyfooting",
             artist="Brian Eno, Robert Fripp",
@@ -2519,11 +2889,6 @@ class PlayerAlbumDetailLinksTest(unittest.TestCase):
                 PlaylistTrack(path="/music/b/Brian Eno/No Pussyfooting/02.flac", root_position=2),
             ),
         )
-        roots = (
-            LibraryRootFilterOption(position=0, path="/music/a", label=".../a"),
-            LibraryRootFilterOption(position=2, path="/music/b", label=".../b"),
-        )
-        root_links = album_root_links(album, roots)
         album_template = build_template_environment().get_template("player/album.html")
         edit_template = build_template_environment().get_template("player/album_edit.html")
 
@@ -2531,7 +2896,6 @@ class PlayerAlbumDetailLinksTest(unittest.TestCase):
             album=album,
             album_back_url="/",
             album_edit_page_url="/albums/brian-eno-robert-fripp::no-pussyfooting/edit",
-            album_root_links=root_links,
             album_artist_links=album_artist_links(album, AlbumListQuery()),
             album_genre_links=({"label": "Ambient", "url": "/?genre=Ambient"},),
             album_year_text="1973",
@@ -2541,31 +2905,31 @@ class PlayerAlbumDetailLinksTest(unittest.TestCase):
         edit_html = edit_template.render(
             album=album,
             album_back_url="/albums/brian-eno-robert-fripp::no-pussyfooting",
-            album_root_links=root_links,
             album_artist_parts=("Brian Eno", "Robert Fripp"),
             album_year_text="1973",
             album_genre_parts=("Ambient",),
             album_style_parts=("Frippertronics",),
-            album_musicbrainz_action_url="/api/albums/brian-eno-robert-fripp::no-pussyfooting/musicbrainz",
-            album_tag_edit_action_url="/api/albums/brian-eno-robert-fripp::no-pussyfooting/tags",
+            album_edit_action_url="/api/albums/brian-eno-robert-fripp::no-pussyfooting/edit",
             album_tag_edit_sections=(),
             album_musicbrainz_release_mbid="",
             album_musicbrainz_release_group_mbid="",
         )
 
-        album_root_start = album_html.index('<span class="album-title-root-links">')
-        edit_root_start = edit_html.index('<span class="album-title-root-links">')
-
-        self.assertLess(album_html.index('<span class="album-title-year-meta">1973</span>'), album_root_start)
-        self.assertLess(album_root_start, album_html.index("album-artist-meta"))
-        self.assertIn('href="/?root=0"', album_html)
-        self.assertIn('href="/?root=2"', album_html)
+        self.assertNotIn("album-title-root-links", album_html)
+        self.assertNotIn("album-title-root-links", edit_html)
+        self.assertNotIn('href="/?root=0"', album_html)
+        self.assertNotIn('href="/?root=2"', album_html)
         self.assertIn("Brian Eno</a>,&nbsp;<a", album_html)
         self.assertIn('href="/?artist=Brian+Eno"', album_html)
         self.assertIn('href="/?artist=Robert+Fripp"', album_html)
-        self.assertLess(edit_html.index('<span class="album-title-year-meta">1973</span>'), edit_root_start)
-        self.assertLess(edit_root_start, edit_html.index("album-artist-meta"))
-        self.assertIn("(.../a,&nbsp;.../b)", edit_html)
+        self.assertLess(
+            album_html.index('<span class="album-title-year-meta">1973</span>'),
+            album_html.index("album-artist-meta"),
+        )
+        self.assertLess(
+            edit_html.index('<span class="album-title-year-meta">1973</span>'),
+            edit_html.index("album-artist-meta"),
+        )
         self.assertNotIn('href="/?root=0"', edit_html)
 
 
@@ -3037,6 +3401,10 @@ class PlayerWebAdapterTest(unittest.TestCase):
         self.assertNotIn(b"data-lazy-filter-options", response.data)
         self.assertNotIn(b'data-filter-summary="artists"', response.data)
         self.assertIn(b'type="hidden" name="artist" value="Artist A"', response.data)
+        self.assertIn(
+            b'class="album-artist album-artist-link" href="/?artist=Artist+A" data-nav title="Artist A">Artist A</a>',
+            response.data,
+        )
         self.assertIn(b'value="Ambient" data-genre-child-control checked', response.data)
         self.assertIn(b'value="Techno" data-genre-child-control', response.data)
         self.assertNotIn(
@@ -3118,10 +3486,14 @@ class PlayerWebAdapterTest(unittest.TestCase):
         self.assertNotIn(b"Not playlist", albums_response.data)
 
         self.assertEqual(playlist_response.status_code, 200)
-        self.assertIn(b"<h1>Playlist</h1>", playlist_response.data)
-        self.assertIn(b'action="/playlists"', playlist_response.data)
-        self.assertIn(b'placeholder="Search playlists"', playlist_response.data)
+        self.assertIn(b"<h1>Playlists</h1>", playlist_response.data)
+        self.assertNotIn(b"data-filter-form", playlist_response.data)
+        self.assertNotIn(b'action="/playlists"', playlist_response.data)
+        self.assertNotIn(b'placeholder="Search playlists"', playlist_response.data)
+        self.assertNotIn(b'type="search"', playlist_response.data)
+        self.assertNotIn(b"album-artist-link", playlist_response.data)
         self.assertIn(b"Road Mix", playlist_response.data)
+        self.assertIn(b"Alpha Mix", playlist_response.data)
         self.assertNotIn(b"Studio Album", playlist_response.data)
         self.assertNotIn(b'name="sort"', playlist_response.data)
         self.assertNotIn(b'data-pagination-next', playlist_response.data)
@@ -3131,10 +3503,10 @@ class PlayerWebAdapterTest(unittest.TestCase):
         self.assertNotIn(b'data-filter-summary="artists"', playlist_response.data)
         self.assertNotIn(b'data-filter-summary="genres"', playlist_response.data)
         self.assertNotIn(b'data-filter-summary="properties"', playlist_response.data)
-        self.assertIn(b'href="/playlists/1?search=Road"', playlist_response.data)
+        self.assertIn(b'href="/playlists/1"', playlist_response.data)
 
         self.assertEqual(playlist_detail_response.status_code, 200)
-        self.assertIn(b'href="/playlists?search=Road"', playlist_detail_response.data)
+        self.assertIn(b'href="/playlists"', playlist_detail_response.data)
         self.assertIn(b"data-play-album", playlist_detail_response.data)
         self.assertNotIn(b"data-play-track", playlist_detail_response.data)
 
@@ -3364,7 +3736,7 @@ class PlayerWebAdapterTest(unittest.TestCase):
             self.assertNotIn(b"data-rescan-root", roots_response.data)
             self.assertIn(b"/music/a", roots_response.data)
             self.assertIn(b"Tracks scanned</dt>\n                <dd>3</dd>", roots_response.data)
-            self.assertIn(b"Albums scanned</dt>\n                <dd>2</dd>", roots_response.data)
+            self.assertIn(b"Albums in root</dt>\n                <dd>2</dd>", roots_response.data)
             self.assertIn(b"Playlists scanned</dt>\n                <dd>1</dd>", roots_response.data)
             self.assertNotIn(b"<h2>Artists Split Rules</h2>", roots_response.data)
             self.assertNotIn(b"<h2>Cache</h2>", roots_response.data)
@@ -5237,6 +5609,188 @@ class PlayerAlbumTagEditTest(unittest.TestCase):
             finally:
                 connection.close()
 
+    def test_edit_library_album_musicbrainz_handles_unicode_artist_for_unknown_album(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            database = temp_path / "kukicha.sqlite"
+            paths = (
+                temp_path / "Album" / "01.mp3",
+                temp_path / "Album" / "02.mp3",
+            )
+            self.seed_album(database, paths)
+            connection = connect_database(database, create=False)
+            try:
+                insert_library_album(
+                    connection,
+                    "unknown::unknown",
+                    "<unknown artist>",
+                    "<unknown album>",
+                    None,
+                    2,
+                )
+                connection.execute(
+                    """
+                    UPDATE library_tracks
+                    SET album_id = ?, artist = '', album_artist = '', album = ''
+                    WHERE album_id = ?
+                    """,
+                    ("unknown::unknown", "old-artist::album"),
+                )
+                connection.execute(
+                    "DELETE FROM library_albums WHERE album_id = ?",
+                    ("old-artist::album",),
+                )
+                connection.commit()
+            finally:
+                connection.close()
+
+            job = prepare_album_musicbrainz_edit_job(
+                database,
+                "unknown::unknown",
+                {
+                    "musicbrainz_url": (
+                        "https://musicbrainz.org/release/"
+                        "cc3af5d1-caf1-45c9-9fe8-37b07e77f894"
+                    ),
+                },
+            )
+
+            release_payload = {
+                "title": "Quiet Forest",
+                "artist-credit": [
+                    {
+                        "artist": {
+                            "aliases": [
+                                {
+                                    "locale": "en",
+                                    "name": "Hiroshi Yoshimura",
+                                },
+                            ],
+                        },
+                        "name": "吉村弘",
+                    },
+                ],
+                "genres": [],
+                "release-group": {"id": "c4bae335-57a4-4698-938f-eaf5da364bbc"},
+            }
+            release_group_payload = {
+                "title": "Quiet Forest",
+                "artist-credit": [{"name": "吉村弘"}],
+                "genres": [{"name": "ambient", "count": 1}],
+            }
+
+            def fake_get_musicbrainz_entity(
+                _connection: object,
+                _client: object,
+                *,
+                entity_type: str,
+                mbid: str,
+            ) -> dict[str, object]:
+                if entity_type == "release":
+                    self.assertEqual(mbid, "cc3af5d1-caf1-45c9-9fe8-37b07e77f894")
+                    return release_payload
+                self.assertEqual(entity_type, "release-group")
+                self.assertEqual(mbid, "c4bae335-57a4-4698-938f-eaf5da364bbc")
+                return release_group_payload
+
+            with (
+                patch(
+                    "kukicha.use_case.commands.album_edits.get_musicbrainz_entity",
+                    side_effect=fake_get_musicbrainz_entity,
+                ),
+                patch("kukicha.use_case.commands.album_edits.write_album_audio_tags") as write_album_tags,
+            ):
+                result = edit_library_album_musicbrainz(database, job)
+
+            self.assertEqual(
+                write_album_tags.call_args_list,
+                [
+                    call(
+                        paths[0],
+                        album_artist="Hiroshi Yoshimura",
+                        album="Quiet Forest",
+                        genre="Electronic; Ambient",
+                    ),
+                    call(
+                        paths[1],
+                        album_artist="Hiroshi Yoshimura",
+                        album="Quiet Forest",
+                        genre="Electronic; Ambient",
+                    ),
+                ],
+            )
+            self.assertEqual(result.album, "Quiet Forest")
+            self.assertEqual(result.album_artist, "Hiroshi Yoshimura")
+            self.assertEqual(result.genre, "Electronic; Ambient")
+            self.assertEqual(result.tracks_updated, 2)
+
+            connection = connect_database(database, create=False)
+            try:
+                row = connection.execute(
+                    """
+                    SELECT release_mbid, release_group_mbid
+                    FROM album_musicbrainz_links
+                    WHERE file_album_id = ?
+                    """,
+                    ("hiroshi-yoshimura::quiet-forest",),
+                ).fetchone()
+                self.assertIsNotNone(row)
+                self.assertEqual(
+                    str(row["release_mbid"]),
+                    "cc3af5d1-caf1-45c9-9fe8-37b07e77f894",
+                )
+                self.assertEqual(
+                    str(row["release_group_mbid"]),
+                    "c4bae335-57a4-4698-938f-eaf5da364bbc",
+                )
+            finally:
+                connection.close()
+
+    def test_musicbrainz_album_artist_tag_value_uses_english_aliases_with_joinphrases(self) -> None:
+        from kukicha.use_case.commands.album_edits import (
+            MusicBrainzPayload,
+            musicbrainz_album_artist_tag_value,
+        )
+
+        payload = MusicBrainzPayload(
+            entity_type="release",
+            mbid="11111111-1111-1111-1111-111111111111",
+            payload={
+                "artist-credit": [
+                    {
+                        "artist": {
+                            "aliases": [
+                                {"locale": "ja", "name": "Yoshimura Hiroshi"},
+                                {"locale": "en", "name": "Hiroshi Yoshimura"},
+                            ],
+                        },
+                        "name": "吉村弘",
+                        "joinphrase": " & ",
+                    },
+                    {
+                        "artist": {
+                            "aliases": [
+                                {"locale": "en", "name": "Satoshi Ashikawa"},
+                            ],
+                        },
+                        "name": "芦川聡",
+                    },
+                ],
+            },
+        )
+
+        self.assertEqual(
+            musicbrainz_album_artist_tag_value(payload),
+            "Hiroshi Yoshimura & Satoshi Ashikawa",
+        )
+        self.assertEqual(
+            musicbrainz_album_artist_tag_value(
+                payload,
+                prefer_english_aliases=False,
+            ),
+            "吉村弘 & 芦川聡",
+        )
+
     def test_edit_library_album_musicbrainz_writes_each_group_from_its_payload(self) -> None:
         with TemporaryDirectory() as tempdir:
             temp_path = Path(tempdir)
@@ -5399,6 +5953,181 @@ class PlayerAlbumTagEditTest(unittest.TestCase):
             finally:
                 connection.close()
 
+    def test_edit_library_album_musicbrainz_keeps_sibling_release_links(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            database = temp_path / "kukicha.sqlite"
+            base_album_id = "aphex-twin::selected-ambient-works-volume-ii"
+            first_release_mbid = "6439fcbe-b404-4cf4-ac58-4816c43cf2e3"
+            second_release_mbid = "6d0aaf02-f571-4c03-8677-23018ff628ee"
+            release_group_mbid = "0e7a233f-81f8-3e63-ad07-6cdfe2faecc3"
+            first_path = temp_path / "amazon" / "Selected Ambient Works Volume II" / "01.mp3"
+            second_path = temp_path / "downloaded" / "Selected Ambient Works, Volume II" / "01.flac"
+
+            connection = connect_database(database)
+            try:
+                connection.execute(
+                    "INSERT INTO library_roots (position, root_path) VALUES (?, ?)",
+                    (0, str(temp_path)),
+                )
+                insert_library_album(
+                    connection,
+                    f"{base_album_id}::09f",
+                    "Aphex Twin",
+                    "Selected Ambient Works, Volume II",
+                    1994,
+                    1,
+                )
+                insert_library_album(
+                    connection,
+                    f"{base_album_id}::a8b",
+                    "Aphex Twin",
+                    "Selected Ambient Works, Volume II",
+                    2024,
+                    1,
+                )
+                connection.executemany(
+                    """
+                    INSERT INTO library_tracks (
+                        track_id,
+                        album_id,
+                        root_position,
+                        path,
+                        file_type,
+                        artist,
+                        album_artist,
+                        album,
+                        title,
+                        track_number,
+                        date,
+                        duration_seconds,
+                        bitrate
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        (
+                            1,
+                            f"{base_album_id}::09f",
+                            0,
+                            str(first_path),
+                            "mp3",
+                            "Aphex Twin",
+                            "Aphex Twin",
+                            "Selected Ambient Works, Volume II",
+                            "#1",
+                            "1",
+                            "1994",
+                            100.0,
+                            128000,
+                        ),
+                        (
+                            2,
+                            f"{base_album_id}::a8b",
+                            0,
+                            str(second_path),
+                            "flac",
+                            "Aphex Twin",
+                            "Aphex Twin",
+                            "Selected Ambient Works, Volume II",
+                            "[Cliffs]",
+                            "1",
+                            "2024",
+                            100.0,
+                            128000,
+                        ),
+                    ),
+                )
+                connection.executemany(
+                    """
+                    INSERT INTO album_musicbrainz_links (
+                        file_album_id, release_mbid, release_group_mbid
+                    ) VALUES (?, ?, ?)
+                    """,
+                    (
+                        (base_album_id, first_release_mbid, release_group_mbid),
+                        (base_album_id, second_release_mbid, release_group_mbid),
+                    ),
+                )
+                connection.executemany(
+                    """
+                    INSERT INTO album_musicbrainz_track_links (
+                        path, file_album_id, release_mbid, release_group_mbid
+                    ) VALUES (?, ?, ?, ?)
+                    """,
+                    (
+                        (str(first_path), base_album_id, first_release_mbid, release_group_mbid),
+                        (str(second_path), base_album_id, second_release_mbid, release_group_mbid),
+                    ),
+                )
+                connection.commit()
+            finally:
+                connection.close()
+
+            job = prepare_album_musicbrainz_edit_job(
+                database,
+                f"{base_album_id}::a8b",
+                {"musicbrainz_release_mbid": second_release_mbid},
+            )
+            release_payload = {
+                "title": "Selected Ambient Works, Volume II",
+                "artist-credit": [{"name": "Aphex Twin"}],
+                "genres": [{"name": "electronic", "count": 3}],
+                "release-group": {"id": release_group_mbid},
+            }
+            release_group_payload = {
+                "title": "Selected Ambient Works, Volume II",
+                "artist-credit": [{"name": "Aphex Twin"}],
+                "genres": [{"name": "ambient", "count": 2}],
+            }
+
+            def fake_get_musicbrainz_entity(
+                _connection: object,
+                _client: object,
+                *,
+                entity_type: str,
+                mbid: str,
+            ) -> dict[str, object]:
+                if entity_type == "release":
+                    self.assertEqual(mbid, second_release_mbid)
+                    return release_payload
+                self.assertEqual(mbid, release_group_mbid)
+                return release_group_payload
+
+            with (
+                patch(
+                    "kukicha.use_case.commands.album_edits.get_musicbrainz_entity",
+                    side_effect=fake_get_musicbrainz_entity,
+                ),
+                patch("kukicha.use_case.commands.album_edits.write_album_audio_tags"),
+            ):
+                edit_library_album_musicbrainz(database, job)
+
+            connection = connect_database(database, create=False)
+            try:
+                rows = [
+                    (
+                        str(row["file_album_id"]),
+                        str(row["release_mbid"]),
+                        str(row["release_group_mbid"]),
+                    )
+                    for row in connection.execute(
+                        """
+                        SELECT file_album_id, release_mbid, release_group_mbid
+                        FROM album_musicbrainz_links
+                        ORDER BY release_mbid
+                        """
+                    )
+                ]
+                self.assertEqual(
+                    rows,
+                    [
+                        (base_album_id, first_release_mbid, release_group_mbid),
+                        (base_album_id, second_release_mbid, release_group_mbid),
+                    ],
+                )
+            finally:
+                connection.close()
+
     def test_run_edit_album_musicbrainz_job_uses_tag_edit_completion_message(self) -> None:
         from kukicha.use_case.commands.album_edits import (
             AlbumMusicBrainzEditResult,
@@ -5425,6 +6154,7 @@ class PlayerAlbumTagEditTest(unittest.TestCase):
             runtime = Mock()
             runtime.database = database
             runtime.album_artist_split_patterns = DEFAULT_ALBUM_ARTIST_SPLIT_PATTERNS
+            runtime.prefer_musicbrainz_english_aliases = False
 
             with patch(
                 "kukicha.use_case.commands.album_edits.edit_library_album_musicbrainz",
@@ -5437,7 +6167,7 @@ class PlayerAlbumTagEditTest(unittest.TestCase):
                     ids_cleared=False,
                     genre_resolution=GenreResolutionStats(),
                 ),
-            ):
+            ) as edit_musicbrainz:
                 result = run_edit_album_musicbrainz_job(
                     runtime,
                     job,
@@ -5455,6 +6185,10 @@ class PlayerAlbumTagEditTest(unittest.TestCase):
             self.assertEqual(result.context["album_artist"], "Brian Eno & Robert Fripp")
             self.assertEqual(result.context["tracks_updated"], 1)
             self.assertTrue(result.context["rescan_recommended"])
+            self.assertEqual(
+                edit_musicbrainz.call_args.kwargs["prefer_musicbrainz_english_aliases"],
+                False,
+            )
 
     def test_edit_library_album_tags_writes_audio_tags_without_reconciling_database(self) -> None:
         with TemporaryDirectory() as tempdir:
@@ -5602,7 +6336,7 @@ class PlayerAlbumTagEditTest(unittest.TestCase):
             finally:
                 connection.close()
 
-    def test_start_album_tag_edit_starts_background_tag_write_job(self) -> None:
+    def test_start_album_edit_accepts_tags_only_payload(self) -> None:
         with TemporaryDirectory() as tempdir:
             temp_path = Path(tempdir)
             database = temp_path / "kukicha.sqlite"
@@ -5634,10 +6368,137 @@ class PlayerAlbumTagEditTest(unittest.TestCase):
             )
 
             with patch("kukicha.use_case.commands.album_edits.write_track_audio_tags") as write_track_tags:
-                result = start_album_tag_edit(
+                result = start_album_edit(
                     runtime,
                     "old-artist::album",
                     {
+                        "tags": {
+                            "album": "New Album",
+                            "genre": "Electronic; Score",
+                            "album_artist": "Various Artists",
+                            "tracks": [
+                                {
+                                    "track_id": 1,
+                                    "artist": "Wendy Carlos & Rachel Elkind",
+                                    "track_number": "1",
+                                    "title": "Main Title",
+                                },
+                                {
+                                    "track_id": 2,
+                                    "artist": "The Shining",
+                                    "track_number": "2",
+                                    "title": "Rocky Mountains",
+                                },
+                            ],
+                        },
+                    },
+                )
+
+            self.assertEqual(result["message"], "Tag edit queued for Old Artist - Album.")
+            self.assertEqual(result["job"]["job_id"], 11)
+            write_track_tags.assert_not_called()
+            runtime.enqueue_job.assert_called_once()
+            enqueue_kwargs = runtime.enqueue_job.call_args.kwargs
+            self.assertEqual(enqueue_kwargs["kind"], "edit_album")
+            self.assertEqual(enqueue_kwargs["queued_message"], "Tag edit queued for Old Artist - Album.")
+            self.assertEqual(enqueue_kwargs["running_message"], "Tag edit running for Old Artist - Album.")
+            self.assertEqual(enqueue_kwargs["failed_message"], "Tag edit failed for Old Artist - Album.")
+            self.assertEqual(enqueue_kwargs["context"]["tracks_updated"], 2)
+            self.assertTrue(callable(enqueue_kwargs["runner"]))
+
+    def test_start_album_edit_accepts_musicbrainz_only_payload(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            database = temp_path / "kukicha.sqlite"
+            self.seed_album(
+                database,
+                (
+                    temp_path / "Album" / "01.mp3",
+                    temp_path / "Album" / "02.mp3",
+                ),
+            )
+            runtime = Mock()
+            runtime.database = database
+            runtime.enqueue_job.return_value = PlayerJobRecord(
+                job_id=13,
+                created_at="2026-04-21T10:00:00Z",
+                updated_at="2026-04-21T10:00:00Z",
+                started_at=None,
+                finished_at=None,
+                cancel_requested_at=None,
+                kind="edit_album_musicbrainz",
+                status="queued",
+                message="Tag edit queued for Old Artist - Album.",
+                reason="",
+                context={
+                    "album": "Album",
+                    "tracks_updated": 2,
+                },
+            )
+
+            result = start_album_edit(
+                runtime,
+                "old-artist::album",
+                {
+                    "musicbrainz": {
+                        "groups": [
+                            {
+                                "musicbrainz_url": (
+                                    "https://musicbrainz.org/release/"
+                                    "11111111-1111-1111-1111-111111111111"
+                                ),
+                                "track_ids": [1, 2],
+                            }
+                        ],
+                    },
+                },
+            )
+
+            self.assertEqual(result["message"], "Tag edit queued for Old Artist - Album.")
+            self.assertEqual(result["job"]["job_id"], 13)
+            runtime.enqueue_job.assert_called_once()
+            enqueue_kwargs = runtime.enqueue_job.call_args.kwargs
+            self.assertEqual(enqueue_kwargs["kind"], "edit_album_musicbrainz")
+            self.assertEqual(enqueue_kwargs["queued_message"], "Tag edit queued for Old Artist - Album.")
+            self.assertEqual(enqueue_kwargs["context"]["tracks_updated"], 2)
+            self.assertTrue(callable(enqueue_kwargs["runner"]))
+
+    def test_start_album_edit_starts_single_background_combined_job(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            database = temp_path / "kukicha.sqlite"
+            self.seed_album(
+                database,
+                (
+                    temp_path / "Album" / "01.mp3",
+                    temp_path / "Album" / "02.mp3",
+                ),
+            )
+            runtime = Mock()
+            runtime.database = database
+            runtime.enqueue_job.return_value = PlayerJobRecord(
+                job_id=12,
+                created_at="2026-04-21T10:00:00Z",
+                updated_at="2026-04-21T10:00:00Z",
+                started_at=None,
+                finished_at=None,
+                cancel_requested_at=None,
+                kind="edit_album",
+                status="queued",
+                message="Tag edit queued for Old Artist - Album.",
+                reason="",
+                context={
+                    "album": "Album",
+                    "album_artist": "Various Artists",
+                    "tracks_updated": 2,
+                },
+            )
+
+            result = start_album_edit(
+                runtime,
+                "old-artist::album",
+                {
+                    "tags": {
                         "album": "New Album",
                         "genre": "Electronic; Score",
                         "album_artist": "Various Artists",
@@ -5656,17 +6517,26 @@ class PlayerAlbumTagEditTest(unittest.TestCase):
                             },
                         ],
                     },
-                )
+                    "musicbrainz": {
+                        "groups": [
+                            {
+                                "musicbrainz_url": (
+                                    "https://musicbrainz.org/release/"
+                                    "11111111-1111-1111-1111-111111111111"
+                                ),
+                                "track_ids": [1, 2],
+                            }
+                        ],
+                    },
+                },
+            )
 
             self.assertEqual(result["message"], "Tag edit queued for Old Artist - Album.")
-            self.assertEqual(result["job"]["job_id"], 11)
-            write_track_tags.assert_not_called()
+            self.assertEqual(result["job"]["job_id"], 12)
             runtime.enqueue_job.assert_called_once()
             enqueue_kwargs = runtime.enqueue_job.call_args.kwargs
             self.assertEqual(enqueue_kwargs["kind"], "edit_album")
             self.assertEqual(enqueue_kwargs["queued_message"], "Tag edit queued for Old Artist - Album.")
-            self.assertEqual(enqueue_kwargs["running_message"], "Tag edit running for Old Artist - Album.")
-            self.assertEqual(enqueue_kwargs["failed_message"], "Tag edit failed for Old Artist - Album.")
             self.assertEqual(enqueue_kwargs["context"]["tracks_updated"], 2)
             self.assertTrue(callable(enqueue_kwargs["runner"]))
 
@@ -5742,6 +6612,122 @@ class PlayerAlbumTagEditTest(unittest.TestCase):
             )
             self.assertEqual(result.context["tracks_updated"], 2)
             self.assertTrue(result.context["rescan_recommended"])
+
+    def test_edit_library_album_edit_applies_musicbrainz_after_manual_tags(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            database = temp_path / "kukicha.sqlite"
+            paths = (
+                temp_path / "Album" / "01.mp3",
+                temp_path / "Album" / "02.mp3",
+            )
+            self.seed_album(database, paths)
+            job = prepare_album_edit_job(
+                database,
+                "old-artist::album",
+                {
+                    "tags": {
+                        "album": "Manual Album",
+                        "genre": "Manual Genre",
+                        "album_artist": "Manual Artist",
+                        "tracks": [
+                            {
+                                "track_id": 1,
+                                "artist": "Manual Track Artist 1",
+                                "track_number": "1",
+                                "title": "Manual Title 1",
+                            },
+                            {
+                                "track_id": 2,
+                                "artist": "Manual Track Artist 2",
+                                "track_number": "2",
+                                "title": "Manual Title 2",
+                            },
+                        ],
+                    },
+                    "musicbrainz": {
+                        "groups": [
+                            {
+                                "musicbrainz_url": (
+                                    "https://musicbrainz.org/release/"
+                                    "11111111-1111-1111-1111-111111111111"
+                                ),
+                                "track_ids": [1, 2],
+                            }
+                        ],
+                    },
+                },
+            )
+            release_payload = {
+                "title": "MusicBrainz Album",
+                "artist-credit": [
+                    {"name": "Brian Eno", "joinphrase": " & "},
+                    {"name": "Robert Fripp"},
+                ],
+                "genres": [{"name": "electronic", "count": 3}],
+                "release-group": {"id": "22222222-2222-2222-2222-222222222222"},
+            }
+            release_group_payload = {
+                "title": "MusicBrainz Album",
+                "artist-credit": [{"name": "Ignored Artist"}],
+                "genres": [{"name": "ambient", "count": 2}],
+            }
+
+            def fake_get_musicbrainz_entity(
+                _connection: object,
+                _client: object,
+                *,
+                entity_type: str,
+                mbid: str,
+            ) -> dict[str, object]:
+                if entity_type == "release":
+                    self.assertEqual(mbid, "11111111-1111-1111-1111-111111111111")
+                    return release_payload
+                self.assertEqual(entity_type, "release-group")
+                self.assertEqual(mbid, "22222222-2222-2222-2222-222222222222")
+                return release_group_payload
+
+            write_events: list[tuple[str, str, dict[str, object]]] = []
+
+            def record_track_write(path: Path, **kwargs: object) -> None:
+                write_events.append(("manual", str(path), kwargs))
+
+            def record_musicbrainz_write(path: Path, **kwargs: object) -> None:
+                write_events.append(("musicbrainz", str(path), kwargs))
+
+            with (
+                patch(
+                    "kukicha.use_case.commands.album_edits.get_musicbrainz_entity",
+                    side_effect=fake_get_musicbrainz_entity,
+                ),
+                patch(
+                    "kukicha.use_case.commands.album_edits.write_track_audio_tags",
+                    side_effect=record_track_write,
+                ),
+                patch(
+                    "kukicha.use_case.commands.album_edits.write_album_audio_tags",
+                    side_effect=record_musicbrainz_write,
+                ),
+            ):
+                result = edit_library_album_edit(database, job)
+
+            self.assertEqual(
+                [event[0] for event in write_events],
+                ["manual", "manual", "musicbrainz", "musicbrainz"],
+            )
+            self.assertEqual(write_events[0][1], str(paths[0]))
+            self.assertEqual(write_events[2][1], str(paths[0]))
+            self.assertEqual(write_events[0][2]["album"], "Manual Album")
+            self.assertEqual(write_events[2][2]["album"], "MusicBrainz Album")
+            self.assertEqual(
+                write_events[2][2]["album_artist"],
+                "Brian Eno & Robert Fripp",
+            )
+            self.assertEqual(write_events[2][2]["genre"], "Electronic; Ambient")
+            self.assertEqual(result.album, "MusicBrainz Album")
+            self.assertEqual(result.album_artist, "Brian Eno & Robert Fripp")
+            self.assertEqual(result.tracks_updated, 2)
+            self.assertFalse(result.musicbrainz_ids_cleared)
 
     def test_edit_library_album_tags_does_not_touch_database_when_tag_write_fails(self) -> None:
         with TemporaryDirectory() as tempdir:
@@ -6222,6 +7208,7 @@ class AlbumTrackSectionsTest(unittest.TestCase):
                 path="/music/downloads/Artist/Album/01.mp3",
                 album_artist="Artist",
                 album="Album",
+                track_number="1",
                 genres=("Electronic",),
                 styles=("Ambient",),
             ),
@@ -6244,6 +7231,47 @@ class AlbumTrackSectionsTest(unittest.TestCase):
         self.assertEqual([item.track_number for item in sections[0].tracks], ["1"])
         self.assertEqual([item.track_number for item in sections[1].tracks], ["2", "1"])
 
+    def test_album_tag_edit_tracks_preserve_alphanumeric_track_numbers(self) -> None:
+        tracks = [
+            make_track_view(
+                1,
+                root_position=0,
+                path="/music/Artist/Album/B3.flac",
+                track_number="B3",
+            ),
+            make_track_view(
+                2,
+                root_position=0,
+                path="/music/Artist/Album/A1.flac",
+                track_number="A1",
+            ),
+        ]
+
+        section = album_tag_edit_section_for_tracks(tracks)
+
+        self.assertEqual([item.track_number for item in section.tracks], ["B3", "A1"])
+
+    def test_album_tag_edit_tracks_number_untagged_tracks_by_filename_order(self) -> None:
+        tracks = [
+            make_track_view(
+                1,
+                root_position=0,
+                path="/music/Artist/Album/02.flac",
+                track_number="",
+            ),
+            make_track_view(
+                2,
+                root_position=0,
+                path="/music/Artist/Album/01.flac",
+                track_number="",
+            ),
+        ]
+
+        section = album_tag_edit_section_for_tracks(tracks)
+
+        self.assertEqual([item.track.track_id for item in section.tracks], [1, 2])
+        self.assertEqual([item.track_number for item in section.tracks], ["2", "1"])
+
 
 def make_track_view(
     track_id: int,
@@ -6255,6 +7283,7 @@ def make_track_view(
     album_artists: tuple[str, ...] | None = None,
     artist: str | None = None,
     album: str = "Selected Ambient Works Volume II",
+    track_number: str | None = None,
     genres: tuple[str, ...] = (),
     styles: tuple[str, ...] = (),
     duration_seconds: float | None = None,
@@ -6283,7 +7312,7 @@ def make_track_view(
         display_title=f"Track {track_id}",
         table_title=f"Track {track_id}",
         queue_title=f"{album_artist} - Track {track_id}",
-        track_number=str(track_id),
+        track_number=str(track_id) if track_number is None else track_number,
         disc_number="",
         disc_total="",
         year=None,

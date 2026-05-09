@@ -21,8 +21,7 @@ from .use_case import (
     playlist_audio_path,
     remove_queue_item as remove_queue_item_command,
     save_album_artist_split_mapping,
-    start_album_musicbrainz_edit,
-    start_album_tag_edit,
+    start_album_edit,
     start_rescan_library,
     start_sync,
     track_artwork,
@@ -185,7 +184,7 @@ def create_player_app(options: PlayerServerOptions) -> Flask:
 
     @app.get("/api/albums/<path:album_id>/playback")
     def album_playback(album_id: str) -> Response:
-        payload = album_playback_payload(player_context().database, album_id, query_string())
+        payload = album_playback_payload(player_context().database, album_id)
         return json_response(payload, cache_control="private, max-age=60")
 
     @app.get("/api/playlists/<int:playlist_id>/playback")
@@ -257,22 +256,16 @@ def create_player_app(options: PlayerServerOptions) -> Flask:
     def favicon() -> Response:
         return static_response("favicon.svg")
 
-    @app.post("/api/albums/<path:album_id>/musicbrainz")
-    def edit_album_musicbrainz(album_id: str) -> Response:
-        payload = read_json_body()
-        result = start_album_musicbrainz_edit(player_context().runtime, album_id, payload)
-        return json_response(result, status=202)
-
     @app.post("/api/musicbrainz-overrides/<path:album_id>/delete")
     def delete_musicbrainz_override(album_id: str) -> Response:
         return json_response(
             delete_album_musicbrainz_override(player_context().runtime, album_id)
         )
 
-    @app.post("/api/albums/<path:album_id>/tags")
-    def edit_album_tags(album_id: str) -> Response:
+    @app.post("/api/albums/<path:album_id>/edit")
+    def edit_album(album_id: str) -> Response:
         payload = read_json_body()
-        result = start_album_tag_edit(player_context().runtime, album_id, payload)
+        result = start_album_edit(player_context().runtime, album_id, payload)
         return json_response(result, status=202)
 
     @app.post("/api/roots/rescan")

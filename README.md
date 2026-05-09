@@ -70,6 +70,8 @@ Example config:
 ```toml
 LogLevel = "INFO"
 Roots = ["/Users/YOUR_USERNAME/Music"]
+YoutubeDownloadPath = "/Users/YOUR_USERNAME/Music/YouTube"
+PreferMusicBrainzEnglishAliases = true
 ```
 
 Supported keys:
@@ -80,6 +82,11 @@ Supported keys:
 - `Roots`: music library folders to scan. Relative paths are resolved from the
   config file directory. Roots can also be managed from the Roots page.
 - `FFmpegPath`: optional path to an executable `ffmpeg`; leave empty to unset.
+- `YoutubeDownloadPath`: folder where YouTube chapter audio downloads are
+  written. Relative paths are resolved from the config file directory.
+- `PreferMusicBrainzEnglishAliases`: when writing MusicBrainz album tags, prefer
+  the first English artist alias from the MusicBrainz payload. Defaults to
+  `true`.
 - `Host`: interface to bind, defaulting to `127.0.0.1`.
 - `Port`: TCP port from `1` to `65535`, defaulting to `65042`.
 - `AccentColor`: palette name or matching hex code. Run `kukicha --help` for the
@@ -134,6 +141,41 @@ kukicha tools bulk-tag-edit \
 
 The command recurses with the same supported audio extensions used by the scanner
 and only writes album artist, album title, and genre tags. It has been convenient for a bulk tag edit (album level) in some circumstances
+
+## YouTube Audio
+
+Download audio-only YouTube media. Video URLs are split into chapter files:
+
+```bash
+kukicha tools yt-download-audio "https://www.youtube.com/watch?v=VIDEO_ID"
+```
+
+If yt-dlp does not report chapters, or you want to override them, provide a
+manual chapter file:
+
+```bash
+kukicha -c ~/kukicha.toml tools yt-download-audio \
+  --chapters-file chapters.txt \
+  "https://www.youtube.com/watch?v=VIDEO_ID"
+```
+
+The chapter file uses one chapter per nonblank line. Lines starting with `#`
+are ignored:
+
+```text
+0:00 Intro
+03:12 - Track Two
+1:02:03.5 Finale
+```
+
+Playlist URLs are downloaded as one audio file per playlist item. Chapters
+reported inside individual playlist items are ignored, and `--chapters-file`
+cannot be used with playlist URLs.
+
+Set `YoutubeDownloadPath` in `kukicha.toml` before running this command. The
+tool checks that `ffmpeg`, `ffprobe`, and Deno 2.0.0 or newer are available.
+yt-dlp temporary and staged files are kept in the user's OS temp folder and are
+cleaned up when the command exits.
 
 ## Run With launchd
 

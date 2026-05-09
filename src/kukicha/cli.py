@@ -8,6 +8,7 @@ from typing import Sequence
 
 from .commands.player import run_player
 from .commands.tools import non_empty_string, run_bulk_tag_edit
+from .commands.youtube_audio import add_youtube_download_audio_parser
 from .player_config import player_config_help_text
 
 
@@ -16,6 +17,7 @@ PLAYER_HELP = dedent(
     Usage patterns:
       kukicha                             Serve the built-in local player playlist.
       kukicha tools bulk-tag-edit         Rewrite album tags below a folder.
+      kukicha tools yt-download-audio     Download YouTube audio files.
     """
 )
 
@@ -90,6 +92,7 @@ def build_parser(argv: Sequence[str] | None = None) -> argparse.ArgumentParser:
         help="Genre tag value to write.",
     )
     bulk_tag_edit_parser.set_defaults(func=run_bulk_tag_edit)
+    add_youtube_download_audio_parser(tools_subparsers)
 
     return parser
 

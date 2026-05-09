@@ -726,46 +726,64 @@ def start_sync(runtime: PlayerRuntime, configured_roots: Iterable[Path]) -> obje
     )
 
 
-def start_album_musicbrainz_edit(
+def start_album_edit(
     runtime: PlayerRuntime,
     album_id: str,
     payload: dict[str, Any],
 ) -> dict[str, object]:
     from ...player_jobs import job_payload
     from .album_edits import (
+        prepare_album_edit_job,
         prepare_album_musicbrainz_edit_job,
+        run_edit_album_edit_job,
         run_edit_album_musicbrainz_job,
     )
 
-    job = prepare_album_musicbrainz_edit_job(runtime.database, album_id, payload)
-    queued_job = runtime.enqueue_job(
-        kind="edit_album_musicbrainz",
-        queued_message=f"Tag edit queued for {job.request.album_label}.",
-        running_message=f"Tag edit running for {job.request.album_label}.",
-        canceled_message=f"Tag edit canceled for {job.request.album_label}.",
-        failed_message=f"Tag edit failed for {job.request.album_label}.",
-        context={
-            "album": job.request.album_name,
-            "tracks_updated": len(job.tracks),
-        },
-        runner=lambda cancel_token: run_edit_album_musicbrainz_job(runtime, job, cancel_token),
-    )
+    musicbrainz_only_payload = None
+    if "tags" not in payload:
+        raw_musicbrainz = payload.get("musicbrainz")
+        if isinstance(raw_musicbrainz, dict):
+            musicbrainz_only_payload = raw_musicbrainz
+        elif any(
+            key in payload
+            for key in (
+                "groups",
+                "musicbrainz_url",
+                "musicbrainz_release_mbid",
+                "musicbrainz_release_group_mbid",
+            )
+        ):
+            musicbrainz_only_payload = payload
 
-    return {
-        "message": f"Tag edit queued for {job.request.album_label}.",
-        "job": job_payload(queued_job),
-    }
+    if musicbrainz_only_payload is not None:
+        job = prepare_album_musicbrainz_edit_job(
+            runtime.database,
+            album_id,
+            musicbrainz_only_payload,
+        )
+        queued_job = runtime.enqueue_job(
+            kind="edit_album_musicbrainz",
+            queued_message=f"Tag edit queued for {job.request.album_label}.",
+            running_message=f"Tag edit running for {job.request.album_label}.",
+            canceled_message=f"Tag edit canceled for {job.request.album_label}.",
+            failed_message=f"Tag edit failed for {job.request.album_label}.",
+            context={
+                "album": job.request.album_name,
+                "tracks_updated": len(job.tracks),
+            },
+            runner=lambda cancel_token: run_edit_album_musicbrainz_job(
+                runtime,
+                job,
+                cancel_token,
+            ),
+        )
 
+        return {
+            "message": f"Tag edit queued for {job.request.album_label}.",
+            "job": job_payload(queued_job),
+        }
 
-def start_album_tag_edit(
-    runtime: PlayerRuntime,
-    album_id: str,
-    payload: dict[str, Any],
-) -> dict[str, object]:
-    from ...player_jobs import job_payload
-    from .album_edits import prepare_album_tag_edit_job, run_edit_album_job
-
-    job = prepare_album_tag_edit_job(runtime.database, album_id, payload)
+    job = prepare_album_edit_job(runtime.database, album_id, payload)
     queued_job = runtime.enqueue_job(
         kind="edit_album",
         queued_message=f"Tag edit queued for {job.album_label}.",
@@ -774,10 +792,10 @@ def start_album_tag_edit(
         failed_message=f"Tag edit failed for {job.album_label}.",
         context={
             "album": job.album_name,
-            "album_artist": job.request.album_artist,
-            "tracks_updated": len(job.request.tracks),
+            "album_artist": job.tag_job.request.album_artist,
+            "tracks_updated": len(job.tag_job.request.tracks),
         },
-        runner=lambda cancel_token: run_edit_album_job(runtime, job, cancel_token),
+        runner=lambda cancel_token: run_edit_album_edit_job(runtime, job, cancel_token),
     )
 
     return {

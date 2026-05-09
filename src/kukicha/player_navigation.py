@@ -17,7 +17,6 @@ from .use_case import (
     GenreStyleFilter,
     LibraryAlbumArtistStats,
     LibraryFilterOptions,
-    LibraryRootFilterOption,
 )
 from .use_case import DEFAULT_ALBUMS_PER_PAGE, album_query_params
 from .display import display_album_title
@@ -28,14 +27,14 @@ from .playlist_art import playlist_cover_data_url, playlist_cover_svg
 PLAYLIST_COVER_SVG = playlist_cover_svg("Playlist")
 PLAYLIST_COVER_DATA_URL = playlist_cover_data_url(PLAYLIST_COVER_SVG)
 ALBUM_SORT_OPTIONS = (
-    (ALBUM_LIST_SORT_RECENTLY_ADDED, "Recently Added"),
-    (ALBUM_LIST_SORT_ARTIST, "Artist, Year, Album"),
-    (ALBUM_LIST_SORT_GENRE, "Genre"),
+    (ALBUM_LIST_SORT_RECENTLY_ADDED, "newest"),
+    (ALBUM_LIST_SORT_ARTIST, "artist"),
+    (ALBUM_LIST_SORT_GENRE, "genre"),
 )
 PLAYER_PAGE_LINKS = (
     ("library", "Albums", "/"),
     ("artists", "Artists", "/artists"),
-    ("playlists", "Playlist", "/playlists"),
+    ("playlists", "Playlists", "/playlists"),
     ("roots", "Roots", "/roots"),
     ("artist-split-rules", "Artists Split Rules", "/artist-split-rules"),
     ("musicbrainz-overrides", "MusicBrainz Overrides", "/musicbrainz-overrides"),
@@ -60,7 +59,7 @@ PLAYER_PAGE_MENU_ITEMS = (
     PlayerPageLink(kind="heading", title="LIBRARY"),
     PlayerPageLink(kind="link", key="library", title="Albums", url="/"),
     PlayerPageLink(kind="link", key="artists", title="Artists", url="/artists"),
-    PlayerPageLink(kind="link", key="playlists", title="Playlist", url="/playlists"),
+    PlayerPageLink(kind="link", key="playlists", title="Playlists", url="/playlists"),
     PlayerPageLink(kind="divider"),
     PlayerPageLink(kind="heading", title="SETTINGS"),
     PlayerPageLink(kind="link", key="roots", title="Roots", url="/roots"),
@@ -136,12 +135,8 @@ def album_index_url(
     encoded = urlencode(params, doseq=True, safe="[]")
     return f"/?{encoded}" if encoded else "/"
 
-def playlist_index_url(query: AlbumListQuery, *, page: int | None = None) -> str:
-    params: list[tuple[str, object]] = []
-    if query.search:
-        params.append(("search", query.search))
-    encoded = urlencode(params, doseq=True, safe="[]")
-    return f"/playlists?{encoded}" if encoded else "/playlists"
+def playlist_index_url(_query: AlbumListQuery, *, page: int | None = None) -> str:
+    return "/playlists"
 
 def artist_cloud_links(
     stats: Iterable[LibraryAlbumArtistStats],
@@ -240,19 +235,20 @@ def album_meta_query(
 ) -> AlbumListQuery:
     return AlbumListQuery(
         artists=artists,
-        root_positions=query.root_positions,
         genre_filters=genre_filters,
-        has_cover=query.has_cover,
-        is_compilation=query.is_compilation,
-        is_work=query.is_work,
         is_playlist=query.is_playlist,
         per_page=query.per_page,
         sort=query.sort,
     )
 
-def album_root_query(root_position: int) -> AlbumListQuery:
-    return AlbumListQuery(
-        root_positions=(root_position,),
+def album_artist_url(album: AlbumSummary, query: AlbumListQuery | None = None) -> str:
+    if album.is_playlist:
+        return ""
+    artists = unique_meta_values(album.album_artists)
+    if not artists:
+        return ""
+    return album_index_url(
+        album_meta_query(query or AlbumListQuery(), artists=artists)
     )
 
 def unique_meta_values(values: Iterable[str]) -> tuple[str, ...]:
@@ -268,27 +264,6 @@ def unique_meta_values(values: Iterable[str]) -> tuple[str, ...]:
         seen.add(key)
         items.append(text)
     return tuple(items)
-
-def album_root_links(
-    album: AlbumDetails,
-    roots: Iterable[LibraryRootFilterOption],
-) -> tuple[MetaLink, ...]:
-    root_labels = {root.position: root.label for root in roots}
-    root_positions: list[int] = []
-    seen: set[int] = set()
-    for track in album.tracks:
-        position = track.root_position
-        if position is None or position in seen:
-            continue
-        seen.add(position)
-        root_positions.append(position)
-    return tuple(
-        MetaLink(
-            label=root_labels.get(position, f"Root {position}"),
-            url=album_index_url(album_root_query(position)),
-        )
-        for position in root_positions
-    )
 
 def album_artist_links(album: AlbumDetails, query: AlbumListQuery) -> tuple[MetaLink, ...]:
     return tuple(
@@ -375,16 +350,6 @@ def album_style_parts(album: AlbumDetails) -> tuple[str, ...]:
     if album.styles:
         parts.append(", ".join(album.styles))
     return tuple(parts)
-
-def property_filter_count(query: AlbumListQuery) -> int:
-    return sum(
-        value is not None
-        for value in (
-            query.has_cover,
-            query.is_compilation,
-            query.is_work,
-        )
-    )
 
 def selected_genre_values(
     filters: LibraryFilterOptions,
