@@ -3,6 +3,7 @@ from __future__ import annotations
 import io
 import os
 from dataclasses import replace
+from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from queue import Queue
 from tempfile import TemporaryDirectory
@@ -11,6 +12,7 @@ from unittest.mock import Mock, call, patch
 from urllib.parse import parse_qs
 
 from kukicha.album_artists import DEFAULT_ALBUM_ARTIST_SPLIT_PATTERNS
+from kukicha.app_metadata import kukicha_version
 from kukicha.use_case import (
     ALBUM_LIST_SORT_ARTIST,
     ALBUM_LIST_SORT_GENRE,
@@ -1550,6 +1552,11 @@ class PlayerPlaylistMembershipTest(unittest.TestCase):
 class PlayerConfigTest(unittest.TestCase):
     def test_default_toast_timeout_is_five_seconds(self) -> None:
         self.assertEqual(DEFAULT_TOAST_TIMEOUT_MS, 5000)
+
+    def test_kukicha_version_uses_package_metadata_without_fallback(self) -> None:
+        with patch("kukicha.app_metadata.version", side_effect=PackageNotFoundError):
+            with self.assertRaises(PackageNotFoundError):
+                kukicha_version()
 
     def test_control_accent_preserves_readable_accents_and_lifts_low_contrast_dim_accents(self) -> None:
         dim = APPEARANCE_THEMES["dim"]
@@ -3605,7 +3612,13 @@ class PlayerWebAdapterTest(unittest.TestCase):
 
             self.assertEqual(response.status_code, 200)
             self.assertIn(b"<h1>Help</h1>", response.data)
+            self.assertIn(b"<h2>Version</h2>", response.data)
+            self.assertIn(f"<code>{version('kukicha')}</code>".encode(), response.data)
             self.assertIn(b"<h2>Config</h2>", response.data)
+            self.assertLess(
+                response.data.index(b"<h2>Version</h2>"),
+                response.data.index(b"<h2>Config</h2>"),
+            )
             self.assertIn(f"<code>{config_path.resolve()}</code>".encode(), response.data)
             self.assertIn(b"<code>LogLevel</code>", response.data)
             self.assertIn(b"<code>INFO</code>", response.data)

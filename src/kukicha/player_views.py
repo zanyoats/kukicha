@@ -205,12 +205,14 @@ def build_not_found_context(runtime: PlayerRuntime, message: str) -> dict[str, A
 
 
 def build_help_page_context(runtime: PlayerRuntime, options: Any) -> dict[str, Any]:
+    from .app_metadata import kukicha_version
     from .player_config import player_config_summary
     from .player_navigation import player_page_context
 
     context = base_player_context(
         runtime,
         view_template="player/help.html",
+        app_version=kukicha_version(),
         config_summary=player_config_summary(options=options),
     )
     context.update(player_page_context("help"))

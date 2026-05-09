@@ -4,7 +4,6 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 import hashlib
 import hmac
-from importlib.metadata import PackageNotFoundError, version
 import json
 from pathlib import Path
 import re
@@ -15,6 +14,7 @@ from flask import Flask, Response, current_app, request, stream_with_context
 from werkzeug.datastructures import MultiDict
 from werkzeug.serving import make_server
 
+from .app_metadata import kukicha_version
 from .models import ALBUM_ARTWORK_HEIGHT, TRACK_ARTWORK_HEIGHT
 from .player_config import LOGGER, PlayerServerOptions, validate_player_startup
 from .player_errors import PlayerConfigError
@@ -1014,10 +1014,7 @@ def xml_attribute_value(value: object) -> object:
 
 
 def kukicha_server_version() -> str:
-    try:
-        return version("kukicha")
-    except PackageNotFoundError:
-        return "0.1.0"
+    return kukicha_version()
 
 
 def music_folder_name(path: str) -> str:
