@@ -2256,7 +2256,7 @@ class PlayerGenreFilterQueryParamsTest(unittest.TestCase):
 
 
 class PlayerAlbumDetailLinksTest(unittest.TestCase):
-    def test_album_meta_query_replaces_content_filters_and_preserves_display_options(self) -> None:
+    def test_album_meta_query_updates_requested_filters_and_preserves_current_params(self) -> None:
         query = AlbumListQuery(
             artists=("Current Artist",),
             album="Selected Ambient Works Volume II",
@@ -2283,8 +2283,8 @@ class PlayerAlbumDetailLinksTest(unittest.TestCase):
         self.assertEqual(linked.page, 1)
         self.assertEqual(linked.per_page, 80)
         self.assertEqual(linked.sort, ALBUM_LIST_SORT_ARTIST)
-        self.assertIsNone(linked.album)
-        self.assertIsNone(linked.search)
+        self.assertEqual(linked.album, "Selected Ambient Works Volume II")
+        self.assertEqual(linked.search, "aphex")
 
     def test_album_detail_links_build_filtered_library_urls(self) -> None:
         album = AlbumDetails(
@@ -2305,7 +2305,7 @@ class PlayerAlbumDetailLinksTest(unittest.TestCase):
         query = AlbumListQuery(
             root_positions=(1,),
             per_page=80,
-            search="ignored",
+            search="saw",
         )
         filters = LibraryFilterOptions(
             genre_groups=(
@@ -2320,22 +2320,22 @@ class PlayerAlbumDetailLinksTest(unittest.TestCase):
 
         self.assertEqual(
             [(item.label, item.url) for item in artist_links],
-            [("Aphex Twin", "/?artist=Aphex+Twin&per_page=80")],
+            [("Aphex Twin", "/?artist=Aphex+Twin&search=saw&per_page=80")],
         )
         self.assertEqual(
             [(item.label, item.url) for item in genre_links],
             [
                 (
                     "Electronic",
-                    "/?genre[0][p]=Electronic&per_page=80",
+                    "/?search=saw&genre[0][p]=Electronic&per_page=80",
                 ),
                 (
                     "Jazz",
-                    "/?genre[0][p]=Jazz&per_page=80",
+                    "/?search=saw&genre[0][p]=Jazz&per_page=80",
                 ),
                 (
                     "Field Recording",
-                    "/?genre[0][p]=Field+Recording&per_page=80",
+                    "/?search=saw&genre[0][p]=Field+Recording&per_page=80",
                 ),
             ],
         )
@@ -2344,11 +2344,11 @@ class PlayerAlbumDetailLinksTest(unittest.TestCase):
             [
                 (
                     "IDM",
-                    "/?genre[0][p]=Electronic&genre[0][c][]=IDM&per_page=80",
+                    "/?search=saw&genre[0][p]=Electronic&genre[0][c][]=IDM&per_page=80",
                 ),
                 (
                     "Bebop",
-                    "/?genre[0][p]=Jazz&genre[0][c][]=Bebop&per_page=80",
+                    "/?search=saw&genre[0][p]=Jazz&genre[0][c][]=Bebop&per_page=80",
                 ),
             ],
         )
@@ -2363,6 +2363,7 @@ class PlayerAlbumDetailLinksTest(unittest.TestCase):
             track_count=2,
         )
         query = AlbumListQuery(
+            artists=("Current Artist",),
             genre_filters=(GenreStyleFilter(genre="Ambient"),),
             per_page=80,
             search="ignored",
@@ -2371,7 +2372,8 @@ class PlayerAlbumDetailLinksTest(unittest.TestCase):
 
         self.assertEqual(
             album_artist_url(album, query),
-            "/?artist=Brian+Eno&artist=Robert+Fripp&sort=artist&per_page=80",
+            "/?artist=Brian+Eno&artist=Robert+Fripp&search=ignored"
+            "&genre[0][p]=Ambient&sort=artist&per_page=80",
         )
         self.assertEqual(album_artist_url(replace(album, is_playlist=True), query), "")
         self.assertEqual(album_artist_url(replace(album, album_artists=()), query), "")
@@ -3437,6 +3439,9 @@ class PlayerWebAdapterTest(unittest.TestCase):
                     "/?artist=Artist+A&genre[0][p]=Electronic"
                     "&genre[0][c][]=Ambient"
                 )
+                album_response = client.get(
+                    "/albums/artist-a::album?artist=Artist+A&per_page=80"
+                )
                 artist_response = client.get("/?artist=Artist+A")
 
         self.assertEqual(response.status_code, 200)
@@ -3444,7 +3449,12 @@ class PlayerWebAdapterTest(unittest.TestCase):
         self.assertNotIn(b'data-filter-summary="artists"', response.data)
         self.assertIn(b'type="hidden" name="artist" value="Artist A"', response.data)
         self.assertIn(
-            b'class="album-artist album-artist-link" href="/?artist=Artist+A" data-nav title="Artist A">Artist A</a>',
+            b'href="/albums/artist-a::album" data-nav data-album-nav',
+            response.data,
+        )
+        self.assertNotIn(b"/albums/artist-a::album?", response.data)
+        self.assertIn(
+            b'class="album-artist album-artist-link" href="/?artist=Artist+A&amp;genre[0][p]=Electronic&amp;genre[0][c][]=Ambient" data-nav title="Artist A">Artist A</a>',
             response.data,
         )
         self.assertIn(b'value="Ambient" data-genre-child-control checked', response.data)
@@ -3456,6 +3466,16 @@ class PlayerWebAdapterTest(unittest.TestCase):
         self.assertEqual(artist_response.status_code, 200)
         self.assertIn(b"Artist A", artist_response.data)
         self.assertNotIn(b"Artist B", artist_response.data)
+        self.assertEqual(album_response.status_code, 200)
+        self.assertIn(b'href="/" data-history-back data-nav', album_response.data)
+        self.assertIn(
+            b'href="/albums/artist-a::album/edit" data-nav>edit</a>',
+            album_response.data,
+        )
+        self.assertIn(b'href="/?artist=Artist+A" data-nav>Artist A</a>', album_response.data)
+        self.assertIn(b'href="/?genre[0][p]=Electronic"', album_response.data)
+        self.assertNotIn(b"per_page=80", album_response.data)
+        self.assertNotIn(b"/albums/artist-a::album/edit?", album_response.data)
 
     def test_lazy_filter_endpoints_are_not_registered(self) -> None:
         with TemporaryDirectory() as tempdir:

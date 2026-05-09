@@ -381,7 +381,34 @@ function syncLibraryFilterForm(currentPageRoot, nextPageRoot) {
   if (!(currentForm instanceof HTMLFormElement) || !(nextForm instanceof HTMLFormElement)) {
     return;
   }
+  syncTopLevelHiddenInputs(currentForm, nextForm);
   syncFormControls(currentForm, nextForm);
+}
+
+function syncTopLevelHiddenInputs(currentForm, nextForm) {
+  const currentInputs = topLevelHiddenInputs(currentForm);
+  const nextInputs = topLevelHiddenInputs(nextForm);
+  for (const input of currentInputs) {
+    input.remove();
+  }
+  const replacements = nextInputs.map((input) => {
+    const replacement = document.createElement("input");
+    replacement.type = "hidden";
+    replacement.name = input.name;
+    replacement.value = input.value;
+    return replacement;
+  });
+  if (replacements.length) {
+    currentForm.prepend(...replacements);
+  }
+}
+
+function topLevelHiddenInputs(form) {
+  return Array.from(form.children).filter((child) => (
+    child instanceof HTMLInputElement
+    && child.type === "hidden"
+    && Boolean(child.name)
+  ));
 }
 
 function syncLibraryPagination(currentPageRoot, nextPageRoot) {

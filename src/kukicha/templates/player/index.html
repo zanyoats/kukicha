@@ -97,7 +97,7 @@
           <div class="album-card{% if album.is_playlist %} playlist-card{% endif %}" data-album-playback-source
             {% if album.is_playlist and album.playlist_id is not none %}data-playlist-id="{{ album.playlist_id }}"{% else %}data-album-id="{{ album.album_id }}"{% endif %}>
             <div class="album-cover-wrap">
-              <a class="album-card-cover" href="{{ album|album_url(query) }}" data-nav data-album-nav>
+              <a class="album-card-cover" href="{{ album|album_url }}" data-nav data-album-nav>
                 {% set art_url = album|album_art_url %}
                 {% if art_url %}
                   <img class="album-cover{% if album.is_playlist %} playlist-cover-image{% endif %}" src="{{ art_url }}" alt="" loading="lazy">
@@ -117,7 +117,7 @@
               {% endif %}
             </div>
             <span class="album-copy">
-              <a class="album-card-link" href="{{ album|album_url(query) }}" data-nav data-album-nav
+              <a class="album-card-link" href="{{ album|album_url }}" data-nav data-album-nav
                 aria-label="{{ album.album|display_album_title }} by {{ album.artist }}">
                 <span class="album-name" title="{{ album.album|display_album_title }}">{{ album.album|display_album_title }}</span>
               </a>

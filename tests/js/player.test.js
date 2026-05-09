@@ -81,6 +81,11 @@ class TestElement {
     this.loading = "";
     this.open = false;
     this.queryResults = new Map();
+    this.parentNode = null;
+  }
+
+  get elements() {
+    return formAssociatedDescendants(this);
   }
 
   addEventListener(type, listener) {
@@ -101,6 +106,7 @@ class TestElement {
       if (index !== -1) {
         this.children.splice(index, 1);
       }
+      node.parentNode = this;
     }
     this.children.push(...nodes);
   }
@@ -111,11 +117,18 @@ class TestElement {
       if (index !== -1) {
         this.children.splice(index, 1);
       }
+      node.parentNode = this;
     }
     this.children.unshift(...nodes);
   }
 
   replaceChildren(...nodes) {
+    for (const child of this.children) {
+      child.parentNode = null;
+    }
+    for (const node of nodes) {
+      node.parentNode = this;
+    }
     this.children.splice(0, this.children.length, ...nodes);
     this.textContent = "";
   }
@@ -165,7 +178,16 @@ class TestElement {
     }
   }
 
-  remove() {}
+  remove() {
+    if (!this.parentNode) {
+      return;
+    }
+    const index = this.parentNode.children.indexOf(this);
+    if (index !== -1) {
+      this.parentNode.children.splice(index, 1);
+    }
+    this.parentNode = null;
+  }
 
   after() {}
 
@@ -199,6 +221,20 @@ function findDescendants(element, selector) {
     matches.push(...findDescendants(child, selector));
   }
   return matches;
+}
+
+function formAssociatedDescendants(element) {
+  const items = [];
+  for (const child of element.children) {
+    if (
+      child instanceof TestElement
+      && ["INPUT", "SELECT", "TEXTAREA", "BUTTON"].includes(child.tagName)
+    ) {
+      items.push(child);
+    }
+    items.push(...formAssociatedDescendants(child));
+  }
+  return items;
 }
 
 function matchesSelector(element, selector) {
@@ -294,6 +330,37 @@ class TestDocument {
   }
 }
 
+class TestFormData {
+  constructor(form) {
+    this.items = [];
+    for (const control of form.elements || []) {
+      if (!control.name || control.disabled) {
+        continue;
+      }
+      if (
+        control instanceof TestElement
+        && (control.type === "checkbox" || control.type === "radio")
+        && !control.checked
+      ) {
+        continue;
+      }
+      this.items.push([control.name, control.value]);
+    }
+  }
+
+  delete(name) {
+    this.items = this.items.filter(([key]) => key !== name);
+  }
+
+  *entries() {
+    yield* this.items;
+  }
+
+  [Symbol.iterator]() {
+    return this.entries();
+  }
+}
+
 function createHarness(initialQueueState, options = {}) {
   const view = new TestElement("main");
   const meta = options.queueMeta ? new TestElement("div") : null;
@@ -361,7 +428,7 @@ function createHarness(initialQueueState, options = {}) {
     location: window.location,
     navigator: window.navigator,
     URL,
-    FormData,
+    FormData: TestFormData,
     HTMLElement: TestElement,
     Element: TestElement,
     HTMLAnchorElement: TestElement,
@@ -418,6 +485,25 @@ function createHarness(initialQueueState, options = {}) {
   };
 }
 
+function testInput(document, {type = "text", name = "", value = "", checked = false, disabled = false} = {}) {
+  const input = document.createElement("input");
+  input.type = type;
+  input.name = name;
+  input.value = value;
+  input.checked = checked;
+  input.disabled = disabled;
+  return input;
+}
+
+function filterForm(document, controls = []) {
+  const form = document.createElement("form");
+  form.action = "/";
+  form.dataset.defaultSort = "recently_added";
+  form.dataset.filterForm = "";
+  form.append(...controls);
+  return form;
+}
+
 test("filter form submit helper closes search menu", () => {
   const harness = createHarness({
     track_ids: [],
@@ -435,6 +521,106 @@ test("filter form submit helper closes search menu", () => {
   harness.context.closeSearchMenu(form);
 
   assert.equal(menu.open, false);
+});
+
+test("library filter form patch preserves artist hidden inputs before changing sort", () => {
+  const harness = createHarness({
+    track_ids: [],
+    position: 0,
+    loaded_track_id: null,
+    paused: true,
+    errored_track_ids: [],
+    unavailable_track_ids: [],
+  });
+  const document = harness.document;
+  const currentForm = filterForm(document, [
+    testInput(document, {type: "hidden", name: "per_page", value: ""}),
+    testInput(document, {type: "radio", name: "sort", value: "recently_added"}),
+    testInput(document, {type: "radio", name: "sort", value: "artist", checked: true}),
+  ]);
+  const nextForm = filterForm(document, [
+    testInput(document, {type: "hidden", name: "per_page", value: ""}),
+    testInput(document, {type: "hidden", name: "artist", value: "Amon Tobin"}),
+    testInput(document, {type: "radio", name: "sort", value: "recently_added"}),
+    testInput(document, {type: "radio", name: "sort", value: "artist", checked: true}),
+  ]);
+  const currentPage = document.createElement("div");
+  const nextPage = document.createElement("div");
+  currentPage.setQueryResult("form[data-filter-form]", currentForm);
+  nextPage.setQueryResult("form[data-filter-form]", nextForm);
+
+  harness.context.syncLibraryFilterForm(currentPage, nextPage);
+  const url = harness.context.formUrl(currentForm);
+
+  assert.equal(url.searchParams.get("artist"), "Amon Tobin");
+  assert.equal(url.searchParams.get("sort"), "artist");
+});
+
+test("album filter form urls add genre search and sort params to current params", () => {
+  const harness = createHarness({
+    track_ids: [],
+    position: 0,
+    loaded_track_id: null,
+    paused: true,
+    errored_track_ids: [],
+    unavailable_track_ids: [],
+  });
+  const document = harness.document;
+
+  const genreForm = filterForm(document, [
+    testInput(document, {type: "hidden", name: "artist", value: "Amon Tobin"}),
+    testInput(document, {name: "search", value: "breaks"}),
+    testInput(document, {type: "radio", name: "sort", value: "artist", checked: true}),
+    testInput(document, {type: "hidden", name: "genre[0][p]", value: "Electronic"}),
+  ]);
+  const genreUrl = harness.context.formUrl(genreForm);
+  assert.equal(genreUrl.searchParams.get("artist"), "Amon Tobin");
+  assert.equal(genreUrl.searchParams.get("search"), "breaks");
+  assert.equal(genreUrl.searchParams.get("sort"), "artist");
+  assert.equal(genreUrl.searchParams.get("genre[0][p]"), "Electronic");
+
+  const searchForm = filterForm(document, [
+    testInput(document, {type: "hidden", name: "artist", value: "Amon Tobin"}),
+    testInput(document, {name: "search", value: "foley room"}),
+    testInput(document, {type: "radio", name: "sort", value: "recently_added", checked: true}),
+  ]);
+  const searchUrl = harness.context.formUrl(searchForm);
+  assert.equal(searchUrl.searchParams.get("artist"), "Amon Tobin");
+  assert.equal(searchUrl.searchParams.get("search"), "foley room");
+  assert.equal(searchUrl.searchParams.has("sort"), false);
+
+  const sortForm = filterForm(document, [
+    testInput(document, {type: "hidden", name: "artist", value: "Amon Tobin"}),
+    testInput(document, {name: "search", value: "out from"}),
+    testInput(document, {type: "radio", name: "sort", value: "artist", checked: true}),
+  ]);
+  const sortUrl = harness.context.formUrl(sortForm);
+  assert.equal(sortUrl.searchParams.get("artist"), "Amon Tobin");
+  assert.equal(sortUrl.searchParams.get("search"), "out from");
+  assert.equal(sortUrl.searchParams.get("sort"), "artist");
+});
+
+test("player control links ignore current album page params", () => {
+  const harness = createHarness({
+    track_ids: [],
+    position: 0,
+    loaded_track_id: null,
+    paused: true,
+    errored_track_ids: [],
+    unavailable_track_ids: [],
+  });
+  harness.context.window.location.href = (
+    "http://localhost/?artist=Existing+Artist&search=ambient&sort=artist"
+  );
+
+  assert.equal(
+    harness.context.albumArtistFilterUrl("Amon Tobin"),
+    "http://localhost/?artist=Amon+Tobin",
+  );
+  assert.equal(
+    harness.context.albumDetailUrl({albumId: "amon-tobin::out-from-out-where"}),
+    "http://localhost/albums/amon-tobin::out-from-out-where",
+  );
 });
 
 test("combined album edit submit includes prefilled and cleared MusicBrainz URLs", async () => {

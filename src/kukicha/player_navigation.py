@@ -234,10 +234,12 @@ def album_meta_query(
     genre_filters: tuple[GenreStyleFilter, ...] = (),
 ) -> AlbumListQuery:
     return AlbumListQuery(
-        artists=artists,
-        genre_filters=genre_filters,
+        artists=artists or query.artists,
+        album=query.album,
+        genre_filters=genre_filters or query.genre_filters,
         is_playlist=query.is_playlist,
         per_page=query.per_page,
+        search=query.search,
         sort=query.sort,
     )
 

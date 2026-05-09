@@ -343,7 +343,7 @@ def build_jobs_page_context(runtime: PlayerRuntime) -> dict[str, Any]:
 def build_album_context(
     runtime: PlayerRuntime,
     album_id: str,
-    query_string: str,
+    _query_string: str,
 ) -> dict[str, Any]:
     from .player_navigation import (
         album_artist_links,
@@ -360,7 +360,7 @@ def build_album_context(
     )
 
     api = LibraryQueries(runtime.database)
-    query = api.expand_album_list_query(album_index_query_from_query_string(query_string))
+    query = AlbumListQuery()
     album = api.get_album(album_id)
     track_views = track_views_with_playlist_options(
         runtime.database,
@@ -432,7 +432,7 @@ def build_playlist_context(
 def build_album_edit_context(
     runtime: PlayerRuntime,
     album_id: str,
-    query_string: str,
+    _query_string: str,
 ) -> dict[str, Any]:
     from .player_navigation import (
         album_artist_parts,
@@ -447,7 +447,7 @@ def build_album_edit_context(
     )
 
     api = LibraryQueries(runtime.database)
-    query = api.expand_album_list_query(album_index_query_from_query_string(query_string))
+    query = AlbumListQuery()
     album = api.get_album(album_id)
     track_views = [track_view(track) for track in album.tracks]
     musicbrainz_link = album_musicbrainz_link(runtime.database, album.album_id)
