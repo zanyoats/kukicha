@@ -23,6 +23,10 @@ from .use_case import prepare_player_database
 DEFAULT_PLAYER_LOG_LEVEL = "DEBUG"
 DEFAULT_PLAYER_HOST = "127.0.0.1"
 DEFAULT_PLAYER_PORT = 65042
+DEFAULT_OPEN_SUBSONIC_USERNAME = "guest"
+DEFAULT_OPEN_SUBSONIC_PASSWORD = "guest"
+DEFAULT_OPEN_SUBSONIC_HOST = DEFAULT_PLAYER_HOST
+DEFAULT_OPEN_SUBSONIC_PORT = 4533
 DEFAULT_TOAST_TIMEOUT_MS = 5000
 DEFAULT_ACCENT_COLOR = "warm-brown"
 DEFAULT_APPEARANCE = "light"
@@ -38,6 +42,10 @@ PLAYER_CONFIG_KEY_ORDER = (
     "PreferMusicBrainzEnglishAliases",
     "Host",
     "Port",
+    "OpenSubsonicUsername",
+    "OpenSubsonicPassword",
+    "OpenSubsonicHost",
+    "OpenSubsonicPort",
     "Appearance",
     "AccentColor",
     "ToastTimeoutMs",
@@ -62,6 +70,10 @@ class PlayerServerOptions:
     roots: tuple[Path, ...] = ()
     host: str = DEFAULT_PLAYER_HOST
     port: int = DEFAULT_PLAYER_PORT
+    open_subsonic_username: str = DEFAULT_OPEN_SUBSONIC_USERNAME
+    open_subsonic_password: str = DEFAULT_OPEN_SUBSONIC_PASSWORD
+    open_subsonic_host: str = DEFAULT_OPEN_SUBSONIC_HOST
+    open_subsonic_port: int = DEFAULT_OPEN_SUBSONIC_PORT
     log_level: str = DEFAULT_PLAYER_LOG_LEVEL
     accent_color: str = DEFAULT_ACCENT_COLOR
     appearance: str = DEFAULT_APPEARANCE
@@ -260,6 +272,22 @@ def load_player_options(config_path: str | Path | None = None) -> PlayerServerOp
     )
     host = parse_player_host(config.get("Host", DEFAULT_PLAYER_HOST))
     port = parse_player_port(config.get("Port", DEFAULT_PLAYER_PORT))
+    open_subsonic_username = parse_config_non_empty_string(
+        config.get("OpenSubsonicUsername", DEFAULT_OPEN_SUBSONIC_USERNAME),
+        key="OpenSubsonicUsername",
+    )
+    open_subsonic_password = parse_config_non_empty_string(
+        config.get("OpenSubsonicPassword", DEFAULT_OPEN_SUBSONIC_PASSWORD),
+        key="OpenSubsonicPassword",
+    )
+    open_subsonic_host = parse_config_non_empty_string(
+        config.get("OpenSubsonicHost", DEFAULT_OPEN_SUBSONIC_HOST),
+        key="OpenSubsonicHost",
+    )
+    open_subsonic_port = parse_config_tcp_port(
+        config.get("OpenSubsonicPort", DEFAULT_OPEN_SUBSONIC_PORT),
+        key="OpenSubsonicPort",
+    )
     accent_color = parse_accent_color(config.get("AccentColor", DEFAULT_ACCENT_COLOR))
     appearance = parse_appearance(config.get("Appearance", DEFAULT_APPEARANCE))
     toast_timeout_ms = parse_positive_milliseconds(
@@ -285,6 +313,10 @@ def load_player_options(config_path: str | Path | None = None) -> PlayerServerOp
         youtube_download_path=youtube_download_path,
         host=host,
         port=port,
+        open_subsonic_username=open_subsonic_username,
+        open_subsonic_password=open_subsonic_password,
+        open_subsonic_host=open_subsonic_host,
+        open_subsonic_port=open_subsonic_port,
         log_level=log_level,
         accent_color=accent_color,
         appearance=appearance,
@@ -380,6 +412,12 @@ def player_config_values(
         ),
         "Host": options.host,
         "Port": str(options.port),
+        "OpenSubsonicUsername": options.open_subsonic_username,
+        "OpenSubsonicPassword": format_player_config_secret(
+            options.open_subsonic_password
+        ),
+        "OpenSubsonicHost": options.open_subsonic_host,
+        "OpenSubsonicPort": str(options.open_subsonic_port),
         "AccentColor": options.accent_color,
         "Appearance": options.appearance,
         "ToastTimeoutMs": str(options.toast_timeout_ms),
@@ -413,6 +451,9 @@ def player_config_value_source(config: dict[str, object], key: str) -> str:
 
 def format_player_config_optional_path(path: Path | None) -> str:
     return str(path) if path is not None else "<unset>"
+
+def format_player_config_secret(value: str) -> str:
+    return "<hidden>" if value else "<unset>"
 
 def format_player_config_string_list(values: tuple[str, ...]) -> str:
     return "[" + ", ".join(repr(value) for value in values) + "]"
@@ -482,16 +523,22 @@ def parse_player_log_level(value: object) -> str:
     return str(logging.getLevelName(levels[level_name]))
 
 def parse_player_host(value: object) -> str:
-    if not isinstance(value, str) or not value.strip():
-        raise PlayerConfigError("Host must be a non-empty string")
-    return value.strip()
+    return parse_config_non_empty_string(value, key="Host")
 
 def parse_player_port(value: object) -> int:
+    return parse_config_tcp_port(value, key="Port")
+
+def parse_config_tcp_port(value: object, *, key: str) -> int:
     if not isinstance(value, int):
-        raise PlayerConfigError("Port must be an integer")
+        raise PlayerConfigError(f"{key} must be an integer")
     if value < 1 or value > 65535:
-        raise PlayerConfigError("Port must be between 1 and 65535")
+        raise PlayerConfigError(f"{key} must be between 1 and 65535")
     return value
+
+def parse_config_non_empty_string(value: object, *, key: str) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise PlayerConfigError(f"{key} must be a non-empty string")
+    return value.strip()
 
 def parse_accent_color(value: object) -> str:
     if not isinstance(value, str) or not value.strip():

@@ -6,6 +6,7 @@ import sys
 from textwrap import dedent
 from typing import Sequence
 
+from .commands.opensubsonic import run_open_subsonic
 from .commands.player import run_player
 from .commands.tools import non_empty_string, run_bulk_tag_edit
 from .commands.youtube_audio import add_youtube_download_audio_parser
@@ -16,6 +17,7 @@ PLAYER_HELP = dedent(
     """\
     Usage patterns:
       kukicha                             Serve the built-in local player playlist.
+      kukicha opensubsonic               Serve a minimal OpenSubsonic API.
       kukicha tools bulk-tag-edit         Rewrite album tags below a folder.
       kukicha tools yt-download-audio     Download YouTube audio files.
     """
@@ -57,6 +59,11 @@ def build_parser(argv: Sequence[str] | None = None) -> argparse.ArgumentParser:
     )
     parser.set_defaults(func=run_player)
     subparsers = parser.add_subparsers(dest="command", metavar="COMMAND")
+    open_subsonic_parser = subparsers.add_parser(
+        "opensubsonic",
+        help="Serve a minimal OpenSubsonic API.",
+    )
+    open_subsonic_parser.set_defaults(func=run_open_subsonic)
     tools_parser = subparsers.add_parser(
         "tools",
         help="Run library maintenance tools.",

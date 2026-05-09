@@ -40,6 +40,10 @@ from kukicha.player_jobs import (
 from kukicha.player_config import (
     ACCENT_COLOR_CODES,
     DEFAULT_ACCENT_COLOR,
+    DEFAULT_OPEN_SUBSONIC_HOST,
+    DEFAULT_OPEN_SUBSONIC_PASSWORD,
+    DEFAULT_OPEN_SUBSONIC_PORT,
+    DEFAULT_OPEN_SUBSONIC_USERNAME,
     DEFAULT_APPEARANCE,
     DEFAULT_PLAYER_HOST,
     DEFAULT_PLAYER_LOG_LEVEL,
@@ -1576,6 +1580,10 @@ class PlayerConfigTest(unittest.TestCase):
                         "PreferMusicBrainzEnglishAliases = false",
                         "Host = '0.0.0.0'",
                         "Port = 43210",
+                        "OpenSubsonicUsername = 'os-user'",
+                        "OpenSubsonicPassword = 'os-pass'",
+                        "OpenSubsonicHost = '0.0.0.0'",
+                        "OpenSubsonicPort = 4534",
                         "AccentColor = 'Dark-Sky-Blue'",
                         "Appearance = 'DaRk'",
                         "ToastTimeoutMs = 12000",
@@ -1604,6 +1612,10 @@ class PlayerConfigTest(unittest.TestCase):
             self.assertFalse(options.prefer_musicbrainz_english_aliases)
             self.assertEqual(options.host, "0.0.0.0")
             self.assertEqual(options.port, 43210)
+            self.assertEqual(options.open_subsonic_username, "os-user")
+            self.assertEqual(options.open_subsonic_password, "os-pass")
+            self.assertEqual(options.open_subsonic_host, "0.0.0.0")
+            self.assertEqual(options.open_subsonic_port, 4534)
             self.assertEqual(options.log_level, "INFO")
             self.assertEqual(options.accent_color, "dark-sky-blue")
             self.assertEqual(options.appearance, "dark")
@@ -1627,6 +1639,10 @@ class PlayerConfigTest(unittest.TestCase):
             self.assertEqual(options.roots, ())
             self.assertEqual(options.host, DEFAULT_PLAYER_HOST)
             self.assertEqual(options.port, DEFAULT_PLAYER_PORT)
+            self.assertEqual(options.open_subsonic_username, DEFAULT_OPEN_SUBSONIC_USERNAME)
+            self.assertEqual(options.open_subsonic_password, DEFAULT_OPEN_SUBSONIC_PASSWORD)
+            self.assertEqual(options.open_subsonic_host, DEFAULT_OPEN_SUBSONIC_HOST)
+            self.assertEqual(options.open_subsonic_port, DEFAULT_OPEN_SUBSONIC_PORT)
             self.assertEqual(options.log_level, DEFAULT_PLAYER_LOG_LEVEL)
             self.assertEqual(options.accent_color, DEFAULT_ACCENT_COLOR)
             self.assertEqual(options.appearance, DEFAULT_APPEARANCE)
@@ -1825,6 +1841,10 @@ class PlayerConfigTest(unittest.TestCase):
             self.assertIn("PreferMusicBrainzEnglishAliases: true (default)", help_text)
             self.assertIn(f"Host: {DEFAULT_PLAYER_HOST} (default)", help_text)
             self.assertIn(f"Port: {DEFAULT_PLAYER_PORT} (default)", help_text)
+            self.assertIn(f"OpenSubsonicUsername: {DEFAULT_OPEN_SUBSONIC_USERNAME} (default)", help_text)
+            self.assertIn("OpenSubsonicPassword: <hidden> (default)", help_text)
+            self.assertIn(f"OpenSubsonicHost: {DEFAULT_OPEN_SUBSONIC_HOST} (default)", help_text)
+            self.assertIn(f"OpenSubsonicPort: {DEFAULT_OPEN_SUBSONIC_PORT} (default)", help_text)
             self.assertIn(f"AccentColor: {DEFAULT_ACCENT_COLOR} (default)", help_text)
             self.assertIn(f"Appearance: {DEFAULT_APPEARANCE} (default)", help_text)
             self.assertIn(f"ToastTimeoutMs: {DEFAULT_TOAST_TIMEOUT_MS} (default)", help_text)
@@ -1840,7 +1860,9 @@ class PlayerConfigTest(unittest.TestCase):
             self.assertIn(
                 "Supported keys:\n  LogLevel\n  DatabasePath\n  Roots\n  FFmpegPath\n"
                 "  YoutubeDownloadPath\n  PreferMusicBrainzEnglishAliases\n  Host\n  Port\n"
-                "  Appearance\n  AccentColor\n  ToastTimeoutMs\n  AlbumArtistSplitPatterns",
+                "  OpenSubsonicUsername\n  OpenSubsonicPassword\n  OpenSubsonicHost\n"
+                "  OpenSubsonicPort\n  Appearance\n  AccentColor\n  ToastTimeoutMs\n"
+                "  AlbumArtistSplitPatterns",
                 help_text,
             )
             self.assertNotIn("LinkedToastTimeoutMs", help_text)
@@ -1873,6 +1895,14 @@ class CliPlayerCommandTest(unittest.TestCase):
             self.assertRaises(SystemExit),
         ):
             parser.parse_args(["player", "-c", "/tmp/kukicha.toml"])
+
+    def test_opensubsonic_subcommand_is_available(self) -> None:
+        parser = build_parser()
+
+        args = parser.parse_args(["opensubsonic"])
+
+        self.assertEqual(args.command, "opensubsonic")
+        self.assertTrue(callable(args.func))
 
     def test_rescan_subcommand_is_not_available(self) -> None:
         parser = build_parser()

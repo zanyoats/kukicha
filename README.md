@@ -89,6 +89,13 @@ Supported keys:
   `true`.
 - `Host`: interface to bind, defaulting to `127.0.0.1`.
 - `Port`: TCP port from `1` to `65535`, defaulting to `65042`.
+- `OpenSubsonicUsername`: username for the OpenSubsonic API, defaulting to
+  `guest`.
+- `OpenSubsonicPassword`: password for the OpenSubsonic API, defaulting to
+  `guest`.
+- `OpenSubsonicHost`: interface for the OpenSubsonic API, defaulting to
+  `127.0.0.1`.
+- `OpenSubsonicPort`: TCP port for the OpenSubsonic API, defaulting to `4533`.
 - `AccentColor`: palette name or matching hex code. Run `kukicha --help` for the
   full palette list.
 - `Appearance`: `light`, `dark`, or `dim`.
@@ -126,6 +133,24 @@ The player provides album browsing, playback, full-text search, and filters for
 library roots, artists, genres, styles, and album properties. Search indexes
 album titles, album artists, and track titles. Quoted terms match exact token
 phrases, spaces mean AND, semicolons mean OR, and a leading `-` excludes a term.
+
+## Run The OpenSubsonic API
+
+Launch the minimal OpenSubsonic-compatible API:
+
+```bash
+kukicha opensubsonic
+```
+
+The default OpenSubsonic URL is:
+
+```text
+http://127.0.0.1:4533
+```
+
+The API supports basic album and artist browsing, direct streaming, downloads,
+cover art, password auth, salted token auth, JSON responses, and GET or form
+POST parameters.
 
 ## Bulk Tag Edit
 
