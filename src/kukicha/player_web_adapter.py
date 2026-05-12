@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from importlib.resources import files
 import json
 from pathlib import Path
@@ -19,6 +20,7 @@ from .use_case import (
     mark_stale_player_jobs_canceled,
     pause_queue_for_document_load,
     playlist_audio_path,
+    record_playback,
     remove_queue_item as remove_queue_item_command,
     save_album_artist_split_mapping,
     start_album_edit,
@@ -59,6 +61,7 @@ from .player_views import (
     build_artists_page_context,
     build_cache_page_context,
     build_help_page_context,
+    build_home_context,
     build_index_context,
     build_jobs_page_context,
     build_musicbrainz_overrides_page_context,
@@ -167,6 +170,13 @@ def create_player_app(options: PlayerServerOptions) -> Flask:
 
     @app.get("/")
     @app.get("/index.html")
+    def home() -> Response:
+        if request.path == "/" and query_string():
+            return redirect(f"/albums?{query_string()}", code=302)
+        reset_playback_for_document_load()
+        return rendered_response(build_home_context(player_context().runtime))
+
+    @app.get("/albums")
     def index() -> Response:
         reset_playback_for_document_load()
         return rendered_response(build_index_context(player_context().runtime, query_string()))
@@ -295,6 +305,22 @@ def create_player_app(options: PlayerServerOptions) -> Flask:
     @app.post("/api/queue/remove")
     def remove_queue_item() -> Response:
         return json_response(remove_queue_item_command(player_context().runtime, read_json_body()))
+
+    @app.post("/api/scrobble")
+    def scrobble() -> Response:
+        payload = read_json_body()
+        try:
+            playback_id = int(payload.get("playback_id"))
+        except (TypeError, ValueError) as error:
+            raise ValueError("invalid playback id") from error
+        record_playback(
+            player_context().database,
+            playback_id,
+            submission=bool_payload_value(payload.get("submission", True)),
+            played_at=epoch_millis_payload_time(payload.get("time")),
+            source="player",
+        )
+        return json_response({})
 
     @app.post("/api/playback")
     def update_playback() -> Response:
@@ -431,6 +457,31 @@ def wants_json_error() -> bool:
 
 def query_string() -> str:
     return request.query_string.decode("utf-8")
+
+
+def epoch_millis_payload_time(value: object) -> datetime | None:
+    if value is None or value == "":
+        return None
+    try:
+        millis = int(value)
+    except (TypeError, ValueError) as error:
+        raise ValueError("invalid scrobble time") from error
+    return datetime.fromtimestamp(millis / 1000, tz=UTC)
+
+
+def bool_payload_value(value: object) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value is None or value == "":
+        return True
+    if isinstance(value, int):
+        return bool(value)
+    text = str(value).strip().casefold()
+    if text in {"1", "true", "yes"}:
+        return True
+    if text in {"0", "false", "no"}:
+        return False
+    raise ValueError("invalid scrobble submission")
 
 
 def wants_fragment() -> bool:

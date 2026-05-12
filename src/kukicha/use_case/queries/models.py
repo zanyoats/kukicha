@@ -35,6 +35,7 @@ class TrackNotFoundError(LibraryQueryError, KeyError):
 ALBUM_LIST_SORT_RECENTLY_ADDED = "recently_added"
 ALBUM_LIST_SORT_ARTIST = "artist"
 ALBUM_LIST_SORT_GENRE = "genre"
+DEFAULT_ALBUM_LIST_SORT = ALBUM_LIST_SORT_ARTIST
 ALBUM_LIST_SORT_VALUES = frozenset(
     (
         ALBUM_LIST_SORT_RECENTLY_ADDED,
@@ -66,7 +67,7 @@ class AlbumListQuery:
     page: int = 1
     per_page: int = 200
     search: str | None = None
-    sort: str = ALBUM_LIST_SORT_RECENTLY_ADDED
+    sort: str = DEFAULT_ALBUM_LIST_SORT
     cursor: str | None = None
 
     def __post_init__(self) -> None:
@@ -347,7 +348,7 @@ def normalized_int_tuple(values: Iterable[object]) -> tuple[int, ...]:
 def normalized_album_list_sort(value: str | None) -> str:
     if value in ALBUM_LIST_SORT_VALUES:
         return value
-    return ALBUM_LIST_SORT_RECENTLY_ADDED
+    return DEFAULT_ALBUM_LIST_SORT
 
 
 def normalize_match(value: str) -> str:

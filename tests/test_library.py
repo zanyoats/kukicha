@@ -2630,7 +2630,7 @@ class LibraryPlaylistPersistenceTest(unittest.TestCase):
             "2026-04-25T12:00:00+00:00",
         )
 
-    def test_list_album_page_sorts_by_recently_added_by_default_and_can_sort_by_artist_year_album(self) -> None:
+    def test_list_album_page_sorts_by_artist_by_default_and_can_sort_by_recently_added(self) -> None:
         with TemporaryDirectory() as tempdir:
             database = Path(tempdir) / "kukicha.sqlite"
             save_library(
@@ -2639,7 +2639,7 @@ class LibraryPlaylistPersistenceTest(unittest.TestCase):
                     tracks=[
                         TrackRecord(
                             path="/music/Zulu/Old/01.flac",
-                            file_created_at="2026-04-20T12:00:00+00:00",
+                            file_created_at="2026-04-26T12:00:00+00:00",
                             file_type="flac",
                             artist="Zulu",
                             album_artist="Zulu",
@@ -2691,17 +2691,19 @@ class LibraryPlaylistPersistenceTest(unittest.TestCase):
             )
 
             api = LibraryQueries(database)
-            recently_added = api.list_album_page(AlbumListQuery()).items
-            artist_album = api.list_album_page(AlbumListQuery(sort="artist")).items
+            default_items = api.list_album_page(AlbumListQuery()).items
+            recently_added = api.list_album_page(
+                AlbumListQuery(sort=ALBUM_LIST_SORT_RECENTLY_ADDED)
+            ).items
             playlists = api.list_album_page(AlbumListQuery(is_playlist=True)).items
 
         self.assertEqual(
-            [item.album for item in recently_added],
+            [item.album for item in default_items],
             ["ZZZ Original", "AAA Later", "No Date", "Old"],
         )
         self.assertEqual(
-            [item.album for item in artist_album],
-            ["ZZZ Original", "AAA Later", "No Date", "Old"],
+            [item.album for item in recently_added],
+            ["Old", "ZZZ Original", "AAA Later", "No Date"],
         )
         self.assertEqual([item.album for item in playlists], ["Recent Mix"])
 

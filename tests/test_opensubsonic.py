@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+from datetime import UTC, datetime
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
@@ -8,7 +9,7 @@ import unittest
 from kukicha.models import MusicLibrary, TrackArtwork, TrackRecord
 from kukicha.opensubsonic_web_adapter import create_open_subsonic_app
 from kukicha.player_config import PlayerServerOptions
-from kukicha.use_case import save_library
+from kukicha.use_case import connect_database, save_library
 
 
 def subsonic_payload(response):
@@ -356,6 +357,127 @@ class OpenSubsonicWebAdapterTest(unittest.TestCase):
         self.assertEqual(song["title"], "First Track")
         self.assertEqual(song["size"], 10)
         self.assertEqual(second.track_id, 2)
+
+    def test_scrobble_tracks_now_playing_and_submitted_play_counts(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            first, second = self.save_sample_library(temp_path)
+            database = temp_path / "kukicha.sqlite"
+            app = create_open_subsonic_app(self.make_options(temp_path))
+            client = app.test_client()
+
+            now_response = client.get(
+                "/rest/scrobble",
+                query_string={
+                    **self.auth_params(),
+                    "id": str(first.track_id),
+                    "time": "1770000000000",
+                    "submission": "false",
+                },
+            )
+            with connect_database(database, create=False) as connection:
+                now_row = connection.execute(
+                    "SELECT playback_id, updated_at FROM play_now_playing"
+                ).fetchone()
+                submitted_count = int(
+                    connection.execute(
+                        "SELECT COUNT(*) AS count FROM play_track_stats"
+                    ).fetchone()["count"]
+                )
+
+            submit_response = client.get(
+                "/rest/scrobble",
+                query_string=[
+                    *self.auth_params().items(),
+                    ("id", str(first.track_id)),
+                    ("id", str(second.track_id)),
+                    ("time", "1770000600000"),
+                    ("time", "1770001200000"),
+                    ("submission", "true"),
+                ],
+            )
+            xml_response = client.get(
+                "/rest/scrobble.view",
+                query_string={
+                    **self.auth_params(),
+                    "f": "xml",
+                    "id": str(first.track_id),
+                    "submission": "false",
+                },
+            )
+            missing_response = client.get(
+                "/rest/scrobble",
+                query_string=self.auth_params(),
+            )
+            invalid_time_response = client.get(
+                "/rest/scrobble",
+                query_string={
+                    **self.auth_params(),
+                    "id": str(first.track_id),
+                    "time": "not-a-timestamp",
+                },
+            )
+
+            expected_now = datetime.fromtimestamp(1770000000000 / 1000, tz=UTC).isoformat()
+            expected_first_play = datetime.fromtimestamp(
+                1770000600000 / 1000,
+                tz=UTC,
+            ).isoformat()
+            expected_second_play = datetime.fromtimestamp(
+                1770001200000 / 1000,
+                tz=UTC,
+            ).isoformat()
+            with connect_database(database, create=False) as connection:
+                track_stats = {
+                    int(row["track_id"]): (int(row["play_count"]), str(row["last_played_at"]))
+                    for row in connection.execute(
+                        """
+                        SELECT track_id, play_count, last_played_at
+                        FROM play_track_stats
+                        ORDER BY track_id
+                        """
+                    )
+                }
+                album_stats = {
+                    str(row["album_id"]): int(row["play_count"])
+                    for row in connection.execute(
+                        "SELECT album_id, play_count FROM play_album_stats"
+                    )
+                }
+                artist_row = connection.execute(
+                    "SELECT artist, play_count, last_played_at FROM play_artist_stats"
+                ).fetchone()
+                genre_row = connection.execute(
+                    "SELECT genre, play_count FROM play_genre_stats"
+                ).fetchone()
+
+        self.assertEqual(subsonic_payload(now_response)["status"], "ok")
+        self.assertEqual(int(now_row["playback_id"]), first.track_id)
+        self.assertEqual(now_row["updated_at"], expected_now)
+        self.assertEqual(submitted_count, 0)
+        self.assertEqual(subsonic_payload(submit_response)["status"], "ok")
+        self.assertEqual(xml_response.content_type, "text/xml; charset=utf-8")
+        self.assertIn(b'status="ok"', xml_response.data)
+        self.assertEqual(subsonic_payload(missing_response)["status"], "failed")
+        self.assertEqual(subsonic_payload(missing_response)["error"]["code"], 10)
+        self.assertEqual(subsonic_payload(invalid_time_response)["status"], "failed")
+        self.assertEqual(subsonic_payload(invalid_time_response)["error"]["code"], 10)
+        self.assertEqual(
+            track_stats,
+            {
+                first.track_id: (1, expected_first_play),
+                second.track_id: (1, expected_second_play),
+            },
+        )
+        self.assertEqual(
+            album_stats,
+            {"artist::first-album": 1, "artist::second-album": 1},
+        )
+        self.assertEqual(artist_row["artist"], "Artist")
+        self.assertEqual(int(artist_row["play_count"]), 2)
+        self.assertEqual(artist_row["last_played_at"], expected_second_play)
+        self.assertEqual(genre_row["genre"], "Electronic")
+        self.assertEqual(int(genre_row["play_count"]), 1)
 
     def test_album_list_requires_type(self) -> None:
         with TemporaryDirectory() as tempdir:

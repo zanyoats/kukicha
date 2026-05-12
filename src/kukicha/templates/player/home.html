@@ -1,0 +1,211 @@
+{% from "player/_icons.html" import play_icon, queue_add_icon %}
+
+<div class="view-page home-page" data-page="{{ page_key }}">
+  <header class="view-header home-header">
+    <div class="view-title-group">
+      <h1>Home</h1>
+      <div class="count">Listening history, recent favorites, and new additions.</div>
+    </div>
+    <a class="button-link" href="/albums" data-nav>Albums</a>
+  </header>
+
+  {% if show_history_empty %}
+    <section class="home-empty" aria-label="No listening history">
+      <h2>No listening history yet</h2>
+      <p>Start with the library, browse artists, or pick a playlist. This page will fill in as you listen.</p>
+      <nav class="home-empty-actions" aria-label="Library shortcuts">
+        <a class="button-link primary" href="/albums" data-nav>Albums</a>
+        <a class="button-link" href="/artists" data-nav>Artists</a>
+        <a class="button-link" href="/playlists" data-nav>Playlists</a>
+      </nav>
+    </section>
+  {% endif %}
+
+  {% if continue_listening %}
+    {% set feature = continue_listening.album %}
+    <section class="home-feature" aria-labelledby="continue-listening-title">
+      <div class="home-feature-heading">
+        <h2 id="continue-listening-title">Continue Listening</h2>
+        <a href="/queue" data-nav>Queue</a>
+      </div>
+      <div class="home-feature-cover-wrap" data-album-playback-source data-album-id="{{ feature.album_id }}">
+        {% set art_url = feature|album_art_url %}
+        {% if art_url %}
+          <img class="home-feature-cover" src="{{ art_url }}" alt="" loading="lazy">
+        {% else %}
+          <span class="home-feature-cover album-cover-placeholder" aria-hidden="true"></span>
+        {% endif %}
+      </div>
+      <div class="home-feature-copy">
+        {% if continue_listening.track_title %}
+          <div class="home-kicker">{{ continue_listening.track_title }}</div>
+        {% endif %}
+        <h3><a href="{{ feature|album_url }}" data-nav>{{ feature.album|display_album_title }}</a></h3>
+        <div class="home-feature-meta">
+          {{ feature.artist }}
+          <span>Now playing</span>
+        </div>
+      </div>
+    </section>
+  {% endif %}
+
+  {% if dashboard.recent_albums %}
+    <section class="home-section" aria-label="Recently listened albums">
+      <div class="home-section-heading">
+        <h2>Recently Listened Albums</h2>
+        <a href="/albums" data-nav>All albums</a>
+      </div>
+      <div class="home-card-grid">
+        {% for item in dashboard.recent_albums %}
+          {% set album = item.album %}
+          <div class="album-card" data-album-playback-source data-album-id="{{ album.album_id }}">
+            <div class="album-cover-wrap">
+              <a class="album-card-cover" href="{{ album|album_url }}" data-nav data-album-nav>
+                {% set art_url = album|album_art_url %}
+                {% if art_url %}
+                  <img class="album-cover" src="{{ art_url }}" alt="" loading="lazy">
+                {% else %}
+                  <span class="album-cover-placeholder" aria-hidden="true"></span>
+                {% endif %}
+              </a>
+              {% if album.track_count %}
+                <div class="album-cover-actions">
+                  <button class="album-cover-action play-icon-button" type="button" data-play-album
+                    aria-label="Play {{ album.artist }} - {{ album.album|display_album_title }}"
+                    title="Play">{{ play_icon() }}</button>
+                  <button class="album-cover-action queue-icon-button" type="button" data-queue-album data-queue-append
+                    aria-label="Add {{ album.artist }} - {{ album.album|display_album_title }} to the queue"
+                    title="Add to queue">{{ queue_add_icon() }}</button>
+                </div>
+              {% endif %}
+            </div>
+            <span class="album-copy">
+              <a class="album-card-link" href="{{ album|album_url }}" data-nav data-album-nav>
+                <span class="album-name" title="{{ album.album|display_album_title }}">{{ album.album|display_album_title }}</span>
+              </a>
+              <span class="album-artist" title="{{ album.artist }}">{{ album.artist }}</span>
+              <span class="home-stat">{{ stat_label(item.play_count, item.last_played_at) }}</span>
+            </span>
+          </div>
+        {% endfor %}
+      </div>
+    </section>
+  {% endif %}
+
+  {% if dashboard.recently_added_albums %}
+    <section class="home-section" aria-label="Recently Added Albums">
+      <div class="home-section-heading">
+        <h2>Added in the Last Month</h2>
+        <a href="/albums?sort=recently_added" data-nav>Recently Added</a>
+      </div>
+      <div class="home-card-grid">
+        {% for album in dashboard.recently_added_albums %}
+          <div class="album-card" data-album-playback-source data-album-id="{{ album.album_id }}">
+            <div class="album-cover-wrap">
+              <a class="album-card-cover" href="{{ album|album_url }}" data-nav data-album-nav>
+                {% set art_url = album|album_art_url %}
+                {% if art_url %}
+                  <img class="album-cover" src="{{ art_url }}" alt="" loading="lazy">
+                {% else %}
+                  <span class="album-cover-placeholder" aria-hidden="true"></span>
+                {% endif %}
+              </a>
+              {% if album.track_count %}
+                <div class="album-cover-actions">
+                  <button class="album-cover-action play-icon-button" type="button" data-play-album
+                    aria-label="Play {{ album.artist }} - {{ album.album|display_album_title }}"
+                    title="Play">{{ play_icon() }}</button>
+                  <button class="album-cover-action queue-icon-button" type="button" data-queue-album data-queue-append
+                    aria-label="Add {{ album.artist }} - {{ album.album|display_album_title }} to the queue"
+                    title="Add to queue">{{ queue_add_icon() }}</button>
+                </div>
+              {% endif %}
+            </div>
+            <span class="album-copy">
+              <a class="album-card-link" href="{{ album|album_url }}" data-nav data-album-nav>
+                <span class="album-name" title="{{ album.album|display_album_title }}">{{ album.album|display_album_title }}</span>
+              </a>
+              <span class="album-artist" title="{{ album.artist }}">{{ album.artist }}</span>
+              <span class="home-stat">{{ added_label(album.file_created_at) }}</span>
+            </span>
+          </div>
+        {% endfor %}
+      </div>
+    </section>
+  {% endif %}
+
+  {% if dashboard.recent_playlists or dashboard.recent_tracks %}
+    <div class="home-two-column">
+      {% if dashboard.recent_playlists %}
+        <section class="home-section" aria-label="Recent playlists">
+          <div class="home-section-heading">
+            <h2>Recent Playlists</h2>
+            <a href="/playlists" data-nav>All playlists</a>
+          </div>
+          <div class="home-list">
+            {% for item in dashboard.recent_playlists %}
+              {% set playlist = item.playlist %}
+              <a class="home-list-row" href="{{ playlist|album_url }}" data-nav>
+                <span>{{ playlist.album }}</span>
+                <small>{{ stat_label(item.play_count, item.last_played_at) }}</small>
+              </a>
+            {% endfor %}
+          </div>
+        </section>
+      {% endif %}
+
+      {% if dashboard.recent_tracks %}
+        <section class="home-section" aria-label="Recent tracks">
+          <div class="home-section-heading">
+            <h2>Recent Tracks</h2>
+          </div>
+          <div class="home-list">
+            {% for track in dashboard.recent_tracks %}
+              <a class="home-list-row" href="{% if track.album_id %}/albums/{{ track.album_id }}{% else %}/albums{% endif %}" data-nav>
+                <span>{{ track.title }}</span>
+                <small>{{ track.artist }}{% if track.album %} - {{ track.album }}{% endif %} - {{ stat_label(track.play_count, track.last_played_at) }}</small>
+              </a>
+            {% endfor %}
+          </div>
+        </section>
+      {% endif %}
+    </div>
+  {% endif %}
+
+  {% if dashboard.recent_artists or dashboard.recent_genres %}
+    <div class="home-two-column">
+      {% if dashboard.recent_artists %}
+        <section class="home-section" aria-label="Recent artists">
+          <div class="home-section-heading">
+            <h2>Recent Artists</h2>
+            <a href="/artists" data-nav>All artists</a>
+          </div>
+          <div class="home-chip-list">
+            {% for artist in dashboard.recent_artists %}
+              <a class="home-chip" href="{{ artist.url }}" data-nav>
+                <span>{{ artist.name }}</span>
+                <small>{{ artist.play_count }}</small>
+              </a>
+            {% endfor %}
+          </div>
+        </section>
+      {% endif %}
+
+      {% if dashboard.recent_genres %}
+        <section class="home-section" aria-label="Recent genres">
+          <div class="home-section-heading">
+            <h2>Recent Genres</h2>
+          </div>
+          <div class="home-chip-list">
+            {% for genre in dashboard.recent_genres %}
+              <a class="home-chip" href="{{ genre.url }}" data-nav>
+                <span>{{ genre.name }}</span>
+                <small>{{ genre.play_count }}</small>
+              </a>
+            {% endfor %}
+          </div>
+        </section>
+      {% endif %}
+    </div>
+  {% endif %}
+</div>

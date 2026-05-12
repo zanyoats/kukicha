@@ -4,7 +4,7 @@ import re
 from typing import Any
 
 from .models import (
-    ALBUM_LIST_SORT_RECENTLY_ADDED,
+    DEFAULT_ALBUM_LIST_SORT,
     AlbumListQuery,
     GenreStyleFilter,
 )
@@ -25,7 +25,7 @@ def album_list_query_from_params(params: dict[str, list[str]]) -> AlbumListQuery
             first_value(params.get("per_page", ())),
             default=DEFAULT_ALBUMS_PER_PAGE,
         ),
-        sort=first_value(params.get("sort", ())) or ALBUM_LIST_SORT_RECENTLY_ADDED,
+        sort=first_value(params.get("sort", ())) or DEFAULT_ALBUM_LIST_SORT,
         cursor=first_value(params.get("cursor", ())),
     )
 
@@ -85,7 +85,7 @@ def album_query_params(
             (f"genre[{index}][c][]", style)
             for style in genre_filter.styles
         )
-    if query.sort != ALBUM_LIST_SORT_RECENTLY_ADDED:
+    if query.sort != DEFAULT_ALBUM_LIST_SORT:
         params.append(("sort", query.sort))
     resolved_cursor = query.cursor if cursor is _UNSET else cursor
     if resolved_cursor:

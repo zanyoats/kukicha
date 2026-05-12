@@ -3,6 +3,7 @@ from __future__ import annotations
 import io
 import os
 from dataclasses import replace
+from datetime import UTC, datetime
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from queue import Queue
@@ -29,6 +30,8 @@ from kukicha.use_case import (
     PlaylistDetails,
     PlaylistItem,
     PlaylistTrack,
+    home_dashboard,
+    record_playback,
 )
 from kukicha.cli import build_parser
 from kukicha.use_case import connect_database
@@ -2035,7 +2038,8 @@ class PlayerPageMenuTest(unittest.TestCase):
             [(item.kind, item.title, item.url) for item in items],
             [
                 ("heading", "LIBRARY", ""),
-                ("link", "Albums", "/"),
+                ("link", "Home", "/"),
+                ("link", "Albums", "/albums"),
                 ("link", "Artists", "/artists"),
                 ("link", "Playlists", "/playlists"),
                 ("divider", "", ""),
@@ -2104,7 +2108,7 @@ class PlayerArtistCloudLinksTest(unittest.TestCase):
 
         self.assertEqual(len(links), 1)
         self.assertEqual(links[0].label, "Ahmad Jamal")
-        self.assertEqual(links[0].url, "/?artist=Ahmad+Jamal")
+        self.assertEqual(links[0].url, "/albums?artist=Ahmad+Jamal")
         self.assertEqual(links[0].title, "1 album - 8 tracks")
 
     def test_artist_cloud_size_weights_albums_more_than_tracks(self) -> None:
@@ -2177,7 +2181,7 @@ class PlayerGenreFilterQueryParamsTest(unittest.TestCase):
         )
 
         self.assertEqual(query.root_positions, ())
-        self.assertEqual(album_index_url(AlbumListQuery(root_positions=(1,))), "/")
+        self.assertEqual(album_index_url(AlbumListQuery(root_positions=(1,))), "/albums")
 
     def test_album_index_url_uses_grouped_genre_filter_params(self) -> None:
         url = album_index_url(
@@ -2191,7 +2195,7 @@ class PlayerGenreFilterQueryParamsTest(unittest.TestCase):
 
         self.assertEqual(
             url,
-            "/?genre[0][p]=Electronic&genre[0][c][]=Ambient"
+            "/albums?genre[0][p]=Electronic&genre[0][c][]=Ambient"
             "&genre[0][c][]=Techno&genre[1][p]=Jazz&genre[1][c][]=Bebop",
         )
 
@@ -2204,38 +2208,38 @@ class PlayerGenreFilterQueryParamsTest(unittest.TestCase):
             )
         )
 
-        self.assertEqual(url, "/?genre[0][p]=Electronic")
+        self.assertEqual(url, "/albums?genre[0][p]=Electronic")
 
-    def test_parses_sort_param_and_defaults_to_recently_added(self) -> None:
+    def test_parses_sort_param_and_defaults_to_artist(self) -> None:
         default_query = album_list_query_from_params(parse_qs(""))
         artist_query = album_list_query_from_params(parse_qs("sort=artist"))
         genre_query = album_list_query_from_params(parse_qs("sort=genre"))
         invalid_query = album_list_query_from_params(parse_qs("sort=unknown"))
 
-        self.assertEqual(default_query.sort, ALBUM_LIST_SORT_RECENTLY_ADDED)
+        self.assertEqual(default_query.sort, ALBUM_LIST_SORT_ARTIST)
         self.assertEqual(artist_query.sort, ALBUM_LIST_SORT_ARTIST)
         self.assertEqual(genre_query.sort, ALBUM_LIST_SORT_GENRE)
-        self.assertEqual(invalid_query.sort, ALBUM_LIST_SORT_RECENTLY_ADDED)
+        self.assertEqual(invalid_query.sort, ALBUM_LIST_SORT_ARTIST)
 
     def test_album_index_url_includes_only_non_default_sort_param(self) -> None:
         self.assertEqual(
             album_index_url(AlbumListQuery(sort=ALBUM_LIST_SORT_RECENTLY_ADDED)),
-            "/",
+            "/albums?sort=recently_added",
         )
         self.assertEqual(
             album_index_url(AlbumListQuery(sort=ALBUM_LIST_SORT_ARTIST)),
-            "/?sort=artist",
+            "/albums",
         )
         self.assertEqual(
             album_index_url(AlbumListQuery(sort=ALBUM_LIST_SORT_GENRE)),
-            "/?sort=genre",
+            "/albums?sort=genre",
         )
 
     def test_album_query_params_do_not_include_playlist_filter(self) -> None:
         query = album_list_query_from_params(parse_qs("playlist=1&search=Road"))
 
         self.assertIsNone(query.is_playlist)
-        self.assertEqual(album_index_url(AlbumListQuery(is_playlist=True, search="Road")), "/?search=Road")
+        self.assertEqual(album_index_url(AlbumListQuery(is_playlist=True, search="Road")), "/albums?search=Road")
 
     def test_album_cursor_query_param_round_trips_and_playlist_urls_ignore_playlist_query_state(self) -> None:
         query = album_list_query_from_params(parse_qs("cursor=abc123&page=3"))
@@ -2243,7 +2247,7 @@ class PlayerGenreFilterQueryParamsTest(unittest.TestCase):
         self.assertEqual(query.cursor, "abc123")
         self.assertEqual(
             album_index_url(AlbumListQuery(cursor="abc123", page=3)),
-            "/?cursor=abc123",
+            "/albums?cursor=abc123",
         )
         self.assertEqual(
             album_index_url(
@@ -2251,7 +2255,7 @@ class PlayerGenreFilterQueryParamsTest(unittest.TestCase):
                 page=4,
                 cursor="def456",
             ),
-            "/?cursor=def456",
+            "/albums?cursor=def456",
         )
         self.assertEqual(
             playlist_index_url(
@@ -2327,22 +2331,22 @@ class PlayerAlbumDetailLinksTest(unittest.TestCase):
 
         self.assertEqual(
             [(item.label, item.url) for item in artist_links],
-            [("Aphex Twin", "/?artist=Aphex+Twin&search=saw&per_page=80")],
+            [("Aphex Twin", "/albums?artist=Aphex+Twin&search=saw&per_page=80")],
         )
         self.assertEqual(
             [(item.label, item.url) for item in genre_links],
             [
                 (
                     "Electronic",
-                    "/?search=saw&genre[0][p]=Electronic&per_page=80",
+                    "/albums?search=saw&genre[0][p]=Electronic&per_page=80",
                 ),
                 (
                     "Jazz",
-                    "/?search=saw&genre[0][p]=Jazz&per_page=80",
+                    "/albums?search=saw&genre[0][p]=Jazz&per_page=80",
                 ),
                 (
                     "Field Recording",
-                    "/?search=saw&genre[0][p]=Field+Recording&per_page=80",
+                    "/albums?search=saw&genre[0][p]=Field+Recording&per_page=80",
                 ),
             ],
         )
@@ -2351,11 +2355,11 @@ class PlayerAlbumDetailLinksTest(unittest.TestCase):
             [
                 (
                     "IDM",
-                    "/?search=saw&genre[0][p]=Electronic&genre[0][c][]=IDM&per_page=80",
+                    "/albums?search=saw&genre[0][p]=Electronic&genre[0][c][]=IDM&per_page=80",
                 ),
                 (
                     "Bebop",
-                    "/?search=saw&genre[0][p]=Jazz&genre[0][c][]=Bebop&per_page=80",
+                    "/albums?search=saw&genre[0][p]=Jazz&genre[0][c][]=Bebop&per_page=80",
                 ),
             ],
         )
@@ -2379,8 +2383,8 @@ class PlayerAlbumDetailLinksTest(unittest.TestCase):
 
         self.assertEqual(
             album_artist_url(album, query),
-            "/?artist=Brian+Eno&artist=Robert+Fripp&search=ignored"
-            "&genre[0][p]=Ambient&sort=artist&per_page=80",
+            "/albums?artist=Brian+Eno&artist=Robert+Fripp&search=ignored"
+            "&genre[0][p]=Ambient&per_page=80",
         )
         self.assertEqual(album_artist_url(replace(album, is_playlist=True), query), "")
         self.assertEqual(album_artist_url(replace(album, album_artists=()), query), "")
@@ -2409,9 +2413,9 @@ class PlayerAlbumDetailLinksTest(unittest.TestCase):
             track_sections=(),
         )
 
-        self.assertIn('href="/?artist=Brian+Eno" data-nav>Brian Eno</a>,', html)
+        self.assertIn('href="/albums?artist=Brian+Eno" data-nav>Brian Eno</a>,', html)
         self.assertIn(
-            'href="/?artist=Robert+Fripp" data-nav>Robert Fripp</a>',
+            'href="/albums?artist=Robert+Fripp" data-nav>Robert Fripp</a>',
             html,
         )
 
@@ -2971,8 +2975,8 @@ class PlayerAlbumDetailLinksTest(unittest.TestCase):
         self.assertNotIn('href="/?root=0"', album_html)
         self.assertNotIn('href="/?root=2"', album_html)
         self.assertIn("Brian Eno</a>,&nbsp;<a", album_html)
-        self.assertIn('href="/?artist=Brian+Eno"', album_html)
-        self.assertIn('href="/?artist=Robert+Fripp"', album_html)
+        self.assertIn('href="/albums?artist=Brian+Eno"', album_html)
+        self.assertIn('href="/albums?artist=Robert+Fripp"', album_html)
         self.assertLess(
             album_html.index('<span class="album-title-year-meta">1973</span>'),
             album_html.index("album-artist-meta"),
@@ -3012,6 +3016,420 @@ class PlayerWebAdapterTest(unittest.TestCase):
             response = app.test_client().get("/healthz")
 
             self.assertEqual(response.status_code, 204)
+
+    def test_home_empty_state_links_to_library_pages_and_query_redirects_to_albums(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            database = temp_path / "kukicha.sqlite"
+            save_library(
+                MusicLibrary(
+                    roots=[],
+                    tracks=[],
+                    supported_extensions=[],
+                    generated_at="2026-05-01T00:00:00+00:00",
+                ),
+                database,
+            )
+            runtime = self.make_runtime(database)
+            with patch("kukicha.player_web_adapter.PlayerRuntime", return_value=runtime):
+                app = create_player_app(self.make_options(temp_path))
+                client = app.test_client()
+                home_response = client.get("/")
+                redirect_response = client.get("/?artist=Artist+A&search=Road")
+
+        self.assertEqual(home_response.status_code, 200)
+        self.assertIn(b"<h1>Home</h1>", home_response.data)
+        self.assertIn(b"No listening history yet", home_response.data)
+        self.assertIn(b'href="/albums" data-nav>Albums</a>', home_response.data)
+        self.assertIn(b'href="/artists" data-nav>Artists</a>', home_response.data)
+        self.assertIn(b'href="/playlists" data-nav>Playlists</a>', home_response.data)
+        self.assertEqual(redirect_response.status_code, 302)
+        self.assertEqual(
+            redirect_response.headers["Location"],
+            "/albums?artist=Artist+A&search=Road",
+        )
+
+    def test_home_shows_recently_added_albums_from_file_created_at(self) -> None:
+        class FixedDateTime(datetime):
+            @classmethod
+            def now(cls, tz=None):  # type: ignore[override]
+                return datetime(2026, 5, 10, tzinfo=tz or UTC)
+
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            database = temp_path / "kukicha.sqlite"
+            save_library(
+                MusicLibrary(
+                    roots=["/music"],
+                    tracks=[
+                        TrackRecord(
+                            path="/music/New Artist/New Album/01.flac",
+                            root_position=0,
+                            file_created_at="2026-05-02T12:00:00+00:00",
+                            file_type="flac",
+                            artist="New Artist",
+                            album_artist="New Artist",
+                            album="New Album",
+                            title="New Track",
+                        ),
+                        TrackRecord(
+                            path="/music/Old Artist/Old Album/01.flac",
+                            root_position=0,
+                            file_created_at="2026-03-01T12:00:00+00:00",
+                            file_type="flac",
+                            artist="Old Artist",
+                            album_artist="Old Artist",
+                            album="Old Album",
+                            title="Old Track",
+                        ),
+                    ],
+                    supported_extensions=[".flac"],
+                    generated_at="2026-05-10T00:00:00+00:00",
+                ),
+                database,
+            )
+            runtime = self.make_runtime(database)
+            with (
+                patch("kukicha.player_web_adapter.PlayerRuntime", return_value=runtime),
+                patch("kukicha.use_case.listening.datetime", FixedDateTime),
+            ):
+                app = create_player_app(self.make_options(temp_path))
+                response = app.test_client().get("/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"Added in the Last Month", response.data)
+        self.assertIn(b"New Album", response.data)
+        self.assertNotIn(b"Old Album", response.data)
+
+    def test_home_continue_listening_uses_now_playing_scrobble_when_queue_loaded(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            database = temp_path / "kukicha.sqlite"
+            track = TrackRecord(
+                path="/music/Bill Evans/Undercurrent/01.flac",
+                root_position=0,
+                file_type="flac",
+                artist="Bill Evans",
+                album_artist="Bill Evans and Jim Hall",
+                album="Undercurrent",
+                title="My Funny Valentine",
+                track_number="1",
+            )
+            save_library(
+                MusicLibrary(
+                    roots=["/music"],
+                    tracks=[track],
+                    supported_extensions=[".flac"],
+                    generated_at="2026-05-11T00:00:00+00:00",
+                ),
+                database,
+            )
+            record_playback(
+                database,
+                track.track_id or 1,
+                submission=False,
+                played_at=datetime(2026, 5, 11, 13, 30, tzinfo=UTC),
+                source="test",
+            )
+            runtime = self.make_runtime(database)
+            runtime.queue_state_copy.return_value = PlayerQueueState(
+                track_ids=[track.track_id or 1],
+                position=0,
+                loaded_track_id=track.track_id or 1,
+                paused=False,
+            )
+            with patch("kukicha.player_web_adapter.PlayerRuntime", return_value=runtime):
+                app = create_player_app(self.make_options(temp_path))
+                response = app.test_client().get("/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIn(b"Continue Listening", response.data)
+        self.assertIn(b"My Funny Valentine", response.data)
+        self.assertIn(b"Undercurrent", response.data)
+        self.assertIn(b"Bill Evans and Jim Hall", response.data)
+        self.assertIn(b'href="/queue" data-nav>Queue</a>', response.data)
+        self.assertNotIn(b"No listening history yet", response.data)
+
+    def test_home_omits_continue_listening_when_queue_is_empty(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            database = temp_path / "kukicha.sqlite"
+            track = TrackRecord(
+                path="/music/Artist/Album/01.flac",
+                root_position=0,
+                file_type="flac",
+                artist="Artist",
+                album_artist="Artist",
+                album="Album",
+                title="Track",
+            )
+            save_library(
+                MusicLibrary(
+                    roots=["/music"],
+                    tracks=[track],
+                    supported_extensions=[".flac"],
+                    generated_at="2026-05-11T00:00:00+00:00",
+                ),
+                database,
+            )
+            record_playback(
+                database,
+                track.track_id or 1,
+                submission=False,
+                played_at=datetime(2026, 5, 11, 13, 30, tzinfo=UTC),
+                source="test",
+            )
+            runtime = self.make_runtime(database)
+            with patch("kukicha.player_web_adapter.PlayerRuntime", return_value=runtime):
+                app = create_player_app(self.make_options(temp_path))
+                response = app.test_client().get("/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn(b"Continue Listening", response.data)
+        self.assertIn(b"No listening history yet", response.data)
+
+    def test_player_scrobble_endpoint_records_now_playing_and_submitted_plays(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            database = temp_path / "kukicha.sqlite"
+            track = TrackRecord(
+                path="/music/Brian Eno/Small Craft/01.flac",
+                root_position=0,
+                file_type="flac",
+                artist="Brian Eno",
+                album_artist="Brian Eno With Jon Hopkins & Leo Abrahams",
+                album="Small Craft on a Milk Sea",
+                title="Emerald and Lime",
+                track_number="1/15",
+                disc_number="1/1",
+                genres=["Ambient", "Electronic"],
+            )
+            save_library(
+                MusicLibrary(
+                    roots=["/music"],
+                    tracks=[track],
+                    supported_extensions=[".flac"],
+                    generated_at="2026-05-01T00:00:00+00:00",
+                ),
+                database,
+            )
+            runtime = self.make_runtime(database)
+            with patch("kukicha.player_web_adapter.PlayerRuntime", return_value=runtime):
+                app = create_player_app(self.make_options(temp_path))
+                client = app.test_client()
+                now_response = client.post(
+                    "/api/scrobble",
+                    json={
+                        "playback_id": track.track_id,
+                        "submission": "false",
+                        "time": 1770000000000,
+                    },
+                )
+                with connect_database(database, create=False) as connection:
+                    now_row = connection.execute(
+                        "SELECT playback_id, updated_at FROM play_now_playing"
+                    ).fetchone()
+                    submitted_count = int(
+                        connection.execute(
+                            "SELECT COUNT(*) AS count FROM play_track_stats"
+                        ).fetchone()["count"]
+                    )
+                submit_response = client.post(
+                    "/api/scrobble",
+                    json={
+                        "playback_id": track.track_id,
+                        "submission": True,
+                        "time": 1770000600000,
+                    },
+                )
+                bad_response = client.post(
+                    "/api/scrobble",
+                    json={"playback_id": track.track_id, "submission": "maybe"},
+                )
+
+            expected_now = datetime.fromtimestamp(1770000000000 / 1000, tz=UTC).isoformat()
+            expected_played = datetime.fromtimestamp(1770000600000 / 1000, tz=UTC).isoformat()
+            with connect_database(database, create=False) as connection:
+                track_stats = connection.execute(
+                    """
+                    SELECT play_count, last_played_at, title, album
+                    FROM play_track_stats
+                    WHERE track_id = ?
+                    """,
+                    (track.track_id,),
+                ).fetchone()
+                album_stats = connection.execute(
+                    "SELECT play_count, last_played_at FROM play_album_stats"
+                ).fetchone()
+                artist_stats = [
+                    (str(row["artist"]), int(row["play_count"]))
+                    for row in connection.execute(
+                        """
+                        SELECT artist, play_count
+                        FROM play_artist_stats
+                        ORDER BY artist
+                        """
+                    )
+                ]
+                genre_stats = [
+                    (str(row["genre"]), int(row["play_count"]))
+                    for row in connection.execute(
+                        """
+                        SELECT genre, play_count
+                        FROM play_genre_stats
+                        ORDER BY genre
+                        """
+                    )
+                ]
+
+        self.assertEqual(now_response.status_code, 200)
+        self.assertEqual(int(now_row["playback_id"]), track.track_id)
+        self.assertEqual(now_row["updated_at"], expected_now)
+        self.assertEqual(submitted_count, 0)
+        self.assertEqual(submit_response.status_code, 200)
+        self.assertEqual(bad_response.status_code, 400)
+        self.assertEqual(bad_response.get_json(), {"error": "invalid scrobble submission"})
+        self.assertEqual(int(track_stats["play_count"]), 1)
+        self.assertEqual(track_stats["last_played_at"], expected_played)
+        self.assertEqual(track_stats["title"], "Emerald and Lime")
+        self.assertEqual(track_stats["album"], "Small Craft on a Milk Sea")
+        self.assertEqual(int(album_stats["play_count"]), 1)
+        self.assertEqual(album_stats["last_played_at"], expected_played)
+        self.assertEqual(
+            artist_stats,
+            [("Brian Eno", 1), ("Jon Hopkins", 1), ("Leo Abrahams", 1)],
+        )
+        self.assertEqual(genre_stats, [("Ambient", 1), ("Electronic", 1)])
+
+    def test_playlist_play_history_survives_rescans_and_reattaches_tracks(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            database = temp_path / "kukicha.sqlite"
+            root = temp_path / "music"
+            playlist_path = root / "mix.m3u8"
+            first_path = root / "Artist" / "Album" / "01.flac"
+            save_library(
+                MusicLibrary(
+                    roots=[str(root)],
+                    tracks=[
+                        TrackRecord(
+                            path=str(first_path),
+                            root_position=0,
+                            file_type="flac",
+                            artist="Artist",
+                            album_artist="Artist",
+                            album="Album",
+                            title="Stable Song",
+                            track_number="1",
+                            genres=["Jazz"],
+                        )
+                    ],
+                    playlists=[
+                        PlaylistRecord(
+                            path=str(playlist_path),
+                            root_position=0,
+                            name="Mix",
+                            items=[
+                                PlaylistItemRecord(path=str(first_path)),
+                                PlaylistItemRecord(
+                                    path="https://example.test/live",
+                                    title="Live Stream",
+                                    genre="Downtempo",
+                                ),
+                            ],
+                        )
+                    ],
+                    supported_extensions=[".flac"],
+                    generated_at="2026-05-01T00:00:00+00:00",
+                ),
+                database,
+            )
+            with connect_database(database, create=False) as connection:
+                tracked_item_id = int(
+                    connection.execute(
+                        """
+                        SELECT playlist_item_id
+                        FROM library_playlist_items
+                        WHERE track_id IS NOT NULL
+                        """
+                    ).fetchone()["playlist_item_id"]
+                )
+                external_item_id = int(
+                    connection.execute(
+                        """
+                        SELECT playlist_item_id
+                        FROM library_playlist_items
+                        WHERE track_id IS NULL
+                        """
+                    ).fetchone()["playlist_item_id"]
+                )
+
+            record_playback(
+                database,
+                -tracked_item_id,
+                submission=True,
+                played_at=datetime(2026, 5, 1, 12, 0, tzinfo=UTC),
+                source="test",
+            )
+            record_playback(
+                database,
+                -external_item_id,
+                submission=True,
+                played_at=datetime(2026, 5, 1, 12, 5, tzinfo=UTC),
+                source="test",
+            )
+
+            rescanned_path = root / "Moved" / "Album" / "01.flac"
+            save_library(
+                MusicLibrary(
+                    roots=[str(root)],
+                    tracks=[
+                        TrackRecord(
+                            path=str(rescanned_path),
+                            root_position=0,
+                            file_type="flac",
+                            artist="Artist",
+                            album_artist="Artist",
+                            album="Album",
+                            title="Stable Song",
+                            track_number="1",
+                            genres=["Jazz"],
+                        )
+                    ],
+                    playlists=[
+                        PlaylistRecord(
+                            path=str(playlist_path),
+                            root_position=0,
+                            name="Mix",
+                            items=[PlaylistItemRecord(path=str(rescanned_path))],
+                        )
+                    ],
+                    supported_extensions=[".flac"],
+                    generated_at="2026-05-02T00:00:00+00:00",
+                ),
+                database,
+            )
+            dashboard = home_dashboard(database)
+            with connect_database(database, create=False) as connection:
+                playlist_stats = connection.execute(
+                    "SELECT play_count, path FROM play_playlist_stats"
+                ).fetchone()
+                track_stats = connection.execute(
+                    "SELECT play_count FROM play_track_stats"
+                ).fetchone()
+                genre_stats = [
+                    (str(row["genre"]), int(row["play_count"]))
+                    for row in connection.execute(
+                        "SELECT genre, play_count FROM play_genre_stats ORDER BY genre"
+                    )
+                ]
+
+        self.assertEqual(int(playlist_stats["play_count"]), 2)
+        self.assertEqual(playlist_stats["path"], str(playlist_path))
+        self.assertEqual(int(track_stats["play_count"]), 1)
+        self.assertEqual(genre_stats, [("Downtempo", 1), ("Jazz", 1)])
+        self.assertEqual(dashboard.recent_playlists[0].playlist.path, str(playlist_path))
+        self.assertEqual(dashboard.recent_tracks[0].path, str(rescanned_path))
 
     def test_create_player_app_preloads_library_filter_options_cache(self) -> None:
         with TemporaryDirectory() as tempdir:
@@ -3087,7 +3505,7 @@ class PlayerWebAdapterTest(unittest.TestCase):
             response = client.get("/notifications")
             self.assertIn(b"<h1>Not Found</h1>", response.data)
             self.assertIn(b"page not found: /notifications", response.data)
-            self.assertIn(b'href="/" data-nav>Albums</a>', response.data)
+            self.assertIn(b'href="/albums" data-nav>Albums</a>', response.data)
             self.assertIn(b'href="/playlists" data-nav>Playlists</a>', response.data)
             self.assertNotIn(b'class="filter-menu page-menu"', response.data)
             self.assertNotIn(b'href="/roots"', response.data)
@@ -3276,8 +3694,8 @@ class PlayerWebAdapterTest(unittest.TestCase):
             ):
                 app = create_player_app(self.make_options(temp_path))
                 client = app.test_client()
-                full_response = client.get("/")
-                fragment_response = client.get("/", headers={"X-Kukicha-Fragment": "1"})
+                full_response = client.get("/albums")
+                fragment_response = client.get("/albums", headers={"X-Kukicha-Fragment": "1"})
 
             self.assertEqual(full_response.status_code, 200)
             full_html = full_response.data.decode()
@@ -3342,7 +3760,7 @@ class PlayerWebAdapterTest(unittest.TestCase):
                 patch("kukicha.player_web_adapter.build_index_context", return_value=context),
             ):
                 app = create_player_app(self.make_options(temp_path))
-                response = app.test_client().get("/")
+                response = app.test_client().get("/albums")
 
             self.assertEqual(response.status_code, 200)
             self.assertIn(b'data-toast-timeout-ms="5000"', response.data)
@@ -3395,7 +3813,7 @@ class PlayerWebAdapterTest(unittest.TestCase):
             self.assertIn(b'class="artist-cloud"', full_response.data)
             self.assertIn(b'class="artist-cloud-link"', full_response.data)
             self.assertIn(b"Ahmad Jamal", full_response.data)
-            self.assertIn(b'href="/?artist=Ahmad+Jamal"', full_response.data)
+            self.assertIn(b'href="/albums?artist=Ahmad+Jamal"', full_response.data)
             self.assertNotIn(b"data-filter-form", full_response.data)
             self.assertNotIn(b'type="search"', full_response.data)
             self.assertEqual(fragment_response.status_code, 200)
@@ -3443,13 +3861,13 @@ class PlayerWebAdapterTest(unittest.TestCase):
                 app = create_player_app(self.make_options(temp_path))
                 client = app.test_client()
                 response = client.get(
-                    "/?artist=Artist+A&genre[0][p]=Electronic"
+                    "/albums?artist=Artist+A&genre[0][p]=Electronic"
                     "&genre[0][c][]=Ambient"
                 )
                 album_response = client.get(
                     "/albums/artist-a::album?artist=Artist+A&per_page=80"
                 )
-                artist_response = client.get("/?artist=Artist+A")
+                artist_response = client.get("/albums?artist=Artist+A")
 
         self.assertEqual(response.status_code, 200)
         self.assertNotIn(b"data-lazy-filter-options", response.data)
@@ -3461,7 +3879,7 @@ class PlayerWebAdapterTest(unittest.TestCase):
         )
         self.assertNotIn(b"/albums/artist-a::album?", response.data)
         self.assertIn(
-            b'class="album-artist album-artist-link" href="/?artist=Artist+A&amp;genre[0][p]=Electronic&amp;genre[0][c][]=Ambient" data-nav title="Artist A">Artist A</a>',
+            b'class="album-artist album-artist-link" href="/albums?artist=Artist+A&amp;genre[0][p]=Electronic&amp;genre[0][c][]=Ambient" data-nav title="Artist A">Artist A</a>',
             response.data,
         )
         self.assertIn(b'value="Ambient" data-genre-child-control checked', response.data)
@@ -3474,13 +3892,13 @@ class PlayerWebAdapterTest(unittest.TestCase):
         self.assertIn(b"Artist A", artist_response.data)
         self.assertNotIn(b"Artist B", artist_response.data)
         self.assertEqual(album_response.status_code, 200)
-        self.assertIn(b'href="/" data-history-back data-nav', album_response.data)
+        self.assertIn(b'href="/albums" data-history-back data-nav', album_response.data)
         self.assertIn(
             b'href="/albums/artist-a::album/edit" data-nav>edit</a>',
             album_response.data,
         )
-        self.assertIn(b'href="/?artist=Artist+A" data-nav>Artist A</a>', album_response.data)
-        self.assertIn(b'href="/?genre[0][p]=Electronic"', album_response.data)
+        self.assertIn(b'href="/albums?artist=Artist+A" data-nav>Artist A</a>', album_response.data)
+        self.assertIn(b'href="/albums?genre[0][p]=Electronic"', album_response.data)
         self.assertNotIn(b"per_page=80", album_response.data)
         self.assertNotIn(b"/albums/artist-a::album/edit?", album_response.data)
 
@@ -3542,7 +3960,7 @@ class PlayerWebAdapterTest(unittest.TestCase):
             with patch("kukicha.player_web_adapter.PlayerRuntime", return_value=runtime):
                 app = create_player_app(self.make_options(temp_path))
                 client = app.test_client()
-                albums_response = client.get("/")
+                albums_response = client.get("/albums")
                 playlist_response = client.get("/playlists?search=Road")
                 playlist_sort_response = client.get("/playlists?sort=artist")
                 playlist_detail_response = client.get("/playlists/1?search=Road")

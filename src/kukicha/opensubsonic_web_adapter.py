@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
+from datetime import UTC, datetime
 import hashlib
 import hmac
 import json
@@ -26,6 +27,7 @@ from .use_case import (
     LibraryQueries,
     TrackNotFoundError,
     connect_database,
+    record_playback,
     track_artwork,
     track_audio_path,
 )
@@ -167,6 +169,7 @@ def open_subsonic_handlers() -> dict[str, Any]:
         "stream": handle_stream,
         "download": handle_download,
         "getcoverart": handle_get_cover_art,
+        "scrobble": handle_scrobble,
     }
 
 
@@ -373,6 +376,38 @@ def handle_get_cover_art(params: Mapping[str, list[str]]) -> Response:
     raise OpenSubsonicApiError(ERROR_NOT_FOUND, "The requested data was not found.")
 
 
+def handle_scrobble(params: Mapping[str, list[str]]) -> dict[str, object]:
+    id_values = params.get("id") or []
+    if not id_values:
+        raise OpenSubsonicApiError(
+            ERROR_REQUIRED_PARAMETER_MISSING,
+            "Required parameter is missing: id",
+        )
+    time_values = params.get("time") or []
+    submission = bool_param(params, "submission", default=True)
+    for index, id_value in enumerate(id_values):
+        try:
+            track_id = int(id_value)
+        except ValueError as error:
+            raise OpenSubsonicApiError(
+                ERROR_REQUIRED_PARAMETER_MISSING,
+                "Required parameter is invalid: id",
+            ) from error
+        played_at = (
+            scrobble_time_from_epoch_millis(time_values[index])
+            if index < len(time_values)
+            else None
+        )
+        record_playback(
+            open_subsonic_context().database,
+            track_id,
+            submission=submission,
+            played_at=played_at,
+            source="opensubsonic",
+        )
+    return {}
+
+
 def int_required_param(params: Mapping[str, list[str]], key: str) -> int:
     value = require_param(params, key)
     try:
@@ -423,6 +458,37 @@ def optional_int_param(params: Mapping[str, list[str]], key: str) -> int | None:
         ) from error
 
 
+def bool_param(
+    params: Mapping[str, list[str]],
+    key: str,
+    *,
+    default: bool,
+) -> bool:
+    value = first_param(params, key)
+    if value is None or value == "":
+        return default
+    folded = value.casefold()
+    if folded in {"1", "true", "yes"}:
+        return True
+    if folded in {"0", "false", "no"}:
+        return False
+    raise OpenSubsonicApiError(
+        ERROR_REQUIRED_PARAMETER_MISSING,
+        f"Required parameter is invalid: {key}",
+    )
+
+
+def scrobble_time_from_epoch_millis(value: str) -> datetime:
+    try:
+        millis = int(value)
+    except ValueError as error:
+        raise OpenSubsonicApiError(
+            ERROR_REQUIRED_PARAMETER_MISSING,
+            "Required parameter is invalid: time",
+        ) from error
+    return datetime.fromtimestamp(millis / 1000, tz=UTC)
+
+
 def artist_stats_payloads(
     database: Path,
     *,
@@ -453,15 +519,15 @@ def artist_stats_payloads(
                     (root_position,),
                 )
             )
-        artists = [
-            artist_summary_payload(
-                database,
-                str(row["album_artist"]),
-                album_count=int(row["albums_scanned"]),
-                root_position=root_position,
-            )
-            for row in rows
-        ]
+    artists = [
+        artist_summary_payload(
+            database,
+            str(row["album_artist"]),
+            album_count=int(row["albums_scanned"]),
+            root_position=root_position,
+        )
+        for row in rows
+    ]
     return artist_indexes(artists)
 
 
@@ -502,7 +568,6 @@ def artist_album_payloads(database: Path, artist: str) -> list[dict[str, object]
                     albums.track_count,
                     albums.file_created_at,
                     albums.art_track_id,
-                    albums.has_cover,
                     COALESCE(
                         (
                             SELECT SUM(COALESCE(tracks.duration_seconds, 0))
@@ -544,7 +609,7 @@ def artist_album_payloads(database: Path, artist: str) -> list[dict[str, object]
             song_count=int(row["track_count"]),
             year=int(row["year"]) if row["year"] is not None else None,
             created=row["file_created_at"],
-            has_cover=bool(row["has_cover"]),
+            has_cover=row["art_track_id"] is not None,
             art_track_id=(
                 int(row["art_track_id"]) if row["art_track_id"] is not None else None
             ),
@@ -602,10 +667,7 @@ def artist_cover_art_id(
                 JOIN library_album_artists AS artists
                     ON artists.album_id = albums.album_id
                 WHERE artists.artist = ? COLLATE NOCASE
-                    AND (
-                        albums.has_cover = 1
-                        OR albums.art_track_id IS NOT NULL
-                    )
+                    AND albums.art_track_id IS NOT NULL
                 ORDER BY albums.rowid
                 LIMIT 1
                 """,
@@ -622,10 +684,7 @@ def artist_cover_art_id(
                     ON artists.album_id = albums.album_id
                 WHERE artists.artist = ? COLLATE NOCASE
                     AND album_roots.root_position = ?
-                    AND (
-                        album_roots.has_cover = 1
-                        OR album_roots.art_track_id IS NOT NULL
-                    )
+                    AND album_roots.art_track_id IS NOT NULL
                 ORDER BY albums.rowid
                 LIMIT 1
                 """,
@@ -692,8 +751,7 @@ def album_list2_payloads(database: Path, *, size: int, offset: int) -> list[dict
                     year,
                     track_count,
                     file_created_at,
-                    art_track_id,
-                    has_cover
+                    art_track_id
                 FROM library_albums
                 ORDER BY rowid
                 LIMIT ? OFFSET ?
@@ -713,7 +771,7 @@ def album_list2_payloads(database: Path, *, size: int, offset: int) -> list[dict
             song_count=int(row["track_count"]),
             year=int(row["year"]) if row["year"] is not None else None,
             created=row["file_created_at"],
-            has_cover=bool(row["has_cover"]),
+            has_cover=row["art_track_id"] is not None,
             art_track_id=(
                 int(row["art_track_id"]) if row["art_track_id"] is not None else None
             ),

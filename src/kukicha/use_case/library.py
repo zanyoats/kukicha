@@ -50,6 +50,7 @@ from .itunes import (
     ItunesLookupStats,
     get_itunes_lookup_image,
 )
+from .listening import track_play_fingerprint
 from ..models import (
     ALBUM_ARTWORK_HEIGHT,
     TRACK_ARTWORK_HEIGHT,
@@ -415,6 +416,13 @@ def save_library_with_options(
                 track.composer,
                 track.album,
                 track.title,
+                track_play_fingerprint(
+                    album_id=album_id or "",
+                    disc_number=track.disc_number,
+                    track_number=track.track_number,
+                    title=track.title or "",
+                    path=track.path,
+                ),
                 track.work,
                 track.grouping,
                 track.movement_name,
@@ -440,6 +448,7 @@ def save_library_with_options(
                         composer,
                         album,
                         title,
+                        play_fingerprint,
                         work,
                         grouping,
                         movement_name,
@@ -449,7 +458,7 @@ def save_library_with_options(
                         date,
                         duration_seconds,
                         bitrate
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     params,
                 )
@@ -471,6 +480,7 @@ def save_library_with_options(
                         composer,
                         album,
                         title,
+                        play_fingerprint,
                         work,
                         grouping,
                         movement_name,
@@ -480,7 +490,7 @@ def save_library_with_options(
                         date,
                         duration_seconds,
                         bitrate
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (track.track_id, *params),
                 )

@@ -114,8 +114,8 @@ def build_index_context(runtime: PlayerRuntime, query_string: str) -> dict[str, 
         )
         if album_page.has_next
         else "",
-        clear_url="/",
-        filter_action_url="/",
+        clear_url="/albums",
+        filter_action_url="/albums",
         show_filter_form=True,
         show_filter_controls=True,
         show_sort_controls=True,
@@ -127,6 +127,37 @@ def build_index_context(runtime: PlayerRuntime, query_string: str) -> dict[str, 
         default_per_page=DEFAULT_ALBUMS_PER_PAGE,
     )
     context.update(player_page_context("library"))
+    return context
+
+
+def build_home_context(runtime: PlayerRuntime) -> dict[str, Any]:
+    from .use_case import home_dashboard
+    from .player_navigation import player_page_context
+
+    dashboard = home_dashboard(runtime.database)
+    context = base_player_context(
+        runtime,
+        view_template="player/home.html",
+        dashboard=dashboard,
+        stat_label=home_stat_label,
+        added_label=home_added_label,
+    )
+    queue_state = context.get("queue_state")
+    loaded_track_id = (
+        queue_state.get("loaded_track_id")
+        if isinstance(queue_state, dict)
+        else None
+    )
+    continue_listening = (
+        dashboard.now_playing
+        if dashboard.now_playing is not None and loaded_track_id is not None
+        else None
+    )
+    context.update(
+        continue_listening=continue_listening,
+        show_history_empty=not dashboard.has_listening_history and continue_listening is None,
+    )
+    context.update(player_page_context("home"))
     return context
 
 
@@ -196,12 +227,26 @@ def build_not_found_context(runtime: PlayerRuntime, message: str) -> dict[str, A
         view_template="player/not_found.html",
         not_found_message=message,
         not_found_links=(
-            {"label": "Albums", "url": "/"},
+            {"label": "Albums", "url": "/albums"},
             {"label": "Artists", "url": "/artists"},
             {"label": "Playlists", "url": "/playlists"},
             {"label": "Queue", "url": "/queue"},
         ),
     )
+
+
+def home_stat_label(play_count: int, timestamp: str) -> str:
+    from .player_common import plural
+
+    parts = [f"{play_count} {plural(play_count, 'play', 'plays')}"]
+    date_text = timestamp[:10] if timestamp else ""
+    if date_text:
+        parts.append(date_text)
+    return " - ".join(parts)
+
+
+def home_added_label(timestamp: str | None) -> str:
+    return f"Added {timestamp[:10]}" if timestamp else "Recently Added"
 
 
 def build_help_page_context(runtime: PlayerRuntime, options: Any) -> dict[str, Any]:

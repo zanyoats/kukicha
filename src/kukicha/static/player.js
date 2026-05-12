@@ -1545,6 +1545,7 @@ audio.addEventListener("ended", () => {
   manualPauseRequested = false;
   clearPendingPauseCommit();
   clearPauseStateSuppression();
+  postScrobble(loadedTrackId(), true);
   const position = queuePositionForControls();
   const nextPosition = nextPlayableQueuePosition(position);
   if (nextPosition !== -1) {
@@ -2980,13 +2981,17 @@ function handleKeyboardShortcut(event) {
       break;
     case "2":
       event.preventDefault();
-      navigateToShortcutPage("/artists");
+      navigateToShortcutPage("/albums");
       break;
     case "3":
       event.preventDefault();
-      navigateToShortcutPage("/playlists");
+      navigateToShortcutPage("/artists");
       break;
     case "4":
+      event.preventDefault();
+      navigateToShortcutPage("/playlists");
+      break;
+    case "5":
       event.preventDefault();
       navigateToShortcutPage("/queue");
       break;
@@ -3105,7 +3110,7 @@ async function focusSearchShortcut() {
     focusAndSelectSearchInput(searchInput);
     return;
   }
-  await navigate("/");
+  await navigate("/albums");
   const nextSearchInput = searchShortcutInput();
   if (nextSearchInput) {
     focusAndSelectSearchInput(nextSearchInput);
@@ -3318,12 +3323,13 @@ async function playTrack(track, options = {}) {
     }
   }
   updateNowPlaying(track);
-  postPlayback({
+  const playbackPayload = {
     loaded_track_id: track.trackId,
     position: queueState.position,
     paused: false,
     errored_track_ids: queueState.errored_track_ids
-  });
+  };
+  postPlayback(playbackPayload).then(() => postScrobble(track.trackId, false));
   try {
     await audio.play();
   } catch (err) {
@@ -3595,7 +3601,7 @@ function albumArtistFilterUrl(artist) {
   if (!artist || artist === "<unknown artist>") {
     return "";
   }
-  const url = new URL("/", window.location.origin);
+  const url = new URL("/albums", window.location.origin);
   url.searchParams.append("artist", artist);
   return url.toString();
 }
@@ -3896,6 +3902,44 @@ async function postPlayback(payload) {
     return normalizeQueueState(await response.json());
   } catch {
     return null;
+  }
+}
+
+async function postScrobble(playbackId, submission) {
+  const resolvedId = Number(playbackId);
+  if (!Number.isFinite(resolvedId)) {
+    return;
+  }
+  try {
+    const response = await fetch("/api/scrobble", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({
+        playback_id: resolvedId,
+        submission: Boolean(submission),
+        time: Date.now()
+      })
+    });
+    if (response.ok && !submission) {
+      await refreshHomePage();
+    }
+  } catch {
+    return;
+  }
+}
+
+async function refreshHomePage() {
+  if (document.body.dataset.page !== "home") {
+    return;
+  }
+  try {
+    const html = await fetchFragment(window.location.href);
+    renderFragment(html, window.location.href, {
+      history: false,
+      scroll: false
+    });
+  } catch {
+    return;
   }
 }
 

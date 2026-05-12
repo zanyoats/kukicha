@@ -498,7 +498,7 @@ function testInput(document, {type = "text", name = "", value = "", checked = fa
 function filterForm(document, controls = []) {
   const form = document.createElement("form");
   form.action = "/";
-  form.dataset.defaultSort = "recently_added";
+  form.dataset.defaultSort = "artist";
   form.dataset.filterForm = "";
   form.append(...controls);
   return form;
@@ -553,7 +553,7 @@ test("library filter form patch preserves artist hidden inputs before changing s
   const url = harness.context.formUrl(currentForm);
 
   assert.equal(url.searchParams.get("artist"), "Amon Tobin");
-  assert.equal(url.searchParams.get("sort"), "artist");
+  assert.equal(url.searchParams.has("sort"), false);
 });
 
 test("album filter form urls add genre search and sort params to current params", () => {
@@ -576,7 +576,7 @@ test("album filter form urls add genre search and sort params to current params"
   const genreUrl = harness.context.formUrl(genreForm);
   assert.equal(genreUrl.searchParams.get("artist"), "Amon Tobin");
   assert.equal(genreUrl.searchParams.get("search"), "breaks");
-  assert.equal(genreUrl.searchParams.get("sort"), "artist");
+  assert.equal(genreUrl.searchParams.has("sort"), false);
   assert.equal(genreUrl.searchParams.get("genre[0][p]"), "Electronic");
 
   const searchForm = filterForm(document, [
@@ -587,7 +587,7 @@ test("album filter form urls add genre search and sort params to current params"
   const searchUrl = harness.context.formUrl(searchForm);
   assert.equal(searchUrl.searchParams.get("artist"), "Amon Tobin");
   assert.equal(searchUrl.searchParams.get("search"), "foley room");
-  assert.equal(searchUrl.searchParams.has("sort"), false);
+  assert.equal(searchUrl.searchParams.get("sort"), "recently_added");
 
   const sortForm = filterForm(document, [
     testInput(document, {type: "hidden", name: "artist", value: "Amon Tobin"}),
@@ -597,7 +597,7 @@ test("album filter form urls add genre search and sort params to current params"
   const sortUrl = harness.context.formUrl(sortForm);
   assert.equal(sortUrl.searchParams.get("artist"), "Amon Tobin");
   assert.equal(sortUrl.searchParams.get("search"), "out from");
-  assert.equal(sortUrl.searchParams.get("sort"), "artist");
+  assert.equal(sortUrl.searchParams.has("sort"), false);
 });
 
 test("player control links ignore current album page params", () => {
@@ -610,12 +610,12 @@ test("player control links ignore current album page params", () => {
     unavailable_track_ids: [],
   });
   harness.context.window.location.href = (
-    "http://localhost/?artist=Existing+Artist&search=ambient&sort=artist"
+    "http://localhost/albums?artist=Existing+Artist&search=ambient&sort=artist"
   );
 
   assert.equal(
     harness.context.albumArtistFilterUrl("Amon Tobin"),
-    "http://localhost/?artist=Amon+Tobin",
+    "http://localhost/albums?artist=Amon+Tobin",
   );
   assert.equal(
     harness.context.albumDetailUrl({albumId: "amon-tobin::out-from-out-where"}),
@@ -910,12 +910,88 @@ test("play restarts from the first playable track after a non-empty queue is exh
   assert.equal(harness.audio.src, "/audio/1");
   assert.equal(harness.audio.currentTime, 0);
   assert.equal(harness.audio.playCalls, 1);
-  assert.deepEqual(harness.fetchCalls.at(-1).body, {
+  assert.equal(harness.fetchCalls[0].url, "/api/playback");
+  assert.deepEqual(harness.fetchCalls[0].body, {
     loaded_track_id: 1,
     position: 0,
     paused: false,
     errored_track_ids: [],
   });
+  assert.equal(harness.fetchCalls[1].url, "/api/scrobble");
+  assert.deepEqual(
+    {
+      playback_id: harness.fetchCalls[1].body.playback_id,
+      submission: harness.fetchCalls[1].body.submission,
+    },
+    {playback_id: 1, submission: false},
+  );
+});
+
+test("play starts now playing and natural end submits scrobble", async () => {
+  const harness = createHarness({
+    track_ids: [7],
+    position: 0,
+    loaded_track_id: 7,
+    paused: true,
+    errored_track_ids: [],
+    unavailable_track_ids: [],
+  });
+
+  harness.playButton.click();
+  await harness.flush();
+
+  assert.equal(harness.fetchCalls[0].url, "/api/playback");
+  assert.equal(harness.fetchCalls[1].url, "/api/scrobble");
+  assert.deepEqual(
+    {
+      playback_id: harness.fetchCalls[1].body.playback_id,
+      submission: harness.fetchCalls[1].body.submission,
+    },
+    {playback_id: 7, submission: false},
+  );
+
+  harness.fetchCalls.splice(0);
+  harness.audio.listeners.get("ended")[0]();
+  await harness.flush();
+
+  assert.equal(harness.fetchCalls[0].url, "/api/scrobble");
+  assert.deepEqual(
+    {
+      playback_id: harness.fetchCalls[0].body.playback_id,
+      submission: harness.fetchCalls[0].body.submission,
+    },
+    {playback_id: 7, submission: true},
+  );
+  assert.equal(typeof harness.fetchCalls[0].body.time, "number");
+  assert.equal(harness.fetchCalls.at(-1).url, "/api/playback");
+  assert.deepEqual(harness.fetchCalls.at(-1).body, {
+    position: 1,
+    paused: true,
+    errored_track_ids: [],
+  });
+});
+
+test("now playing scrobble refreshes the home continue section", async () => {
+  const harness = createHarness(
+    {
+      track_ids: [7],
+      position: 0,
+      loaded_track_id: 7,
+      paused: true,
+      errored_track_ids: [],
+      unavailable_track_ids: [],
+    },
+    {page: "home"},
+  );
+  harness.context.window.location.href = "http://localhost/";
+
+  harness.playButton.click();
+  await harness.flush();
+
+  assert.equal(harness.fetchCalls[0].url, "/api/playback");
+  assert.equal(harness.fetchCalls[1].url, "/api/scrobble");
+  assert.equal(harness.fetchCalls[2].url, "http://localhost/");
+  assert.equal(harness.fetchCalls[2].request.headers["X-Kukicha-Fragment"], "1");
 });
 
 test("queue page played count follows next and previous queue selection", async () => {

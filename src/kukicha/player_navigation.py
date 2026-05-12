@@ -27,12 +27,13 @@ from .playlist_art import playlist_cover_data_url, playlist_cover_svg
 PLAYLIST_COVER_SVG = playlist_cover_svg("Playlist")
 PLAYLIST_COVER_DATA_URL = playlist_cover_data_url(PLAYLIST_COVER_SVG)
 ALBUM_SORT_OPTIONS = (
-    (ALBUM_LIST_SORT_RECENTLY_ADDED, "newest"),
-    (ALBUM_LIST_SORT_ARTIST, "artist"),
-    (ALBUM_LIST_SORT_GENRE, "genre"),
+    (ALBUM_LIST_SORT_ARTIST, "Artist"),
+    (ALBUM_LIST_SORT_RECENTLY_ADDED, "Recently Added"),
+    (ALBUM_LIST_SORT_GENRE, "Genre"),
 )
 PLAYER_PAGE_LINKS = (
-    ("library", "Albums", "/"),
+    ("home", "Home", "/"),
+    ("library", "Albums", "/albums"),
     ("artists", "Artists", "/artists"),
     ("playlists", "Playlists", "/playlists"),
     ("roots", "Roots", "/roots"),
@@ -43,7 +44,7 @@ PLAYER_PAGE_LINKS = (
     ("help", "Help", "/help"),
 )
 PLAYER_PAGE_BY_KEY = {key: {"title": title, "url": url} for key, title, url in PLAYER_PAGE_LINKS}
-PLAYER_PAGE_ROUTE_KEYS = {url: key for key, _title, url in PLAYER_PAGE_LINKS[1:]}
+PLAYER_PAGE_ROUTE_KEYS = {url: key for key, _title, url in PLAYER_PAGE_LINKS[2:]}
 _URL_CURSOR_UNSET = object()
 
 @dataclass(frozen=True, slots=True)
@@ -57,7 +58,8 @@ class PlayerPageLink:
 
 PLAYER_PAGE_MENU_ITEMS = (
     PlayerPageLink(kind="heading", title="LIBRARY"),
-    PlayerPageLink(kind="link", key="library", title="Albums", url="/"),
+    PlayerPageLink(kind="link", key="home", title="Home", url="/"),
+    PlayerPageLink(kind="link", key="library", title="Albums", url="/albums"),
     PlayerPageLink(kind="link", key="artists", title="Artists", url="/artists"),
     PlayerPageLink(kind="link", key="playlists", title="Playlists", url="/playlists"),
     PlayerPageLink(kind="divider"),
@@ -133,7 +135,7 @@ def album_index_url(
     else:
         params = album_query_params(query, page=page, cursor=cursor)
     encoded = urlencode(params, doseq=True, safe="[]")
-    return f"/?{encoded}" if encoded else "/"
+    return f"/albums?{encoded}" if encoded else "/albums"
 
 def playlist_index_url(_query: AlbumListQuery, *, page: int | None = None) -> str:
     return "/playlists"
