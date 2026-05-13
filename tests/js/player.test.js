@@ -122,6 +122,21 @@ class TestElement {
     this.children.unshift(...nodes);
   }
 
+  insertBefore(node, referenceNode) {
+    const existingIndex = this.children.indexOf(node);
+    if (existingIndex !== -1) {
+      this.children.splice(existingIndex, 1);
+    }
+    const referenceIndex = this.children.indexOf(referenceNode);
+    node.parentNode = this;
+    if (referenceIndex === -1) {
+      this.children.push(node);
+      return node;
+    }
+    this.children.splice(referenceIndex, 0, node);
+    return node;
+  }
+
   replaceChildren(...nodes) {
     for (const child of this.children) {
       child.parentNode = null;
@@ -600,6 +615,48 @@ test("album filter form urls add genre search and sort params to current params"
   assert.equal(sortUrl.searchParams.has("sort"), false);
 });
 
+test("compact count formatting matches count label rules", () => {
+  const harness = createHarness({
+    track_ids: [],
+    position: 0,
+    loaded_track_id: null,
+    paused: true,
+    errored_track_ids: [],
+    unavailable_track_ids: [],
+  });
+
+  assert.deepEqual(
+    [
+      999,
+      1000,
+      1200,
+      12300,
+      123000,
+      1200000,
+      12300000,
+      12380000,
+      123000000,
+      999500,
+      999000000000000,
+      999000000000001,
+    ].map((count) => harness.context.compactCount(count)),
+    [
+      "999",
+      "1k",
+      "1.2k",
+      "12.3k",
+      "123k",
+      "1.2M",
+      "12.3M",
+      "12.4M",
+      "123M",
+      "1M",
+      "999T",
+      "infinity",
+    ],
+  );
+});
+
 test("player control links ignore current album page params", () => {
   const harness = createHarness({
     track_ids: [],
@@ -971,6 +1028,118 @@ test("play starts now playing and natural end submits scrobble", async () => {
   });
 });
 
+test("submitted tracked playlist item scrobble refreshes home stats", async () => {
+  const harness = createHarness(
+    {
+      track_ids: [-7],
+      position: 0,
+      loaded_track_id: -7,
+      paused: true,
+      errored_track_ids: [],
+      unavailable_track_ids: [],
+      track_snapshots: [
+        {
+          trackId: -7,
+          audioUrl: "/playlist-audio/7",
+          title: "Playlist Track",
+          albumArtist: "Harold Budd And Brian Eno",
+          album: "The Pearl",
+          durationSeconds: 180,
+        },
+      ],
+    },
+    {page: "home"},
+  );
+  harness.context.window.location.href = "http://localhost/";
+
+  harness.playButton.click();
+  await harness.flush();
+
+  harness.fetchCalls.splice(0);
+  harness.audio.listeners.get("ended")[0]();
+  await harness.flush();
+  await harness.flush();
+
+  assert.deepEqual(
+    harness.fetchCalls
+      .filter((call) => call.url === "/api/scrobble")
+      .map((call) => ({
+        playback_id: call.body.playback_id,
+        submission: call.body.submission,
+      })),
+    [
+      {playback_id: -7, submission: true},
+    ],
+  );
+  assert.ok(
+    harness.fetchCalls.some((call) => (
+      call.url === "http://localhost/"
+      && call.request.headers["X-Kukicha-Fragment"] === "1"
+    )),
+  );
+});
+
+test("indeterminate stream submits played scrobble on play", async () => {
+  const harness = createHarness({
+    track_ids: [-7],
+    position: 0,
+    loaded_track_id: -7,
+    paused: true,
+    errored_track_ids: [],
+    unavailable_track_ids: [],
+    track_snapshots: [
+      {
+        trackId: -7,
+        audioUrl: "https://example.test/live",
+        title: "Live Stream",
+        durationIsIndeterminate: true,
+      },
+    ],
+  });
+
+  harness.playButton.click();
+  await harness.flush();
+  await harness.flush();
+
+  assert.equal(harness.fetchCalls[0].url, "/api/playback");
+  assert.deepEqual(
+    harness.fetchCalls
+      .filter((call) => call.url === "/api/scrobble")
+      .map((call) => ({
+        playback_id: call.body.playback_id,
+        submission: call.body.submission,
+      })),
+    [
+      {playback_id: -7, submission: true},
+    ],
+  );
+
+  harness.fetchCalls.splice(0);
+  harness.playButton.click();
+  harness.playButton.click();
+  await harness.flush();
+  await harness.flush();
+
+  assert.equal(harness.audio.playCalls, 2);
+  assert.deepEqual(
+    harness.fetchCalls
+      .filter((call) => call.url === "/api/scrobble" && call.body.submission)
+      .map((call) => call.body.playback_id),
+    [],
+  );
+
+  harness.fetchCalls.splice(0);
+  harness.audio.listeners.get("ended")[0]();
+  await harness.flush();
+
+  assert.deepEqual(
+    harness.fetchCalls
+      .filter((call) => call.url === "/api/scrobble" && call.body.submission)
+      .map((call) => call.body.playback_id),
+    [],
+  );
+});
+
 test("now playing scrobble refreshes the home continue section", async () => {
   const harness = createHarness(
     {
@@ -992,6 +1161,62 @@ test("now playing scrobble refreshes the home continue section", async () => {
   assert.equal(harness.fetchCalls[1].url, "/api/scrobble");
   assert.equal(harness.fetchCalls[2].url, "http://localhost/");
   assert.equal(harness.fetchCalls[2].request.headers["X-Kukicha-Fragment"], "1");
+});
+
+test("continue listening cover button toggles existing queue playback", async () => {
+  const harness = createHarness(
+    {
+      track_ids: [7],
+      position: 0,
+      loaded_track_id: 7,
+      paused: true,
+      errored_track_ids: [],
+      unavailable_track_ids: [],
+    },
+    {page: "home"},
+  );
+  const button = new TestElement("button");
+  const continuePlayIcon = new TestElement("span");
+  const continuePauseIcon = new TestElement("span");
+  harness.document.setQueryResult("[data-continue-play-toggle]", button);
+  harness.document.setQueryResult("[data-play-icon]", [new TestElement("span"), continuePlayIcon]);
+  harness.document.setQueryResult("[data-pause-icon]", [new TestElement("span"), continuePauseIcon]);
+  button.closest = (selector) => (
+    selector === "[data-continue-play-toggle]" ? button : null
+  );
+  const event = {
+    target: button,
+    defaultPrevented: false,
+    preventDefault() {
+      this.defaultPrevented = true;
+    },
+  };
+
+  harness.document.listeners.get("click")[0](event);
+  await harness.flush();
+
+  assert.equal(event.defaultPrevented, true);
+  assert.equal(harness.audio.playCalls, 1);
+  assert.equal(button.getAttribute("aria-label"), "Pause current queue");
+  assert.equal(button.getAttribute("aria-pressed"), "true");
+  assert.equal(button.title, "Pause");
+  assert.equal(continuePlayIcon.hidden, true);
+  assert.equal(continuePauseIcon.hidden, false);
+  assert.equal(harness.fetchCalls[0].url, "/api/playback");
+  assert.deepEqual(harness.fetchCalls[0].body, {
+    loaded_track_id: 7,
+    position: 0,
+    paused: false,
+    errored_track_ids: [],
+  });
+  assert.equal(harness.fetchCalls[1].url, "/api/scrobble");
+  assert.deepEqual(
+    {
+      playback_id: harness.fetchCalls[1].body.playback_id,
+      submission: harness.fetchCalls[1].body.submission,
+    },
+    {playback_id: 7, submission: false},
+  );
 });
 
 test("queue page played count follows next and previous queue selection", async () => {

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
+from .player_common import format_compact_count
 from .player_runtime import PlayerJobRecord
 
 
@@ -70,10 +71,22 @@ def humanize_job_context_key(key: str) -> str:
 
 
 def format_job_context_value(key: str, value: object) -> str:
+    compact_count_keys = {
+        "roots_configured",
+        "roots_added",
+        "roots_removed",
+        "roots_scanned",
+        "tracks_updated",
+        "tracks_scanned",
+        "albums_scanned",
+        "playlists_scanned",
+    }
     if key == "path":
         from .use_case import library_root_filter_label
 
         return library_root_filter_label(str(value))
+    if key in compact_count_keys:
+        return format_compact_count(value)
     if key == "root_position":
         try:
             return str(int(value) + 1)

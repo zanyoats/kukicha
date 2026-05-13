@@ -2,8 +2,6 @@ const fragmentHeader = "X-Kukicha-Fragment";
 const view = document.getElementById("view");
 const audio = document.getElementById("audio");
 const playButton = document.getElementById("play");
-const playButtonPlayIcon = document.querySelector("[data-play-icon]");
-const playButtonPauseIcon = document.querySelector("[data-pause-icon]");
 const previousButton = document.getElementById("previous");
 const nextButton = document.getElementById("next");
 const nowPlaying = document.getElementById("now-playing");
@@ -57,6 +55,7 @@ let activePlaylistSourceOptions = null;
 let pageIsUnloading = false;
 let keyboardShortcutsReturnFocus = null;
 let rescanLibraryPending = false;
+const submittedIndeterminatePlayKeys = new Set();
 
 function readToastDelayMs(datasetKey, fallback) {
   if (!(toast instanceof HTMLElement)) {
@@ -704,7 +703,59 @@ function updateFilterSummary(form, key, count) {
     return;
   }
   const label = summary.dataset.summaryLabel || "";
-  summary.textContent = count ? `${label}: ${count}` : label;
+  summary.textContent = count ? `${label}: ${compactCount(count)}` : label;
+}
+
+function compactCount(value) {
+  const count = Number(value);
+  if (!Number.isFinite(count)) {
+    return String(value);
+  }
+  const wholeCount = Math.trunc(count);
+  if (wholeCount < 0) {
+    return `-${compactCount(Math.abs(wholeCount))}`;
+  }
+  if (wholeCount < 1000) {
+    return String(wholeCount);
+  }
+  if (wholeCount > 999000000000000) {
+    return "infinity";
+  }
+  const units = [
+    [1000, "k"],
+    [1000000, "M"],
+    [1000000000, "B"],
+    [1000000000000, "T"]
+  ];
+  let unitIndex = 0;
+  for (let index = 0; index < units.length; index += 1) {
+    if (wholeCount >= units[index][0]) {
+      unitIndex = index;
+    }
+  }
+  while (unitIndex < units.length) {
+    const [unit, suffix] = units[unitIndex];
+    const rendered = compactCountForUnit(wholeCount, unit);
+    if (rendered.value < 1000) {
+      return `${trimCompactCount(rendered.value, rendered.precision)}${suffix}`;
+    }
+    unitIndex += 1;
+  }
+  return "infinity";
+}
+
+function compactCountForUnit(count, unit) {
+  const scaled = count / unit;
+  const precision = scaled >= 100 ? 0 : scaled >= 10 ? 1 : 2;
+  const factor = 10 ** precision;
+  return {
+    value: Math.round((scaled + Number.EPSILON) * factor) / factor,
+    precision
+  };
+}
+
+function trimCompactCount(value, precision) {
+  return value.toFixed(precision).replace(/\.?0+$/, "");
 }
 
 function sameOrigin(url) {
@@ -869,6 +920,12 @@ document.addEventListener("click", (event) => {
       : null;
     closeOpenDropdownMenus();
     showKeyboardShortcutsDialog(returnFocus);
+    return;
+  }
+  const continuePlayToggle = event.target.closest("[data-continue-play-toggle]");
+  if (continuePlayToggle) {
+    event.preventDefault();
+    togglePlayback();
     return;
   }
   const closeToastButton = event.target.closest("[data-close-toast]");
@@ -1441,17 +1498,29 @@ function svgPath(pathData) {
   return path;
 }
 
-function updatePlayButton(playing) {
+function updatePlayToggleButton(button, playing, ariaSuffix = "") {
+  if (!(button instanceof HTMLElement)) {
+    return;
+  }
   const label = playing ? "Pause" : "Play";
-  playButton.setAttribute("aria-label", label);
-  playButton.setAttribute("aria-pressed", String(playing));
-  playButton.title = label;
-  if (playButtonPlayIcon instanceof HTMLElement) {
-    playButtonPlayIcon.hidden = playing;
+  button.setAttribute("aria-label", ariaSuffix ? `${label} ${ariaSuffix}` : label);
+  button.setAttribute("aria-pressed", String(playing));
+  button.title = label;
+}
+
+function setPlayToggleIcons(selector, hidden) {
+  for (const icon of document.querySelectorAll(selector)) {
+    icon.hidden = hidden;
   }
-  if (playButtonPauseIcon instanceof HTMLElement) {
-    playButtonPauseIcon.hidden = !playing;
+}
+
+function updatePlayButton(playing) {
+  updatePlayToggleButton(playButton, playing);
+  for (const button of document.querySelectorAll("[data-continue-play-toggle]")) {
+    updatePlayToggleButton(button, playing, "current queue");
   }
+  setPlayToggleIcons("[data-play-icon]", playing);
+  setPlayToggleIcons("[data-pause-icon]", !playing);
 }
 
 previousButton.addEventListener("click", () => {
@@ -1545,7 +1614,12 @@ audio.addEventListener("ended", () => {
   manualPauseRequested = false;
   clearPendingPauseCommit();
   clearPauseStateSuppression();
-  postScrobble(loadedTrackId(), true);
+  const track = trackById(loadedTrackId());
+  if (trackDurationIsIndeterminate(track)) {
+    submitIndeterminatePlayedScrobble(track);
+  } else {
+    postScrobble(loadedTrackId(), true);
+  }
   const position = queuePositionForControls();
   const nextPosition = nextPlayableQueuePosition(position);
   if (nextPosition !== -1) {
@@ -3257,6 +3331,7 @@ async function playQueue(trackIds, position, options = {}) {
     errored_track_ids: options.preserveErrors ? queueState.errored_track_ids : [],
     unavailable_track_ids: []
   });
+  submittedIndeterminatePlayKeys.clear();
   queueState = requestedState;
   const syncedState = await postQueue(requestedState);
   if (syncedState) {
@@ -3285,6 +3360,9 @@ async function playExistingQueuePosition(position) {
 function playQueuePosition(position) {
   if (position < 0 || position >= queueState.track_ids.length) {
     return;
+  }
+  if (position !== queueLoadedPosition()) {
+    submittedIndeterminatePlayKeys.clear();
   }
   queueState.position = position;
   const trackId = queueState.track_ids[position];
@@ -3329,7 +3407,14 @@ async function playTrack(track, options = {}) {
     paused: false,
     errored_track_ids: queueState.errored_track_ids
   };
-  postPlayback(playbackPayload).then(() => postScrobble(track.trackId, false));
+  const submitPlayedOnPlay = trackDurationIsIndeterminate(track);
+  const scrobbleOnPlayRequest = postPlayback(playbackPayload)
+    .then(() => {
+      if (submitPlayedOnPlay) {
+        return null;
+      }
+      return postScrobble(track.trackId, false);
+    });
   try {
     await audio.play();
   } catch (err) {
@@ -3337,8 +3422,29 @@ async function playTrack(track, options = {}) {
       return;
     }
     handlePlaybackFailure(track, playbackErrorMessage(track, err));
+    return;
+  }
+  if (submitPlayedOnPlay) {
+    void scrobbleOnPlayRequest.then(() => submitIndeterminatePlayedScrobble(track));
   }
   updatePlaybackUi();
+}
+
+async function submitIndeterminatePlayedScrobble(track) {
+  if (!trackDurationIsIndeterminate(track)) {
+    return;
+  }
+  const key = indeterminatePlayedScrobbleKey(track);
+  if (submittedIndeterminatePlayKeys.has(key)) {
+    return;
+  }
+  submittedIndeterminatePlayKeys.add(key);
+  await postScrobble(track.trackId, true);
+}
+
+function indeterminatePlayedScrobbleKey(track) {
+  const position = queueLoadedPosition();
+  return `${position}:${track.trackId}`;
 }
 
 function handlePlaybackFailure(track, message) {
@@ -3873,6 +3979,7 @@ async function deleteQueueTrackFromQueue(row) {
   }
 
   queueState = removal.queue;
+  submittedIndeterminatePlayKeys.clear();
 
   if (removal.playNext) {
     playQueuePosition(queueState.position);
@@ -3920,7 +4027,7 @@ async function postScrobble(playbackId, submission) {
         time: Date.now()
       })
     });
-    if (response.ok && !submission) {
+    if (response.ok) {
       await refreshHomePage();
     }
   } catch {

@@ -307,6 +307,54 @@ button:disabled,
   background: var(--surface-hover);
 }
 
+.home-feature-play-toggle {
+  position: absolute;
+  inset: 50% auto auto 50%;
+  width: 62px;
+  height: 62px;
+  min-height: 62px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.28);
+  color: var(--accent);
+  box-shadow: 0 3px 12px rgba(0, 0, 0, 0.18);
+  transform: translate(-50%, -50%);
+  backdrop-filter: blur(12px) saturate(1.15);
+  -webkit-backdrop-filter: blur(12px) saturate(1.15);
+  transition: background-color 140ms ease, box-shadow 140ms ease;
+}
+
+.home-feature-play-toggle:hover,
+.home-feature-play-toggle:focus-visible {
+  background: rgba(255, 255, 255, 0.36);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.2);
+}
+
+.home-feature-play-icon {
+  display: block;
+  width: 24px;
+  height: 24px;
+  color: currentColor;
+}
+
+.home-feature-pause-icon {
+  display: block;
+  width: 24px;
+  height: 24px;
+  color: currentColor;
+}
+
+.home-feature-play-toggle .play-toggle-icon {
+  width: 24px;
+  height: 24px;
+  color: var(--accent);
+}
+
+.home-feature-play-toggle [data-play-icon] {
+  margin-left: 4px;
+}
+
 .home-feature-copy {
   display: grid;
   gap: 8px;
@@ -418,6 +466,34 @@ button:disabled,
   justify-content: space-between;
   gap: 10px;
   align-items: center;
+}
+
+.home-track-row {
+  grid-template-columns: 46px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  padding: 8px 0;
+}
+
+.home-track-cover {
+  display: block;
+  width: 46px;
+  aspect-ratio: 1;
+  border-radius: 6px;
+  object-fit: cover;
+  background: var(--surface-hover);
+}
+
+.home-track-copy {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.home-track-copy small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .toast-region {
@@ -1738,6 +1814,7 @@ button:disabled,
 }
 
 .album-artist-link {
+  color: inherit;
   text-decoration: none;
 }
 
@@ -2105,11 +2182,11 @@ button:disabled,
 }
 
 .queue-link-button:not(.disabled):hover {
-  border-color: var(--control-accent);
+  border-color: var(--accent);
 }
 
 .queue-link-button:focus-visible {
-  border-color: var(--control-accent);
+  border-color: var(--accent);
 }
 
 .queue-link-icon {

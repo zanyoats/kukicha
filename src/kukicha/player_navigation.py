@@ -21,7 +21,7 @@ from .use_case import (
 from .use_case import DEFAULT_ALBUMS_PER_PAGE, album_query_params
 from .display import display_album_title
 from .models import ALBUM_ARTWORK_HEIGHT
-from .player_common import plural
+from .player_common import format_count_label, plural
 from .playlist_art import playlist_cover_data_url, playlist_cover_svg
 
 PLAYLIST_COVER_SVG = playlist_cover_svg("Playlist")
@@ -179,8 +179,8 @@ def artist_cloud_font_size(log_score: float, min_score: float, max_score: float)
 
 def artist_cloud_title(stat: LibraryAlbumArtistStats) -> str:
     return (
-        f"{stat.albums_scanned} {plural(stat.albums_scanned, 'album', 'albums')} - "
-        f"{stat.tracks_scanned} {plural(stat.tracks_scanned, 'track', 'tracks')}"
+        f"{format_count_label(stat.albums_scanned, 'album', 'albums')} - "
+        f"{format_count_label(stat.tracks_scanned, 'track', 'tracks')}"
     )
 
 def album_url(album: AlbumSummary, query: AlbumListQuery | None = None) -> str:
@@ -221,7 +221,7 @@ def album_summary_text(album: AlbumSummary) -> str:
         parts.append(f"Genres: {', '.join(genres)}")
     if styles:
         parts.append(f"Styles: {', '.join(styles)}")
-    parts.append(f"{album.track_count} {plural(album.track_count, 'track', 'tracks')}")
+    parts.append(format_count_label(album.track_count, "track", "tracks"))
     return " - ".join(parts)
 
 def album_artist_parts(album: AlbumDetails) -> tuple[str, ...]:
@@ -269,7 +269,9 @@ def unique_meta_values(values: Iterable[str]) -> tuple[str, ...]:
         items.append(text)
     return tuple(items)
 
-def album_artist_links(album: AlbumDetails, query: AlbumListQuery) -> tuple[MetaLink, ...]:
+def album_artist_links(album: AlbumSummary, query: AlbumListQuery) -> tuple[MetaLink, ...]:
+    if album.is_playlist:
+        return ()
     return tuple(
         MetaLink(
             label=artist,

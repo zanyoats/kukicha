@@ -22,6 +22,14 @@
   </svg>
 {%- endmacro %}
 
+{% macro pause_icon(class_name="pause-icon") -%}
+  <svg class="{{ class_name }}" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16"
+    aria-hidden="true" focusable="false">
+    <path fill="currentColor"
+      d="M2.7 1a.7.7 0 0 0-.7.7v12.6a.7.7 0 0 0 .7.7h2.6a.7.7 0 0 0 .7-.7V1.7a.7.7 0 0 0-.7-.7zm8 0a.7.7 0 0 0-.7.7v12.6a.7.7 0 0 0 .7.7h2.6a.7.7 0 0 0 .7-.7V1.7a.7.7 0 0 0-.7-.7z" />
+  </svg>
+{%- endmacro %}
+
 {% macro playlist_icon(class_name="playlist-icon", filled=false) -%}
   <svg class="{{ class_name }}{% if filled %} playlist-icon-filled{% endif %}" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"
     aria-hidden="true" focusable="false">

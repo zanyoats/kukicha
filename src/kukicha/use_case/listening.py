@@ -12,6 +12,7 @@ from typing import Any
 from ..album_artists import normalized_album_artist_values
 from ..models import normalize_genre_values
 from ..playlist_art import playlist_cover_svg
+from ..scanner import is_url_resource
 from ..text import normalize_text
 from .database import connect_database
 from .queries.models import (
@@ -39,6 +40,7 @@ class ListeningPlaylist:
 class ListeningTrack:
     track_key: str
     track_id: int | None
+    art_track_id: int | None
     album_id: str
     title: str
     artist: str
@@ -75,6 +77,7 @@ class HomeDashboard:
     recent_artists: tuple[ListeningNamedStat, ...]
     recent_genres: tuple[ListeningNamedStat, ...]
     recently_added_albums: tuple[AlbumSummary, ...]
+    recently_added_since: str = ""
 
     @property
     def has_listening_history(self) -> bool:
@@ -100,39 +103,19 @@ def record_playback(
     with connect_database(database, create=False) as connection:
         snapshot = playback_snapshot(connection, playback_id)
         snapshot_json = json.dumps(snapshot, sort_keys=True)
-        connection.execute(
-            """
-            INSERT INTO play_now_playing (
-                session_key,
-                updated_at,
-                source,
-                playback_id,
-                track_key,
-                album_id,
-                playlist_key,
-                snapshot_json
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(session_key) DO UPDATE SET
-                updated_at = excluded.updated_at,
-                source = excluded.source,
-                playback_id = excluded.playback_id,
-                track_key = excluded.track_key,
-                album_id = excluded.album_id,
-                playlist_key = excluded.playlist_key,
-                snapshot_json = excluded.snapshot_json
-            """,
-            (
-                session_key,
-                timestamp,
-                source,
-                playback_id,
-                snapshot.get("track_key"),
-                snapshot.get("album_id"),
-                snapshot.get("playlist_key"),
-                snapshot_json,
-            ),
-        )
-        if not submission:
+        is_stream = snapshot_is_stream(snapshot)
+        submit_play = submission or is_stream
+        if not submission or is_stream:
+            update_now_playing(
+                connection,
+                session_key=session_key,
+                timestamp=timestamp,
+                source=source,
+                playback_id=playback_id,
+                snapshot=snapshot,
+                snapshot_json=snapshot_json,
+            )
+        if not submit_play:
             return
 
         connection.execute(
@@ -162,6 +145,55 @@ def record_playback(
         increment_playlist_stats(connection, snapshot, timestamp, snapshot_json)
         increment_artist_stats(connection, snapshot, timestamp)
         increment_genre_stats(connection, snapshot, timestamp)
+
+
+def update_now_playing(
+    connection: Connection,
+    *,
+    session_key: str,
+    timestamp: str,
+    source: str,
+    playback_id: int,
+    snapshot: dict[str, object],
+    snapshot_json: str,
+) -> None:
+    connection.execute(
+        """
+        INSERT INTO play_now_playing (
+            session_key,
+            updated_at,
+            source,
+            playback_id,
+            track_key,
+            album_id,
+            playlist_key,
+            snapshot_json
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(session_key) DO UPDATE SET
+            updated_at = excluded.updated_at,
+            source = excluded.source,
+            playback_id = excluded.playback_id,
+            track_key = excluded.track_key,
+            album_id = excluded.album_id,
+            playlist_key = excluded.playlist_key,
+            snapshot_json = excluded.snapshot_json
+        WHERE excluded.updated_at >= play_now_playing.updated_at
+        """,
+        (
+            session_key,
+            timestamp,
+            source,
+            playback_id,
+            snapshot.get("track_key"),
+            snapshot.get("album_id"),
+            snapshot.get("playlist_key"),
+            snapshot_json,
+        ),
+    )
+
+
+def snapshot_is_stream(snapshot: dict[str, object]) -> bool:
+    return bool(snapshot.get("duration_is_indeterminate") or snapshot.get("is_stream"))
 
 
 def playback_snapshot(connection: Connection, playback_id: int) -> dict[str, object]:
@@ -206,6 +238,7 @@ def playlist_item_playback_snapshot(
             items.path,
             items.title,
             items.genre,
+            items.duration_is_indeterminate,
             playlists.playlist_id,
             playlists.path AS playlist_path,
             playlists.name AS playlist_name,
@@ -226,6 +259,7 @@ def playlist_item_playback_snapshot(
         "playlist_path": str(row["playlist_path"]),
         "playlist_name": str(row["playlist_name"]),
         "playlist_cover_svg": str(row["cover_svg"] or ""),
+        "duration_is_indeterminate": bool(row["duration_is_indeterminate"]),
     }
     track_id = row["track_id"]
     if track_id is not None:
@@ -235,14 +269,16 @@ def playlist_item_playback_snapshot(
 
     title = str(row["title"] or Path(str(row["path"])).name)
     genre = str(row["genre"] or "").strip()
+    path = str(row["path"])
     return {
         **playlist_snapshot,
-        "path": str(row["path"]),
+        "path": path,
         "title": title,
         "artist": "",
         "album": str(row["playlist_name"]),
         "album_artists": [],
         "genres": [genre] if genre else [],
+        "is_stream": is_url_resource(path),
     }
 
 
@@ -464,13 +500,30 @@ def increment_genre_stats(
 def home_dashboard(
     database: Path,
     *,
-    limit: int = 8,
+    album_limit: int = 14,
+    limit: int = 12,
+    artist_limit: int = 9,
+    genre_limit: int = 6,
     recently_added_days: int = 30,
 ) -> HomeDashboard:
     with connect_database(database, create=False) as connection:
+        recently_added_albums = recently_added_album_summaries(
+            connection,
+            days=recently_added_days,
+            limit=album_limit,
+        )
+        recently_added_since = ""
+        if not recently_added_albums:
+            recently_added_albums = recently_added_album_summaries(
+                connection,
+                days=None,
+                limit=album_limit,
+            )
+            if recently_added_albums:
+                recently_added_since = str(recently_added_albums[-1].file_created_at or "")
         return HomeDashboard(
             now_playing=now_playing_album(connection),
-            recent_albums=recent_listening_albums(connection, limit=limit),
+            recent_albums=recent_listening_albums(connection, limit=album_limit),
             recent_playlists=recent_listening_playlists(connection, limit=limit),
             recent_tracks=recent_listening_tracks(connection, limit=limit),
             recent_artists=recent_named_stats(
@@ -479,7 +532,7 @@ def home_dashboard(
                 key_column="artist_key",
                 name_column="artist",
                 url_prefix="/albums?artist=",
-                limit=limit,
+                limit=artist_limit,
             ),
             recent_genres=recent_named_stats(
                 connection,
@@ -487,20 +540,17 @@ def home_dashboard(
                 key_column="genre_key",
                 name_column="genre",
                 url_prefix="/albums?genre[0][p]=",
-                limit=limit,
+                limit=genre_limit,
             ),
-            recently_added_albums=recently_added_album_summaries(
-                connection,
-                days=recently_added_days,
-                limit=limit,
-            ),
+            recently_added_albums=recently_added_albums,
+            recently_added_since=recently_added_since,
         )
 
 
 def now_playing_album(connection: Connection) -> ListeningNowPlaying | None:
     row = connection.execute(
         """
-        SELECT updated_at, playback_id, album_id, snapshot_json
+        SELECT updated_at, playback_id, album_id, playlist_key, snapshot_json
         FROM play_now_playing
         ORDER BY updated_at DESC
         LIMIT 1
@@ -510,13 +560,23 @@ def now_playing_album(connection: Connection) -> ListeningNowPlaying | None:
         return None
     snapshot = snapshot_payload(row["snapshot_json"])
     album_id = str(row["album_id"] or snapshot.get("album_id") or "")
-    if not album_id:
-        return None
-    album = current_album_summary(
-        connection,
-        album_id,
-        snapshot=snapshot,
-    )
+    if album_id:
+        album = current_album_summary(
+            connection,
+            album_id,
+            snapshot=snapshot,
+        )
+    else:
+        playlist_key = text_value(row["playlist_key"]) or text_value(
+            snapshot.get("playlist_key")
+        )
+        if not playlist_key:
+            return None
+        album = current_playlist_summary(
+            connection,
+            playlist_key,
+            snapshot=snapshot,
+        )
     return ListeningNowPlaying(
         album=album,
         track_title=text_value(snapshot.get("title")),
@@ -532,6 +592,64 @@ def snapshot_payload(value: object) -> dict[str, object]:
     except json.JSONDecodeError:
         return {}
     return dict(payload) if isinstance(payload, dict) else {}
+
+
+def current_playlist_summary(
+    connection: Connection,
+    playlist_key: str,
+    *,
+    snapshot: dict[str, object],
+) -> AlbumSummary:
+    row = connection.execute(
+        """
+        SELECT
+            playlists.playlist_id,
+            playlists.path,
+            playlists.name,
+            playlists.cover_svg,
+            playlists.file_created_at,
+            COUNT(items.playlist_item_id) AS item_count
+        FROM library_playlists AS playlists
+        LEFT JOIN library_playlist_items AS items
+            ON items.playlist_id = playlists.playlist_id
+        WHERE playlists.path = ?
+        GROUP BY playlists.playlist_id
+        """,
+        (playlist_key,),
+    ).fetchone()
+    if row is None:
+        name = (
+            text_value(snapshot.get("playlist_name"))
+            or text_value(snapshot.get("album"))
+            or "Playlist"
+        )
+        return AlbumSummary(
+            album_id=f"playlist:{playlist_key}",
+            artist="Playlist",
+            album=name,
+            track_count=0,
+            is_playlist=True,
+            path=playlist_key,
+            cover_svg=text_value(snapshot.get("playlist_cover_svg"))
+            or playlist_cover_svg(name),
+        )
+    name = str(row["name"] or snapshot.get("playlist_name") or "Playlist")
+    return AlbumSummary(
+        album_id=f"playlist:{int(row['playlist_id'])}",
+        artist="Playlist",
+        album=name,
+        year=None,
+        track_count=int(row["item_count"] or 0),
+        file_created_at=row["file_created_at"],
+        is_playlist=True,
+        playlist_id=int(row["playlist_id"]),
+        path=str(row["path"] or playlist_key),
+        cover_svg=str(
+            row["cover_svg"]
+            or snapshot.get("playlist_cover_svg")
+            or playlist_cover_svg(name)
+        ),
+    )
 
 
 def current_album_summary(
@@ -742,6 +860,13 @@ def recent_listening_tracks(
                     if row["track_id"] is not None
                     else None
                 ),
+                art_track_id=(
+                    int(current["track_id"])
+                    if current is not None and current["track_id"] is not None
+                    else int(row["track_id"])
+                    if row["track_id"] is not None
+                    else None
+                ),
                 album_id=(
                     str(current["album_id"])
                     if current is not None and current["album_id"] is not None
@@ -813,13 +938,18 @@ def recent_named_stats(
 def recently_added_album_summaries(
     connection: Connection,
     *,
-    days: int,
+    days: int | None,
     limit: int,
 ) -> tuple[AlbumSummary, ...]:
-    cutoff = (datetime.now(UTC) - timedelta(days=days)).isoformat()
+    params: list[object] = []
+    cutoff_sql = ""
+    if days is not None:
+        cutoff_sql = "AND file_created_at >= ?"
+        params.append((datetime.now(UTC) - timedelta(days=days)).isoformat())
+    params.append(limit)
     rows = list(
         connection.execute(
-            """
+            f"""
             SELECT
                 album_id,
                 album,
@@ -829,7 +959,7 @@ def recently_added_album_summaries(
                 art_track_id
             FROM library_albums
             WHERE NULLIF(file_created_at, '') IS NOT NULL
-                AND file_created_at >= ?
+                {cutoff_sql}
             ORDER BY
                 file_created_at DESC,
                 artist_sort_key,
@@ -839,7 +969,7 @@ def recently_added_album_summaries(
                 album_id
             LIMIT ?
             """,
-            (cutoff, limit),
+            params,
         )
     )
     artists = album_artists_by_ids(

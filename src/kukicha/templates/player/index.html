@@ -14,7 +14,7 @@
         <div class="search-controls">
           {% if show_filter_controls %}
           <details class="filter-menu" data-dropdown-menu>
-            <summary data-filter-summary="genres" data-summary-label="Genres">Genres{% if selected_genre_filter_count %}: {{ selected_genre_filter_count }}{% endif %}</summary>
+            <summary data-filter-summary="genres" data-summary-label="Genres">Genres{% if selected_genre_filter_count %}: {{ selected_genre_filter_count_label }}{% endif %}</summary>
             <div class="filter-options">
               {% for group in filters.genre_groups %}
                 {% set group_index = loop.index0 %}
@@ -121,9 +121,13 @@
                 aria-label="{{ album.album|display_album_title }} by {{ album.artist }}">
                 <span class="album-name" title="{{ album.album|display_album_title }}">{{ album.album|display_album_title }}</span>
               </a>
-              {% set artist_url = album|album_artist_url(query) %}
-              {% if artist_url %}
-                <a class="album-artist album-artist-link" href="{{ artist_url }}" data-nav title="{{ album.artist }}">{{ album.artist }}</a>
+              {% set artist_links = album|album_artist_links(query) %}
+              {% if artist_links %}
+                <span class="album-artist" title="{{ album.artist }}">
+                  {%- for item in artist_links -%}
+                    <a class="album-artist-link" href="{{ item.url }}" data-nav>{{ item.label }}</a>{% if not loop.last %}, {% endif %}
+                  {%- endfor -%}
+                </span>
               {% else %}
                 <span class="album-artist" title="{{ album.artist }}">{% if album.is_playlist %}Playlist{% else %}{{ album.artist }}{% endif %}</span>
               {% endif %}

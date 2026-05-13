@@ -16,8 +16,15 @@ from .album_artists import (
     normalize_album_artist_split_patterns,
 )
 from .display import display_album_title
+from .player_common import format_compact_count
 from .player_errors import PlayerConfigError
-from .player_navigation import album_art_url, album_artist_url, album_summary_text, album_url
+from .player_navigation import (
+    album_art_url,
+    album_artist_links,
+    album_artist_url,
+    album_summary_text,
+    album_url,
+)
 from .use_case import prepare_player_database
 
 DEFAULT_PLAYER_LOG_LEVEL = "DEBUG"
@@ -857,8 +864,10 @@ def build_template_environment() -> Environment:
         autoescape=select_autoescape(("html", "xml")),
     )
     environment.filters["album_url"] = album_url
+    environment.filters["album_artist_links"] = album_artist_links
     environment.filters["album_artist_url"] = album_artist_url
     environment.filters["album_art_url"] = album_art_url
     environment.filters["album_summary"] = album_summary_text
+    environment.filters["compact_count"] = format_compact_count
     environment.filters["display_album_title"] = display_album_title
     return environment

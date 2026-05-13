@@ -20,7 +20,7 @@ from .use_case import (
 )
 from .display import display_album_title
 from .models import ALBUM_ARTWORK_HEIGHT, TRACK_ARTWORK_HEIGHT
-from .player_common import clamp_int, optional_int, plural
+from .player_common import clamp_int, format_count_label, optional_int, plural
 from .player_media import (
     audio_mime_type,
     audio_unsupported_reason_for_path,
@@ -111,7 +111,7 @@ class AlbumTagEditSection:
     musicbrainz_url: str = ""
 
 def album_track_meta(album: AlbumDetails, tracks: list[TrackView]) -> tuple[str, ...]:
-    parts = [f"{album.track_count} {plural(album.track_count, 'track', 'tracks')}"]
+    parts = [format_count_label(album.track_count, "track", "tracks")]
     duration = total_duration_text(tracks)
     if duration:
         parts.append(duration)
@@ -121,7 +121,7 @@ def playlist_track_meta(
     playlist: PlaylistDetails,
     tracks: list[TrackView],
 ) -> tuple[str, ...]:
-    parts = [f"{playlist.track_count} {plural(playlist.track_count, 'item', 'items')}"]
+    parts = [format_count_label(playlist.track_count, "item", "items")]
     duration = total_duration_text(tracks)
     if duration:
         parts.append(duration)
@@ -539,8 +539,8 @@ def queue_status(state: PlayerQueueState, track_id: int, position: int) -> str:
 def queue_meta_text(state: PlayerQueueState, tracks: list[TrackView]) -> str:
     played_count = min(state.position, len(tracks))
     parts = [
-        f"{len(tracks)} {plural(len(tracks), 'track', 'tracks')}",
-        f"{played_count} played",
+        format_count_label(len(tracks), "track", "tracks"),
+        format_count_label(played_count, "played", "played"),
     ]
     duration = total_duration_text(tracks)
     if duration:
@@ -700,7 +700,7 @@ def album_tag_edit_section_genre(tracks: Iterable[TrackView]) -> str:
     return "; ".join(values)
 
 def album_track_section_meta(tracks: list[TrackView]) -> tuple[str, ...]:
-    parts = [f"{len(tracks)} {plural(len(tracks), 'track', 'tracks')}"]
+    parts = [format_count_label(len(tracks), "track", "tracks")]
     duration = total_duration_text(tracks)
     if duration:
         parts.append(duration)

@@ -7,6 +7,7 @@ from urllib.parse import parse_qs, quote
 
 from .use_case import ALBUM_LIST_SORT_RECENTLY_ADDED, AlbumListQuery, LibraryQueries
 from .use_case import album_list_query_from_params, album_musicbrainz_link
+from .player_common import format_compact_count, format_count_label
 from .player_runtime import PlayerRuntime
 
 
@@ -91,6 +92,7 @@ def build_index_context(runtime: PlayerRuntime, query_string: str) -> dict[str, 
     query = api.expand_album_list_query(album_index_query_from_query_string(query_string))
     filters = runtime.library_filter_options()
     album_page = api.list_album_page(query)
+    genre_filter_count = selected_genre_filter_count(filters, query)
     context = base_player_context(
         runtime,
         view_template="player/index.html",
@@ -101,7 +103,8 @@ def build_index_context(runtime: PlayerRuntime, query_string: str) -> dict[str, 
         selected_genres=selected_genre_values(filters, query),
         checked_genres=checked_genre_values(filters, query),
         selected_styles=selected_style_values(filters, query),
-        selected_genre_filter_count=selected_genre_filter_count(filters, query),
+        selected_genre_filter_count=genre_filter_count,
+        selected_genre_filter_count_label=format_compact_count(genre_filter_count),
         previous_url=album_index_url(
             query,
             cursor=album_page.previous_cursor,
@@ -140,7 +143,11 @@ def build_home_context(runtime: PlayerRuntime) -> dict[str, Any]:
         view_template="player/home.html",
         dashboard=dashboard,
         stat_label=home_stat_label,
+        played_label=home_played_label,
         added_label=home_added_label,
+        recently_added_heading=home_recently_added_heading(
+            dashboard.recently_added_since
+        ),
     )
     queue_state = context.get("queue_state")
     loaded_track_id = (
@@ -154,6 +161,7 @@ def build_home_context(runtime: PlayerRuntime) -> dict[str, Any]:
         else None
     )
     context.update(
+        count_text="Listening history, recent favorites, and new additions.",
         continue_listening=continue_listening,
         show_history_empty=not dashboard.has_listening_history and continue_listening is None,
     )
@@ -236,17 +244,25 @@ def build_not_found_context(runtime: PlayerRuntime, message: str) -> dict[str, A
 
 
 def home_stat_label(play_count: int, timestamp: str) -> str:
-    from .player_common import plural
-
-    parts = [f"{play_count} {plural(play_count, 'play', 'plays')}"]
+    parts = [format_count_label(play_count, "play", "plays")]
     date_text = timestamp[:10] if timestamp else ""
     if date_text:
         parts.append(date_text)
     return " - ".join(parts)
 
 
+def home_played_label(timestamp: str) -> str:
+    return f"Played {timestamp[:10]}" if timestamp else "Played recently"
+
+
 def home_added_label(timestamp: str | None) -> str:
     return f"Added {timestamp[:10]}" if timestamp else "Recently Added"
+
+
+def home_recently_added_heading(since: str) -> str:
+    if since:
+        return f"Most Recently Added Since {since[:10]}"
+    return "Added in the Last Month"
 
 
 def build_help_page_context(runtime: PlayerRuntime, options: Any) -> dict[str, Any]:
@@ -265,7 +281,6 @@ def build_help_page_context(runtime: PlayerRuntime, options: Any) -> dict[str, A
 
 
 def build_artists_page_context(runtime: PlayerRuntime) -> dict[str, Any]:
-    from .player_common import plural
     from .player_navigation import artist_cloud_links, player_page_context
 
     stats = LibraryQueries(runtime.database).library_stats()
@@ -274,14 +289,13 @@ def build_artists_page_context(runtime: PlayerRuntime) -> dict[str, Any]:
         runtime,
         view_template="player/artists.html",
         artists=artists,
-        count_text=f"{len(artists)} {plural(len(artists), 'artist', 'artists')}",
+        count_text=format_count_label(len(artists), "artist", "artists"),
     )
     context.update(player_page_context("artists"))
     return context
 
 
 def build_roots_page_context(runtime: PlayerRuntime) -> dict[str, Any]:
-    from .player_common import plural
     from .player_navigation import player_page_context
 
     api = LibraryQueries(runtime.database)
@@ -295,14 +309,13 @@ def build_roots_page_context(runtime: PlayerRuntime) -> dict[str, Any]:
         view_template="player/roots.html",
         roots=roots,
         root_stats_by_position=root_stats_by_position,
-        count_text=f"{len(roots)} {plural(len(roots), 'root', 'roots')}",
+        count_text=format_count_label(len(roots), "root", "roots"),
     )
     context.update(player_page_context("roots"))
     return context
 
 
 def build_artist_split_rules_page_context(runtime: PlayerRuntime) -> dict[str, Any]:
-    from .player_common import plural
     from .player_navigation import player_page_context
 
     album_artist_mappings = LibraryQueries(runtime.database).album_artist_split_mappings()
@@ -310,9 +323,10 @@ def build_artist_split_rules_page_context(runtime: PlayerRuntime) -> dict[str, A
         runtime,
         view_template="player/artist_split_rules.html",
         album_artist_mappings=album_artist_mappings,
-        count_text=(
-            f"{len(album_artist_mappings)} "
-            f"{plural(len(album_artist_mappings), 'mapping', 'mappings')}"
+        count_text=format_count_label(
+            len(album_artist_mappings),
+            "mapping",
+            "mappings",
         ),
     )
     context.update(player_page_context("artist-split-rules"))
@@ -320,7 +334,6 @@ def build_artist_split_rules_page_context(runtime: PlayerRuntime) -> dict[str, A
 
 
 def build_musicbrainz_overrides_page_context(runtime: PlayerRuntime) -> dict[str, Any]:
-    from .player_common import plural
     from .player_navigation import player_page_context
 
     overrides = LibraryQueries(runtime.database).album_musicbrainz_overrides()
@@ -348,14 +361,13 @@ def build_musicbrainz_overrides_page_context(runtime: PlayerRuntime) -> dict[str
             }
             for override in overrides
         ),
-        count_text=f"{len(overrides)} {plural(len(overrides), 'override', 'overrides')}",
+        count_text=format_count_label(len(overrides), "override", "overrides"),
     )
     context.update(player_page_context("musicbrainz-overrides"))
     return context
 
 
 def build_cache_page_context(runtime: PlayerRuntime) -> dict[str, Any]:
-    from .player_common import plural
     from .player_navigation import player_page_context
 
     cache_stats = LibraryQueries(runtime.database).cache_stats()
@@ -364,7 +376,7 @@ def build_cache_page_context(runtime: PlayerRuntime) -> dict[str, Any]:
         runtime,
         view_template="player/cache.html",
         cache_stats=cache_stats,
-        count_text=f"{total_entries} {plural(total_entries, 'entry', 'entries')}",
+        count_text=format_count_label(total_entries, "entry", "entries"),
     )
     context.update(player_page_context("cache"))
     return context
@@ -372,7 +384,6 @@ def build_cache_page_context(runtime: PlayerRuntime) -> dict[str, Any]:
 
 def build_jobs_page_context(runtime: PlayerRuntime) -> dict[str, Any]:
     from .player_jobs import group_job_payloads_by_day
-    from .player_common import plural
     from .player_navigation import player_page_context
 
     jobs = runtime.job_payloads()
@@ -381,7 +392,7 @@ def build_jobs_page_context(runtime: PlayerRuntime) -> dict[str, Any]:
         runtime,
         view_template="player/jobs.html",
         job_groups=job_groups,
-        count_text=f"{len(jobs)} {plural(len(jobs), 'job', 'jobs')}",
+        count_text=format_count_label(len(jobs), "job", "jobs"),
     )
     context.update(player_page_context("jobs"))
     return context
