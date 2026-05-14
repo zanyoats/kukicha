@@ -35,12 +35,14 @@ class TrackNotFoundError(LibraryQueryError, KeyError):
 ALBUM_LIST_SORT_RECENTLY_ADDED = "recently_added"
 ALBUM_LIST_SORT_ARTIST = "artist"
 ALBUM_LIST_SORT_GENRE = "genre"
+ALBUM_LIST_SORT_STARRED = "starred"
 DEFAULT_ALBUM_LIST_SORT = ALBUM_LIST_SORT_ARTIST
 ALBUM_LIST_SORT_VALUES = frozenset(
     (
         ALBUM_LIST_SORT_RECENTLY_ADDED,
         ALBUM_LIST_SORT_ARTIST,
         ALBUM_LIST_SORT_GENRE,
+        ALBUM_LIST_SORT_STARRED,
     )
 )
 
@@ -129,6 +131,7 @@ class AlbumSummary:
     track_count: int
     album_artists: tuple[str, ...] = ()
     file_created_at: str | None = None
+    starred_at: str | None = None
     art_track_id: int | None = None
     is_playlist: bool = False
     playlist_id: int | None = None

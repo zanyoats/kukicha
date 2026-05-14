@@ -139,41 +139,63 @@
     </section>
   {% endif %}
 
-  {% if dashboard.recent_artists or dashboard.recent_genres %}
-    <div class="home-two-column">
-      {% if dashboard.recent_artists %}
-        <section class="home-section" aria-label="Recent artists">
-          <div class="home-section-heading">
-            <h2>Recent Artists</h2>
-            <a href="/artists" data-nav>All artists</a>
-          </div>
-          <div class="home-chip-list">
-            {% for artist in dashboard.recent_artists %}
-              <a class="home-chip" href="{{ artist.url }}" data-nav>
-                <span>{{ artist.name }}</span>
-                <small>{{ artist.play_count|compact_count }}</small>
+  {% if dashboard.recently_starred_albums %}
+    <section class="home-section" aria-label="Recently Favorited Albums">
+      <div class="home-section-heading">
+        <h2>Recently Favorited</h2>
+        <a href="/albums?sort=starred" data-nav>Starred</a>
+      </div>
+      <div class="home-card-grid">
+        {% for album in dashboard.recently_starred_albums %}
+          <div class="album-card" data-album-playback-source data-album-id="{{ album.album_id }}">
+            <div class="album-cover-wrap">
+              <a class="album-card-cover" href="{{ album|album_url }}" data-nav data-album-nav>
+                {% set art_url = album|album_art_url %}
+                {% if art_url %}
+                  <img class="album-cover" src="{{ art_url }}" alt="" loading="lazy">
+                {% else %}
+                  <span class="album-cover-placeholder" aria-hidden="true"></span>
+                {% endif %}
               </a>
-            {% endfor %}
+              {% if album.track_count %}
+                <div class="album-cover-actions">
+                  <button class="album-cover-action play-icon-button" type="button" data-play-album
+                    aria-label="Play {{ album.artist }} - {{ album.album|display_album_title }}"
+                    title="Play">{{ play_icon() }}</button>
+                  <button class="album-cover-action queue-icon-button" type="button" data-queue-album data-queue-append
+                    aria-label="Add {{ album.artist }} - {{ album.album|display_album_title }} to the queue"
+                    title="Add to queue">{{ queue_add_icon() }}</button>
+                </div>
+              {% endif %}
+            </div>
+            <span class="album-copy">
+              <a class="album-card-link" href="{{ album|album_url }}" data-nav data-album-nav>
+                <span class="album-name" title="{{ album.album|display_album_title }}">{{ album.album|display_album_title }}</span>
+              </a>
+              <span class="album-artist" title="{{ album.artist }}">{{ album.artist }}</span>
+              <span class="home-stat">{{ favorited_label(album.starred_at) }}</span>
+            </span>
           </div>
-        </section>
-      {% endif %}
+        {% endfor %}
+      </div>
+    </section>
+  {% endif %}
 
-      {% if dashboard.recent_genres %}
-        <section class="home-section" aria-label="Recent genres">
-          <div class="home-section-heading">
-            <h2>Recent Genres</h2>
-          </div>
-          <div class="home-chip-list">
-            {% for genre in dashboard.recent_genres %}
-              <a class="home-chip" href="{{ genre.url }}" data-nav>
-                <span>{{ genre.name }}</span>
-                <small>{{ genre.play_count|compact_count }}</small>
-              </a>
-            {% endfor %}
-          </div>
-        </section>
-      {% endif %}
-    </div>
+  {% if dashboard.recent_artists %}
+    <section class="home-section" aria-label="Recent artists">
+      <div class="home-section-heading">
+        <h2>Recent Artists</h2>
+        <a href="/artists" data-nav>All artists</a>
+      </div>
+      <div class="home-chip-list">
+        {% for artist in dashboard.recent_artists %}
+          <a class="home-chip" href="{{ artist.url }}" data-nav>
+            <span>{{ artist.name }}</span>
+            <small>{{ played_label(artist.last_played_at) }}</small>
+          </a>
+        {% endfor %}
+      </div>
+    </section>
   {% endif %}
 
   {% if dashboard.recent_playlists or dashboard.recent_tracks %}
@@ -210,9 +232,17 @@
           <div class="home-list">
             {% for item in dashboard.recent_playlists %}
               {% set playlist = item.playlist %}
-              <a class="home-list-row" href="{{ playlist|album_url }}" data-nav>
-                <span>{{ playlist.album }}</span>
-                <small>{{ played_label(item.last_played_at) }}</small>
+              <a class="home-list-row home-track-row" href="{{ playlist|album_url }}" data-nav>
+                {% set art_url = playlist|album_art_url %}
+                {% if art_url %}
+                  <img class="home-track-cover playlist-cover-image" src="{{ art_url }}" alt="" loading="lazy">
+                {% else %}
+                  <span class="home-track-cover album-cover-placeholder" aria-hidden="true"></span>
+                {% endif %}
+                <div class="home-track-copy">
+                  <span class="home-track-title">{{ playlist.album }}</span>
+                  <small>{{ played_label(item.last_played_at) }}</small>
+                </div>
               </a>
             {% endfor %}
           </div>

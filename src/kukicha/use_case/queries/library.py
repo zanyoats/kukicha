@@ -23,6 +23,7 @@ from .models import (
     ALBUM_LIST_SORT_ARTIST,
     ALBUM_LIST_SORT_GENRE,
     ALBUM_LIST_SORT_RECENTLY_ADDED,
+    ALBUM_LIST_SORT_STARRED,
     AlbumArtistSplitMapping,
     AlbumMusicBrainzOverride,
     AlbumDetails,
@@ -147,6 +148,7 @@ class LibraryQueries:
                         albums.year,
                         selected_album_roots.track_count,
                         albums.file_created_at,
+                        albums.starred_at,
                         selected_album_roots.art_track_id
                         {sort_select_sql}
                     FROM library_albums AS albums
@@ -178,6 +180,7 @@ class LibraryQueries:
                     albums.year,
                     albums.track_count,
                     albums.file_created_at,
+                    albums.starred_at,
                     albums.art_track_id
                     {sort_select_sql}
                 FROM library_albums AS albums
@@ -329,7 +332,7 @@ class LibraryQueries:
         with connect_database(self.database, create=False) as connection:
             row = connection.execute(
                 """
-                SELECT album_id, album, year, track_count, file_created_at
+                SELECT album_id, album, year, track_count, file_created_at, starred_at
                 FROM library_albums
                 WHERE album_id = ?
                 """,
@@ -408,6 +411,7 @@ class LibraryQueries:
             track_count=len(track_rows) if root_positions else int(row["track_count"]),
             album_artists=album_artists,
             file_created_at=row["file_created_at"],
+            starred_at=row["starred_at"],
             genres=album_values_from_track_values(genres_by_track),
             styles=album_values_from_track_values(styles_by_track),
             has_cover=bool(track_ids_with_album_artwork),
@@ -1041,6 +1045,7 @@ class LibraryQueries:
                     track_count=int(row["track_count"]),
                     album_artists=album_artists,
                     file_created_at=row["file_created_at"],
+                    starred_at=row["starred_at"],
                     art_track_id=(
                         int(row["art_track_id"])
                         if row["art_track_id"] is not None
@@ -1201,6 +1206,20 @@ def album_sort_columns(query: AlbumListQuery) -> tuple[AlbumSortColumn, ...]:
                 "sort_genre_missing",
             ),
             AlbumSortColumn(genre_expression, "sort_genre_key"),
+            artist_column,
+            year_missing_column,
+            year_column,
+            album_column,
+            album_id_column,
+        )
+
+    if query.sort == ALBUM_LIST_SORT_STARRED:
+        return (
+            AlbumSortColumn(
+                "albums.starred_at",
+                "sort_starred_at",
+                direction="DESC",
+            ),
             artist_column,
             year_missing_column,
             year_column,

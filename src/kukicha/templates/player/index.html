@@ -1,4 +1,4 @@
-{% from "player/_icons.html" import delete_icon, play_icon, queue_add_icon, search_icon %}
+{% from "player/_icons.html" import delete_icon, play_icon, queue_add_icon, search_icon, star_icon %}
 
 <div class="view-page" data-page="{{ page_key }}">
   <header class="view-header">
@@ -117,10 +117,22 @@
               {% endif %}
             </div>
             <span class="album-copy">
-              <a class="album-card-link" href="{{ album|album_url }}" data-nav data-album-nav
-                aria-label="{{ album.album|display_album_title }} by {{ album.artist }}">
-                <span class="album-name" title="{{ album.album|display_album_title }}">{{ album.album|display_album_title }}</span>
-              </a>
+              <span class="album-title-line">
+                <a class="album-card-link" href="{{ album|album_url }}" data-nav data-album-nav
+                  aria-label="{{ album.album|display_album_title }} by {{ album.artist }}">
+                  <span class="album-name" title="{{ album.album|display_album_title }}">{{ album.album|display_album_title }}</span>
+                </a>
+                {% if not album.is_playlist %}
+                  <button class="album-star-toggle{% if album.starred_at %} starred{% endif %}" type="button"
+                    data-album-star-toggle data-album-id="{{ album.album_id }}"
+                    data-album-title="{{ album.album|display_album_title }}"
+                    aria-pressed="{{ 'true' if album.starred_at else 'false' }}"
+                    aria-label="{{ 'Unstar' if album.starred_at else 'Star' }} {{ album.album|display_album_title }}"
+                    title="{{ 'Unstar album' if album.starred_at else 'Star album' }}">
+                    {{ star_icon(filled=album.starred_at) }}
+                  </button>
+                {% endif %}
+              </span>
               {% set artist_links = album|album_artist_links(query) %}
               {% if artist_links %}
                 <span class="album-artist" title="{{ album.artist }}">

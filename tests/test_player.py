@@ -18,6 +18,7 @@ from kukicha.use_case import (
     ALBUM_LIST_SORT_ARTIST,
     ALBUM_LIST_SORT_GENRE,
     ALBUM_LIST_SORT_RECENTLY_ADDED,
+    ALBUM_LIST_SORT_STARRED,
     AlbumDetails,
     AlbumListQuery,
     AlbumNotFoundError,
@@ -2370,11 +2371,13 @@ class PlayerGenreFilterQueryParamsTest(unittest.TestCase):
         default_query = album_list_query_from_params(parse_qs(""))
         artist_query = album_list_query_from_params(parse_qs("sort=artist"))
         genre_query = album_list_query_from_params(parse_qs("sort=genre"))
+        starred_query = album_list_query_from_params(parse_qs("sort=starred"))
         invalid_query = album_list_query_from_params(parse_qs("sort=unknown"))
 
         self.assertEqual(default_query.sort, ALBUM_LIST_SORT_ARTIST)
         self.assertEqual(artist_query.sort, ALBUM_LIST_SORT_ARTIST)
         self.assertEqual(genre_query.sort, ALBUM_LIST_SORT_GENRE)
+        self.assertEqual(starred_query.sort, ALBUM_LIST_SORT_STARRED)
         self.assertEqual(invalid_query.sort, ALBUM_LIST_SORT_ARTIST)
 
     def test_album_index_url_includes_only_non_default_sort_param(self) -> None:
@@ -2389,6 +2392,10 @@ class PlayerGenreFilterQueryParamsTest(unittest.TestCase):
         self.assertEqual(
             album_index_url(AlbumListQuery(sort=ALBUM_LIST_SORT_GENRE)),
             "/albums?sort=genre",
+        )
+        self.assertEqual(
+            album_index_url(AlbumListQuery(sort=ALBUM_LIST_SORT_STARRED)),
+            "/albums?sort=starred",
         )
 
     def test_album_query_params_do_not_include_playlist_filter(self) -> None:
@@ -3212,6 +3219,64 @@ class PlayerWebAdapterTest(unittest.TestCase):
 
             self.assertEqual(response.status_code, 204)
 
+    def test_album_star_api_toggles_album_and_templates_render_state(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            database = temp_path / "kukicha.sqlite"
+            save_library(
+                MusicLibrary(
+                    roots=[],
+                    tracks=[
+                        TrackRecord(
+                            path="/music/Artist/Album/01.flac",
+                            file_type="flac",
+                            artist="Artist",
+                            album_artist="Artist",
+                            album="Album",
+                            title="Track",
+                        )
+                    ],
+                    supported_extensions=[".flac"],
+                    generated_at="2026-05-01T00:00:00+00:00",
+                ),
+                database,
+            )
+            runtime = self.make_runtime(database)
+            with patch("kukicha.player_web_adapter.PlayerRuntime", return_value=runtime):
+                app = create_player_app(self.make_options(temp_path))
+                client = app.test_client()
+                initial_response = client.get("/albums")
+                star_response = client.post(
+                    "/api/albums/artist::album/star",
+                    json={"starred": True},
+                )
+                starred_grid_response = client.get("/albums")
+                starred_detail_response = client.get("/albums/artist::album")
+                unstar_response = client.post(
+                    "/api/albums/artist::album/star",
+                    json={"starred": False},
+                )
+                missing_response = client.post(
+                    "/api/albums/missing::album/star",
+                    json={"starred": True},
+                )
+
+        initial_html = initial_response.data.decode()
+        starred_grid_html = starred_grid_response.data.decode()
+        starred_detail_html = starred_detail_response.data.decode()
+        self.assertEqual(star_response.status_code, 200)
+        self.assertTrue(star_response.json["starred"])
+        self.assertEqual(unstar_response.status_code, 200)
+        self.assertFalse(unstar_response.json["starred"])
+        self.assertIsNone(unstar_response.json["starred_at"])
+        self.assertEqual(missing_response.status_code, 404)
+        self.assertIn('data-album-star-toggle data-album-id="artist::album"', initial_html)
+        self.assertIn('aria-pressed="false"', initial_html)
+        self.assertIn('class="album-star-toggle starred"', starred_grid_html)
+        self.assertIn('aria-pressed="true"', starred_grid_html)
+        self.assertIn('class="album-detail-title-line"', starred_detail_html)
+        self.assertIn('class="album-star-toggle starred"', starred_detail_html)
+
     def test_home_empty_state_links_to_library_pages_and_query_redirects_to_albums(self) -> None:
         with TemporaryDirectory() as tempdir:
             temp_path = Path(tempdir)
@@ -3355,6 +3420,62 @@ class PlayerWebAdapterTest(unittest.TestCase):
         self.assertIn(b"Archive Album 08", response.data)
         self.assertNotIn(b"Archive Album 07", response.data)
         self.assertNotIn(b"Archive Album 00", response.data)
+
+    def test_home_shows_recently_favorited_albums_below_recently_added(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            database = temp_path / "kukicha.sqlite"
+            save_library(
+                MusicLibrary(
+                    roots=["/music"],
+                    tracks=[
+                        TrackRecord(
+                            path=f"/music/Artist {index:02d}/Album {index:02d}/01.flac",
+                            root_position=0,
+                            file_created_at=f"2026-05-01T{index % 24:02d}:00:00+00:00",
+                            file_type="flac",
+                            artist=f"Artist {index:02d}",
+                            album_artist=f"Artist {index:02d}",
+                            album=f"Album {index:02d}",
+                            title=f"Track {index:02d}",
+                        )
+                        for index in range(22)
+                    ],
+                    supported_extensions=[".flac"],
+                    generated_at="2026-05-10T00:00:00+00:00",
+                ),
+                database,
+            )
+            with connect_database(database) as connection:
+                for index in range(22):
+                    connection.execute(
+                        """
+                        UPDATE library_albums
+                        SET starred_at = ?
+                        WHERE album = ?
+                        """,
+                        (
+                            f"2026-05-{index + 1:02d}T12:00:00Z",
+                            f"Album {index:02d}",
+                        ),
+                    )
+            dashboard = home_dashboard(database)
+            runtime = self.make_runtime(database)
+            with patch("kukicha.player_web_adapter.PlayerRuntime", return_value=runtime):
+                app = create_player_app(self.make_options(temp_path))
+                response = app.test_client().get("/")
+
+        html = response.data.decode()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(dashboard.recently_starred_albums), 14)
+        self.assertLess(html.index("Added in the Last Month"), html.index("Recently Favorited"))
+        self.assertIn('href="/albums?sort=starred" data-nav>Starred</a>', html)
+        starred_section = html.split("Recently Favorited", 1)[1].split("Recent Artists", 1)[0]
+        self.assertIn("Album 21", starred_section)
+        self.assertIn("Album 08", starred_section)
+        self.assertIn("Favorited 2026-05-22", starred_section)
+        self.assertNotIn("Album 07", starred_section)
+        self.assertNotIn("Album 00", starred_section)
 
     def test_home_continue_listening_uses_now_playing_scrobble_when_queue_loaded(self) -> None:
         with TemporaryDirectory() as tempdir:
@@ -3737,16 +3858,22 @@ class PlayerWebAdapterTest(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(len(dashboard.recent_albums), 14)
         self.assertEqual(len(dashboard.recent_playlists), 12)
-        self.assertEqual(len(dashboard.recent_artists), 9)
+        self.assertEqual(len(dashboard.recent_artists), 14)
         self.assertEqual(len(dashboard.recent_genres), 6)
         self.assertEqual(len(dashboard.recent_tracks), 12)
         self.assertEqual(dashboard.recent_tracks[0].art_track_id, tracks[-1].track_id)
         self.assertLess(html.index("Recent Artists"), html.index("Recent Tracks"))
         self.assertIn("Played 2026-05-11", html)
+        artist_section = html.split("Recent Artists", 1)[1].split("Recent Tracks", 1)[0]
+        self.assertIn("Artist 21", artist_section)
+        self.assertIn("Played 2026-05-11", artist_section)
+        self.assertNotIn(">1</small>", artist_section)
+        self.assertNotIn("Recent Genres", html)
         self.assertLess(html.index("Recent Tracks"), html.index("Recent Playlists"))
         playlist_section = html.split("Recent Playlists", 1)[1]
         self.assertIn("Played 2026-05-11", playlist_section)
         self.assertNotIn("play - 2026-05-11", playlist_section)
+        self.assertIn('class="home-track-cover playlist-cover-image"', playlist_section)
         track_section = html.split("Recent Tracks", 1)[1].split("Recent Playlists", 1)[0]
         self.assertIn("Track Artist 21 - Album 21 - Played 2026-05-11", track_section)
         self.assertNotIn("play - 2026-05-11", track_section)

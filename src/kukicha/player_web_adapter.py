@@ -28,6 +28,7 @@ from .use_case import (
     start_sync,
     track_artwork,
     track_audio_path,
+    update_album_star as update_album_star_command,
     update_playback as update_playback_command,
     update_queue as update_queue_command,
     update_track_playlist_membership as update_track_playlist_membership_command,
@@ -270,6 +271,15 @@ def create_player_app(options: PlayerServerOptions) -> Flask:
         payload = read_json_body()
         result = start_album_edit(player_context().runtime, album_id, payload)
         return json_response(result, status=202)
+
+    @app.post("/api/albums/<path:album_id>/star")
+    def update_album_star(album_id: str) -> Response:
+        result = update_album_star_command(
+            player_context().runtime,
+            album_id,
+            read_json_body(),
+        )
+        return json_response(result)
 
     @app.post("/api/roots/rescan")
     def rescan_library() -> Response:

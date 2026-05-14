@@ -15,6 +15,7 @@ from kukicha.use_case import (
     ALBUM_LIST_SORT_ARTIST,
     ALBUM_LIST_SORT_GENRE,
     ALBUM_LIST_SORT_RECENTLY_ADDED,
+    ALBUM_LIST_SORT_STARRED,
     GenreStyleFilter,
 )
 from kukicha.use_case import (
@@ -190,6 +191,7 @@ class LibraryAlbumPathQueryTest(unittest.TestCase):
                     ALBUM_LIST_SORT_RECENTLY_ADDED: "idx_library_albums_recently_added_sort",
                     ALBUM_LIST_SORT_ARTIST: "idx_library_albums_artist_sort",
                     ALBUM_LIST_SORT_GENRE: "idx_library_albums_genre_sort",
+                    ALBUM_LIST_SORT_STARRED: "idx_library_albums_starred_sort",
                 }
                 details_by_sort: dict[str, str] = {}
                 for sort in expected_indexes:
@@ -2695,6 +2697,26 @@ class LibraryPlaylistPersistenceTest(unittest.TestCase):
             recently_added = api.list_album_page(
                 AlbumListQuery(sort=ALBUM_LIST_SORT_RECENTLY_ADDED)
             ).items
+            with connect_database(database) as connection:
+                connection.execute(
+                    """
+                    UPDATE library_albums
+                    SET starred_at = ?
+                    WHERE album = ?
+                    """,
+                    ("2026-05-01T12:00:00Z", "AAA Later"),
+                )
+                connection.execute(
+                    """
+                    UPDATE library_albums
+                    SET starred_at = ?
+                    WHERE album = ?
+                    """,
+                    ("2026-05-02T12:00:00Z", "Old"),
+                )
+            starred = api.list_album_page(
+                AlbumListQuery(sort=ALBUM_LIST_SORT_STARRED)
+            ).items
             playlists = api.list_album_page(AlbumListQuery(is_playlist=True)).items
 
         self.assertEqual(
@@ -2705,7 +2727,49 @@ class LibraryPlaylistPersistenceTest(unittest.TestCase):
             [item.album for item in recently_added],
             ["Old", "ZZZ Original", "AAA Later", "No Date"],
         )
+        self.assertEqual([item.album for item in starred], ["Old", "AAA Later"])
+        self.assertEqual(
+            [item.starred_at for item in starred],
+            ["2026-05-02T12:00:00Z", "2026-05-01T12:00:00Z"],
+        )
         self.assertEqual([item.album for item in playlists], ["Recent Mix"])
+
+    def test_save_library_preserves_starred_at_for_stable_album_ids(self) -> None:
+        library = MusicLibrary(
+            roots=[],
+            tracks=[
+                TrackRecord(
+                    path="/music/Artist/Album/01.flac",
+                    file_type="flac",
+                    artist="Artist",
+                    album_artist="Artist",
+                    album="Album",
+                    title="First Track",
+                )
+            ],
+            supported_extensions=[".flac"],
+            generated_at="2026-04-25T00:00:00+00:00",
+        )
+        with TemporaryDirectory() as tempdir:
+            database = Path(tempdir) / "kukicha.sqlite"
+            save_library(library, database)
+            with connect_database(database) as connection:
+                connection.execute(
+                    """
+                    UPDATE library_albums
+                    SET starred_at = ?
+                    WHERE album = ?
+                    """,
+                    ("2026-05-01T12:00:00Z", "Album"),
+                )
+
+            save_library(library, database)
+            album = LibraryQueries(database).list_album_page(
+                AlbumListQuery(sort=ALBUM_LIST_SORT_STARRED)
+            ).items[0]
+
+        self.assertEqual(album.album, "Album")
+        self.assertEqual(album.starred_at, "2026-05-01T12:00:00Z")
 
     def test_list_album_page_can_sort_by_genre_then_artist_year_album(self) -> None:
         with TemporaryDirectory() as tempdir:
@@ -3053,11 +3117,30 @@ class LibraryAlbumCursorPaginationTest(unittest.TestCase):
                 "Alpha Later",
                 "Zulu Old",
             ],
+            ALBUM_LIST_SORT_STARRED: [
+                "Beta New",
+                "Zulu Old",
+                "Alpha Original",
+                "Alpha Later",
+                "Alpha No Date",
+            ],
         }
 
         with TemporaryDirectory() as tempdir:
             database = Path(tempdir) / "kukicha.sqlite"
             save_library(album_cursor_library(), database)
+            with connect_database(database) as connection:
+                for album, starred_at in (
+                    ("Beta New", "2026-05-05T12:00:00Z"),
+                    ("Zulu Old", "2026-05-04T12:00:00Z"),
+                    ("Alpha Original", "2026-05-03T12:00:00Z"),
+                    ("Alpha Later", "2026-05-02T12:00:00Z"),
+                    ("Alpha No Date", "2026-05-01T12:00:00Z"),
+                ):
+                    connection.execute(
+                        "UPDATE library_albums SET starred_at = ? WHERE album = ?",
+                        (starred_at, album),
+                    )
             api = LibraryQueries(database)
 
             for sort, expected in expected_by_sort.items():
@@ -3231,6 +3314,14 @@ class LibraryAlbumCursorPaginationTest(unittest.TestCase):
                     str(row["name"])
                     for row in connection.execute("PRAGMA index_list(library_albums)")
                 }
+                starred_index_row = connection.execute(
+                    """
+                    SELECT sql
+                    FROM sqlite_master
+                    WHERE type = 'index'
+                        AND name = 'idx_library_albums_starred_sort'
+                    """
+                ).fetchone()
                 root_indexes = {
                     str(row["name"])
                     for row in connection.execute("PRAGMA index_list(library_album_roots)")
@@ -3255,7 +3346,7 @@ class LibraryAlbumCursorPaginationTest(unittest.TestCase):
                 connection.close()
 
         self.assertLessEqual(
-            {"artist_sort_key", "album_sort_key", "genre_sort_key"},
+            {"artist_sort_key", "album_sort_key", "genre_sort_key", "starred_at"},
             album_columns,
         )
         self.assertTrue(
@@ -3270,8 +3361,14 @@ class LibraryAlbumCursorPaginationTest(unittest.TestCase):
                 "idx_library_albums_recently_added_sort",
                 "idx_library_albums_artist_sort",
                 "idx_library_albums_genre_sort",
+                "idx_library_albums_starred_sort",
             },
             album_indexes,
+        )
+        self.assertIsNotNone(starred_index_row)
+        self.assertIn(
+            "WHERE starred_at IS NOT NULL",
+            str(starred_index_row["sql"]),
         )
         self.assertTrue(
             {

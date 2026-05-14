@@ -235,6 +235,7 @@ CREATE TABLE IF NOT EXISTS library_albums (
     year INTEGER,
     track_count INTEGER NOT NULL,
     file_created_at TEXT NOT NULL DEFAULT '',
+    starred_at TEXT,
     artist_sort_key TEXT NOT NULL DEFAULT '',
     album_sort_key TEXT NOT NULL DEFAULT '',
     genre_sort_key TEXT NOT NULL DEFAULT '',
@@ -566,6 +567,8 @@ def migrate_library_schema(connection: sqlite3.Connection) -> None:
         connection.execute(
             "UPDATE library_albums SET file_created_at = '' WHERE file_created_at IS NULL"
         )
+    if album_columns and "starred_at" not in album_columns:
+        connection.execute("ALTER TABLE library_albums ADD COLUMN starred_at TEXT")
     if album_columns and "artist_sort_key" not in album_columns:
         connection.execute(
             "ALTER TABLE library_albums ADD COLUMN artist_sort_key TEXT NOT NULL DEFAULT ''"
@@ -695,6 +698,20 @@ def migrate_library_schema(connection: sqlite3.Connection) -> None:
                 album_sort_key,
                 album_id
             )
+        """
+    )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_library_albums_starred_sort
+            ON library_albums (
+                starred_at DESC,
+                artist_sort_key,
+                CASE WHEN year IS NULL THEN 1 ELSE 0 END,
+                year,
+                album_sort_key,
+                album_id
+            )
+            WHERE starred_at IS NOT NULL
         """
     )
     connection.execute(

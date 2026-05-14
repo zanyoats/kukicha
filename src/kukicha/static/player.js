@@ -995,6 +995,13 @@ document.addEventListener("click", (event) => {
     return;
   }
 
+  const albumStarToggle = event.target.closest("[data-album-star-toggle]");
+  if (albumStarToggle) {
+    event.preventDefault();
+    void toggleAlbumStar(albumStarToggle);
+    return;
+  }
+
   const playTrack = event.target.closest("[data-play-track]");
   if (playTrack) {
     event.preventDefault();
@@ -2907,6 +2914,71 @@ function albumPlaybackUrl(button) {
     window.location.origin
   );
   return url.toString();
+}
+
+function albumStarUrl(albumId) {
+  const url = new URL(
+    `/api/albums/${encodeURIComponent(albumId).replace(/%3A/gi, ":")}/star`,
+    window.location.origin
+  );
+  return url.toString();
+}
+
+async function toggleAlbumStar(button) {
+  if (!(button instanceof HTMLElement) || button.getAttribute("aria-busy") === "true") {
+    return;
+  }
+  const albumId = button.dataset.albumId || "";
+  if (!albumId) {
+    return;
+  }
+  const starred = button.getAttribute("aria-pressed") !== "true";
+  button.setAttribute("aria-busy", "true");
+  try {
+    const response = await fetch(albumStarUrl(albumId), {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({starred})
+    });
+    if (!response.ok) {
+      throw new Error(`star request failed: ${response.status}`);
+    }
+    const payload = await response.json();
+    updateAlbumStarButtons(albumId, Boolean(payload.starred));
+  } catch {
+    showToast("Could not update album favorite.", {error: true});
+  } finally {
+    button.removeAttribute("aria-busy");
+  }
+}
+
+function updateAlbumStarButtons(albumId, starred) {
+  const selector = `[data-album-star-toggle][data-album-id="${cssEscape(albumId)}"]`;
+  document.querySelectorAll(selector).forEach((button) => {
+    if (!(button instanceof HTMLElement)) {
+      return;
+    }
+    button.classList.toggle("starred", starred);
+    button.setAttribute("aria-pressed", String(starred));
+    const title = button.dataset.albumTitle || "album";
+    button.setAttribute("aria-label", `${starred ? "Unstar" : "Star"} ${title}`);
+    button.title = starred ? "Unstar album" : "Star album";
+    const icon = button.querySelector(".star-icon");
+    if (icon instanceof SVGElement) {
+      icon.classList.toggle("star-icon-filled", starred);
+      const shape = icon.querySelector("path");
+      if (shape instanceof SVGPathElement) {
+        shape.setAttribute("fill", starred ? "currentColor" : "none");
+      }
+    }
+  });
+}
+
+function cssEscape(value) {
+  if (window.CSS && typeof window.CSS.escape === "function") {
+    return window.CSS.escape(value);
+  }
+  return String(value).replace(/["\\]/g, "\\$&");
 }
 
 async function fetchAlbumTracks(playbackUrl) {

@@ -10,6 +10,7 @@ from .use_case import (
     ALBUM_LIST_SORT_ARTIST,
     ALBUM_LIST_SORT_GENRE,
     ALBUM_LIST_SORT_RECENTLY_ADDED,
+    ALBUM_LIST_SORT_STARRED,
     AlbumDetails,
     AlbumListQuery,
     AlbumSummary,
@@ -30,6 +31,7 @@ ALBUM_SORT_OPTIONS = (
     (ALBUM_LIST_SORT_ARTIST, "Artist"),
     (ALBUM_LIST_SORT_RECENTLY_ADDED, "Recently Added"),
     (ALBUM_LIST_SORT_GENRE, "Genre"),
+    (ALBUM_LIST_SORT_STARRED, "Starred"),
 )
 PLAYER_PAGE_LINKS = (
     ("home", "Home", "/"),

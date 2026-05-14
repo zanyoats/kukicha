@@ -672,6 +672,47 @@ def delete_album_musicbrainz_override(
     }
 
 
+def update_album_star(
+    runtime: PlayerRuntime,
+    album_id: str,
+    payload: dict[str, Any],
+) -> dict[str, object]:
+    from ...player_errors import PlayerNotFoundError
+    from .jobs import utc_now_iso
+
+    album_id = str(album_id or "").strip()
+    if not album_id:
+        raise ValueError("album id is required")
+    starred = payload.get("starred") is True
+    starred_at = utc_now_iso() if starred else None
+
+    with connect_database(runtime.database) as connection:
+        row = connection.execute(
+            """
+            SELECT 1
+            FROM library_albums
+            WHERE album_id = ?
+            """,
+            (album_id,),
+        ).fetchone()
+        if row is None:
+            raise PlayerNotFoundError(f"album does not exist: {album_id}")
+        connection.execute(
+            """
+            UPDATE library_albums
+            SET starred_at = ?
+            WHERE album_id = ?
+            """,
+            (starred_at, album_id),
+        )
+
+    return {
+        "album_id": album_id,
+        "starred": starred,
+        "starred_at": starred_at,
+    }
+
+
 def mapped_artists_text_from_payload(value: object) -> str:
     if isinstance(value, list):
         lines = (str(item).strip() for item in value)

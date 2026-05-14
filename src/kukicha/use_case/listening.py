@@ -77,6 +77,7 @@ class HomeDashboard:
     recent_artists: tuple[ListeningNamedStat, ...]
     recent_genres: tuple[ListeningNamedStat, ...]
     recently_added_albums: tuple[AlbumSummary, ...]
+    recently_starred_albums: tuple[AlbumSummary, ...]
     recently_added_since: str = ""
 
     @property
@@ -502,7 +503,7 @@ def home_dashboard(
     *,
     album_limit: int = 14,
     limit: int = 12,
-    artist_limit: int = 9,
+    artist_limit: int = 14,
     genre_limit: int = 6,
     recently_added_days: int = 30,
 ) -> HomeDashboard:
@@ -543,6 +544,10 @@ def home_dashboard(
                 limit=genre_limit,
             ),
             recently_added_albums=recently_added_albums,
+            recently_starred_albums=recently_starred_album_summaries(
+                connection,
+                limit=album_limit,
+            ),
             recently_added_since=recently_added_since,
         )
 
@@ -666,6 +671,7 @@ def current_album_summary(
             year,
             track_count,
             file_created_at,
+            starred_at,
             art_track_id
         FROM library_albums
         WHERE album_id = ?
@@ -683,6 +689,7 @@ def current_album_summary(
             track_count=int(row["track_count"] or 0),
             album_artists=artists.get(album_id, ()),
             file_created_at=row["file_created_at"],
+            starred_at=row["starred_at"],
             art_track_id=(
                 int(row["art_track_id"]) if row["art_track_id"] is not None else None
             ),
@@ -720,6 +727,7 @@ def recent_listening_albums(
                 albums.year,
                 albums.track_count,
                 albums.file_created_at,
+                albums.starred_at,
                 albums.art_track_id
             FROM play_album_stats AS stats
             LEFT JOIN library_albums AS albums
@@ -745,6 +753,7 @@ def recent_listening_albums(
                 track_count=int(row["track_count"] or 0),
                 album_artists=artists.get(str(row["album_id"]), ()),
                 file_created_at=row["file_created_at"],
+                starred_at=row["starred_at"],
                 art_track_id=(
                     int(row["art_track_id"])
                     if row["art_track_id"] is not None
@@ -956,6 +965,7 @@ def recently_added_album_summaries(
                 year,
                 track_count,
                 file_created_at,
+                starred_at,
                 art_track_id
             FROM library_albums
             WHERE NULLIF(file_created_at, '') IS NOT NULL
@@ -985,6 +995,59 @@ def recently_added_album_summaries(
             track_count=int(row["track_count"]),
             album_artists=artists.get(str(row["album_id"]), ()),
             file_created_at=row["file_created_at"],
+            starred_at=row["starred_at"],
+            art_track_id=(
+                int(row["art_track_id"]) if row["art_track_id"] is not None else None
+            ),
+        )
+        for row in rows
+    )
+
+
+def recently_starred_album_summaries(
+    connection: Connection,
+    *,
+    limit: int,
+) -> tuple[AlbumSummary, ...]:
+    rows = list(
+        connection.execute(
+            """
+            SELECT
+                album_id,
+                album,
+                year,
+                track_count,
+                file_created_at,
+                starred_at,
+                art_track_id
+            FROM library_albums
+            WHERE starred_at IS NOT NULL
+            ORDER BY
+                starred_at DESC,
+                artist_sort_key,
+                CASE WHEN year IS NULL THEN 1 ELSE 0 END,
+                year,
+                album_sort_key,
+                album_id
+            LIMIT ?
+            """,
+            (limit,),
+        )
+    )
+    artists = album_artists_by_ids(
+        connection,
+        (str(row["album_id"]) for row in rows),
+    )
+    return tuple(
+        AlbumSummary(
+            album_id=str(row["album_id"]),
+            artist=album_artist_text(artists.get(str(row["album_id"]), ())),
+            album=str(row["album"]),
+            year=int(row["year"]) if row["year"] is not None else None,
+            track_count=int(row["track_count"]),
+            album_artists=artists.get(str(row["album_id"]), ()),
+            file_created_at=row["file_created_at"],
+            starred_at=row["starred_at"],
             art_track_id=(
                 int(row["art_track_id"]) if row["art_track_id"] is not None else None
             ),

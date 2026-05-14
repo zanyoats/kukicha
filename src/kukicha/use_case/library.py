@@ -335,6 +335,7 @@ def save_library_with_options(
         albums = group_library_albums(library)
         copy_album_musicbrainz_links_from_legacy_album_ids(connection, albums)
         store_scanned_album_musicbrainz_links(connection, albums)
+        starred_at_by_album_id = album_starred_at_by_album_id(connection)
         album_ids_by_key = {
             album_lookup_key(
                 album.artist_id_text,
@@ -371,8 +372,9 @@ def save_library_with_options(
                     album,
                     year,
                     track_count,
-                    file_created_at
-                ) VALUES (?, ?, ?, ?, ?)
+                    file_created_at,
+                    starred_at
+                ) VALUES (?, ?, ?, ?, ?, ?)
                 """,
                 (
                     album.album_id,
@@ -380,6 +382,7 @@ def save_library_with_options(
                     album.year,
                     album.track_count,
                     album.file_created_at or "",
+                    starred_at_by_album_id.get(album.album_id),
                 ),
             )
             for position, artist in enumerate(album.artists):
@@ -636,6 +639,19 @@ def playlist_ids_by_path(connection: sqlite3.Connection) -> dict[str, int]:
             """
             SELECT path, playlist_id
             FROM library_playlists
+            """
+        )
+    }
+
+
+def album_starred_at_by_album_id(connection: sqlite3.Connection) -> dict[str, str]:
+    return {
+        str(row["album_id"]): str(row["starred_at"])
+        for row in connection.execute(
+            """
+            SELECT album_id, starred_at
+            FROM library_albums
+            WHERE starred_at IS NOT NULL
             """
         )
     }

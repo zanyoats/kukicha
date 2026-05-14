@@ -145,6 +145,7 @@ def build_home_context(runtime: PlayerRuntime) -> dict[str, Any]:
         stat_label=home_stat_label,
         played_label=home_played_label,
         added_label=home_added_label,
+        favorited_label=home_favorited_label,
         recently_added_heading=home_recently_added_heading(
             dashboard.recently_added_since
         ),
@@ -257,6 +258,10 @@ def home_played_label(timestamp: str) -> str:
 
 def home_added_label(timestamp: str | None) -> str:
     return f"Added {timestamp[:10]}" if timestamp else "Recently Added"
+
+
+def home_favorited_label(timestamp: str | None) -> str:
+    return f"Favorited {timestamp[:10]}" if timestamp else "Recently Favorited"
 
 
 def home_recently_added_heading(since: str) -> str:

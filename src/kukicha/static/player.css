@@ -462,10 +462,9 @@ button:disabled,
 }
 
 .home-chip {
-  display: flex;
-  justify-content: space-between;
-  gap: 10px;
-  align-items: center;
+  display: grid;
+  gap: 3px;
+  align-items: start;
 }
 
 .home-track-row {
@@ -1671,6 +1670,83 @@ button:disabled,
   min-width: 0;
 }
 
+.album-title-line,
+.album-detail-title-line {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  min-width: 0;
+}
+
+.album-title-line {
+  width: 100%;
+}
+
+.album-title-line .album-card-link {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.album-title-line .album-star-toggle {
+  margin-left: auto;
+}
+
+.album-star-toggle {
+  appearance: none;
+  -webkit-appearance: none;
+  display: inline-flex;
+  flex: 0 0 16px;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  min-width: 16px;
+  min-height: 16px;
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--accent);
+  line-height: 1;
+  box-shadow: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.album-star-toggle[aria-pressed="true"],
+.album-star-toggle:focus,
+.album-star-toggle:hover,
+.album-star-toggle:focus-visible {
+  border-color: transparent;
+  background: transparent;
+  color: var(--accent);
+  box-shadow: none !important;
+}
+
+.album-star-toggle:not(:disabled):not(.disabled):active {
+  border-color: transparent;
+  background: transparent;
+  box-shadow: none !important;
+  transform: none;
+}
+
+.album-star-toggle:focus-visible {
+  outline: none;
+}
+
+.album-star-toggle .star-icon {
+  display: block;
+  width: 16px;
+  height: 16px;
+}
+
+.album-star-toggle .star-icon path {
+  stroke: var(--accent);
+}
+
+.album-star-toggle.starred .star-icon path {
+  fill: var(--accent);
+}
+
 .album-cover-actions {
   position: absolute;
   right: 10px;
@@ -1875,6 +1951,10 @@ button:disabled,
   min-width: 0;
   max-width: 100%;
   overflow: hidden;
+}
+
+.album-detail-title-line h2 {
+  flex: 0 1 auto;
 }
 
 .album-detail-title-text {

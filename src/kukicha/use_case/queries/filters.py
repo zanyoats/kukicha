@@ -7,6 +7,7 @@ from ..database import UNKNOWN_GENRE_TAG
 from ...search import SearchFactor, parse_album_search_query
 from .artists import canonical_album_artist_values
 from .models import AlbumListQuery, GenreStyleFilter, normalize_match
+from .models import ALBUM_LIST_SORT_STARRED
 from .sql import placeholders_for
 
 
@@ -265,6 +266,8 @@ def search_factor_text(match_query: str) -> str:
 def album_where_clause(query: AlbumListQuery) -> tuple[str, list[object]]:
     clauses: list[str] = []
     params: list[object] = []
+    if query.sort == ALBUM_LIST_SORT_STARRED:
+        clauses.append("albums.starred_at IS NOT NULL")
     if query.artists:
         placeholders = placeholders_for(query.artists)
         clauses.append(

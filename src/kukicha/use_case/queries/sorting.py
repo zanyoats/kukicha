@@ -8,6 +8,7 @@ import re
 from .models import (
     ALBUM_LIST_SORT_ARTIST,
     ALBUM_LIST_SORT_GENRE,
+    ALBUM_LIST_SORT_STARRED,
     AlbumSummary,
     PlaylistTrack,
 )
@@ -22,7 +23,23 @@ def album_page_sort_key(
         return album_page_genre_sort_key
     if sort == ALBUM_LIST_SORT_ARTIST:
         return album_page_item_sort_key
+    if sort == ALBUM_LIST_SORT_STARRED:
+        return album_page_starred_sort_key
     return album_page_recently_added_sort_key
+
+
+def album_page_starred_sort_key(
+    item: AlbumSummary,
+) -> tuple[int, float, str, tuple[int, int], str, int]:
+    timestamp = parsed_iso_timestamp(item.starred_at)
+    return (
+        1 if timestamp is None else 0,
+        -timestamp if timestamp is not None else 0,
+        item.artist.casefold().strip(),
+        album_year_sort_key(item.year),
+        item.album.casefold().strip(),
+        1 if item.is_playlist else 0,
+    )
 
 
 def album_page_recently_added_sort_key(
