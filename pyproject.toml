@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "kukicha"
-version = "0.1.0"
+version = "0.1.0a1"
 description = "Scan and query a SQLite-backed music metadata database."
 readme = "README.md"
 requires-python = ">=3.11"
