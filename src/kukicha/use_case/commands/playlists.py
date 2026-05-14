@@ -6,6 +6,7 @@ from pathlib import Path
 
 from ..database import connect_database
 from ...player_common import placeholders_for
+from ...scanner import is_url_resource
 from ..queries import PlaylistNotFoundError, TrackNotFoundError
 
 
@@ -51,6 +52,10 @@ def playlist_menu_options_by_track_id(
                 """
             )
         )
+        immutable_playlist_ids = url_only_playlist_ids(
+            connection,
+            (int(row["playlist_id"]) for row in playlist_rows),
+        )
         membership_pairs: set[tuple[int, int]] = set()
         if playlist_rows:
             placeholders = placeholders_for(requested_ids)
@@ -74,6 +79,7 @@ def playlist_menu_options_by_track_id(
                 checked=(track_id, int(row["playlist_id"])) in membership_pairs,
             )
             for row in playlist_rows
+            if int(row["playlist_id"]) not in immutable_playlist_ids
         )
         for track_id in requested_ids
     }
@@ -122,6 +128,8 @@ def set_track_playlist_membership_database(
         ).fetchone()
         if playlist_row is None:
             raise PlaylistNotFoundError(playlist_id)
+        if playlist_is_url_only(connection, playlist_id):
+            raise ValueError("URL-only playlists cannot be edited in the player")
         existing_count = int(
             connection.execute(
                 """
@@ -188,3 +196,34 @@ def set_track_playlist_membership_database(
         "path": str(playlist_row["path"]),
         "checked": checked,
     }, job
+
+
+def url_only_playlist_ids(
+    connection,
+    playlist_ids: Iterable[int],
+) -> set[int]:
+    requested_ids = tuple(dict.fromkeys(int(playlist_id) for playlist_id in playlist_ids))
+    if not requested_ids:
+        return set()
+    placeholders = placeholders_for(requested_ids)
+    rows_by_playlist_id: dict[int, list[str]] = {
+        playlist_id: [] for playlist_id in requested_ids
+    }
+    for row in connection.execute(
+        f"""
+        SELECT playlist_id, path
+        FROM library_playlist_items
+        WHERE playlist_id IN ({placeholders})
+        """,
+        requested_ids,
+    ):
+        rows_by_playlist_id[int(row["playlist_id"])].append(str(row["path"]))
+    return {
+        playlist_id
+        for playlist_id, paths in rows_by_playlist_id.items()
+        if paths and all(is_url_resource(path) for path in paths)
+    }
+
+
+def playlist_is_url_only(connection, playlist_id: int) -> bool:
+    return playlist_id in url_only_playlist_ids(connection, (playlist_id,))

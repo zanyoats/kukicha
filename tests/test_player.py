@@ -1097,6 +1097,79 @@ class PlayerPlaylistMembershipTest(unittest.TestCase):
         self.assertEqual([option.checked for option in options[1]], [False, True])
         self.assertEqual([option.checked for option in options[2]], [False, False])
 
+    def test_playlist_menu_options_exclude_url_only_playlists(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            root = Path(tempdir)
+            database = root / "kukicha.sqlite"
+            first_track_path = root / "Amon Tobin" / "Permutation" / "12 Nova.flac"
+            second_track_path = root / "Amon Tobin" / "Permutation" / "01 Like Regular Chickens.flac"
+            save_library(
+                MusicLibrary(
+                    roots=[str(root)],
+                    tracks=[
+                        TrackRecord(
+                            path=str(first_track_path),
+                            root_position=0,
+                            file_type="flac",
+                            artist="Amon Tobin",
+                            album_artist="Amon Tobin",
+                            album="Permutation",
+                            title="Nova (Permutation)",
+                        ),
+                        TrackRecord(
+                            path=str(second_track_path),
+                            root_position=0,
+                            file_type="flac",
+                            artist="Amon Tobin",
+                            album_artist="Amon Tobin",
+                            album="Permutation",
+                            title="Like Regular Chickens",
+                        ),
+                    ],
+                    playlists=[
+                        PlaylistRecord(
+                            path=str(root / "empty.m3u8"),
+                            root_position=0,
+                            name="Empty",
+                        ),
+                        PlaylistRecord(
+                            path=str(root / "mix.m3u8"),
+                            root_position=0,
+                            name="Mix",
+                            items=[
+                                PlaylistItemRecord(path=str(first_track_path)),
+                                PlaylistItemRecord(
+                                    path="https://example.test/stream.mp3",
+                                    title="Stream",
+                                ),
+                            ],
+                        ),
+                        PlaylistRecord(
+                            path=str(root / "streams.m3u8"),
+                            root_position=0,
+                            name="Streams",
+                            items=[
+                                PlaylistItemRecord(
+                                    path="https://example.test/one.mp3",
+                                    title="One",
+                                ),
+                                PlaylistItemRecord(
+                                    path="HTTPS://example.test/two.mp3",
+                                    title="Two",
+                                ),
+                            ],
+                        ),
+                    ],
+                    supported_extensions=[".flac"],
+                    generated_at="2026-04-25T00:00:00+00:00",
+                ),
+                database,
+            )
+
+            options = playlist_menu_options_by_track_id(database, [1])
+
+        self.assertEqual([option.name for option in options[1]], ["Empty", "Mix"])
+
     def test_set_track_playlist_membership_updates_db_before_playlist_file_job(self) -> None:
         with TemporaryDirectory() as tempdir:
             root = Path(tempdir)
@@ -1161,6 +1234,61 @@ class PlayerPlaylistMembershipTest(unittest.TestCase):
         self.assertIn(str(track_path), after_remove_db_text)
         self.assertEqual(after_remove_job_text, original_playlist_text)
         self.assertEqual(rows, [])
+
+    def test_set_track_playlist_membership_rejects_url_only_playlist(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            root = Path(tempdir)
+            database = root / "kukicha.sqlite"
+            track_path = root / "Amon Tobin" / "Permutation" / "12 Nova.flac"
+            save_library(
+                MusicLibrary(
+                    roots=[str(root)],
+                    tracks=[
+                        TrackRecord(
+                            path=str(track_path),
+                            root_position=0,
+                            file_type="flac",
+                            artist="Amon Tobin",
+                            album_artist="Amon Tobin",
+                            album="Permutation",
+                            title="Nova (Permutation)",
+                            duration_seconds=283.0,
+                        )
+                    ],
+                    playlists=[
+                        PlaylistRecord(
+                            path=str(root / "streams.m3u8"),
+                            root_position=0,
+                            name="Streams",
+                            items=[
+                                PlaylistItemRecord(
+                                    path="https://example.test/one.mp3",
+                                    title="One",
+                                )
+                            ],
+                        )
+                    ],
+                    supported_extensions=[".flac"],
+                    generated_at="2026-04-25T00:00:00+00:00",
+                ),
+                database,
+            )
+
+            with self.assertRaisesRegex(ValueError, "URL-only playlists"):
+                set_track_playlist_membership_database(database, 1, 1, True)
+
+            with connect_database(database, create=False) as connection:
+                tracked_rows = list(
+                    connection.execute(
+                        """
+                        SELECT *
+                        FROM library_playlist_items
+                        WHERE track_id IS NOT NULL
+                        """
+                    )
+                )
+
+        self.assertEqual(tracked_rows, [])
 
     def test_set_track_playlist_membership_writes_utf8_m3u_for_unicode_track_path(self) -> None:
         with TemporaryDirectory() as tempdir:
