@@ -52,6 +52,66 @@ Run the lightweight browser-player JavaScript tests:
 npm test
 ```
 
+## Release A Version
+
+Kukicha releases are published to PyPI and mirrored with a GitHub release for the
+same git tag.
+
+1. Update `version` in `pyproject.toml`.
+
+   Use a PEP 440 pre-release version when the release is not final:
+
+   ```toml
+   version = "0.1.0a1"
+   ```
+
+2. Run the test suite:
+
+   ```bash
+   .venv/bin/python -m unittest discover -s tests
+   ```
+
+3. Build and validate the PyPI artifacts:
+
+   ```bash
+   .venv/bin/python -m build
+   .venv/bin/python -m twine check dist/*
+   ```
+
+4. Commit the version change before publishing:
+
+   ```bash
+   git add pyproject.toml
+   git commit -m "chore: release 0.1.0a1"
+   ```
+
+5. Upload the release to PyPI with `twine`:
+
+   ```bash
+   .venv/bin/python -m twine upload -r pypi dist/kukicha-0.1.0a1*
+   ```
+
+   `twine` can read credentials from `~/.pypirc`. For token authentication, use
+   `username = __token__` and the PyPI API token as the password. For the first
+   upload of a new PyPI project, use an account-scoped token; after the project
+   exists, prefer a project-scoped token.
+
+6. Tag the release commit and push the tag:
+
+   ```bash
+   git tag v0.1.0a1
+   git push origin v0.1.0a1
+   ```
+
+7. Create a GitHub release from the tag.
+
+   Use the tag name as the release title, for example `v0.1.0a1`. Mark alpha,
+   beta, or release-candidate versions as GitHub pre-releases.
+
+PyPI files and git tags are effectively immutable release records. If a release
+needs a fix, publish a new version instead of reusing an existing version or
+moving an existing tag.
+
 ## Build The Taxonomy TSV
 
 The repo-local taxonomy tool builds the TSV consumed by the runtime `kukicha`
