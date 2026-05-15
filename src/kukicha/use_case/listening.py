@@ -521,7 +521,7 @@ def home_dashboard(
                 limit=album_limit,
             )
             if recently_added_albums:
-                recently_added_since = str(recently_added_albums[-1].file_created_at or "")
+                recently_added_since = str(recently_added_albums[-1].added_at or "")
         return HomeDashboard(
             now_playing=now_playing_album(connection),
             recent_albums=recent_listening_albums(connection, limit=album_limit),
@@ -671,6 +671,7 @@ def current_album_summary(
             year,
             track_count,
             file_created_at,
+            added_at,
             starred_at,
             art_track_id
         FROM library_albums
@@ -689,6 +690,7 @@ def current_album_summary(
             track_count=int(row["track_count"] or 0),
             album_artists=artists.get(album_id, ()),
             file_created_at=row["file_created_at"],
+            added_at=row["added_at"],
             starred_at=row["starred_at"],
             art_track_id=(
                 int(row["art_track_id"]) if row["art_track_id"] is not None else None
@@ -727,6 +729,7 @@ def recent_listening_albums(
                 albums.year,
                 albums.track_count,
                 albums.file_created_at,
+                albums.added_at,
                 albums.starred_at,
                 albums.art_track_id
             FROM play_album_stats AS stats
@@ -753,6 +756,7 @@ def recent_listening_albums(
                 track_count=int(row["track_count"] or 0),
                 album_artists=artists.get(str(row["album_id"]), ()),
                 file_created_at=row["file_created_at"],
+                added_at=row["added_at"],
                 starred_at=row["starred_at"],
                 art_track_id=(
                     int(row["art_track_id"])
@@ -953,7 +957,7 @@ def recently_added_album_summaries(
     params: list[object] = []
     cutoff_sql = ""
     if days is not None:
-        cutoff_sql = "AND file_created_at >= ?"
+        cutoff_sql = "AND added_at >= ?"
         params.append((datetime.now(UTC) - timedelta(days=days)).isoformat())
     params.append(limit)
     rows = list(
@@ -965,13 +969,14 @@ def recently_added_album_summaries(
                 year,
                 track_count,
                 file_created_at,
+                added_at,
                 starred_at,
                 art_track_id
             FROM library_albums
-            WHERE NULLIF(file_created_at, '') IS NOT NULL
+            WHERE NULLIF(added_at, '') IS NOT NULL
                 {cutoff_sql}
             ORDER BY
-                file_created_at DESC,
+                added_at DESC,
                 artist_sort_key,
                 CASE WHEN year IS NULL THEN 1 ELSE 0 END,
                 year,
@@ -995,6 +1000,7 @@ def recently_added_album_summaries(
             track_count=int(row["track_count"]),
             album_artists=artists.get(str(row["album_id"]), ()),
             file_created_at=row["file_created_at"],
+            added_at=row["added_at"],
             starred_at=row["starred_at"],
             art_track_id=(
                 int(row["art_track_id"]) if row["art_track_id"] is not None else None
@@ -1018,6 +1024,7 @@ def recently_starred_album_summaries(
                 year,
                 track_count,
                 file_created_at,
+                added_at,
                 starred_at,
                 art_track_id
             FROM library_albums
@@ -1047,6 +1054,7 @@ def recently_starred_album_summaries(
             track_count=int(row["track_count"]),
             album_artists=artists.get(str(row["album_id"]), ()),
             file_created_at=row["file_created_at"],
+            added_at=row["added_at"],
             starred_at=row["starred_at"],
             art_track_id=(
                 int(row["art_track_id"]) if row["art_track_id"] is not None else None

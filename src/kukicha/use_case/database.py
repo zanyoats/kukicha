@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import sqlite3
+from datetime import UTC, datetime
 from importlib.resources import files
 from pathlib import Path
 from types import TracebackType
@@ -235,6 +236,7 @@ CREATE TABLE IF NOT EXISTS library_albums (
     year INTEGER,
     track_count INTEGER NOT NULL,
     file_created_at TEXT NOT NULL DEFAULT '',
+    added_at TEXT NOT NULL DEFAULT '',
     starred_at TEXT,
     artist_sort_key TEXT NOT NULL DEFAULT '',
     album_sort_key TEXT NOT NULL DEFAULT '',
@@ -567,6 +569,16 @@ def migrate_library_schema(connection: sqlite3.Connection) -> None:
         connection.execute(
             "UPDATE library_albums SET file_created_at = '' WHERE file_created_at IS NULL"
         )
+    created_album_added_at = False
+    if album_columns and "added_at" not in table_columns(connection, "library_albums"):
+        connection.execute(
+            "ALTER TABLE library_albums ADD COLUMN added_at TEXT NOT NULL DEFAULT ''"
+        )
+        created_album_added_at = True
+    if album_columns and "added_at" in table_columns(connection, "library_albums"):
+        connection.execute(
+            "UPDATE library_albums SET added_at = '' WHERE added_at IS NULL"
+        )
     if album_columns and "starred_at" not in album_columns:
         connection.execute("ALTER TABLE library_albums ADD COLUMN starred_at TEXT")
     if album_columns and "artist_sort_key" not in album_columns:
@@ -623,6 +635,8 @@ def migrate_library_schema(connection: sqlite3.Connection) -> None:
         backfill_library_file_created_at(connection)
     if created_album_file_created_at or created_track_file_created_at:
         backfill_library_album_file_created_at(connection)
+    if created_album_added_at:
+        backfill_library_album_added_at(connection)
 
     connection.execute(
         """
@@ -662,10 +676,17 @@ def migrate_library_schema(connection: sqlite3.Connection) -> None:
     )
     connection.execute(
         """
+        CREATE INDEX IF NOT EXISTS idx_library_albums_added_at
+            ON library_albums (added_at)
+        """
+    )
+    connection.execute("DROP INDEX IF EXISTS idx_library_albums_recently_added_sort")
+    connection.execute(
+        """
         CREATE INDEX IF NOT EXISTS idx_library_albums_recently_added_sort
             ON library_albums (
-                CASE WHEN NULLIF(file_created_at, '') IS NULL THEN 1 ELSE 0 END,
-                file_created_at DESC,
+                CASE WHEN NULLIF(added_at, '') IS NULL THEN 1 ELSE 0 END,
+                added_at DESC,
                 artist_sort_key,
                 CASE WHEN year IS NULL THEN 1 ELSE 0 END,
                 year,
@@ -768,6 +789,10 @@ def table_columns(connection: sqlite3.Connection, table_name: str) -> set[str]:
     }
 
 
+def utc_now_iso() -> str:
+    return datetime.now(UTC).replace(microsecond=0).isoformat()
+
+
 def backfill_library_file_created_at(connection: sqlite3.Connection) -> None:
     for table_name in ("library_tracks", "library_playlists"):
         rows = list(
@@ -803,6 +828,18 @@ def backfill_library_album_file_created_at(connection: sqlite3.Connection) -> No
         )
         WHERE COALESCE(file_created_at, '') = ''
         """
+    )
+
+
+def backfill_library_album_added_at(connection: sqlite3.Connection) -> None:
+    fallback_added_at = utc_now_iso()
+    connection.execute(
+        """
+        UPDATE library_albums
+        SET added_at = COALESCE(NULLIF(file_created_at, ''), ?)
+        WHERE COALESCE(added_at, '') = ''
+        """,
+        (fallback_added_at,),
     )
 
 

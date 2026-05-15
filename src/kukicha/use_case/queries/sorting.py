@@ -45,7 +45,7 @@ def album_page_starred_sort_key(
 def album_page_recently_added_sort_key(
     item: AlbumSummary,
 ) -> tuple[int, float, str, tuple[int, int], str, int]:
-    timestamp = parsed_iso_timestamp(item.file_created_at)
+    timestamp = parsed_iso_timestamp(item.added_at or item.file_created_at)
     return (
         1 if timestamp is None else 0,
         -timestamp if timestamp is not None else 0,

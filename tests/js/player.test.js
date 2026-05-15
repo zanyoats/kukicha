@@ -493,6 +493,7 @@ function createHarness(initialQueueState, options = {}) {
     nextButton: elements.next,
     playButton: elements.play,
     previousButton: elements.previous,
+    view: elements.view,
     async flush() {
       await Promise.resolve();
       await new Promise((resolve) => setImmediate(resolve));
@@ -536,6 +537,41 @@ test("filter form submit helper closes search menu", () => {
   harness.context.closeSearchMenu(form);
 
   assert.equal(menu.open, false);
+});
+
+test("browser-local dates are rendered from datetime attributes", () => {
+  const previousTimezone = process.env.TZ;
+  process.env.TZ = "America/New_York";
+  try {
+    const harness = createHarness({
+      track_ids: [],
+      position: 0,
+      loaded_track_id: null,
+      paused: true,
+      errored_track_ids: [],
+      unavailable_track_ids: [],
+    });
+    const added = harness.document.createElement("time");
+    added.dataset.localDatePrefix = "Added";
+    added.setAttribute("datetime", "2026-05-15T01:00:00+00:00");
+    added.textContent = "Added 2026-05-15";
+    const headingDate = harness.document.createElement("time");
+    headingDate.dataset.localDate = "";
+    headingDate.setAttribute("datetime", "2026-05-15T01:00:00+00:00");
+    headingDate.textContent = "2026-05-15";
+    harness.view.append(added, headingDate);
+
+    harness.context.localizeBrowserTimes();
+
+    assert.equal(added.textContent, "Added 2026-05-14");
+    assert.equal(headingDate.textContent, "2026-05-14");
+  } finally {
+    if (previousTimezone === undefined) {
+      delete process.env.TZ;
+    } else {
+      process.env.TZ = previousTimezone;
+    }
+  }
 });
 
 test("library filter form patch preserves artist hidden inputs before changing sort", () => {

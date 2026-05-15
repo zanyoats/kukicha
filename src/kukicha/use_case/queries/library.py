@@ -148,6 +148,7 @@ class LibraryQueries:
                         albums.year,
                         selected_album_roots.track_count,
                         albums.file_created_at,
+                        albums.added_at,
                         albums.starred_at,
                         selected_album_roots.art_track_id
                         {sort_select_sql}
@@ -180,6 +181,7 @@ class LibraryQueries:
                     albums.year,
                     albums.track_count,
                     albums.file_created_at,
+                    albums.added_at,
                     albums.starred_at,
                     albums.art_track_id
                     {sort_select_sql}
@@ -332,7 +334,7 @@ class LibraryQueries:
         with connect_database(self.database, create=False) as connection:
             row = connection.execute(
                 """
-                SELECT album_id, album, year, track_count, file_created_at, starred_at
+                SELECT album_id, album, year, track_count, file_created_at, added_at, starred_at
                 FROM library_albums
                 WHERE album_id = ?
                 """,
@@ -411,6 +413,7 @@ class LibraryQueries:
             track_count=len(track_rows) if root_positions else int(row["track_count"]),
             album_artists=album_artists,
             file_created_at=row["file_created_at"],
+            added_at=row["added_at"],
             starred_at=row["starred_at"],
             genres=album_values_from_track_values(genres_by_track),
             styles=album_values_from_track_values(styles_by_track),
@@ -1045,6 +1048,7 @@ class LibraryQueries:
                     track_count=int(row["track_count"]),
                     album_artists=album_artists,
                     file_created_at=row["file_created_at"],
+                    added_at=row["added_at"],
                     starred_at=row["starred_at"],
                     art_track_id=(
                         int(row["art_track_id"])
@@ -1229,12 +1233,12 @@ def album_sort_columns(query: AlbumListQuery) -> tuple[AlbumSortColumn, ...]:
 
     return (
         AlbumSortColumn(
-            "CASE WHEN NULLIF(albums.file_created_at, '') IS NULL THEN 1 ELSE 0 END",
-            "sort_file_created_missing",
+            "CASE WHEN NULLIF(albums.added_at, '') IS NULL THEN 1 ELSE 0 END",
+            "sort_added_missing",
         ),
         AlbumSortColumn(
-            "albums.file_created_at",
-            "sort_file_created_at",
+            "albums.added_at",
+            "sort_added_at",
             direction="DESC",
         ),
         artist_column,

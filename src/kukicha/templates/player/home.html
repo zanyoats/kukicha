@@ -89,7 +89,7 @@
                 <span class="album-name" title="{{ album.album|display_album_title }}">{{ album.album|display_album_title }}</span>
               </a>
               <span class="album-artist" title="{{ album.artist }}">{{ album.artist }}</span>
-              <span class="home-stat">{{ played_label(item.last_played_at) }}</span>
+              <time class="home-stat" data-local-date-prefix="Played" datetime="{{ item.last_played_at }}">{{ played_label(item.last_played_at) }}</time>
             </span>
           </div>
         {% endfor %}
@@ -100,7 +100,11 @@
   {% if dashboard.recently_added_albums %}
     <section class="home-section" aria-label="Recently Added Albums">
       <div class="home-section-heading">
-        <h2>{{ recently_added_heading }}</h2>
+        {% if dashboard.recently_added_since %}
+          <h2>Most Recently Added Since <time data-local-date datetime="{{ dashboard.recently_added_since }}">{{ dashboard.recently_added_since[:10] }}</time></h2>
+        {% else %}
+          <h2>{{ recently_added_heading }}</h2>
+        {% endif %}
         <a href="/albums?sort=recently_added" data-nav>Recently Added</a>
       </div>
       <div class="home-card-grid">
@@ -131,7 +135,11 @@
                 <span class="album-name" title="{{ album.album|display_album_title }}">{{ album.album|display_album_title }}</span>
               </a>
               <span class="album-artist" title="{{ album.artist }}">{{ album.artist }}</span>
-              <span class="home-stat">{{ added_label(album.file_created_at) }}</span>
+              {% if album.added_at %}
+                <time class="home-stat" data-local-date-prefix="Added" datetime="{{ album.added_at }}">{{ added_label(album.added_at) }}</time>
+              {% else %}
+                <span class="home-stat">{{ added_label(album.added_at) }}</span>
+              {% endif %}
             </span>
           </div>
         {% endfor %}
@@ -173,7 +181,11 @@
                 <span class="album-name" title="{{ album.album|display_album_title }}">{{ album.album|display_album_title }}</span>
               </a>
               <span class="album-artist" title="{{ album.artist }}">{{ album.artist }}</span>
-              <span class="home-stat">{{ favorited_label(album.starred_at) }}</span>
+              {% if album.starred_at %}
+                <time class="home-stat" data-local-date-prefix="Favorited" datetime="{{ album.starred_at }}">{{ favorited_label(album.starred_at) }}</time>
+              {% else %}
+                <span class="home-stat">{{ favorited_label(album.starred_at) }}</span>
+              {% endif %}
             </span>
           </div>
         {% endfor %}
@@ -191,7 +203,7 @@
         {% for artist in dashboard.recent_artists %}
           <a class="home-chip" href="{{ artist.url }}" data-nav>
             <span>{{ artist.name }}</span>
-            <small>{{ played_label(artist.last_played_at) }}</small>
+            <small><time data-local-date-prefix="Played" datetime="{{ artist.last_played_at }}">{{ played_label(artist.last_played_at) }}</time></small>
           </a>
         {% endfor %}
       </div>
@@ -215,7 +227,7 @@
                 {% endif %}
                 <div class="home-track-copy">
                   <span class="home-track-title">{{ track.title }}</span>
-                  <small>{{ track.artist }}{% if track.album %} - {{ track.album }}{% endif %} - {{ played_label(track.last_played_at) }}</small>
+                  <small>{{ track.artist }}{% if track.album %} - {{ track.album }}{% endif %} - <time data-local-date-prefix="Played" datetime="{{ track.last_played_at }}">{{ played_label(track.last_played_at) }}</time></small>
                 </div>
               </a>
             {% endfor %}
@@ -241,7 +253,7 @@
                 {% endif %}
                 <div class="home-track-copy">
                   <span class="home-track-title">{{ playlist.album }}</span>
-                  <small>{{ played_label(item.last_played_at) }}</small>
+                  <small><time data-local-date-prefix="Played" datetime="{{ item.last_played_at }}">{{ played_label(item.last_played_at) }}</time></small>
                 </div>
               </a>
             {% endfor %}

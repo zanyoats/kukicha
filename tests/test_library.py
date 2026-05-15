@@ -230,8 +230,8 @@ class LibraryAlbumPathQueryTest(unittest.TestCase):
     def test_album_sort_columns_match_sort_index_expressions(self) -> None:
         sort_expressions = {
             ALBUM_LIST_SORT_RECENTLY_ADDED: [
-                "CASE WHEN NULLIF(albums.file_created_at, '') IS NULL THEN 1 ELSE 0 END",
-                "albums.file_created_at",
+                "CASE WHEN NULLIF(albums.added_at, '') IS NULL THEN 1 ELSE 0 END",
+                "albums.added_at",
                 "albums.artist_sort_key",
                 "CASE WHEN albums.year IS NULL THEN 1 ELSE 0 END",
                 "albums.year",
@@ -303,6 +303,104 @@ class LibraryAlbumPathQueryTest(unittest.TestCase):
 
         self.assertIsNotNone(row)
         self.assertEqual(str(row["file_created_at"]), "")
+
+    def test_migrates_album_added_at_from_file_created_at(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            database = Path(tempdir) / "kukicha.sqlite"
+            legacy_connection = sqlite3.connect(database)
+            try:
+                legacy_connection.execute(
+                    """
+                    CREATE TABLE library_albums (
+                        album_id TEXT PRIMARY KEY,
+                        album TEXT NOT NULL,
+                        year INTEGER,
+                        track_count INTEGER NOT NULL,
+                        file_created_at TEXT NOT NULL DEFAULT ''
+                    )
+                    """
+                )
+                legacy_connection.execute(
+                    """
+                    INSERT INTO library_albums (
+                        album_id,
+                        album,
+                        year,
+                        track_count,
+                        file_created_at
+                    ) VALUES ('artist::album', 'Album', 2026, 1, '2026-04-22T12:00:00+00:00')
+                    """
+                )
+                legacy_connection.commit()
+            finally:
+                legacy_connection.close()
+
+            with (
+                patch(
+                    "kukicha.use_case.database.utc_now_iso",
+                    return_value="2026-05-15T12:00:00+00:00",
+                ),
+                connect_database(database) as connection,
+            ):
+                row = connection.execute(
+                    """
+                    SELECT added_at
+                    FROM library_albums
+                    WHERE album_id = 'artist::album'
+                    """
+                ).fetchone()
+
+        self.assertIsNotNone(row)
+        self.assertEqual(str(row["added_at"]), "2026-04-22T12:00:00+00:00")
+
+    def test_migrates_album_added_at_to_migration_time_when_file_created_at_is_blank(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            database = Path(tempdir) / "kukicha.sqlite"
+            legacy_connection = sqlite3.connect(database)
+            try:
+                legacy_connection.execute(
+                    """
+                    CREATE TABLE library_albums (
+                        album_id TEXT PRIMARY KEY,
+                        album TEXT NOT NULL,
+                        year INTEGER,
+                        track_count INTEGER NOT NULL,
+                        file_created_at TEXT NOT NULL DEFAULT ''
+                    )
+                    """
+                )
+                legacy_connection.execute(
+                    """
+                    INSERT INTO library_albums (
+                        album_id,
+                        album,
+                        year,
+                        track_count,
+                        file_created_at
+                    ) VALUES ('artist::album', 'Album', 2026, 1, '')
+                    """
+                )
+                legacy_connection.commit()
+            finally:
+                legacy_connection.close()
+
+            with (
+                patch(
+                    "kukicha.use_case.database.utc_now_iso",
+                    return_value="2026-05-15T12:00:00+00:00",
+                ),
+                connect_database(database) as connection,
+            ):
+                row = connection.execute(
+                    """
+                    SELECT added_at
+                    FROM library_albums
+                    WHERE album_id = 'artist::album'
+                    """
+                ).fetchone()
+
+        self.assertIsNotNone(row)
+        self.assertEqual(str(row["added_at"]), "2026-05-15T12:00:00+00:00")
 
     def test_album_details_paths_come_from_tracks_in_case_insensitive_path_order(self) -> None:
         with TemporaryDirectory() as tempdir:
@@ -2691,6 +2789,17 @@ class LibraryPlaylistPersistenceTest(unittest.TestCase):
                 ),
                 database,
             )
+            with connect_database(database) as connection:
+                for album, added_at in (
+                    ("Old", "2026-04-26T12:00:00+00:00"),
+                    ("AAA Later", "2026-04-24T12:00:00+00:00"),
+                    ("ZZZ Original", "2026-04-24T12:00:00+00:00"),
+                    ("No Date", ""),
+                ):
+                    connection.execute(
+                        "UPDATE library_albums SET added_at = ? WHERE album = ?",
+                        (added_at, album),
+                    )
 
             api = LibraryQueries(database)
             default_items = api.list_album_page(AlbumListQuery()).items
@@ -2727,12 +2836,99 @@ class LibraryPlaylistPersistenceTest(unittest.TestCase):
             [item.album for item in recently_added],
             ["Old", "ZZZ Original", "AAA Later", "No Date"],
         )
+        self.assertEqual(len(recently_added), 4)
         self.assertEqual([item.album for item in starred], ["Old", "AAA Later"])
         self.assertEqual(
             [item.starred_at for item in starred],
             ["2026-05-02T12:00:00Z", "2026-05-01T12:00:00Z"],
         )
         self.assertEqual([item.album for item in playlists], ["Recent Mix"])
+
+    def test_save_library_preserves_album_added_at_and_stamps_new_album_ids(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            database = Path(tempdir) / "kukicha.sqlite"
+            with patch(
+                "kukicha.use_case.library.utc_now_iso",
+                return_value="2026-05-01T12:00:00+00:00",
+            ):
+                save_library(
+                    MusicLibrary(
+                        roots=[],
+                        tracks=[
+                            TrackRecord(
+                                path="/music/Artist/Album/01.flac",
+                                file_created_at="2026-04-01T12:00:00+00:00",
+                                file_type="flac",
+                                artist="Artist",
+                                album_artist="Artist",
+                                album="Album",
+                                title="Track",
+                            ),
+                        ],
+                        supported_extensions=[".flac"],
+                        generated_at="2026-05-01T12:00:00+00:00",
+                    ),
+                    database,
+                )
+            with patch(
+                "kukicha.use_case.library.utc_now_iso",
+                return_value="2026-05-02T12:00:00+00:00",
+            ):
+                save_library(
+                    MusicLibrary(
+                        roots=[],
+                        tracks=[
+                            TrackRecord(
+                                path="/music/Artist/Album/01.flac",
+                                file_created_at="2026-04-10T12:00:00+00:00",
+                                file_type="flac",
+                                artist="Artist",
+                                album_artist="Artist",
+                                album="Album",
+                                title="Track",
+                            ),
+                            TrackRecord(
+                                path="/music/Artist/New Album/01.flac",
+                                file_created_at="2025-01-01T12:00:00+00:00",
+                                file_type="flac",
+                                artist="Artist",
+                                album_artist="Artist",
+                                album="New Album",
+                                title="New Track",
+                            ),
+                        ],
+                        supported_extensions=[".flac"],
+                        generated_at="2026-05-02T12:00:00+00:00",
+                    ),
+                    database,
+                )
+            with connect_database(database) as connection:
+                rows = connection.execute(
+                    """
+                    SELECT album, file_created_at, added_at
+                    FROM library_albums
+                    ORDER BY album
+                    """
+                ).fetchall()
+
+        self.assertEqual(
+            [
+                (str(row["album"]), str(row["file_created_at"]), str(row["added_at"]))
+                for row in rows
+            ],
+            [
+                (
+                    "Album",
+                    "2026-04-10T12:00:00+00:00",
+                    "2026-05-01T12:00:00+00:00",
+                ),
+                (
+                    "New Album",
+                    "2025-01-01T12:00:00+00:00",
+                    "2026-05-02T12:00:00+00:00",
+                ),
+            ],
+        )
 
     def test_save_library_preserves_starred_at_for_stable_album_ids(self) -> None:
         library = MusicLibrary(
@@ -3130,6 +3326,17 @@ class LibraryAlbumCursorPaginationTest(unittest.TestCase):
             database = Path(tempdir) / "kukicha.sqlite"
             save_library(album_cursor_library(), database)
             with connect_database(database) as connection:
+                for album, added_at in (
+                    ("Beta New", "2026-04-26T12:00:00+00:00"),
+                    ("Alpha Original", "2026-04-24T12:00:00+00:00"),
+                    ("Alpha Later", "2026-04-24T12:00:00+00:00"),
+                    ("Alpha No Date", "2026-04-24T12:00:00+00:00"),
+                    ("Zulu Old", "2026-04-20T12:00:00+00:00"),
+                ):
+                    connection.execute(
+                        "UPDATE library_albums SET added_at = ? WHERE album = ?",
+                        (added_at, album),
+                    )
                 for album, starred_at in (
                     ("Beta New", "2026-05-05T12:00:00Z"),
                     ("Zulu Old", "2026-05-04T12:00:00Z"),
@@ -3322,6 +3529,14 @@ class LibraryAlbumCursorPaginationTest(unittest.TestCase):
                         AND name = 'idx_library_albums_starred_sort'
                     """
                 ).fetchone()
+                recently_added_index_row = connection.execute(
+                    """
+                    SELECT sql
+                    FROM sqlite_master
+                    WHERE type = 'index'
+                        AND name = 'idx_library_albums_recently_added_sort'
+                    """
+                ).fetchone()
                 root_indexes = {
                     str(row["name"])
                     for row in connection.execute("PRAGMA index_list(library_album_roots)")
@@ -3346,7 +3561,7 @@ class LibraryAlbumCursorPaginationTest(unittest.TestCase):
                 connection.close()
 
         self.assertLessEqual(
-            {"artist_sort_key", "album_sort_key", "genre_sort_key", "starred_at"},
+            {"artist_sort_key", "album_sort_key", "genre_sort_key", "starred_at", "added_at"},
             album_columns,
         )
         self.assertTrue(
@@ -3359,6 +3574,7 @@ class LibraryAlbumCursorPaginationTest(unittest.TestCase):
         self.assertLessEqual(
             {
                 "idx_library_albums_recently_added_sort",
+                "idx_library_albums_added_at",
                 "idx_library_albums_artist_sort",
                 "idx_library_albums_genre_sort",
                 "idx_library_albums_starred_sort",
@@ -3366,6 +3582,8 @@ class LibraryAlbumCursorPaginationTest(unittest.TestCase):
             album_indexes,
         )
         self.assertIsNotNone(starred_index_row)
+        self.assertIsNotNone(recently_added_index_row)
+        self.assertIn("added_at DESC", str(recently_added_index_row["sql"]))
         self.assertIn(
             "WHERE starred_at IS NOT NULL",
             str(starred_index_row["sql"]),

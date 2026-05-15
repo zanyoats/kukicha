@@ -70,7 +70,7 @@ syncFilterSummaries();
 syncAlbumMusicBrainzFormValues();
 syncAlbumEditAlbumLevelFields();
 syncAlbumArtistMappingForms();
-localizeJobTimes();
+localizeBrowserTimes();
 syncJobsStream();
 
 function initialAppHistoryDepth() {
@@ -310,7 +310,7 @@ function renderFragment(html, url, options = {}) {
   syncAlbumMusicBrainzFormValues();
   syncAlbumEditAlbumLevelFields();
   syncAlbumArtistMappingForms();
-  localizeJobTimes();
+  localizeBrowserTimes();
   syncJobsStream();
   if (options.restoreScroll) {
     restoreScrollAfterRender(options.restoreScroll);
@@ -2067,6 +2067,43 @@ function closeJobsStream() {
   jobsSource = null;
 }
 
+function localizeBrowserTimes() {
+  localizeDateLabels();
+  localizeJobTimes();
+}
+
+function localizeDateLabels() {
+  view.querySelectorAll("[data-local-date-prefix]").forEach((element) => {
+    if (!(element instanceof HTMLElement)) {
+      return;
+    }
+    const timestamp = element.getAttribute("datetime") || "";
+    const prefix = element.dataset.localDatePrefix || "";
+    const dateText = formatBrowserDate(timestamp, "");
+    if (!dateText) {
+      return;
+    }
+    element.textContent = prefix ? `${prefix} ${dateText}` : dateText;
+  });
+  view.querySelectorAll("[data-local-date]").forEach((element) => {
+    if (!(element instanceof HTMLElement)) {
+      return;
+    }
+    const timestamp = element.getAttribute("datetime") || "";
+    const dateText = formatBrowserDate(timestamp, "");
+    if (dateText) {
+      element.textContent = dateText;
+    }
+  });
+  view.querySelectorAll("[data-local-date-long]").forEach((element) => {
+    if (!(element instanceof HTMLElement)) {
+      return;
+    }
+    const timestamp = element.getAttribute("datetime") || "";
+    element.textContent = formatBrowserDateLong(timestamp, element.textContent || timestamp);
+  });
+}
+
 function localizeJobTimes() {
   view.querySelectorAll("[data-job-time]").forEach((element) => {
     if (!(element instanceof HTMLTimeElement)) {
@@ -2075,6 +2112,37 @@ function localizeJobTimes() {
     const timestamp = element.dateTime || element.getAttribute("datetime") || "";
     element.textContent = formatBrowserDateTime(timestamp, element.textContent || timestamp);
   });
+}
+
+function formatBrowserDate(value, fallback = "") {
+  if (typeof value !== "string" || !value.trim()) {
+    return fallback;
+  }
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return fallback || value;
+  }
+  const year = String(parsed.getFullYear()).padStart(4, "0");
+  const month = String(parsed.getMonth() + 1).padStart(2, "0");
+  const day = String(parsed.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
+function formatBrowserDateLong(value, fallback = "") {
+  if (typeof value !== "string" || !value.trim()) {
+    return fallback;
+  }
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return fallback || value;
+  }
+  try {
+    return new Intl.DateTimeFormat(undefined, {
+      dateStyle: "full"
+    }).format(parsed);
+  } catch {
+    return formatBrowserDate(value, fallback);
+  }
 }
 
 function formatBrowserDateTime(value, fallback = "") {

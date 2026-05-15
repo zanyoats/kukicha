@@ -11,7 +11,9 @@
     <div class="job-groups" {% if not job_groups %}hidden{% endif %}>
       {% for group in job_groups %}
         <section class="job-day-group" data-job-day="{{ group.day_key }}">
-          <h3 class="job-day-heading">{{ group.day_label }}</h3>
+          <h3 class="job-day-heading">
+            <time data-local-date-long datetime="{{ group.jobs[0].created_at }}">{{ group.day_label }}</time>
+          </h3>
           <div class="job-list">
             {% for job in group.jobs %}
               <article class="job-card" data-job-id="{{ job.job_id }}">

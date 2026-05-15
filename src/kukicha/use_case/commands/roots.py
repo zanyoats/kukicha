@@ -13,6 +13,7 @@ from ..database import (
     canonicalize_library_album_artists,
     connect_database,
     rebuild_album_rollups,
+    utc_now_iso,
 )
 from ...discogs import (
     group_library_albums,
@@ -529,6 +530,7 @@ def reconcile_library_albums(
         connection,
         album_artist_split_patterns,
     )
+    new_album_added_at = utc_now_iso()
     for album_id, rows in rows_by_album.items():
         artists = most_common_artist_values(
             album_artist_resolver.resolve(
@@ -560,15 +562,17 @@ def reconcile_library_albums(
                 album,
                 year,
                 track_count,
-                file_created_at
-            ) VALUES (?, ?, ?, ?, ?)
+                file_created_at,
+                added_at
+            ) VALUES (?, ?, ?, ?, ?, ?)
             ON CONFLICT(album_id) DO UPDATE SET
                 album = excluded.album,
                 year = excluded.year,
                 track_count = excluded.track_count,
-                file_created_at = excluded.file_created_at
+                file_created_at = excluded.file_created_at,
+                added_at = COALESCE(NULLIF(library_albums.added_at, ''), excluded.added_at)
             """,
-            (album_id, album, year, len(rows), file_created_at or ""),
+            (album_id, album, year, len(rows), file_created_at or "", new_album_added_at),
         )
         connection.execute(
             "DELETE FROM library_album_artists WHERE album_id = ?",

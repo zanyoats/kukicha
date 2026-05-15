@@ -26,6 +26,7 @@ from .database import (
     rebuild_album_search_index,
     rebuild_root_scan_stats,
     set_metadata,
+    utc_now_iso,
 )
 from ..discogs import (
     LocalAlbum,
@@ -336,6 +337,8 @@ def save_library_with_options(
         copy_album_musicbrainz_links_from_legacy_album_ids(connection, albums)
         store_scanned_album_musicbrainz_links(connection, albums)
         starred_at_by_album_id = album_starred_at_by_album_id(connection)
+        added_at_by_album_id = album_added_at_by_album_id(connection)
+        new_album_added_at = utc_now_iso()
         album_ids_by_key = {
             album_lookup_key(
                 album.artist_id_text,
@@ -373,8 +376,9 @@ def save_library_with_options(
                     year,
                     track_count,
                     file_created_at,
+                    added_at,
                     starred_at
-                ) VALUES (?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     album.album_id,
@@ -382,6 +386,7 @@ def save_library_with_options(
                     album.year,
                     album.track_count,
                     album.file_created_at or "",
+                    added_at_by_album_id.get(album.album_id, new_album_added_at),
                     starred_at_by_album_id.get(album.album_id),
                 ),
             )
@@ -652,6 +657,20 @@ def album_starred_at_by_album_id(connection: sqlite3.Connection) -> dict[str, st
             SELECT album_id, starred_at
             FROM library_albums
             WHERE starred_at IS NOT NULL
+            """
+        )
+    }
+
+
+def album_added_at_by_album_id(connection: sqlite3.Connection) -> dict[str, str]:
+    return {
+        str(row["album_id"]): str(row["added_at"])
+        for row in connection.execute(
+            """
+            SELECT album_id, added_at
+            FROM library_albums
+            WHERE added_at IS NOT NULL
+                AND added_at != ''
             """
         )
     }

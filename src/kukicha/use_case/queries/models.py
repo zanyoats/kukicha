@@ -131,6 +131,7 @@ class AlbumSummary:
     track_count: int
     album_artists: tuple[str, ...] = ()
     file_created_at: str | None = None
+    added_at: str | None = None
     starred_at: str | None = None
     art_track_id: int | None = None
     is_playlist: bool = False

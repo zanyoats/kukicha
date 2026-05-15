@@ -3355,6 +3355,10 @@ class PlayerWebAdapterTest(unittest.TestCase):
                 ),
                 database,
             )
+            with connect_database(database) as connection:
+                connection.execute(
+                    "UPDATE library_albums SET added_at = file_created_at"
+                )
             runtime = self.make_runtime(database)
             with (
                 patch("kukicha.player_web_adapter.PlayerRuntime", return_value=runtime),
@@ -3403,6 +3407,10 @@ class PlayerWebAdapterTest(unittest.TestCase):
                 ),
                 database,
             )
+            with connect_database(database) as connection:
+                connection.execute(
+                    "UPDATE library_albums SET added_at = file_created_at"
+                )
             runtime = self.make_runtime(database)
             with (
                 patch("kukicha.player_web_adapter.PlayerRuntime", return_value=runtime),
@@ -3415,7 +3423,11 @@ class PlayerWebAdapterTest(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(len(dashboard.recently_added_albums), 14)
         self.assertNotIn(b"Added in the Last Month", response.data)
-        self.assertIn(b"Most Recently Added Since 2026-03-09", response.data)
+        self.assertIn(b"Most Recently Added Since", response.data)
+        self.assertIn(
+            b'<time data-local-date datetime="2026-03-09T12:00:00+00:00">2026-03-09</time>',
+            response.data,
+        )
         self.assertIn(b"Archive Album 21", response.data)
         self.assertIn(b"Archive Album 08", response.data)
         self.assertNotIn(b"Archive Album 07", response.data)
@@ -3875,7 +3887,11 @@ class PlayerWebAdapterTest(unittest.TestCase):
         self.assertNotIn("play - 2026-05-11", playlist_section)
         self.assertIn('class="home-track-cover playlist-cover-image"', playlist_section)
         track_section = html.split("Recent Tracks", 1)[1].split("Recent Playlists", 1)[0]
-        self.assertIn("Track Artist 21 - Album 21 - Played 2026-05-11", track_section)
+        self.assertIn("Track Artist 21 - Album 21 - ", track_section)
+        self.assertIn(
+            '<time data-local-date-prefix="Played" datetime="2026-05-11T12:21:00+00:00">Played 2026-05-11</time>',
+            track_section,
+        )
         self.assertNotIn("play - 2026-05-11", track_section)
         self.assertIn('class="home-track-cover"', html)
         self.assertIn(f'src="/art/250/{tracks[-1].track_id}"', html)
