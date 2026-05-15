@@ -20,6 +20,7 @@ from .filters import (
     playlist_where_clause,
 )
 from .models import (
+    ALBUM_LIST_SORT_ALBUMS,
     ALBUM_LIST_SORT_ARTIST,
     ALBUM_LIST_SORT_GENRE,
     ALBUM_LIST_SORT_RECENTLY_ADDED,
@@ -1198,6 +1199,15 @@ def album_sort_columns(query: AlbumListQuery) -> tuple[AlbumSortColumn, ...]:
             album_id_column,
         )
 
+    if query.sort == ALBUM_LIST_SORT_ALBUMS:
+        return (
+            album_column,
+            artist_column,
+            year_missing_column,
+            year_column,
+            album_id_column,
+        )
+
     if query.sort == ALBUM_LIST_SORT_GENRE:
         genre_expression = (
             "selected_album_roots.genre_sort_key"
@@ -1573,9 +1583,11 @@ def library_root_options(connection: Connection) -> tuple[LibraryRootFilterOptio
 
 
 __all__ = [
+    "ALBUM_LIST_SORT_ALBUMS",
     "ALBUM_LIST_SORT_ARTIST",
     "ALBUM_LIST_SORT_GENRE",
     "ALBUM_LIST_SORT_RECENTLY_ADDED",
+    "ALBUM_LIST_SORT_STARRED",
     "AlbumArtistSplitMapping",
     "AlbumDetails",
     "AlbumListQuery",

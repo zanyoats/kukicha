@@ -6,6 +6,7 @@ from pathlib import Path
 import re
 
 from .models import (
+    ALBUM_LIST_SORT_ALBUMS,
     ALBUM_LIST_SORT_ARTIST,
     ALBUM_LIST_SORT_GENRE,
     ALBUM_LIST_SORT_STARRED,
@@ -21,6 +22,8 @@ def album_page_sort_key(
 ) -> Callable[[AlbumSummary], tuple[object, ...]]:
     if sort == ALBUM_LIST_SORT_GENRE:
         return album_page_genre_sort_key
+    if sort == ALBUM_LIST_SORT_ALBUMS:
+        return album_page_album_sort_key
     if sort == ALBUM_LIST_SORT_ARTIST:
         return album_page_item_sort_key
     if sort == ALBUM_LIST_SORT_STARRED:
@@ -62,6 +65,17 @@ def album_page_item_sort_key(item: AlbumSummary) -> tuple[str, tuple[int, int], 
         album_year_sort_key(item.year),
         item.album.casefold().strip(),
         1 if item.is_playlist else 0,
+    )
+
+
+def album_page_album_sort_key(
+    item: AlbumSummary,
+) -> tuple[str, str, tuple[int, int], str]:
+    return (
+        item.album.casefold().strip(),
+        item.artist.casefold().strip(),
+        album_year_sort_key(item.year),
+        item.album_id,
     )
 
 

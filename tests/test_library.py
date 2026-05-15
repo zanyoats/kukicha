@@ -12,6 +12,7 @@ from unittest.mock import patch
 from kukicha.use_case import AlbumListQuery, LibraryQueries
 from kukicha.use_case import connect_database
 from kukicha.use_case import (
+    ALBUM_LIST_SORT_ALBUMS,
     ALBUM_LIST_SORT_ARTIST,
     ALBUM_LIST_SORT_GENRE,
     ALBUM_LIST_SORT_RECENTLY_ADDED,
@@ -190,6 +191,7 @@ class LibraryAlbumPathQueryTest(unittest.TestCase):
                 expected_indexes = {
                     ALBUM_LIST_SORT_RECENTLY_ADDED: "idx_library_albums_recently_added_sort",
                     ALBUM_LIST_SORT_ARTIST: "idx_library_albums_artist_sort",
+                    ALBUM_LIST_SORT_ALBUMS: "idx_library_albums_album_sort",
                     ALBUM_LIST_SORT_GENRE: "idx_library_albums_genre_sort",
                     ALBUM_LIST_SORT_STARRED: "idx_library_albums_starred_sort",
                 }
@@ -243,6 +245,13 @@ class LibraryAlbumPathQueryTest(unittest.TestCase):
                 "CASE WHEN albums.year IS NULL THEN 1 ELSE 0 END",
                 "albums.year",
                 "albums.album_sort_key",
+                "albums.album_id",
+            ],
+            ALBUM_LIST_SORT_ALBUMS: [
+                "albums.album_sort_key",
+                "albums.artist_sort_key",
+                "CASE WHEN albums.year IS NULL THEN 1 ELSE 0 END",
+                "albums.year",
                 "albums.album_id",
             ],
             ALBUM_LIST_SORT_GENRE: [
@@ -2803,6 +2812,9 @@ class LibraryPlaylistPersistenceTest(unittest.TestCase):
 
             api = LibraryQueries(database)
             default_items = api.list_album_page(AlbumListQuery()).items
+            albums_by_title = api.list_album_page(
+                AlbumListQuery(sort=ALBUM_LIST_SORT_ALBUMS)
+            ).items
             recently_added = api.list_album_page(
                 AlbumListQuery(sort=ALBUM_LIST_SORT_RECENTLY_ADDED)
             ).items
@@ -2831,6 +2843,10 @@ class LibraryPlaylistPersistenceTest(unittest.TestCase):
         self.assertEqual(
             [item.album for item in default_items],
             ["ZZZ Original", "AAA Later", "No Date", "Old"],
+        )
+        self.assertEqual(
+            [item.album for item in albums_by_title],
+            ["AAA Later", "No Date", "Old", "ZZZ Original"],
         )
         self.assertEqual(
             [item.album for item in recently_added],
@@ -3306,6 +3322,13 @@ class LibraryAlbumCursorPaginationTest(unittest.TestCase):
                 "Beta New",
                 "Zulu Old",
             ],
+            ALBUM_LIST_SORT_ALBUMS: [
+                "Alpha Later",
+                "Alpha No Date",
+                "Alpha Original",
+                "Beta New",
+                "Zulu Old",
+            ],
             ALBUM_LIST_SORT_GENRE: [
                 "Alpha No Date",
                 "Beta New",
@@ -3537,6 +3560,14 @@ class LibraryAlbumCursorPaginationTest(unittest.TestCase):
                         AND name = 'idx_library_albums_recently_added_sort'
                     """
                 ).fetchone()
+                album_sort_index_row = connection.execute(
+                    """
+                    SELECT sql
+                    FROM sqlite_master
+                    WHERE type = 'index'
+                        AND name = 'idx_library_albums_album_sort'
+                    """
+                ).fetchone()
                 root_indexes = {
                     str(row["name"])
                     for row in connection.execute("PRAGMA index_list(library_album_roots)")
@@ -3576,6 +3607,7 @@ class LibraryAlbumCursorPaginationTest(unittest.TestCase):
                 "idx_library_albums_recently_added_sort",
                 "idx_library_albums_added_at",
                 "idx_library_albums_artist_sort",
+                "idx_library_albums_album_sort",
                 "idx_library_albums_genre_sort",
                 "idx_library_albums_starred_sort",
             },
@@ -3583,7 +3615,9 @@ class LibraryAlbumCursorPaginationTest(unittest.TestCase):
         )
         self.assertIsNotNone(starred_index_row)
         self.assertIsNotNone(recently_added_index_row)
+        self.assertIsNotNone(album_sort_index_row)
         self.assertIn("added_at DESC", str(recently_added_index_row["sql"]))
+        self.assertIn("album_sort_key", str(album_sort_index_row["sql"]))
         self.assertIn(
             "WHERE starred_at IS NOT NULL",
             str(starred_index_row["sql"]),

@@ -7,6 +7,7 @@ from typing import Any
 from urllib.parse import quote, urlencode
 
 from .use_case import (
+    ALBUM_LIST_SORT_ALBUMS,
     ALBUM_LIST_SORT_ARTIST,
     ALBUM_LIST_SORT_GENRE,
     ALBUM_LIST_SORT_RECENTLY_ADDED,
@@ -29,6 +30,7 @@ PLAYLIST_COVER_SVG = playlist_cover_svg("Playlist")
 PLAYLIST_COVER_DATA_URL = playlist_cover_data_url(PLAYLIST_COVER_SVG)
 ALBUM_SORT_OPTIONS = (
     (ALBUM_LIST_SORT_ARTIST, "Artist"),
+    (ALBUM_LIST_SORT_ALBUMS, "Albums"),
     (ALBUM_LIST_SORT_RECENTLY_ADDED, "Recently Added"),
     (ALBUM_LIST_SORT_GENRE, "Genre"),
     (ALBUM_LIST_SORT_STARRED, "Starred"),

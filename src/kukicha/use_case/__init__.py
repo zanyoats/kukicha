@@ -75,6 +75,7 @@ from .listening import (
     record_playback,
 )
 from .queries import (
+    ALBUM_LIST_SORT_ALBUMS,
     ALBUM_LIST_SORT_ARTIST,
     ALBUM_LIST_SORT_GENRE,
     ALBUM_LIST_SORT_RECENTLY_ADDED,
@@ -113,6 +114,7 @@ from .queries import (
 )
 
 __all__ = [
+    "ALBUM_LIST_SORT_ALBUMS",
     "ALBUM_LIST_SORT_ARTIST",
     "ALBUM_LIST_SORT_GENRE",
     "ALBUM_LIST_SORT_RECENTLY_ADDED",

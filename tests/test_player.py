@@ -15,6 +15,7 @@ from urllib.parse import parse_qs
 from kukicha.album_artists import DEFAULT_ALBUM_ARTIST_SPLIT_PATTERNS
 from kukicha.app_metadata import kukicha_version
 from kukicha.use_case import (
+    ALBUM_LIST_SORT_ALBUMS,
     ALBUM_LIST_SORT_ARTIST,
     ALBUM_LIST_SORT_GENRE,
     ALBUM_LIST_SORT_RECENTLY_ADDED,
@@ -2370,12 +2371,14 @@ class PlayerGenreFilterQueryParamsTest(unittest.TestCase):
     def test_parses_sort_param_and_defaults_to_artist(self) -> None:
         default_query = album_list_query_from_params(parse_qs(""))
         artist_query = album_list_query_from_params(parse_qs("sort=artist"))
+        albums_query = album_list_query_from_params(parse_qs("sort=albums"))
         genre_query = album_list_query_from_params(parse_qs("sort=genre"))
         starred_query = album_list_query_from_params(parse_qs("sort=starred"))
         invalid_query = album_list_query_from_params(parse_qs("sort=unknown"))
 
         self.assertEqual(default_query.sort, ALBUM_LIST_SORT_ARTIST)
         self.assertEqual(artist_query.sort, ALBUM_LIST_SORT_ARTIST)
+        self.assertEqual(albums_query.sort, ALBUM_LIST_SORT_ALBUMS)
         self.assertEqual(genre_query.sort, ALBUM_LIST_SORT_GENRE)
         self.assertEqual(starred_query.sort, ALBUM_LIST_SORT_STARRED)
         self.assertEqual(invalid_query.sort, ALBUM_LIST_SORT_ARTIST)
@@ -2388,6 +2391,10 @@ class PlayerGenreFilterQueryParamsTest(unittest.TestCase):
         self.assertEqual(
             album_index_url(AlbumListQuery(sort=ALBUM_LIST_SORT_ARTIST)),
             "/albums",
+        )
+        self.assertEqual(
+            album_index_url(AlbumListQuery(sort=ALBUM_LIST_SORT_ALBUMS)),
+            "/albums?sort=albums",
         )
         self.assertEqual(
             album_index_url(AlbumListQuery(sort=ALBUM_LIST_SORT_GENRE)),

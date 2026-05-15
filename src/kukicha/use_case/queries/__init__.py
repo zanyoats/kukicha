@@ -6,6 +6,7 @@ from .library import (
     library_root_filter_label,
 )
 from .models import (
+    ALBUM_LIST_SORT_ALBUMS,
     ALBUM_LIST_SORT_ARTIST,
     ALBUM_LIST_SORT_GENRE,
     ALBUM_LIST_SORT_RECENTLY_ADDED,
@@ -43,6 +44,7 @@ from .params import (
 from .musicbrainz import album_musicbrainz_link
 
 __all__ = [
+    "ALBUM_LIST_SORT_ALBUMS",
     "ALBUM_LIST_SORT_ARTIST",
     "ALBUM_LIST_SORT_GENRE",
     "ALBUM_LIST_SORT_RECENTLY_ADDED",

@@ -709,6 +709,18 @@ def migrate_library_schema(connection: sqlite3.Connection) -> None:
     )
     connection.execute(
         """
+        CREATE INDEX IF NOT EXISTS idx_library_albums_album_sort
+            ON library_albums (
+                album_sort_key,
+                artist_sort_key,
+                CASE WHEN year IS NULL THEN 1 ELSE 0 END,
+                year,
+                album_id
+            )
+        """
+    )
+    connection.execute(
+        """
         CREATE INDEX IF NOT EXISTS idx_library_albums_genre_sort
             ON library_albums (
                 CASE WHEN NULLIF(genre_sort_key, '') IS NULL THEN 1 ELSE 0 END,
