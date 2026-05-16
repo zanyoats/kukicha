@@ -281,11 +281,18 @@ class TestAudioElement extends TestElement {
     this.paused = true;
     this.playCalls = 0;
     this.pauseCalls = 0;
+    this.deferPlay = false;
+    this.pendingPlayPromises = [];
   }
 
   async play() {
     this.playCalls += 1;
     this.paused = false;
+    if (this.deferPlay) {
+      return new Promise((resolve, reject) => {
+        this.pendingPlayPromises.push({resolve, reject});
+      });
+    }
   }
 
   pause() {
@@ -293,7 +300,128 @@ class TestAudioElement extends TestElement {
     this.paused = true;
   }
 
+  canPlayType() {
+    return "probably";
+  }
+
   load() {}
+
+  resolvePlay(index = 0) {
+    const pending = this.pendingPlayPromises[index];
+    if (pending) {
+      pending.resolve();
+    }
+  }
+
+  rejectPlay(index = 0, error = Object.assign(
+    new Error("The fetching process for the media resource was aborted by the user agent at the user's request."),
+    {name: "AbortError"}
+  )) {
+    const pending = this.pendingPlayPromises[index];
+    if (pending) {
+      pending.reject(error);
+    }
+  }
+}
+
+class TestAudioBufferSource {
+  constructor(context) {
+    this.context = context;
+    this.buffer = null;
+    this.onended = () => {};
+    this.startCalls = [];
+    this.stopCalls = 0;
+    this.connectedNode = null;
+    this.disconnected = false;
+    context.sources.push(this);
+  }
+
+  connect(node) {
+    this.connectedNode = node;
+  }
+
+  disconnect() {
+    this.disconnected = true;
+  }
+
+  start(when = 0, offset = 0, duration = undefined) {
+    this.startCalls.push({when, offset, duration});
+  }
+
+  stop() {
+    this.stopCalls += 1;
+  }
+
+  finish() {
+    this.onended();
+  }
+}
+
+class TestGainNode {
+  constructor() {
+    this.gain = {value: 1};
+    this.connectedNode = null;
+  }
+
+  connect(node) {
+    this.connectedNode = node;
+  }
+}
+
+class TestAudioContext {
+  static instances = [];
+
+  constructor() {
+    this.currentTime = 0;
+    this.destination = {};
+    this.state = "running";
+    this.sources = [];
+    this.decodedBuffers = [];
+    TestAudioContext.instances.push(this);
+  }
+
+  createGain() {
+    this.gainNode = new TestGainNode();
+    return this.gainNode;
+  }
+
+  createBufferSource() {
+    return new TestAudioBufferSource(this);
+  }
+
+  decodeAudioData(arrayBuffer, successCallback) {
+    const duration = Number(arrayBuffer.duration) || 60;
+    const sampleRate = Number(arrayBuffer.sampleRate) || 1000;
+    const length = Math.max(1, Math.round(duration * sampleRate));
+    const data = new Float32Array(length);
+    data.fill(0.02);
+    const silence = arrayBuffer.silence || {};
+    const silentStartFrames = Math.min(length, Math.round((Number(silence.start) || 0) * sampleRate));
+    const silentEndFrames = Math.min(length, Math.round((Number(silence.end) || 0) * sampleRate));
+    data.fill(0, 0, silentStartFrames);
+    data.fill(0, Math.max(0, length - silentEndFrames), length);
+    const buffer = {
+      duration,
+      sampleRate,
+      length,
+      numberOfChannels: 1,
+      url: arrayBuffer.url,
+      getChannelData() {
+        return data;
+      },
+    };
+    this.decodedBuffers.push(buffer);
+    if (successCallback) {
+      successCallback(buffer);
+      return undefined;
+    }
+    return Promise.resolve(buffer);
+  }
+
+  resume() {
+    this.state = "running";
+    return Promise.resolve();
+  }
 }
 
 class TestDocument {
@@ -377,6 +505,56 @@ class TestFormData {
 }
 
 function createHarness(initialQueueState, options = {}) {
+  if (options.gapless) {
+    TestAudioContext.instances = [];
+  }
+  let objectUrlCounter = 0;
+  const revokedObjectUrls = [];
+  const deferredAudioBuffers = new Map();
+  const deferredAudioBufferUrls = new Set(options.deferAudioBufferUrls || []);
+  const rejectedAudioBufferUrls = new Set(options.rejectAudioBufferUrls || []);
+  const animationCallbacks = new Map();
+  let animationFrameId = 0;
+  function audioBufferPayload(url) {
+    const key = String(url);
+    return {
+      url: key,
+      duration: trackDurationForUrl(key),
+      sampleRate: 1000,
+      silence: (options.audioSilenceByUrl && options.audioSilenceByUrl[key]) || {},
+    };
+  }
+  function deferredAudioBuffer(url) {
+    const key = String(url);
+    let deferred = deferredAudioBuffers.get(key);
+    if (!deferred) {
+      let resolve;
+      const promise = new Promise((resolver) => {
+        resolve = resolver;
+      });
+      deferred = {promise, resolve};
+      deferredAudioBuffers.set(key, deferred);
+    }
+    return deferred.promise.then(() => audioBufferPayload(key));
+  }
+  function trackDurationForUrl(url) {
+    const absoluteUrl = new URL(url, "http://localhost/queue").toString();
+    const snapshots = initialQueueState.track_snapshots || [];
+    const track = snapshots.find((snapshot) => (
+      new URL(snapshot.audioUrl, "http://localhost/queue").toString() === absoluteUrl
+    ));
+    return Number(track && track.durationSeconds) || 60;
+  }
+  class HarnessURL extends URL {
+    static createObjectURL(blob) {
+      objectUrlCounter += 1;
+      return `blob:kukicha-${objectUrlCounter}-${blob.url || "audio"}`;
+    }
+
+    static revokeObjectURL(objectUrl) {
+      revokedObjectUrls.push(objectUrl);
+    }
+  }
   const view = new TestElement("main");
   const meta = options.queueMeta ? new TestElement("div") : null;
   if (meta) {
@@ -401,6 +579,7 @@ function createHarness(initialQueueState, options = {}) {
     "keyboard-shortcuts-dialog": new TestElement("dialog"),
     "queue-state": new TestElement("script"),
   };
+  elements.audio.deferPlay = Boolean(options.deferAudioPlay);
   elements["queue-state"].textContent = JSON.stringify(initialQueueState);
 
   const document = new TestDocument(elements);
@@ -423,17 +602,31 @@ function createHarness(initialQueueState, options = {}) {
     document,
     history,
     location: {href: "http://localhost/queue", origin: "http://localhost"},
-    navigator: {userAgent: "Node.js"},
+    navigator: {
+      userAgent: options.userAgent || "Node.js",
+      platform: options.platform || "",
+      maxTouchPoints: options.maxTouchPoints || 0,
+    },
     scrollX: 0,
     scrollY: 0,
     addEventListener() {},
     setTimeout,
     clearTimeout,
-    requestAnimationFrame: (callback) => setTimeout(callback, 0),
-    cancelAnimationFrame: clearTimeout,
+    requestAnimationFrame: (callback) => {
+      animationFrameId += 1;
+      animationCallbacks.set(animationFrameId, callback);
+      return animationFrameId;
+    },
+    cancelAnimationFrame: (id) => {
+      animationCallbacks.delete(id);
+    },
     scrollTo() {},
     scrollBy() {},
+    URL: HarnessURL,
   };
+  if (options.gapless) {
+    window.AudioContext = TestAudioContext;
+  }
 
   const context = {
     console,
@@ -442,7 +635,7 @@ function createHarness(initialQueueState, options = {}) {
     history,
     location: window.location,
     navigator: window.navigator,
-    URL,
+    URL: HarnessURL,
     FormData: TestFormData,
     HTMLElement: TestElement,
     Element: TestElement,
@@ -456,6 +649,7 @@ function createHarness(initialQueueState, options = {}) {
     HTMLTextAreaElement: TestElement,
     HTMLTimeElement: TestElement,
     SVGSVGElement: TestElement,
+    AudioContext: options.gapless ? TestAudioContext : undefined,
     setTimeout,
     clearTimeout,
     requestAnimationFrame: window.requestAnimationFrame,
@@ -475,6 +669,19 @@ function createHarness(initialQueueState, options = {}) {
         async text() {
           return "";
         },
+        async arrayBuffer() {
+          const audioUrl = String(url);
+          if (rejectedAudioBufferUrls.has(audioUrl)) {
+            throw new Error("decode failed");
+          }
+          if (
+            (options.deferAudioBuffers || deferredAudioBufferUrls.has(audioUrl))
+            && audioUrl.startsWith("http://localhost/audio/")
+          ) {
+            return deferredAudioBuffer(url);
+          }
+          return audioBufferPayload(audioUrl);
+        },
       };
     },
   };
@@ -488,11 +695,26 @@ function createHarness(initialQueueState, options = {}) {
     context,
     document,
     fetchCalls,
+    audioContexts: options.gapless ? TestAudioContext.instances : [],
     jobToasts: elements["job-toasts"],
     meta,
     nextButton: elements.next,
     playButton: elements.play,
     previousButton: elements.previous,
+    revokedObjectUrls,
+    resolveAudioBuffer(url) {
+      const deferred = deferredAudioBuffers.get(String(url));
+      if (deferred) {
+        deferred.resolve();
+      }
+    },
+    runAnimationFrame() {
+      const callbacks = Array.from(animationCallbacks.entries());
+      animationCallbacks.clear();
+      for (const [, callback] of callbacks) {
+        callback();
+      }
+    },
     view: elements.view,
     async flush() {
       await Promise.resolve();
@@ -518,6 +740,14 @@ function filterForm(document, controls = []) {
   form.dataset.filterForm = "";
   form.append(...controls);
   return form;
+}
+
+function sourceForUrl(context, url) {
+  return context.sources.find((source) => source.buffer && source.buffer.url === url);
+}
+
+function latestSourceForUrl(context, url) {
+  return [...context.sources].reverse().find((source) => source.buffer && source.buffer.url === url);
 }
 
 test("filter form submit helper closes search menu", () => {
@@ -1003,18 +1233,20 @@ test("play restarts from the first playable track after a non-empty queue is exh
   assert.equal(harness.audio.src, "/audio/1");
   assert.equal(harness.audio.currentTime, 0);
   assert.equal(harness.audio.playCalls, 1);
-  assert.equal(harness.fetchCalls[0].url, "/api/playback");
-  assert.deepEqual(harness.fetchCalls[0].body, {
+  const playbackCall = harness.fetchCalls.find((call) => call.url === "/api/playback");
+  assert.ok(playbackCall);
+  assert.deepEqual(playbackCall.body, {
     loaded_track_id: 1,
     position: 0,
     paused: false,
     errored_track_ids: [],
   });
-  assert.equal(harness.fetchCalls[1].url, "/api/scrobble");
+  const scrobbleCall = harness.fetchCalls.find((call) => call.url === "/api/scrobble");
+  assert.ok(scrobbleCall);
   assert.deepEqual(
     {
-      playback_id: harness.fetchCalls[1].body.playback_id,
-      submission: harness.fetchCalls[1].body.submission,
+      playback_id: scrobbleCall.body.playback_id,
+      submission: scrobbleCall.body.submission,
     },
     {playback_id: 1, submission: false},
   );
@@ -1279,6 +1511,540 @@ test("queue page played count follows next and previous queue selection", async 
 
   assert.equal(harness.meta.textContent, "3 tracks - 1 played");
   assert.equal(harness.audio.src, "/audio/2");
+});
+
+test("web audio gapless starts finite same-origin tracks without changing scrobble payloads", async () => {
+  const harness = createHarness(
+    {
+      track_ids: [1, 2],
+      position: 0,
+      loaded_track_id: 1,
+      paused: true,
+      errored_track_ids: [],
+      unavailable_track_ids: [],
+      track_snapshots: [
+        {trackId: 1, audioUrl: "/audio/1", title: "One", durationSeconds: 90},
+        {trackId: 2, audioUrl: "/audio/2", title: "Two", durationSeconds: 120},
+      ],
+    },
+    {gapless: true},
+  );
+
+  harness.playButton.click();
+  await harness.flush();
+  await harness.flush();
+
+  assert.equal(harness.audio.playCalls, 1);
+  assert.equal(harness.audioContexts.length, 1);
+  const context = harness.audioContexts[0];
+  const currentSource = sourceForUrl(context, "http://localhost/audio/1");
+  const nextSource = latestSourceForUrl(context, "http://localhost/audio/2");
+  assert.ok(currentSource);
+  assert.ok(nextSource);
+  assert.deepEqual(currentSource.startCalls, [{when: 0, offset: 0, duration: 90}]);
+  assert.deepEqual(nextSource.startCalls, [{when: 90, offset: 0, duration: 120}]);
+  assert.ok(harness.fetchCalls.some((call) => call.url === "http://localhost/audio/1"));
+  assert.ok(harness.fetchCalls.some((call) => call.url === "http://localhost/audio/2"));
+  const playbackCall = harness.fetchCalls.find((call) => call.url === "/api/playback");
+  assert.ok(playbackCall);
+  assert.deepEqual(playbackCall.body, {
+    loaded_track_id: 1,
+    position: 0,
+    paused: false,
+    errored_track_ids: [],
+  });
+  const scrobbleCall = harness.fetchCalls.find((call) => call.url === "/api/scrobble");
+  assert.ok(scrobbleCall);
+  assert.deepEqual(
+    {
+      playback_id: scrobbleCall.body.playback_id,
+      submission: scrobbleCall.body.submission,
+    },
+    {playback_id: 1, submission: false},
+  );
+});
+
+test("web audio starts html playback while the current buffer decodes", async () => {
+  const harness = createHarness(
+    {
+      track_ids: [1, 2],
+      position: 0,
+      loaded_track_id: 1,
+      paused: true,
+      errored_track_ids: [],
+      unavailable_track_ids: [],
+      track_snapshots: [
+        {trackId: 1, audioUrl: "/audio/1", title: "One", durationSeconds: 90},
+        {trackId: 2, audioUrl: "/audio/2", title: "Two", durationSeconds: 120},
+      ],
+    },
+    {gapless: true, deferAudioBufferUrls: ["http://localhost/audio/1"]},
+  );
+
+  harness.playButton.click();
+  await harness.flush();
+  const context = harness.audioContexts[0];
+
+  assert.equal(harness.audio.playCalls, 1);
+  assert.equal(harness.audio.src, "/audio/1");
+  assert.deepEqual(context.sources, []);
+  assert.ok(harness.fetchCalls.some((call) => call.url === "http://localhost/audio/1"));
+  assert.ok(harness.fetchCalls.some((call) => call.url === "http://localhost/audio/2"));
+
+  harness.resolveAudioBuffer("http://localhost/audio/1");
+  await harness.flush();
+  await harness.flush();
+
+  const currentSource = sourceForUrl(context, "http://localhost/audio/1");
+  const nextSource = latestSourceForUrl(context, "http://localhost/audio/2");
+  assert.ok(currentSource);
+  assert.ok(nextSource);
+  assert.deepEqual(currentSource.startCalls, [{when: 0, offset: 0, duration: 90}]);
+  assert.deepEqual(nextSource.startCalls, [{when: 90, offset: 0, duration: 120}]);
+});
+
+test("web audio ignores stale html media aborts after switching queue tracks", async () => {
+  const harness = createHarness(
+    {
+      track_ids: [1, 2],
+      position: 0,
+      loaded_track_id: 1,
+      paused: true,
+      errored_track_ids: [],
+      unavailable_track_ids: [],
+      track_snapshots: [
+        {trackId: 1, audioUrl: "/audio/1", title: "One", durationSeconds: 90},
+        {trackId: 2, audioUrl: "/audio/2", title: "Two", durationSeconds: 120},
+      ],
+    },
+    {gapless: true, deferAudioPlay: true, deferAudioBufferUrls: ["http://localhost/audio/1"]},
+  );
+
+  harness.playButton.click();
+  await harness.flush();
+  assert.equal(harness.audio.playCalls, 1);
+  assert.equal(harness.audio.src, "/audio/1");
+
+  harness.nextButton.click();
+  await harness.flush();
+  await harness.flush();
+  assert.equal(harness.audio.playCalls, 2);
+  assert.ok(harness.fetchCalls.some((call) => (
+    call.url === "/api/playback"
+    && call.body.loaded_track_id === 2
+  )));
+
+  harness.audio.rejectPlay(0);
+  await harness.flush();
+
+  assert.ok(!harness.fetchCalls.some((call) => (
+    call.url === "/api/playback"
+    && Array.isArray(call.body.errored_track_ids)
+    && call.body.errored_track_ids.includes(1)
+  )));
+});
+
+test("web audio trims tiny decoded silence at buffer boundaries", async () => {
+  const harness = createHarness(
+    {
+      track_ids: [1, 2],
+      position: 0,
+      loaded_track_id: 1,
+      paused: true,
+      errored_track_ids: [],
+      unavailable_track_ids: [],
+      track_snapshots: [
+        {trackId: 1, audioUrl: "/audio/1", title: "One", durationSeconds: 10},
+        {trackId: 2, audioUrl: "/audio/2", title: "Two", durationSeconds: 12},
+      ],
+    },
+    {
+      gapless: true,
+      audioSilenceByUrl: {
+        "http://localhost/audio/1": {end: 0.04},
+        "http://localhost/audio/2": {start: 0.03},
+      },
+    },
+  );
+
+  harness.playButton.click();
+  await harness.flush();
+  await harness.flush();
+
+  const context = harness.audioContexts[0];
+  assert.deepEqual(
+    sourceForUrl(context, "http://localhost/audio/1").startCalls,
+    [{when: 0, offset: 0, duration: 9.96}],
+  );
+  assert.deepEqual(
+    latestSourceForUrl(context, "http://localhost/audio/2").startCalls,
+    [{when: 9.96, offset: 0.03, duration: 11.97}],
+  );
+});
+
+test("web audio natural transitions submit finished and next-track scrobbles in order", async () => {
+  const harness = createHarness(
+    {
+      track_ids: [1, 2],
+      position: 0,
+      loaded_track_id: 1,
+      paused: true,
+      errored_track_ids: [],
+      unavailable_track_ids: [],
+      track_snapshots: [
+        {trackId: 1, audioUrl: "/audio/1", title: "One", durationSeconds: 90},
+        {trackId: 2, audioUrl: "/audio/2", title: "Two", durationSeconds: 120},
+      ],
+    },
+    {gapless: true},
+  );
+
+  harness.playButton.click();
+  await harness.flush();
+  await harness.flush();
+  const context = harness.audioContexts[0];
+  harness.fetchCalls.splice(0);
+
+  sourceForUrl(context, "http://localhost/audio/1").finish();
+  await harness.flush();
+  await harness.flush();
+
+  assert.ok(!harness.fetchCalls.some((call) => call.url === "http://localhost/audio/2"));
+  assert.deepEqual(
+    harness.fetchCalls
+      .filter((call) => call.url === "/api/scrobble" || call.url === "/api/playback")
+      .map((call) => call.url === "/api/scrobble"
+        ? {
+            url: call.url,
+            playback_id: call.body.playback_id,
+            submission: call.body.submission,
+          }
+        : {
+            url: call.url,
+            loaded_track_id: call.body.loaded_track_id,
+            position: call.body.position,
+            paused: call.body.paused,
+          }),
+    [
+      {url: "/api/scrobble", playback_id: 1, submission: true},
+      {url: "/api/playback", loaded_track_id: 2, position: 1, paused: false},
+      {url: "/api/scrobble", playback_id: 2, submission: false},
+    ],
+  );
+});
+
+test("web audio waits for in-flight next-track prefetch at transition", async () => {
+  const harness = createHarness(
+    {
+      track_ids: [1, 2],
+      position: 0,
+      loaded_track_id: 1,
+      paused: true,
+      errored_track_ids: [],
+      unavailable_track_ids: [],
+      track_snapshots: [
+        {trackId: 1, audioUrl: "/audio/1", title: "One", durationSeconds: 90},
+        {trackId: 2, audioUrl: "/audio/2", title: "Two", durationSeconds: 120},
+      ],
+    },
+    {gapless: true, deferAudioBufferUrls: ["http://localhost/audio/2"]},
+  );
+
+  harness.playButton.click();
+  await harness.flush();
+  await harness.flush();
+  const context = harness.audioContexts[0];
+  assert.deepEqual(
+    context.sources.map((source) => source.buffer && source.buffer.url),
+    ["http://localhost/audio/1"],
+  );
+  assert.ok(harness.fetchCalls.some((call) => call.url === "http://localhost/audio/2"));
+  harness.fetchCalls.splice(0);
+
+  context.sources[0].finish();
+  await harness.flush();
+  assert.deepEqual(
+    context.sources.map((source) => source.buffer && source.buffer.url),
+    ["http://localhost/audio/1"],
+  );
+
+  harness.resolveAudioBuffer("http://localhost/audio/2");
+  await harness.flush();
+  await harness.flush();
+
+  assert.deepEqual(
+    context.sources.map((source) => source.buffer && source.buffer.url),
+    ["http://localhost/audio/1", "http://localhost/audio/2"],
+  );
+  assert.ok(!harness.fetchCalls.some((call) => call.url === "http://localhost/audio/2"));
+  assert.deepEqual(
+    harness.fetchCalls
+      .filter((call) => call.url === "/api/playback" || call.url === "/api/scrobble")
+      .map((call) => call.url === "/api/playback"
+        ? {
+            url: call.url,
+            loaded_track_id: call.body.loaded_track_id,
+            position: call.body.position,
+            paused: call.body.paused,
+          }
+        : {
+            url: call.url,
+            playback_id: call.body.playback_id,
+            submission: call.body.submission,
+          }),
+    [
+      {url: "/api/scrobble", playback_id: 1, submission: true},
+      {url: "/api/playback", loaded_track_id: 2, position: 1, paused: false},
+      {url: "/api/scrobble", playback_id: 2, submission: false},
+    ],
+  );
+});
+
+test("web audio final track finish exhausts the queue after submitting played scrobble", async () => {
+  const harness = createHarness(
+    {
+      track_ids: [7],
+      position: 0,
+      loaded_track_id: 7,
+      paused: true,
+      errored_track_ids: [],
+      unavailable_track_ids: [],
+      track_snapshots: [
+        {trackId: 7, audioUrl: "/audio/7", title: "Seven", durationSeconds: 180},
+      ],
+    },
+    {gapless: true},
+  );
+
+  harness.playButton.click();
+  await harness.flush();
+  await harness.flush();
+  harness.fetchCalls.splice(0);
+
+  harness.audioContexts[0].sources[0].finish();
+  await harness.flush();
+
+  assert.equal(harness.fetchCalls[0].url, "/api/scrobble");
+  assert.deepEqual(
+    {
+      playback_id: harness.fetchCalls[0].body.playback_id,
+      submission: harness.fetchCalls[0].body.submission,
+    },
+    {playback_id: 7, submission: true},
+  );
+  assert.equal(harness.fetchCalls.at(-1).url, "/api/playback");
+  assert.deepEqual(harness.fetchCalls.at(-1).body, {
+    position: 1,
+    paused: true,
+    errored_track_ids: [],
+  });
+});
+
+test("web audio pause resume and seeking stay behind the active engine", async () => {
+  const harness = createHarness(
+    {
+      track_ids: [4, 5],
+      position: 0,
+      loaded_track_id: 4,
+      paused: true,
+      errored_track_ids: [],
+      unavailable_track_ids: [],
+      track_snapshots: [
+        {trackId: 4, audioUrl: "/audio/4", title: "Four", durationSeconds: 100},
+        {trackId: 5, audioUrl: "/audio/5", title: "Five", durationSeconds: 90},
+      ],
+    },
+    {gapless: true},
+  );
+
+  harness.playButton.click();
+  await harness.flush();
+  await harness.flush();
+  const context = harness.audioContexts[0];
+  assert.ok(harness.fetchCalls.some((call) => call.url === "http://localhost/audio/5"));
+  assert.ok(sourceForUrl(context, "http://localhost/audio/4"));
+  assert.ok(latestSourceForUrl(context, "http://localhost/audio/5"));
+  harness.fetchCalls.splice(0);
+
+  harness.playButton.click();
+  await harness.flush();
+
+  assert.equal(sourceForUrl(context, "http://localhost/audio/4").stopCalls, 1);
+  assert.equal(latestSourceForUrl(context, "http://localhost/audio/5").stopCalls, 1);
+  assert.equal(harness.fetchCalls[0].url, "/api/playback");
+  assert.deepEqual(harness.fetchCalls[0].body, {
+    paused: true,
+    loaded_track_id: 4,
+  });
+
+  harness.fetchCalls.splice(0);
+  harness.playButton.click();
+  await harness.flush();
+  await harness.flush();
+  assert.equal(context.sources.at(-2).buffer.url, "http://localhost/audio/4");
+  assert.equal(context.sources.at(-1).buffer.url, "http://localhost/audio/5");
+  assert.equal(harness.fetchCalls[0].url, "/api/playback");
+  assert.equal(harness.fetchCalls[1].url, "/api/scrobble");
+
+  harness.document.elements["playback-progress"].value = "500";
+  harness.document.elements["playback-progress"].listeners.get("input")[0]();
+  const seekedSource = latestSourceForUrl(context, "http://localhost/audio/4");
+  assert.deepEqual(seekedSource.startCalls, [{when: 0, offset: 50, duration: 50}]);
+  assert.equal(latestSourceForUrl(context, "http://localhost/audio/5").buffer.url, "http://localhost/audio/5");
+  assert.equal(harness.document.elements["elapsed-time"].textContent, "0:50");
+  assert.equal(harness.document.elements["playback-progress"].value, "500");
+});
+
+test("web audio next and previous rebuild from the selected queue position", async () => {
+  const harness = createHarness(
+    {
+      track_ids: [1, 2, 3],
+      position: 1,
+      loaded_track_id: 2,
+      paused: true,
+      errored_track_ids: [],
+      unavailable_track_ids: [],
+      track_snapshots: [
+        {trackId: 1, audioUrl: "/audio/1", title: "One", durationSeconds: 90},
+        {trackId: 2, audioUrl: "/audio/2", title: "Two", durationSeconds: 120},
+        {trackId: 3, audioUrl: "/audio/3", title: "Three", durationSeconds: 150},
+      ],
+    },
+    {page: "queue", queueMeta: true, gapless: true},
+  );
+
+  harness.nextButton.click();
+  await harness.flush();
+  await harness.flush();
+  const context = harness.audioContexts[0];
+
+  assert.equal(harness.meta.textContent, "3 tracks - 2 played - 6 minutes");
+  assert.equal(context.sources.at(-1).buffer.url, "http://localhost/audio/3");
+
+  harness.previousButton.click();
+  await harness.flush();
+  await harness.flush();
+
+  assert.equal(harness.meta.textContent, "3 tracks - 1 played - 6 minutes");
+  assert.equal(context.sources.at(-2).buffer.url, "http://localhost/audio/2");
+  assert.equal(context.sources.at(-1).buffer.url, "http://localhost/audio/3");
+});
+
+test("web audio prefetch errors mark the failed next track", async () => {
+  const harness = createHarness(
+    {
+      track_ids: [1, 2],
+      position: 0,
+      loaded_track_id: 1,
+      paused: true,
+      errored_track_ids: [],
+      unavailable_track_ids: [],
+      track_snapshots: [
+        {trackId: 1, audioUrl: "/audio/1", title: "One", durationSeconds: 90},
+        {trackId: 2, audioUrl: "/audio/2", title: "Two", durationSeconds: 120},
+      ],
+    },
+    {gapless: true, rejectAudioBufferUrls: ["http://localhost/audio/2"]},
+  );
+
+  harness.playButton.click();
+  await harness.flush();
+  await harness.flush();
+
+  assert.equal(harness.audioContexts.length, 1);
+  assert.equal(sourceForUrl(harness.audioContexts[0], "http://localhost/audio/1").buffer.url, "http://localhost/audio/1");
+  const playbackCall = harness.fetchCalls.find((call) => (
+    call.url === "/api/playback"
+    && Array.isArray(call.body.errored_track_ids)
+    && call.body.errored_track_ids.includes(2)
+  ));
+  assert.ok(playbackCall);
+  assert.deepEqual(playbackCall.body, {
+    loaded_track_id: 1,
+    paused: false,
+    errored_track_ids: [2],
+  });
+});
+
+test("ios safari and non-gapless tracks keep the native audio engine", async () => {
+  const iosHarness = createHarness(
+    {
+      track_ids: [1],
+      position: 0,
+      loaded_track_id: 1,
+      paused: true,
+      errored_track_ids: [],
+      unavailable_track_ids: [],
+      track_snapshots: [
+        {trackId: 1, audioUrl: "/audio/1", title: "One", durationSeconds: 90},
+      ],
+    },
+    {
+      gapless: true,
+      userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+    },
+  );
+
+  iosHarness.playButton.click();
+  await iosHarness.flush();
+
+  assert.equal(iosHarness.audioContexts.length, 0);
+  assert.equal(iosHarness.audio.playCalls, 1);
+  assert.equal(iosHarness.audio.src, "/audio/1");
+
+  const streamHarness = createHarness(
+    {
+      track_ids: [-7],
+      position: 0,
+      loaded_track_id: -7,
+      paused: true,
+      errored_track_ids: [],
+      unavailable_track_ids: [],
+      track_snapshots: [
+        {
+          trackId: -7,
+          audioUrl: "/playlist-audio/7",
+          title: "Live Stream",
+          durationIsIndeterminate: true,
+        },
+      ],
+    },
+    {gapless: true},
+  );
+
+  streamHarness.playButton.click();
+  await streamHarness.flush();
+
+  assert.equal(streamHarness.audioContexts.length, 0);
+  assert.equal(streamHarness.audio.playCalls, 1);
+  assert.equal(streamHarness.audio.src, "/playlist-audio/7");
+
+  const remoteHarness = createHarness(
+    {
+      track_ids: [-8],
+      position: 0,
+      loaded_track_id: -8,
+      paused: true,
+      errored_track_ids: [],
+      unavailable_track_ids: [],
+      track_snapshots: [
+        {
+          trackId: -8,
+          audioUrl: "https://example.test/track.mp3",
+          title: "Remote Track",
+          durationSeconds: 200,
+        },
+      ],
+    },
+    {gapless: true},
+  );
+
+  remoteHarness.playButton.click();
+  await remoteHarness.flush();
+
+  assert.equal(remoteHarness.audioContexts.length, 0);
+  assert.equal(remoteHarness.audio.playCalls, 1);
+  assert.equal(remoteHarness.audio.src, "https://example.test/track.mp3");
 });
 
 test("job toast does not rewind from running to queued", () => {
