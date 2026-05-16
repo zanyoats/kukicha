@@ -23,7 +23,16 @@ from .player_media import audio_mime_type
 from .player_platform import register_player_signal_handlers, restore_signal_handlers
 from .player_runtime import PlayerRuntime
 from .use_case import (
+    ALBUM_LIST_SORT_ALBUMS,
+    ALBUM_LIST_SORT_ARTIST,
+    ALBUM_LIST_SORT_FREQUENT,
+    ALBUM_LIST_SORT_RECENT,
+    ALBUM_LIST_SORT_RECENTLY_ADDED,
+    ALBUM_LIST_SORT_STARRED,
     AlbumNotFoundError,
+    AlbumListQuery,
+    AlbumSummary,
+    GenreStyleFilter,
     LibraryQueries,
     TrackNotFoundError,
     connect_database,
@@ -326,10 +335,26 @@ def handle_get_artist(params: Mapping[str, list[str]]) -> dict[str, object]:
 
 
 def handle_get_album_list2(params: Mapping[str, list[str]]) -> dict[str, object]:
-    require_param(params, "type")
+    album_list_type = require_param(params, "type")
     size = int_param(params, "size", default=10, minimum=0, maximum=500)
     offset = int_param(params, "offset", default=0, minimum=0)
-    albums = album_list2_payloads(open_subsonic_context().database, size=size, offset=offset)
+    if size == 0:
+        return {"albumList2": {"album": []}}
+    query = album_list2_query_from_params(
+        params,
+        album_list_type=album_list_type,
+        offset=offset,
+    )
+    if query is None:
+        albums: list[dict[str, object]] = []
+    else:
+        albums = album_list2_payloads(
+            album_list2_summaries(
+                open_subsonic_context().database,
+                query=query,
+                size=size,
+            )
+        )
     return {"albumList2": {"album": albums}}
 
 
@@ -739,44 +764,80 @@ def artist_name_from_id(value: str) -> str:
     return value
 
 
-def album_list2_payloads(database: Path, *, size: int, offset: int) -> list[dict[str, object]]:
-    with connect_database(database, create=False) as connection:
-        rows = list(
-            connection.execute(
-                """
-                SELECT
-                    rowid,
-                    album_id,
-                    album,
-                    year,
-                    track_count,
-                    file_created_at,
-                    art_track_id
-                FROM library_albums
-                ORDER BY rowid
-                LIMIT ? OFFSET ?
-                """,
-                (size, offset),
+def album_list2_query_from_params(
+    params: Mapping[str, list[str]],
+    *,
+    album_list_type: str,
+    offset: int,
+) -> AlbumListQuery | None:
+    folded_type = album_list_type.casefold()
+    if folded_type == "bygenre":
+        return AlbumListQuery(
+            genre_filters=(GenreStyleFilter(genre=require_param(params, "genre")),),
+            offset=offset,
+        )
+    if folded_type == "starred":
+        return AlbumListQuery(sort=ALBUM_LIST_SORT_STARRED, offset=offset)
+    if folded_type == "alphabeticalbyname":
+        return AlbumListQuery(sort=ALBUM_LIST_SORT_ALBUMS, offset=offset)
+    if folded_type == "alphabeticalbyartist":
+        return AlbumListQuery(sort=ALBUM_LIST_SORT_ARTIST, offset=offset)
+    if folded_type == "newest":
+        return AlbumListQuery(sort=ALBUM_LIST_SORT_RECENTLY_ADDED, offset=offset)
+    if folded_type == "recent":
+        return AlbumListQuery(sort=ALBUM_LIST_SORT_RECENT, offset=offset)
+    if folded_type == "frequent":
+        return AlbumListQuery(sort=ALBUM_LIST_SORT_FREQUENT, offset=offset)
+    return None
+
+
+def album_list2_summaries(
+    database: Path,
+    *,
+    query: AlbumListQuery,
+    size: int,
+) -> list[AlbumSummary]:
+    api = LibraryQueries(database)
+    requested_size = size
+    albums: list[AlbumSummary] = []
+    offset = query.offset
+    while len(albums) < requested_size:
+        page_size = min(200, requested_size - len(albums))
+        page = api.list_album_page(
+            AlbumListQuery(
+                artists=query.artists,
+                album=query.album,
+                root_positions=query.root_positions,
+                genres=query.genres,
+                styles=query.styles,
+                genre_filters=query.genre_filters,
+                is_playlist=query.is_playlist,
+                size=page_size,
+                offset=offset,
+                search=query.search,
+                sort=query.sort,
             )
         )
-        artists_by_album = album_artists_by_album(
-            connection,
-            (str(row["album_id"]) for row in rows),
-        )
+        albums.extend(page.items)
+        if not page.has_next or not page.items:
+            break
+        offset += len(page.items)
+    return albums
+
+
+def album_list2_payloads(albums: Iterable[AlbumSummary]) -> list[dict[str, object]]:
     return [
         album_summary_payload(
-            album_id=str(row["album_id"]),
-            name=str(row["album"]),
-            artist=album_artist_display_text(artists_by_album.get(str(row["album_id"]), ())),
-            song_count=int(row["track_count"]),
-            year=int(row["year"]) if row["year"] is not None else None,
-            created=row["file_created_at"],
-            has_cover=row["art_track_id"] is not None,
-            art_track_id=(
-                int(row["art_track_id"]) if row["art_track_id"] is not None else None
-            ),
+            album_id=album.album_id,
+            name=album.album,
+            artist=album.artist,
+            song_count=album.track_count,
+            year=album.year,
+            created=album.file_created_at,
+            has_cover=False,
+            art_track_id=album.art_track_id,
         )
-        for row in rows
+        for album in albums
     ]
 
 

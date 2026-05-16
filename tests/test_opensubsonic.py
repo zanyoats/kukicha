@@ -155,6 +155,62 @@ class OpenSubsonicWebAdapterTest(unittest.TestCase):
         )
         return apples, ambient, green
 
+    def save_album_list_library(self, temp_path: Path) -> None:
+        root = temp_path / "music"
+        specs = (
+            ("A Artist", "Zulu", "Rock"),
+            ("B Artist", "Alpha", "Electronic"),
+            ("C Artist", "Middle", "Jazz"),
+        )
+        tracks = []
+        for index, (artist, album, genre) in enumerate(specs, start=1):
+            path = root / artist / album / "01.flac"
+            path.parent.mkdir(parents=True)
+            path.write_bytes(f"{artist}-{album}".encode("utf-8"))
+            tracks.append(
+                TrackRecord(
+                    path=str(path),
+                    root_position=0,
+                    file_type="flac",
+                    artist=artist,
+                    album_artist=artist,
+                    album=album,
+                    title=f"Track {index}",
+                    genres=[genre],
+                    duration_seconds=30.0 + index,
+                )
+            )
+        save_library(
+            MusicLibrary(
+                roots=[str(root)],
+                tracks=tracks,
+                supported_extensions=[".flac"],
+                generated_at="2026-05-07T00:00:00+00:00",
+            ),
+            temp_path / "kukicha.sqlite",
+        )
+
+    def album_list2_names(
+        self,
+        temp_path: Path,
+        *,
+        album_list_type: str,
+        **params: str,
+    ) -> list[str]:
+        app = create_open_subsonic_app(self.make_options(temp_path))
+        response = app.test_client().get(
+            "/rest/getAlbumList2",
+            query_string={
+                **self.auth_params(),
+                "type": album_list_type,
+                **params,
+            },
+        )
+        return [
+            album["name"]
+            for album in subsonic_payload(response)["albumList2"]["album"]
+        ]
+
     def test_get_open_subsonic_extensions_is_public_and_advertises_form_post(self) -> None:
         with TemporaryDirectory() as tempdir:
             temp_path = Path(tempdir)
@@ -318,7 +374,7 @@ class OpenSubsonicWebAdapterTest(unittest.TestCase):
                 "/rest/getAlbumList2",
                 query_string={
                     **self.auth_params(),
-                    "type": "anything",
+                    "type": "alphabeticalByArtist",
                     "size": "1",
                     "offset": "1",
                 },
@@ -493,6 +549,181 @@ class OpenSubsonicWebAdapterTest(unittest.TestCase):
         payload = subsonic_payload(response)
         self.assertEqual(payload["status"], "failed")
         self.assertEqual(payload["error"]["code"], 10)
+
+    def test_album_list2_uses_library_query_alphabetical_sorts(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            self.save_album_list_library(temp_path)
+
+            by_name = self.album_list2_names(
+                temp_path,
+                album_list_type="alphabeticalByName",
+            )
+            by_artist = self.album_list2_names(
+                temp_path,
+                album_list_type="alphabeticalByArtist",
+            )
+
+        self.assertEqual(by_name, ["Alpha", "Middle", "Zulu"])
+        self.assertEqual(by_artist, ["Zulu", "Alpha", "Middle"])
+
+    def test_album_list2_uses_library_query_recent_and_starred_sorts(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            self.save_album_list_library(temp_path)
+            database = temp_path / "kukicha.sqlite"
+            with connect_database(database, create=False) as connection:
+                for album, added_at in (
+                    ("Zulu", "2026-01-01T00:00:00+00:00"),
+                    ("Alpha", "2026-03-01T00:00:00+00:00"),
+                    ("Middle", "2026-02-01T00:00:00+00:00"),
+                ):
+                    connection.execute(
+                        "UPDATE library_albums SET added_at = ? WHERE album = ?",
+                        (added_at, album),
+                    )
+                for album, starred_at in (
+                    ("Zulu", "2026-03-01T00:00:00+00:00"),
+                    ("Middle", "2026-01-01T00:00:00+00:00"),
+                ):
+                    connection.execute(
+                        "UPDATE library_albums SET starred_at = ? WHERE album = ?",
+                        (starred_at, album),
+                    )
+                for album, play_count, last_played_at in (
+                    ("Zulu", 9, "2026-01-01T00:00:00+00:00"),
+                    ("Alpha", 1, "2026-03-01T00:00:00+00:00"),
+                ):
+                    connection.execute(
+                        """
+                        INSERT INTO play_album_stats (
+                            album_id,
+                            play_count,
+                            last_played_at,
+                            album,
+                            artist
+                        )
+                        SELECT album_id, ?, ?, album, ''
+                        FROM library_albums
+                        WHERE album = ?
+                        """,
+                        (play_count, last_played_at, album),
+                    )
+
+            newest = self.album_list2_names(temp_path, album_list_type="newest")
+            starred = self.album_list2_names(temp_path, album_list_type="starred")
+            recent = self.album_list2_names(temp_path, album_list_type="recent")
+            frequent = self.album_list2_names(temp_path, album_list_type="frequent")
+
+        self.assertEqual(newest, ["Alpha", "Middle", "Zulu"])
+        self.assertEqual(starred, ["Zulu", "Middle"])
+        self.assertEqual(recent, ["Alpha", "Zulu"])
+        self.assertEqual(frequent, ["Zulu", "Alpha"])
+
+    def test_album_list2_uses_library_query_genre_filter(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            self.save_album_list_library(temp_path)
+
+            by_genre = self.album_list2_names(
+                temp_path,
+                album_list_type="byGenre",
+                genre="electronic",
+            )
+            missing_genre_response = create_open_subsonic_app(
+                self.make_options(temp_path)
+            ).test_client().get(
+                "/rest/getAlbumList2",
+                query_string={**self.auth_params(), "type": "byGenre"},
+            )
+
+        self.assertEqual(by_genre, ["Alpha"])
+        self.assertEqual(subsonic_payload(missing_genre_response)["status"], "failed")
+        self.assertEqual(subsonic_payload(missing_genre_response)["error"]["code"], 10)
+
+    def test_album_list2_returns_empty_for_unsupported_types(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            self.save_album_list_library(temp_path)
+
+            results = {
+                album_list_type: self.album_list2_names(
+                    temp_path,
+                    album_list_type=album_list_type,
+                )
+                for album_list_type in ("random", "byYear", "highest", "not-a-type")
+            }
+
+        self.assertEqual(
+            results,
+            {
+                "random": [],
+                "byYear": [],
+                "highest": [],
+                "not-a-type": [],
+            },
+        )
+
+    def test_album_list2_size_zero_returns_empty_without_genre(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            self.save_album_list_library(temp_path)
+
+            names = self.album_list2_names(
+                temp_path,
+                album_list_type="byGenre",
+                size="0",
+            )
+
+        self.assertEqual(names, [])
+
+    def test_album_list2_collects_pages_above_library_query_page_limit(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            root = temp_path / "music"
+            tracks = []
+            for index in range(205):
+                album = f"Album {index:03d}"
+                path = root / "Artist" / album / "01.flac"
+                path.parent.mkdir(parents=True)
+                path.write_bytes(album.encode("utf-8"))
+                tracks.append(
+                    TrackRecord(
+                        path=str(path),
+                        root_position=0,
+                        file_type="flac",
+                        artist="Artist",
+                        album_artist="Artist",
+                        album=album,
+                        title="Track",
+                    )
+                )
+            save_library(
+                MusicLibrary(
+                    roots=[str(root)],
+                    tracks=tracks,
+                    supported_extensions=[".flac"],
+                    generated_at="2026-05-07T00:00:00+00:00",
+                ),
+                temp_path / "kukicha.sqlite",
+            )
+
+            names = self.album_list2_names(
+                temp_path,
+                album_list_type="alphabeticalByName",
+                size="205",
+            )
+            paged_names = self.album_list2_names(
+                temp_path,
+                album_list_type="alphabeticalByName",
+                size="3",
+                offset="201",
+            )
+
+        self.assertEqual(len(names), 205)
+        self.assertEqual(names[0], "Album 000")
+        self.assertEqual(names[-1], "Album 204")
+        self.assertEqual(paged_names, ["Album 201", "Album 202", "Album 203"])
 
     def test_get_artists_groups_album_artists_and_reuses_album_cover_art(self) -> None:
         with TemporaryDirectory() as tempdir:
