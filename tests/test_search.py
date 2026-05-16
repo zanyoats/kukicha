@@ -5,7 +5,13 @@ import sqlite3
 from tempfile import TemporaryDirectory
 import unittest
 
-from kukicha.use_case import AlbumListQuery, GenreStyleFilter, LibraryQueries, album_where_clause
+from kukicha.use_case import (
+    AlbumListQuery,
+    ArtistNotFoundError,
+    GenreStyleFilter,
+    LibraryQueries,
+    album_where_clause,
+)
 from kukicha.use_case import (
     ALBUM_SEARCH_METADATA_KEY,
     ALBUM_SEARCH_INDEX_VERSION,
@@ -13,7 +19,7 @@ from kukicha.use_case import (
     connect_database,
 )
 from kukicha.use_case import save_library
-from kukicha.models import MusicLibrary, TrackRecord
+from kukicha.models import MusicLibrary, TrackArtwork, TrackRecord
 from kukicha.search import parse_album_search_query
 
 
@@ -675,6 +681,122 @@ class AlbumTrackIdsTest(unittest.TestCase):
             page = LibraryQueries(database).list_album_page(AlbumListQuery())
 
         self.assertFalse(hasattr(page.items[0], "track_ids"))
+
+
+class LibraryArtistQueriesTest(unittest.TestCase):
+    def save_artist_library(self, database: Path) -> None:
+        temp_path = database.parent
+        root_a = temp_path / "music-a"
+        root_b = temp_path / "music-b"
+        save_library(
+            MusicLibrary(
+                roots=[str(root_a), str(root_b)],
+                tracks=[
+                    TrackRecord(
+                        path=str(root_a / "The Apples" / "Red" / "01.mp3"),
+                        root_position=0,
+                        file_type="mp3",
+                        artist="The Apples",
+                        album_artist="The Apples",
+                        album="Red",
+                        title="Red One",
+                        genres=["Rock"],
+                        duration_seconds=30.0,
+                        album_artwork=TrackArtwork(
+                            mime_type="image/png",
+                            data=b"apples-cover",
+                        ),
+                    ),
+                    TrackRecord(
+                        path=str(root_a / "Brian Eno" / "Ambient 1" / "01.flac"),
+                        root_position=0,
+                        file_type="flac",
+                        artist="Brian Eno",
+                        album_artist="Brian Eno",
+                        album="Ambient 1",
+                        title="1/1",
+                        genres=["Ambient"],
+                        duration_seconds=70.0,
+                    ),
+                    TrackRecord(
+                        path=str(root_b / "Brian Eno" / "Another Green World" / "01.flac"),
+                        root_position=1,
+                        file_type="flac",
+                        artist="Brian Eno",
+                        album_artist="Brian Eno",
+                        album="Another Green World",
+                        title="Sky Saw",
+                        genres=["Electronic"],
+                        duration_seconds=80.0,
+                        album_artwork=TrackArtwork(
+                            mime_type="image/png",
+                            data=b"eno-cover",
+                        ),
+                    ),
+                ],
+                supported_extensions=[".mp3", ".flac"],
+                generated_at="test",
+            ),
+            database,
+        )
+
+    def test_lists_album_artists_globally_and_by_root(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            database = Path(tempdir) / "library.sqlite"
+            self.save_artist_library(database)
+            api = LibraryQueries(database)
+
+            global_artists = {
+                artist.artist: artist
+                for artist in api.list_album_artists()
+            }
+            root_artists = {
+                artist.artist: artist
+                for artist in api.list_album_artists(root_position=0)
+            }
+
+        self.assertEqual(
+            set(global_artists),
+            {"Brian Eno", "The Apples"},
+        )
+        self.assertEqual(global_artists["Brian Eno"].album_count, 2)
+        self.assertEqual(
+            global_artists["Brian Eno"].cover_album_id,
+            "brian-eno::another-green-world",
+        )
+        self.assertEqual(root_artists["The Apples"].album_count, 1)
+        self.assertEqual(root_artists["The Apples"].cover_album_id, "the-apples::red")
+        self.assertEqual(root_artists["Brian Eno"].album_count, 1)
+        self.assertIsNone(root_artists["Brian Eno"].cover_album_id)
+
+    def test_get_album_artist_returns_details_case_insensitively(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            database = Path(tempdir) / "library.sqlite"
+            self.save_artist_library(database)
+
+            artist = LibraryQueries(database).get_album_artist("brian eno")
+
+        self.assertEqual(artist.artist, "Brian Eno")
+        self.assertEqual(artist.album_count, 2)
+        self.assertEqual(artist.cover_album_id, "brian-eno::another-green-world")
+        self.assertEqual(
+            [album.album_id for album in artist.albums],
+            ["brian-eno::ambient-1", "brian-eno::another-green-world"],
+        )
+        self.assertEqual(artist.albums[0].duration_seconds, 70)
+        self.assertEqual(artist.albums[0].genre, "Ambient")
+        self.assertFalse(artist.albums[0].has_cover)
+        self.assertEqual(artist.albums[1].duration_seconds, 80)
+        self.assertEqual(artist.albums[1].genre, "Electronic")
+        self.assertTrue(artist.albums[1].has_cover)
+
+    def test_get_album_artist_raises_for_missing_artist(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            database = Path(tempdir) / "library.sqlite"
+            self.save_artist_library(database)
+
+            with self.assertRaises(ArtistNotFoundError):
+                LibraryQueries(database).get_album_artist("Missing")
 
 
 class AlbumGenreFilterOptionsTest(unittest.TestCase):

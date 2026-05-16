@@ -14,6 +14,12 @@ class AlbumNotFoundError(LibraryQueryError, KeyError):
         self.album_id = album_id
 
 
+class ArtistNotFoundError(LibraryQueryError, KeyError):
+    def __init__(self, artist: str) -> None:
+        super().__init__(f"artist not found: {artist}")
+        self.artist = artist
+
+
 class PlaylistNotFoundError(LibraryQueryError, KeyError):
     def __init__(self, playlist_id: int) -> None:
         super().__init__(f"playlist not found: {playlist_id}")
@@ -155,6 +161,25 @@ class AlbumDetails(AlbumSummary):
     track_ids: tuple[int, ...] = ()
     paths: tuple[str, ...] = ()
     tracks: tuple[PlaylistTrack, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
+class LibraryArtistSummary:
+    artist: str
+    album_count: int
+    cover_album_id: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class LibraryArtistAlbum(AlbumSummary):
+    duration_seconds: int = 0
+    genre: str | None = None
+    has_cover: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class LibraryArtistDetails(LibraryArtistSummary):
+    albums: tuple[LibraryArtistAlbum, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

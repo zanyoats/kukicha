@@ -32,16 +32,18 @@ from .use_case import (
     AlbumNotFoundError,
     AlbumListQuery,
     AlbumSummary,
+    ArtistNotFoundError,
     GenreStyleFilter,
+    LibraryArtistDetails,
+    LibraryArtistSummary,
     LibraryGenre,
     LibraryQueries,
     TrackNotFoundError,
-    connect_database,
     record_playback,
     track_artwork,
     track_audio_path,
 )
-from .use_case.queries.library import album_artist_display_text, album_artists_by_album
+from .use_case.queries.library import album_artist_display_text
 
 
 OPEN_SUBSONIC_CONTEXT_KEY = "kukicha_open_subsonic_context"
@@ -116,7 +118,12 @@ def create_open_subsonic_app(options: PlayerServerOptions) -> Flask:
             result = handler(params)
         except OpenSubsonicApiError as error:
             return subsonic_error_response(error.code, error.message)
-        except (AlbumNotFoundError, TrackNotFoundError, FileNotFoundError):
+        except (
+            AlbumNotFoundError,
+            ArtistNotFoundError,
+            TrackNotFoundError,
+            FileNotFoundError,
+        ):
             return subsonic_error_response(ERROR_NOT_FOUND, "The requested data was not found.")
         if isinstance(result, Response):
             return result
@@ -526,135 +533,46 @@ def artist_stats_payloads(
     *,
     root_position: int | None = None,
 ) -> list[dict[str, object]]:
-    with connect_database(database, create=False) as connection:
-        if root_position is None:
-            rows = list(
-                connection.execute(
-                    """
-                    SELECT album_artist, albums_scanned
-                    FROM library_album_artist_stats
-                    WHERE COALESCE(album_artist, '') != ''
-                    ORDER BY album_artist COLLATE NOCASE
-                    """
-                )
-            )
-        else:
-            rows = list(
-                connection.execute(
-                    """
-                    SELECT album_artist, albums_scanned
-                    FROM library_root_album_artist_stats
-                    WHERE root_position = ?
-                        AND COALESCE(album_artist, '') != ''
-                    ORDER BY album_artist COLLATE NOCASE
-                    """,
-                    (root_position,),
-                )
-            )
     artists = [
-        artist_summary_payload(
-            database,
-            str(row["album_artist"]),
-            album_count=int(row["albums_scanned"]),
+        artist_summary_payload(artist)
+        for artist in LibraryQueries(database).list_album_artists(
             root_position=root_position,
         )
-        for row in rows
     ]
     return artist_indexes(artists)
 
 
 def artist_payload(database: Path, artist_id_value: str) -> dict[str, object]:
     requested_artist = artist_name_from_id(artist_id_value)
-    with connect_database(database, create=False) as connection:
-        artist_row = connection.execute(
-            """
-            SELECT album_artist, albums_scanned
-            FROM library_album_artist_stats
-            WHERE album_artist = ? COLLATE NOCASE
-            """,
-            (requested_artist,),
-        ).fetchone()
-    if artist_row is None:
-        raise OpenSubsonicApiError(ERROR_NOT_FOUND, "The requested data was not found.")
-
-    artist_name = str(artist_row["album_artist"])
-    payload = artist_summary_payload(
-        database,
-        artist_name,
-        album_count=int(artist_row["albums_scanned"]),
-    )
-    payload["album"] = artist_album_payloads(database, artist_name)
+    artist = LibraryQueries(database).get_album_artist(requested_artist)
+    payload = artist_summary_payload(artist)
+    payload["album"] = artist_album_payloads(artist)
     return payload
 
 
-def artist_album_payloads(database: Path, artist: str) -> list[dict[str, object]]:
-    with connect_database(database, create=False) as connection:
-        rows = list(
-            connection.execute(
-                """
-                SELECT
-                    albums.rowid,
-                    albums.album_id,
-                    albums.album,
-                    albums.year,
-                    albums.track_count,
-                    albums.file_created_at,
-                    albums.art_track_id,
-                    COALESCE(
-                        (
-                            SELECT SUM(COALESCE(tracks.duration_seconds, 0))
-                            FROM library_tracks AS tracks
-                            WHERE tracks.album_id = albums.album_id
-                        ),
-                        0
-                    ) AS duration,
-                    (
-                        SELECT genres.genre
-                        FROM library_album_genres AS genres
-                        WHERE genres.album_id = albums.album_id
-                        ORDER BY genres.genre COLLATE NOCASE
-                        LIMIT 1
-                    ) AS genre
-                FROM library_albums AS albums
-                JOIN library_album_artists AS artists
-                    ON artists.album_id = albums.album_id
-                WHERE artists.artist = ? COLLATE NOCASE
-                ORDER BY albums.rowid
-                """,
-                (artist,),
-            )
-        )
-        artists_by_album = album_artists_by_album(
-            connection,
-            (str(row["album_id"]) for row in rows),
-        )
-
-    parent = artist_id(artist)
+def artist_album_payloads(artist: LibraryArtistDetails) -> list[dict[str, object]]:
+    parent = artist_id(artist.artist)
     albums: list[dict[str, object]] = []
-    for row in rows:
-        album_id = str(row["album_id"])
-        album_artist = album_artist_display_text(artists_by_album.get(album_id, ()))
+    for row in artist.albums:
         album = album_summary_payload(
-            album_id=album_id,
-            name=str(row["album"]),
-            artist=album_artist,
-            song_count=int(row["track_count"]),
-            year=int(row["year"]) if row["year"] is not None else None,
-            created=row["file_created_at"],
-            has_cover=row["art_track_id"] is not None,
-            art_track_id=(
-                int(row["art_track_id"]) if row["art_track_id"] is not None else None
-            ),
+            album_id=row.album_id,
+            name=row.album,
+            artist=row.artist,
+            song_count=row.track_count,
+            year=row.year,
+            created=row.file_created_at,
+            has_cover=row.has_cover,
+            art_track_id=row.art_track_id,
         )
         album.update(
             without_none(
                 {
                     "parent": parent,
-                    "album": str(row["album"]),
-                    "title": str(row["album"]),
+                    "album": row.album,
+                    "title": row.album,
                     "isDir": True,
-                    "duration": int(row["duration"] or 0),
-                    "genre": row["genre"],
+                    "duration": row.duration_seconds,
+                    "genre": row.genre,
                 }
             )
         )
@@ -662,69 +580,16 @@ def artist_album_payloads(database: Path, artist: str) -> list[dict[str, object]
     return albums
 
 
-def artist_summary_payload(
-    database: Path,
-    artist: str,
-    *,
-    album_count: int,
-    root_position: int | None = None,
-) -> dict[str, object]:
+def artist_summary_payload(artist: LibraryArtistSummary) -> dict[str, object]:
     return without_none(
         {
-            "id": artist_id(artist),
-            "name": artist,
-            "coverArt": artist_cover_art_id(
-                database,
-                artist,
-                root_position=root_position,
-            ),
-            "albumCount": album_count,
+            "id": artist_id(artist.artist),
+            "name": artist.artist,
+            "coverArt": album_cover_art_id(artist.cover_album_id),
+            "albumCount": artist.album_count,
             "roles": ["albumartist"],
         }
     )
-
-
-def artist_cover_art_id(
-    database: Path,
-    artist: str,
-    *,
-    root_position: int | None = None,
-) -> str | None:
-    with connect_database(database, create=False) as connection:
-        if root_position is None:
-            row = connection.execute(
-                """
-                SELECT albums.album_id
-                FROM library_albums AS albums
-                JOIN library_album_artists AS artists
-                    ON artists.album_id = albums.album_id
-                WHERE artists.artist = ? COLLATE NOCASE
-                    AND albums.art_track_id IS NOT NULL
-                ORDER BY albums.rowid
-                LIMIT 1
-                """,
-                (artist,),
-            ).fetchone()
-        else:
-            row = connection.execute(
-                """
-                SELECT albums.album_id
-                FROM library_albums AS albums
-                JOIN library_album_roots AS album_roots
-                    ON album_roots.album_id = albums.album_id
-                JOIN library_album_artists AS artists
-                    ON artists.album_id = albums.album_id
-                WHERE artists.artist = ? COLLATE NOCASE
-                    AND album_roots.root_position = ?
-                    AND album_roots.art_track_id IS NOT NULL
-                ORDER BY albums.rowid
-                LIMIT 1
-                """,
-                (artist, root_position),
-            ).fetchone()
-    if row is None:
-        return None
-    return album_cover_art_id(str(row["album_id"]))
 
 
 def artist_indexes(artists: Iterable[dict[str, object]]) -> list[dict[str, object]]:

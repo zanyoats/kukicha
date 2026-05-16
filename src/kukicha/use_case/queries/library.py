@@ -30,9 +30,13 @@ from .models import (
     AlbumNotFoundError,
     AlbumPage,
     AlbumSummary,
+    ArtistNotFoundError,
     CacheStat,
     GenreFilterGroup,
     GenreStyleFilter,
+    LibraryArtistAlbum,
+    LibraryArtistDetails,
+    LibraryArtistSummary,
     LibraryFilterOptions,
     LibraryAlbumArtistStats,
     LibraryGenre,
@@ -619,6 +623,138 @@ class LibraryQueries:
                 album_count=int(row["album_count"]),
             )
             for row in rows
+        )
+
+    def list_album_artists(
+        self,
+        *,
+        root_position: int | None = None,
+    ) -> tuple[LibraryArtistSummary, ...]:
+        with connect_database(self.database, create=False) as connection:
+            if root_position is None:
+                rows = list(
+                    connection.execute(
+                        """
+                        SELECT album_artist, albums_scanned
+                        FROM library_album_artist_stats
+                        WHERE COALESCE(album_artist, '') != ''
+                        ORDER BY album_artist COLLATE NOCASE
+                        """
+                    )
+                )
+            else:
+                rows = list(
+                    connection.execute(
+                        """
+                        SELECT album_artist, albums_scanned
+                        FROM library_root_album_artist_stats
+                        WHERE root_position = ?
+                            AND COALESCE(album_artist, '') != ''
+                        ORDER BY album_artist COLLATE NOCASE
+                        """,
+                        (root_position,),
+                    )
+                )
+            cover_album_ids = album_artist_cover_album_ids(
+                connection,
+                (str(row["album_artist"]) for row in rows),
+                root_position=root_position,
+            )
+        return tuple(
+            LibraryArtistSummary(
+                artist=str(row["album_artist"]),
+                album_count=int(row["albums_scanned"]),
+                cover_album_id=cover_album_ids.get(str(row["album_artist"]).casefold()),
+            )
+            for row in rows
+        )
+
+    def get_album_artist(self, artist: str) -> LibraryArtistDetails:
+        with connect_database(self.database, create=False) as connection:
+            artist_row = connection.execute(
+                """
+                SELECT album_artist, albums_scanned
+                FROM library_album_artist_stats
+                WHERE album_artist = ? COLLATE NOCASE
+                """,
+                (artist,),
+            ).fetchone()
+            if artist_row is None:
+                raise ArtistNotFoundError(artist)
+            artist_name = str(artist_row["album_artist"])
+            cover_album_ids = album_artist_cover_album_ids(
+                connection,
+                (artist_name,),
+            )
+            rows = list(
+                connection.execute(
+                    """
+                    SELECT
+                        albums.album_id,
+                        albums.album,
+                        albums.year,
+                        albums.track_count,
+                        albums.file_created_at,
+                        albums.added_at,
+                        albums.starred_at,
+                        albums.art_track_id,
+                        COALESCE(
+                            (
+                                SELECT SUM(COALESCE(tracks.duration_seconds, 0))
+                                FROM library_tracks AS tracks
+                                WHERE tracks.album_id = albums.album_id
+                            ),
+                            0
+                        ) AS duration,
+                        (
+                            SELECT genres.genre
+                            FROM library_album_genres AS genres
+                            WHERE genres.album_id = albums.album_id
+                            ORDER BY genres.genre COLLATE NOCASE
+                            LIMIT 1
+                        ) AS genre
+                    FROM library_albums AS albums
+                    JOIN library_album_artists AS artists
+                        ON artists.album_id = albums.album_id
+                    WHERE artists.artist = ? COLLATE NOCASE
+                    ORDER BY albums.rowid
+                    """,
+                    (artist_name,),
+                )
+            )
+            artists_by_album = album_artists_by_album(
+                connection,
+                (str(row["album_id"]) for row in rows),
+            )
+        albums = tuple(
+            LibraryArtistAlbum(
+                album_id=str(row["album_id"]),
+                artist=album_artist_display_text(
+                    artists_by_album.get(str(row["album_id"]), ())
+                ),
+                album=str(row["album"]),
+                year=int(row["year"]) if row["year"] is not None else None,
+                track_count=int(row["track_count"]),
+                album_artists=artists_by_album.get(str(row["album_id"]), ()),
+                file_created_at=row["file_created_at"],
+                added_at=row["added_at"],
+                starred_at=row["starred_at"],
+                art_track_id=(
+                    int(row["art_track_id"])
+                    if row["art_track_id"] is not None
+                    else None
+                ),
+                duration_seconds=int(row["duration"] or 0),
+                genre=str(row["genre"]) if row["genre"] is not None else None,
+                has_cover=row["art_track_id"] is not None,
+            )
+            for row in rows
+        )
+        return LibraryArtistDetails(
+            artist=artist_name,
+            album_count=int(artist_row["albums_scanned"]),
+            cover_album_id=cover_album_ids.get(artist_name.casefold()),
+            albums=albums,
         )
 
     def album_artist_split_mappings(self) -> tuple[AlbumArtistSplitMapping, ...]:
@@ -1320,6 +1456,55 @@ def album_artists_by_album(
     }
 
 
+def album_artist_cover_album_ids(
+    connection: Connection,
+    artists: Iterable[str],
+    *,
+    root_position: int | None = None,
+) -> dict[str, str]:
+    requested_artists = tuple(
+        dict.fromkeys(artist for artist in artists if artist)
+    )
+    if not requested_artists:
+        return {}
+    cover_album_ids: dict[str, str] = {}
+    for artist in requested_artists:
+        if root_position is None:
+            row = connection.execute(
+                """
+                SELECT albums.album_id
+                FROM library_albums AS albums
+                JOIN library_album_artists AS artists
+                    ON artists.album_id = albums.album_id
+                WHERE artists.artist = ? COLLATE NOCASE
+                    AND albums.art_track_id IS NOT NULL
+                ORDER BY albums.rowid
+                LIMIT 1
+                """,
+                (artist,),
+            ).fetchone()
+        else:
+            row = connection.execute(
+                """
+                SELECT albums.album_id
+                FROM library_albums AS albums
+                JOIN library_album_roots AS album_roots
+                    ON album_roots.album_id = albums.album_id
+                JOIN library_album_artists AS artists
+                    ON artists.album_id = albums.album_id
+                WHERE artists.artist = ? COLLATE NOCASE
+                    AND album_roots.root_position = ?
+                    AND album_roots.art_track_id IS NOT NULL
+                ORDER BY albums.rowid
+                LIMIT 1
+                """,
+                (artist, root_position),
+            ).fetchone()
+        if row is not None:
+            cover_album_ids[artist.casefold()] = str(row["album_id"])
+    return cover_album_ids
+
+
 def album_sort_genres_by_album(
     connection: Connection,
     album_ids: Iterable[str],
@@ -1502,8 +1687,12 @@ __all__ = [
     "AlbumNotFoundError",
     "AlbumPage",
     "AlbumSummary",
+    "ArtistNotFoundError",
     "GenreFilterGroup",
     "GenreStyleFilter",
+    "LibraryArtistAlbum",
+    "LibraryArtistDetails",
+    "LibraryArtistSummary",
     "LibraryAlbumArtistStats",
     "LibraryGenre",
     "LibraryQueries",
