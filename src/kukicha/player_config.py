@@ -16,6 +16,12 @@ from .album_artists import (
     normalize_album_artist_split_patterns,
 )
 from .display import display_album_title
+from .library_sources import (
+    RemoteRootConfig,
+    normalize_remote_root_config,
+    remote_root_display_label,
+    validate_remote_roots,
+)
 from .player_common import format_compact_count
 from .player_errors import PlayerConfigError
 from .player_navigation import (
@@ -47,6 +53,7 @@ PLAYER_CONFIG_KEY_ORDER = (
     "LogLevel",
     "DatabasePath",
     "Roots",
+    "RemoteRoots",
     "FFmpegPath",
     "YoutubeDownloadPath",
     "PreferMusicBrainzEnglishAliases",
@@ -78,6 +85,7 @@ class PlayerServerOptions:
     database: Path
     ffmpeg_path: Path | None
     roots: tuple[Path, ...] = ()
+    remote_roots: tuple[RemoteRootConfig, ...] = ()
     host: str = DEFAULT_PLAYER_HOST
     port: int = DEFAULT_PLAYER_PORT
     open_subsonic_username: str = DEFAULT_OPEN_SUBSONIC_USERNAME
@@ -281,6 +289,7 @@ def load_player_options(config_path: str | Path | None = None) -> PlayerServerOp
         key="Roots",
         base_dir=config_dir,
     )
+    remote_roots = parse_remote_roots(config.get("RemoteRoots", ()))
     host = parse_player_host(config.get("Host", DEFAULT_PLAYER_HOST))
     port = parse_player_port(config.get("Port", DEFAULT_PLAYER_PORT))
     open_subsonic_username = parse_config_non_empty_string(
@@ -320,6 +329,7 @@ def load_player_options(config_path: str | Path | None = None) -> PlayerServerOp
         config_path=resolved_config_path,
         database=database,
         roots=roots,
+        remote_roots=remote_roots,
         ffmpeg_path=ffmpeg_path,
         youtube_download_path=youtube_download_path,
         host=host,
@@ -414,6 +424,7 @@ def player_config_values(
         "LogLevel": options.log_level,
         "DatabasePath": str(options.database),
         "Roots": format_player_config_path_list(options.roots),
+        "RemoteRoots": format_player_config_remote_roots(options.remote_roots),
         "FFmpegPath": format_player_config_optional_path(options.ffmpeg_path),
         "YoutubeDownloadPath": format_player_config_optional_path(
             options.youtube_download_path
@@ -438,6 +449,7 @@ def player_config_values(
     }
     value_items = {
         "Roots": tuple(str(root) for root in options.roots),
+        "RemoteRoots": tuple(remote_root_display_label(root) for root in options.remote_roots),
         "AlbumArtistSplitPatterns": options.album_artist_split_patterns,
     }
     return tuple(
@@ -474,6 +486,9 @@ def format_player_config_bool(value: bool) -> str:
 
 def format_player_config_path_list(values: tuple[Path, ...]) -> str:
     return "[" + ", ".join(repr(str(value)) for value in values) + "]"
+
+def format_player_config_remote_roots(values: tuple[RemoteRootConfig, ...]) -> str:
+    return "[" + ", ".join(repr(remote_root_display_label(value)) for value in values) + "]"
 
 def configure_player_logging(log_level: str) -> None:
     level_name = parse_player_log_level(log_level)
@@ -766,6 +781,50 @@ def parse_config_path_list(
         paths.append(path)
     validate_config_path_list(paths, key=key, source_paths=source_paths)
     return tuple(paths)
+
+def parse_remote_roots(value: object) -> tuple[RemoteRootConfig, ...]:
+    if not isinstance(value, (list, tuple)):
+        raise PlayerConfigError("RemoteRoots must be an array of tables")
+
+    roots: list[RemoteRootConfig] = []
+    for item in value:
+        if not isinstance(item, dict):
+            raise PlayerConfigError("RemoteRoots must be an array of tables")
+        secret_keys = sorted(
+            key
+            for key in item
+            if key in {"access_key_id", "secret_access_key", "session_token"}
+        )
+        if secret_keys:
+            raise PlayerConfigError(
+                "RemoteRoots must not contain inline credentials: "
+                + ", ".join(secret_keys)
+            )
+        supported_keys = {
+            "name",
+            "endpoint_url",
+            "bucket",
+            "prefix",
+            "profile",
+            "region",
+            "addressing_style",
+        }
+        unknown_keys = sorted(set(item) - supported_keys)
+        if unknown_keys:
+            raise PlayerConfigError(
+                "unsupported RemoteRoots key(s): " + ", ".join(unknown_keys)
+            )
+        try:
+            roots.append(normalize_remote_root_config(item))
+        except ValueError as error:
+            raise PlayerConfigError(f"invalid RemoteRoots entry: {error}") from error
+
+    remote_roots = tuple(roots)
+    try:
+        validate_remote_roots(remote_roots)
+    except ValueError as error:
+        raise PlayerConfigError(str(error)) from error
+    return remote_roots
 
 def validate_config_path_list(
     paths: list[Path] | tuple[Path, ...],

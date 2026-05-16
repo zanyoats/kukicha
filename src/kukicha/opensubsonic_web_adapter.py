@@ -19,7 +19,8 @@ from .app_metadata import kukicha_version
 from .models import ALBUM_ARTWORK_HEIGHT, TRACK_ARTWORK_HEIGHT
 from .player_config import LOGGER, PlayerServerOptions, validate_player_startup
 from .player_errors import PlayerConfigError, PlayerNotFoundError
-from .player_media import audio_mime_type
+from .media_resources import AudioResource, local_audio_resource
+from .player_media import audio_mime_type, audio_resource_head, iter_audio_resource_bytes
 from .player_platform import register_player_signal_handlers, restore_signal_handlers
 from .player_runtime import PlayerRuntime
 from .use_case import (
@@ -42,6 +43,7 @@ from .use_case import (
     record_playback,
     track_artwork,
     track_audio_path,
+    track_audio_resource,
     update_album_star,
 )
 from .use_case.queries.library import album_artist_display_text
@@ -51,7 +53,6 @@ OPEN_SUBSONIC_CONTEXT_KEY = "kukicha_open_subsonic_context"
 OPEN_SUBSONIC_PROTOCOL_VERSION = "1.16.1"
 OPEN_SUBSONIC_TYPE = "kukicha"
 BYTE_RANGE_RE = re.compile(r"bytes=(\d*)-(\d*)$")
-CHUNK_SIZE = 1024 * 512
 ERROR_GENERIC = 0
 ERROR_REQUIRED_PARAMETER_MISSING = 10
 ERROR_WRONG_USERNAME_OR_PASSWORD = 40
@@ -326,7 +327,7 @@ def handle_get_music_folders(params: Mapping[str, list[str]]) -> dict[str, objec
     folders = [
         {
             "id": str(root.position),
-            "name": music_folder_name(root.path),
+            "name": root.label if root.kind == "s3" else music_folder_name(root.path),
         }
         for root in LibraryQueries(open_subsonic_context().database).library_roots()
     ]
@@ -390,16 +391,28 @@ def handle_get_song(params: Mapping[str, list[str]]) -> dict[str, object]:
 
 def handle_stream(params: Mapping[str, list[str]]) -> Response:
     track_id = int_required_param(params, "id")
-    path = track_audio_path(open_subsonic_context().runtime, track_id)
-    return audio_file_response(path)
+    try:
+        resource = track_audio_resource(open_subsonic_context().runtime, track_id)
+    except TrackNotFoundError:
+        path = track_audio_path(open_subsonic_context().runtime, track_id)
+        return audio_file_response(path)
+    return audio_resource_response(resource)
 
 
 def handle_download(params: Mapping[str, list[str]]) -> Response:
     track_id = int_required_param(params, "id")
-    path = track_audio_path(open_subsonic_context().runtime, track_id)
-    response = audio_file_response(path)
+    try:
+        resource = track_audio_resource(open_subsonic_context().runtime, track_id)
+    except TrackNotFoundError:
+        path = track_audio_path(open_subsonic_context().runtime, track_id)
+        response = audio_file_response(path)
+        response.headers["Content-Disposition"] = (
+            f'attachment; filename="{content_disposition_filename(path.name)}"'
+        )
+        return response
+    response = audio_resource_response(resource)
     response.headers["Content-Disposition"] = (
-        f'attachment; filename="{content_disposition_filename(path.name)}"'
+        f'attachment; filename="{content_disposition_filename(resource.name)}"'
     )
     return response
 
@@ -901,12 +914,11 @@ def parse_byte_range(header: str | None, file_size: int) -> tuple[int, int] | No
 
 
 def audio_file_response(path: Path) -> Response:
-    if not path.is_file():
-        raise FileNotFoundError(path)
-    file_size = path.stat().st_size
-    if file_size <= 0:
-        raise FileNotFoundError(path)
+    return audio_resource_response(local_audio_resource(path))
 
+
+def audio_resource_response(resource: AudioResource) -> Response:
+    file_size, content_type = audio_resource_head(resource)
     byte_range = parse_byte_range(request.headers.get("Range"), file_size)
     if byte_range is None:
         start, end = 0, file_size - 1
@@ -924,27 +936,19 @@ def audio_file_response(path: Path) -> Response:
         headers["Content-Range"] = f"bytes {start}-{end}/{file_size}"
 
     if request.method == "HEAD":
-        return Response(status=status, headers=headers, content_type=audio_mime_type(path))
+        return Response(status=status, headers=headers, content_type=content_type)
 
-    def stream_file() -> Iterable[bytes]:
+    def stream_resource() -> Iterable[bytes]:
         try:
-            with path.open("rb") as handle:
-                handle.seek(start)
-                remaining = length
-                while remaining > 0:
-                    chunk = handle.read(min(CHUNK_SIZE, remaining))
-                    if not chunk:
-                        break
-                    remaining -= len(chunk)
-                    yield chunk
+            yield from iter_audio_resource_bytes(resource, start=start, length=length)
         except (BrokenPipeError, ConnectionResetError):
             return
 
     return Response(
-        stream_with_context(stream_file()),
+        stream_with_context(stream_resource()),
         status=status,
         headers=headers,
-        content_type=audio_mime_type(path),
+        content_type=content_type,
         direct_passthrough=True,
     )
 

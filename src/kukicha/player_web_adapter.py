@@ -29,6 +29,7 @@ from .use_case import (
     start_sync,
     track_artwork,
     track_audio_path,
+    track_audio_resource,
     update_album_star as update_album_star_command,
     update_playback as update_playback_command,
     update_queue as update_queue_command,
@@ -48,7 +49,8 @@ from .player_config import (
     validate_player_startup,
 )
 from .player_errors import PlayerConfigError, PlayerConflictError, PlayerNotFoundError
-from .player_media import audio_mime_type
+from .media_resources import AudioResource, local_audio_resource
+from .player_media import audio_resource_head, iter_audio_resource_bytes
 from .player_navigation import PLAYER_PAGE_ROUTE_KEYS
 from .player_platform import (
     register_player_signal_handlers,
@@ -77,7 +79,6 @@ from .player_views import (
 )
 
 BYTE_RANGE_RE = re.compile(r"bytes=(\d*)-(\d*)$")
-CHUNK_SIZE = 1024 * 512
 MAX_POST_BYTES = 1024 * 64
 FRAGMENT_HEADER = "X-Kukicha-Fragment"
 PLAYER_CONTEXT_KEY = "kukicha_player_context"
@@ -229,7 +230,11 @@ def create_player_app(options: PlayerServerOptions) -> Flask:
 
     @app.get("/audio/<int:track_id>")
     def audio(track_id: int) -> Response:
-        return audio_file_response(track_audio_path(player_context().runtime, track_id))
+        try:
+            resource = track_audio_resource(player_context().runtime, track_id)
+        except TrackNotFoundError:
+            return audio_file_response(track_audio_path(player_context().runtime, track_id))
+        return audio_resource_response(resource)
 
     @app.get("/playlist-audio/<int:playlist_item_id>")
     def playlist_audio(playlist_item_id: int) -> Response:
@@ -455,7 +460,7 @@ def serve_player(options: PlayerServerOptions) -> int:
 
 def start_player_sync(app: Flask) -> None:
     context = app.extensions[PLAYER_CONTEXT_KEY]
-    start_sync(context.runtime, context.options.roots)
+    start_sync(context.runtime, context.options.roots, context.options.remote_roots)
 
 
 def player_context() -> PlayerWebContext:
@@ -629,12 +634,14 @@ def read_json_body() -> dict[str, Any]:
 
 
 def audio_file_response(path: Path) -> Response:
-    if not path.is_file():
-        abort(404, "Audio file not found")
+    return audio_resource_response(local_audio_resource(path))
 
-    file_size = path.stat().st_size
-    if file_size <= 0:
-        abort(404, "Audio file is empty")
+
+def audio_resource_response(resource: AudioResource) -> Response:
+    try:
+        file_size, content_type = audio_resource_head(resource)
+    except FileNotFoundError:
+        abort(404, "Audio file not found")
 
     byte_range = parse_byte_range(request.headers.get("Range"), file_size)
     if byte_range is None:
@@ -656,28 +663,20 @@ def audio_file_response(path: Path) -> Response:
         return Response(
             status=status,
             headers=headers,
-            content_type=audio_mime_type(path),
+            content_type=content_type,
         )
 
-    def stream_file() -> Any:
+    def stream_resource() -> Any:
         try:
-            with path.open("rb") as handle:
-                handle.seek(start)
-                remaining = length
-                while remaining > 0:
-                    chunk = handle.read(min(CHUNK_SIZE, remaining))
-                    if not chunk:
-                        break
-                    remaining -= len(chunk)
-                    yield chunk
+            yield from iter_audio_resource_bytes(resource, start=start, length=length)
         except (BrokenPipeError, ConnectionResetError):
             return
 
     return Response(
-        stream_file(),
+        stream_resource(),
         status=status,
         headers=headers,
-        content_type=audio_mime_type(path),
+        content_type=content_type,
         direct_passthrough=True,
     )
 

@@ -16,6 +16,25 @@ class TrackArtwork:
 
 
 @dataclass(slots=True)
+class TrackSourceRecord:
+    source_kind: str
+    root_position: int | None = None
+    canonical_path: str = ""
+    object_key: str | None = None
+    etag: str | None = None
+    version_id: str | None = None
+    last_modified: str | None = None
+    content_type: str | None = None
+    size_bytes: int | None = None
+    sidecar_object_key: str | None = None
+    sidecar_etag: str | None = None
+    sidecar_version_id: str | None = None
+    sidecar_last_modified: str | None = None
+    sidecar_content_type: str | None = None
+    sidecar_size_bytes: int | None = None
+
+
+@dataclass(slots=True)
 class TrackRecord:
     path: str
     track_id: int | None = None
@@ -53,6 +72,7 @@ class TrackRecord:
     album_artwork: TrackArtwork | None = None
     duration_seconds: float | None = None
     bitrate: int | None = None
+    source: TrackSourceRecord | None = None
 
 
 @dataclass(slots=True)

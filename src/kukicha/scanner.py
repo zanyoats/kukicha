@@ -14,12 +14,23 @@ from datetime import UTC, datetime
 from functools import lru_cache
 from io import BytesIO
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import Callable
 from urllib.parse import urlsplit
 
 from mutagen import File as MutagenFile
 
 from .file_metadata import file_created_at
+from .library_sources import (
+    LibraryRootSource,
+    RemoteRootConfig,
+    SOURCE_KIND_LOCAL,
+    SOURCE_KIND_S3,
+    canonical_s3_path,
+    create_s3_client,
+    remote_root_display_label,
+    remote_root_from_source_json,
+)
 from .models import (
     ALBUM_ARTWORK_HEIGHT,
     TRACK_ARTWORK_HEIGHT,
@@ -28,6 +39,7 @@ from .models import (
     PlaylistRecord,
     TrackArtwork,
     TrackRecord,
+    TrackSourceRecord,
     UNKNOWN_METADATA_TAG,
     normalize_genre_values,
 )
@@ -127,6 +139,7 @@ PLAYLIST_NAME_PREFIX = "#PLAYLIST:"
 EXTINF_PREFIX = "#EXTINF:"
 EXTGENRE_PREFIX = "#EXTGENRE:"
 EXTALBUMARTURL_PREFIX = "#EXTALBUMARTURL:"
+DOWNLOAD_CHUNK_SIZE = 1024 * 512
 
 
 @dataclass(frozen=True, slots=True)
@@ -147,6 +160,17 @@ class SidecarArtworkSnapshot:
     path: str
     modified_at_ns: int
     size_bytes: int
+
+
+@dataclass(frozen=True, slots=True)
+class S3ObjectSnapshot:
+    key: str
+    size_bytes: int | None = None
+    last_modified: str | None = None
+    last_modified_ns: int | None = None
+    etag: str | None = None
+    version_id: str | None = None
+    content_type: str | None = None
 
 
 def build_library(
@@ -222,6 +246,119 @@ def build_incremental_library(
     )
 
 
+def build_library_from_sources(
+    sources: Iterable[LibraryRootSource],
+    *,
+    progress: Callable[[str], None] | None = None,
+    progress_every: int = DEFAULT_SCAN_PROGRESS_EVERY,
+    on_missing_required_tags: Callable[[TrackRecord, list[str]], None] | None = None,
+) -> MusicLibrary:
+    return build_incremental_library_from_sources(
+        sources,
+        existing_tracks_by_path={},
+        progress=progress,
+        progress_every=progress_every,
+        on_missing_required_tags=on_missing_required_tags,
+    ).library
+
+
+def build_incremental_library_from_sources(
+    sources: Iterable[LibraryRootSource],
+    *,
+    existing_tracks_by_path: dict[str, TrackRecord],
+    progress: Callable[[str], None] | None = None,
+    progress_every: int = DEFAULT_SCAN_PROGRESS_EVERY,
+    on_missing_required_tags: Callable[[TrackRecord, list[str]], None] | None = None,
+    s3_client_factory: Callable[[RemoteRootConfig], object] = create_s3_client,
+) -> IncrementalLibraryBuild:
+    source_list = list(sources)
+    if all(source.kind == SOURCE_KIND_LOCAL for source in source_list):
+        return build_incremental_library(
+            [Path(source.path) for source in source_list],
+            existing_tracks_by_path=existing_tracks_by_path,
+            progress=progress,
+            progress_every=progress_every,
+            on_missing_required_tags=on_missing_required_tags,
+        )
+
+    clear_external_artwork_caches()
+    tracks: list[TrackRecord] = []
+    playlist_paths: list[tuple[int, Path]] = []
+    scanned_paths: set[str] = set()
+    reused_paths: set[str] = set()
+    count = 0
+    progress_step = max(1, int(progress_every))
+
+    for root_position, source in enumerate(source_list):
+        if progress:
+            progress(
+                f"scanning root {root_position + 1}/{len(source_list)}: "
+                f"{source_progress_label(source)}"
+            )
+        if source.kind == SOURCE_KIND_S3:
+            remote = remote_root_from_source_json(source.source_json)
+            client = s3_client_factory(remote)
+            for track, was_scanned in iter_s3_tracks(
+                remote,
+                client,
+                root_position=root_position,
+                existing_tracks_by_path=existing_tracks_by_path,
+            ):
+                count += 1
+                if was_scanned:
+                    scanned_paths.add(track.path)
+                else:
+                    reused_paths.add(track.path)
+                missing_fields = missing_required_tags(track)
+                if missing_fields:
+                    if on_missing_required_tags is not None:
+                        on_missing_required_tags(track, missing_fields)
+                else:
+                    tracks.append(track)
+                if progress and count % progress_step == 0:
+                    progress(f"scanned {count} music files")
+            continue
+
+        root = Path(source.path).expanduser().resolve()
+        for path in iter_library_files([root]):
+            if path.suffix.casefold() in PLAYLIST_EXTENSIONS:
+                playlist_paths.append((root_position, path))
+                continue
+            count += 1
+            path_text = str(path)
+            existing_track = existing_tracks_by_path.get(path_text)
+            if existing_track is not None and track_file_snapshot_matches(existing_track, path):
+                track = reused_track_record(existing_track, root_position=root_position)
+                reused_paths.add(path_text)
+            else:
+                track = scan_track(path)
+                track.root_position = root_position
+                scanned_paths.add(path_text)
+            missing_fields = missing_required_tags(track)
+            if missing_fields:
+                if on_missing_required_tags is not None:
+                    on_missing_required_tags(track, missing_fields)
+            else:
+                tracks.append(track)
+            if progress and count % progress_step == 0:
+                progress(f"scanned {count} music files")
+
+    if progress and count % progress_step:
+        progress(f"scanned {count} music files")
+    playlists = parse_playlists(playlist_paths, tracks)
+    return IncrementalLibraryBuild(
+        library=MusicLibrary(
+            roots=[source.path for source in source_list],
+            tracks=tracks,
+            supported_extensions=sorted(SUPPORTED_EXTENSIONS),
+            generated_at=datetime.now(UTC).isoformat(),
+            playlists=playlists,
+        ),
+        scanned_paths=frozenset(scanned_paths),
+        reused_paths=frozenset(reused_paths),
+    )
+
+
 def reused_track_record(track: TrackRecord, *, root_position: int) -> TrackRecord:
     return replace(
         track,
@@ -229,6 +366,282 @@ def reused_track_record(track: TrackRecord, *, root_position: int) -> TrackRecor
         genres=list(track.genres),
         styles=list(track.styles),
     )
+
+
+def source_progress_label(source: LibraryRootSource) -> str:
+    if source.kind == SOURCE_KIND_S3:
+        try:
+            return remote_root_display_label(remote_root_from_source_json(source.source_json))
+        except Exception:
+            return source.path
+    return source.path
+
+
+def iter_s3_tracks(
+    remote: RemoteRootConfig,
+    client: object,
+    *,
+    root_position: int,
+    existing_tracks_by_path: dict[str, TrackRecord],
+) -> Iterable[tuple[TrackRecord, bool]]:
+    objects = list(iter_s3_objects(client, bucket=remote.bucket, prefix=remote.prefix))
+    sidecars_by_directory = s3_sidecars_by_directory(objects)
+    for snapshot in objects:
+        if Path(snapshot.key).suffix.casefold() not in SUPPORTED_EXTENSIONS:
+            continue
+        canonical_path = canonical_s3_path(remote, snapshot.key)
+        sidecar = selected_s3_sidecar(snapshot.key, sidecars_by_directory)
+        existing_track = existing_tracks_by_path.get(canonical_path)
+        if existing_track is not None and s3_track_snapshot_matches(
+            existing_track,
+            snapshot,
+            sidecar,
+        ):
+            yield reused_track_record(existing_track, root_position=root_position), False
+            continue
+        yield scan_s3_track(
+            remote,
+            client,
+            snapshot,
+            sidecar=sidecar,
+            root_position=root_position,
+        ), True
+
+
+def iter_s3_objects(
+    client: object,
+    *,
+    bucket: str,
+    prefix: str,
+) -> Iterable[S3ObjectSnapshot]:
+    continuation_token: str | None = None
+    while True:
+        kwargs: dict[str, object] = {"Bucket": bucket, "Prefix": prefix}
+        if continuation_token:
+            kwargs["ContinuationToken"] = continuation_token
+        response = client.list_objects_v2(**kwargs)
+        if not isinstance(response, dict):
+            return
+        for item in response.get("Contents", ()) or ():
+            if not isinstance(item, dict):
+                continue
+            key = item.get("Key")
+            if not isinstance(key, str) or not key or key.endswith("/"):
+                continue
+            yield s3_object_snapshot_from_item(item)
+        continuation_token = response.get("NextContinuationToken")
+        if not response.get("IsTruncated") or not continuation_token:
+            break
+
+
+def s3_object_snapshot_from_item(item: dict[str, object]) -> S3ObjectSnapshot:
+    last_modified_value = item.get("LastModified")
+    return S3ObjectSnapshot(
+        key=str(item["Key"]),
+        size_bytes=optional_int_value(item.get("Size")),
+        last_modified=normalized_datetime_text(last_modified_value),
+        last_modified_ns=datetime_value_ns(last_modified_value),
+        etag=optional_text_value(item.get("ETag")),
+        version_id=optional_text_value(item.get("VersionId")),
+        content_type=optional_text_value(item.get("ContentType")),
+    )
+
+
+def s3_sidecars_by_directory(
+    objects: Iterable[S3ObjectSnapshot],
+) -> dict[str, dict[str, S3ObjectSnapshot]]:
+    sidecars: dict[str, dict[str, S3ObjectSnapshot]] = {}
+    for snapshot in objects:
+        suffix = Path(snapshot.key).suffix.casefold()
+        if suffix not in ARTWORK_IMAGE_EXTENSIONS:
+            continue
+        directory, _separator, name = snapshot.key.rpartition("/")
+        directory_key = directory + "/" if directory else ""
+        sidecars.setdefault(directory_key, {})[name] = snapshot
+    return sidecars
+
+
+def selected_s3_sidecar(
+    audio_key: str,
+    sidecars_by_directory: dict[str, dict[str, S3ObjectSnapshot]],
+) -> S3ObjectSnapshot | None:
+    directory, _separator, _name = audio_key.rpartition("/")
+    directory_key = directory + "/" if directory else ""
+    candidates = sidecars_by_directory.get(directory_key, {})
+    if not candidates:
+        return None
+    for artwork_name in ALBUM_ARTWORK_NAMES:
+        for extension in ARTWORK_IMAGE_EXTENSIONS:
+            snapshot = candidates.get(f"{artwork_name}{extension}")
+            if snapshot is not None:
+                return snapshot
+
+    normalized_names = {normalize_cache_component(name) for name in ALBUM_ARTWORK_NAMES}
+    for name in sorted(candidates, key=str.casefold):
+        path = Path(name)
+        if path.suffix.casefold() not in ARTWORK_IMAGE_EXTENSIONS:
+            continue
+        if normalize_cache_component(path.stem) in normalized_names:
+            return candidates[name]
+    return None
+
+
+def s3_track_snapshot_matches(
+    track: TrackRecord,
+    snapshot: S3ObjectSnapshot,
+    sidecar: S3ObjectSnapshot | None,
+) -> bool:
+    source = track.source
+    if source is None or source.source_kind != SOURCE_KIND_S3:
+        return False
+    return (
+        source.object_key == snapshot.key
+        and source.etag == snapshot.etag
+        and source.version_id == snapshot.version_id
+        and source.last_modified == snapshot.last_modified
+        and source.content_type == snapshot.content_type
+        and source.size_bytes == snapshot.size_bytes
+        and source.sidecar_object_key == (sidecar.key if sidecar else None)
+        and source.sidecar_etag == (sidecar.etag if sidecar else None)
+        and source.sidecar_version_id == (sidecar.version_id if sidecar else None)
+        and source.sidecar_last_modified == (sidecar.last_modified if sidecar else None)
+        and source.sidecar_content_type == (sidecar.content_type if sidecar else None)
+        and source.sidecar_size_bytes == (sidecar.size_bytes if sidecar else None)
+    )
+
+
+def scan_s3_track(
+    remote: RemoteRootConfig,
+    client: object,
+    snapshot: S3ObjectSnapshot,
+    *,
+    sidecar: S3ObjectSnapshot | None,
+    root_position: int,
+) -> TrackRecord:
+    canonical_path = canonical_s3_path(remote, snapshot.key)
+    with TemporaryDirectory(prefix="kukicha-s3-scan-") as tempdir:
+        temp_path = Path(tempdir)
+        audio_path = temp_path / temp_download_name(snapshot.key, fallback="audio")
+        try:
+            download_s3_object(client, remote.bucket, snapshot.key, audio_path)
+            if sidecar is not None:
+                download_s3_object(
+                    client,
+                    remote.bucket,
+                    sidecar.key,
+                    temp_path / temp_download_name(sidecar.key, fallback="cover"),
+                )
+            track = scan_track(audio_path)
+        finally:
+            pass
+    apply_s3_track_snapshot(
+        track,
+        remote,
+        snapshot,
+        sidecar=sidecar,
+        root_position=root_position,
+        canonical_path=canonical_path,
+    )
+    return track
+
+
+def temp_download_name(key: str, *, fallback: str) -> str:
+    name = Path(key).name
+    return name or fallback
+
+
+def download_s3_object(client: object, bucket: str, key: str, destination: Path) -> None:
+    response = client.get_object(Bucket=bucket, Key=key)
+    body = response.get("Body") if isinstance(response, dict) else None
+    if body is None or not hasattr(body, "read"):
+        raise OSError(f"failed to download S3 object: {key}")
+    try:
+        with destination.open("wb") as handle:
+            while True:
+                chunk = body.read(DOWNLOAD_CHUNK_SIZE)
+                if not chunk:
+                    break
+                handle.write(chunk)
+    finally:
+        close = getattr(body, "close", None)
+        if callable(close):
+            close()
+
+
+def apply_s3_track_snapshot(
+    track: TrackRecord,
+    remote: RemoteRootConfig,
+    snapshot: S3ObjectSnapshot,
+    *,
+    sidecar: S3ObjectSnapshot | None,
+    root_position: int,
+    canonical_path: str,
+) -> None:
+    track.path = canonical_path
+    track.root_position = root_position
+    track.file_created_at = snapshot.last_modified
+    track.file_modified_at_ns = snapshot.last_modified_ns
+    track.file_size_bytes = snapshot.size_bytes
+    if sidecar is None:
+        track.sidecar_artwork_path = None
+        track.sidecar_artwork_modified_at_ns = None
+        track.sidecar_artwork_size_bytes = None
+    else:
+        track.sidecar_artwork_path = canonical_s3_path(remote, sidecar.key)
+        track.sidecar_artwork_modified_at_ns = sidecar.last_modified_ns
+        track.sidecar_artwork_size_bytes = sidecar.size_bytes
+    track.source = TrackSourceRecord(
+        source_kind=SOURCE_KIND_S3,
+        root_position=root_position,
+        canonical_path=canonical_path,
+        object_key=snapshot.key,
+        etag=snapshot.etag,
+        version_id=snapshot.version_id,
+        last_modified=snapshot.last_modified,
+        content_type=snapshot.content_type,
+        size_bytes=snapshot.size_bytes,
+        sidecar_object_key=sidecar.key if sidecar else None,
+        sidecar_etag=sidecar.etag if sidecar else None,
+        sidecar_version_id=sidecar.version_id if sidecar else None,
+        sidecar_last_modified=sidecar.last_modified if sidecar else None,
+        sidecar_content_type=sidecar.content_type if sidecar else None,
+        sidecar_size_bytes=sidecar.size_bytes if sidecar else None,
+    )
+
+
+def normalized_datetime_text(value: object) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=UTC)
+        return value.astimezone(UTC).replace(microsecond=0).isoformat()
+    text = str(value).strip()
+    return text or None
+
+
+def datetime_value_ns(value: object) -> int | None:
+    if isinstance(value, datetime):
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=UTC)
+        return int(value.timestamp() * 1_000_000_000)
+    return None
+
+
+def optional_text_value(value: object) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def optional_int_value(value: object) -> int | None:
+    if value is None:
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def iter_library_files(roots: Iterable[Path]) -> Iterable[Path]:

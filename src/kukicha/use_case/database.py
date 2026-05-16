@@ -9,6 +9,7 @@ from types import TracebackType
 from typing import Iterable
 
 from ..file_metadata import file_created_at
+from ..library_sources import SOURCE_KIND_LOCAL, path_is_in_source
 from ..models import ALBUM_ARTWORK_HEIGHT, UNKNOWN_METADATA_TAG
 from ..taxonomy_data import parse_taxonomy_tsv
 
@@ -68,7 +69,9 @@ CREATE INDEX IF NOT EXISTS idx_taxonomy_aliases_canonical
 
 CREATE TABLE IF NOT EXISTS library_roots (
     position INTEGER PRIMARY KEY,
-    root_path TEXT NOT NULL UNIQUE
+    root_path TEXT NOT NULL UNIQUE,
+    kind TEXT NOT NULL DEFAULT 'local',
+    source_json TEXT NOT NULL DEFAULT '{}'
 );
 
 CREATE TABLE IF NOT EXISTS library_root_stats (
@@ -431,6 +434,31 @@ CREATE INDEX IF NOT EXISTS idx_library_tracks_artist ON library_tracks (artist);
 CREATE INDEX IF NOT EXISTS idx_library_tracks_album ON library_tracks (album);
 CREATE INDEX IF NOT EXISTS idx_library_tracks_title ON library_tracks (title);
 
+CREATE TABLE IF NOT EXISTS library_track_sources (
+    track_id INTEGER PRIMARY KEY,
+    source_kind TEXT NOT NULL,
+    root_position INTEGER,
+    canonical_path TEXT NOT NULL,
+    object_key TEXT,
+    etag TEXT,
+    version_id TEXT,
+    last_modified TEXT,
+    content_type TEXT,
+    size_bytes INTEGER,
+    sidecar_object_key TEXT,
+    sidecar_etag TEXT,
+    sidecar_version_id TEXT,
+    sidecar_last_modified TEXT,
+    sidecar_content_type TEXT,
+    sidecar_size_bytes INTEGER,
+    FOREIGN KEY (track_id) REFERENCES library_tracks (track_id) ON DELETE CASCADE,
+    FOREIGN KEY (root_position) REFERENCES library_roots (position) ON DELETE SET NULL
+);
+CREATE INDEX IF NOT EXISTS idx_library_track_sources_canonical_path
+    ON library_track_sources (canonical_path);
+CREATE INDEX IF NOT EXISTS idx_library_track_sources_source
+    ON library_track_sources (source_kind, root_position);
+
 CREATE TABLE IF NOT EXISTS library_track_genres (
     track_id INTEGER NOT NULL,
     position INTEGER NOT NULL,
@@ -556,6 +584,16 @@ def migrate_listening_schema(connection: sqlite3.Connection) -> None:
 
 
 def migrate_library_schema(connection: sqlite3.Connection) -> None:
+    root_columns = table_columns(connection, "library_roots")
+    if root_columns and "kind" not in root_columns:
+        connection.execute(
+            "ALTER TABLE library_roots ADD COLUMN kind TEXT NOT NULL DEFAULT 'local'"
+        )
+    if root_columns and "source_json" not in table_columns(connection, "library_roots"):
+        connection.execute(
+            "ALTER TABLE library_roots ADD COLUMN source_json TEXT NOT NULL DEFAULT '{}'"
+        )
+
     columns = table_columns(connection, "library_tracks")
     created_track_file_created_at = False
     if "root_position" not in columns:
@@ -590,6 +628,7 @@ def migrate_library_schema(connection: sqlite3.Connection) -> None:
         connection.execute(
             "ALTER TABLE library_tracks ADD COLUMN sidecar_artwork_size_bytes INTEGER"
         )
+    ensure_library_track_sources(connection)
 
     album_columns = table_columns(connection, "library_albums")
     created_album_file_created_at = False
@@ -1077,11 +1116,81 @@ def migrate_itunes_lookup_cache_schema(connection: sqlite3.Connection) -> None:
     )
 
 
+def ensure_library_track_sources(connection: sqlite3.Connection) -> None:
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS library_track_sources (
+            track_id INTEGER PRIMARY KEY,
+            source_kind TEXT NOT NULL,
+            root_position INTEGER,
+            canonical_path TEXT NOT NULL,
+            object_key TEXT,
+            etag TEXT,
+            version_id TEXT,
+            last_modified TEXT,
+            content_type TEXT,
+            size_bytes INTEGER,
+            sidecar_object_key TEXT,
+            sidecar_etag TEXT,
+            sidecar_version_id TEXT,
+            sidecar_last_modified TEXT,
+            sidecar_content_type TEXT,
+            sidecar_size_bytes INTEGER,
+            FOREIGN KEY (track_id) REFERENCES library_tracks (track_id) ON DELETE CASCADE,
+            FOREIGN KEY (root_position) REFERENCES library_roots (position) ON DELETE SET NULL
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_library_track_sources_canonical_path
+            ON library_track_sources (canonical_path)
+        """
+    )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_library_track_sources_source
+            ON library_track_sources (source_kind, root_position)
+        """
+    )
+    connection.execute(
+        """
+        INSERT OR IGNORE INTO library_track_sources (
+            track_id,
+            source_kind,
+            root_position,
+            canonical_path,
+            size_bytes
+        )
+        SELECT
+            track_id,
+            ?,
+            CASE
+                WHEN EXISTS (
+                    SELECT 1
+                    FROM library_roots
+                    WHERE library_roots.position = library_tracks.root_position
+                )
+                THEN root_position
+                ELSE NULL
+            END,
+            path,
+            file_size_bytes
+        FROM library_tracks
+        """,
+        (SOURCE_KIND_LOCAL,),
+    )
+
+
 def backfill_library_track_roots(connection: sqlite3.Connection) -> None:
     roots = [
-        (int(row["position"]), str(row["root_path"]))
+        (int(row["position"]), str(row["root_path"]), str(row["kind"] or SOURCE_KIND_LOCAL))
         for row in connection.execute(
-            "SELECT position, root_path FROM library_roots ORDER BY position"
+            """
+            SELECT position, root_path, COALESCE(kind, 'local') AS kind
+            FROM library_roots
+            ORDER BY position
+            """
         )
     ]
     if not roots:
@@ -1108,12 +1217,14 @@ def backfill_library_track_roots(connection: sqlite3.Connection) -> None:
 
 def library_root_position_for_path(
     path: str,
-    roots: Iterable[tuple[int, str]],
+    roots: Iterable[tuple[int, str] | tuple[int, str, str]],
 ) -> int | None:
     best_position: int | None = None
     best_root_length = -1
-    for position, root_path in roots:
-        if not path_is_in_root(path, root_path):
+    for root in roots:
+        position, root_path = root[0], root[1]
+        kind = root[2] if len(root) > 2 else SOURCE_KIND_LOCAL
+        if not path_is_in_root(path, root_path, kind):
             continue
         root_length = len(root_path)
         if root_length > best_root_length:
@@ -1122,11 +1233,12 @@ def library_root_position_for_path(
     return best_position
 
 
-def path_is_in_root(path: str, root_path: str) -> bool:
-    try:
-        return Path(path).is_relative_to(Path(root_path))
-    except ValueError:
-        return False
+def path_is_in_root(
+    path: str,
+    root_path: str,
+    kind: str = SOURCE_KIND_LOCAL,
+) -> bool:
+    return path_is_in_source(path, root_path, kind)
 
 
 def seed_runtime_taxonomy(connection: sqlite3.Connection) -> None:
@@ -1811,6 +1923,7 @@ def clear_library(connection: sqlite3.Connection) -> None:
     connection.execute("DELETE FROM library_track_artwork")
     connection.execute("DELETE FROM library_track_styles")
     connection.execute("DELETE FROM library_track_genres")
+    connection.execute("DELETE FROM library_track_sources")
     connection.execute("DELETE FROM library_tracks")
     connection.execute("DELETE FROM library_albums")
     connection.execute("DELETE FROM library_album_search")

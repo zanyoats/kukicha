@@ -18,6 +18,7 @@ from .use_case import (
     PlaylistTrack,
     TrackNotFoundError,
 )
+from .library_sources import SOURCE_KIND_S3
 from .display import display_album_title
 from .models import ALBUM_ARTWORK_HEIGHT, TRACK_ARTWORK_HEIGHT
 from .player_common import clamp_int, format_count_label, optional_int, plural
@@ -763,13 +764,24 @@ def album_track_section_release_path(
     track: TrackView,
     roots_by_position: dict[int, LibraryRootFilterOption],
 ) -> str:
-    parent = Path(track.path).parent
     if track.root_position is None:
+        parent = Path(track.path).parent
         return str(parent)
 
     root = roots_by_position.get(track.root_position)
     if root is None:
+        parent = Path(track.path).parent
         return str(parent)
+
+    if root.kind == SOURCE_KIND_S3:
+        root_path = root.path.rstrip("/")
+        if track.path.startswith(root_path + "/"):
+            relative_track = track.path[len(root_path) + 1 :]
+            relative_parent = Path(relative_track).parent
+            return "" if str(relative_parent) == "." else relative_parent.as_posix()
+        return ""
+
+    parent = Path(track.path).parent
 
     try:
         relative_parent = parent.relative_to(Path(root.path))

@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from difflib import SequenceMatcher
 from pathlib import Path
 
+from ..library_sources import LibraryRootSource, SOURCE_KIND_LOCAL, local_root_source
 from .coverartarchive import (
     CoverArtArchiveClient,
     CoverArtArchiveStats,
@@ -60,6 +61,7 @@ from ..models import (
     PlaylistRecord,
     TrackArtwork,
     TrackRecord,
+    TrackSourceRecord,
     normalize_genre_values,
 )
 from .musicbrainz import (
@@ -307,21 +309,50 @@ def save_library(
     )
 
 
+def normalized_library_root_rows(
+    root_rows: Iterable[tuple[int, str] | tuple[int, str, str, str] | LibraryRootSource]
+    | None,
+    library: MusicLibrary,
+) -> list[LibraryRootSource]:
+    if root_rows is None:
+        return [
+            local_root_source(position, root_path)
+            for position, root_path in enumerate(library.roots)
+        ]
+
+    normalized: list[LibraryRootSource] = []
+    for row in root_rows:
+        if isinstance(row, LibraryRootSource):
+            normalized.append(row)
+            continue
+        if len(row) == 2:
+            position, root_path = row
+            normalized.append(local_root_source(int(position), str(root_path)))
+            continue
+        position, root_path, kind, source_json = row
+        normalized.append(
+            LibraryRootSource(
+                position=int(position),
+                path=str(root_path),
+                kind=str(kind or SOURCE_KIND_LOCAL),
+                source_json=str(source_json or "{}"),
+            )
+        )
+    return normalized
+
+
 def save_library_with_options(
     library: MusicLibrary,
     destination: Path,
     *,
     connection: sqlite3.Connection | None = None,
-    root_rows: Iterable[tuple[int, str]] | None = None,
+    root_rows: Iterable[tuple[int, str] | tuple[int, str, str, str] | LibraryRootSource]
+    | None = None,
     album_artist_split_patterns: Iterable[str | None] = DEFAULT_ALBUM_ARTIST_SPLIT_PATTERNS,
 ) -> None:
-    library_roots = (
-        [(int(position), str(root_path)) for position, root_path in root_rows]
-        if root_rows is not None
-        else [(position, root) for position, root in enumerate(library.roots)]
-    )
-    valid_root_positions = {position for position, _root in library_roots}
-    root_positions_by_index = [position for position, _root in library_roots]
+    library_roots = normalized_library_root_rows(root_rows, library)
+    valid_root_positions = {root.position for root in library_roots}
+    root_positions_by_index = [root.position for root in library_roots]
     owns_connection = connection is None
     if connection is None:
         connection = connect_database(destination)
@@ -361,10 +392,17 @@ def save_library_with_options(
 
         clear_library(connection)
 
-        for position, root_path in library_roots:
+        for root in library_roots:
             connection.execute(
-                "INSERT INTO library_roots (position, root_path) VALUES (?, ?)",
-                (position, root_path),
+                """
+                INSERT INTO library_roots (
+                    position,
+                    root_path,
+                    kind,
+                    source_json
+                ) VALUES (?, ?, ?, ?)
+                """,
+                (root.position, root.path, root.kind, root.source_json),
             )
 
         for album in albums:
@@ -411,7 +449,10 @@ def save_library_with_options(
             ):
                 root_position = root_positions_by_index[root_position]
             elif root_position not in valid_root_positions:
-                root_position = library_root_position_for_path(track.path, library_roots)
+                root_position = library_root_position_for_path(
+                    track.path,
+                    [(root.position, root.path, root.kind) for root in library_roots],
+                )
             params = (
                 album_id,
                 root_position,
@@ -519,6 +560,7 @@ def save_library_with_options(
                 )
                 track_id = int(track.track_id)
             track_ids_by_path[track.path] = track_id
+            replace_library_track_source(connection, track_id, track, root_position=root_position)
             for position, genre in enumerate(normalize_genre_values(track.genres)):
                 connection.execute(
                     """
@@ -565,7 +607,7 @@ def save_library_with_options(
             elif root_position not in valid_root_positions:
                 root_position = library_root_position_for_path(
                     playlist.path,
-                    library_roots,
+                    [(root.position, root.path, root.kind) for root in library_roots],
                 )
             existing_playlist_id = existing_playlist_ids_by_path.get(playlist.path)
             cursor = connection.execute(
@@ -726,13 +768,13 @@ def save_rescanned_library_incremental(
     destination: Path,
     *,
     connection: sqlite3.Connection | None = None,
-    root_rows: Iterable[tuple[int, str]],
+    root_rows: Iterable[tuple[int, str] | tuple[int, str, str, str] | LibraryRootSource],
     scanned_paths: Iterable[str],
     album_artist_split_patterns: Iterable[str | None] = DEFAULT_ALBUM_ARTIST_SPLIT_PATTERNS,
 ) -> None:
-    library_roots = [(int(position), str(root_path)) for position, root_path in root_rows]
-    valid_root_positions = {position for position, _root in library_roots}
-    root_positions_by_index = [position for position, _root in library_roots]
+    library_roots = normalized_library_root_rows(root_rows, library)
+    valid_root_positions = {root.position for root in library_roots}
+    root_positions_by_index = [root.position for root in library_roots]
     scanned_path_set = set(scanned_paths)
     owns_connection = connection is None
     if connection is None:
@@ -836,6 +878,7 @@ def save_rescanned_library_incremental(
             )
             track_ids_by_path[track.path] = track_id
             replace_library_track_children(connection, track_id, track)
+            replace_library_track_source(connection, track_id, track, root_position=root_position)
 
         delete_missing_library_album_rows(
             connection,
@@ -917,7 +960,7 @@ def nullable_text(value: object) -> str | None:
 def resolved_library_item_root_position(
     root_position: int | None,
     path: str,
-    library_roots: list[tuple[int, str]],
+    library_roots: list[LibraryRootSource],
     *,
     valid_root_positions: set[int],
     root_positions_by_index: list[int],
@@ -929,7 +972,10 @@ def resolved_library_item_root_position(
         return root_positions_by_index[root_position]
     if root_position in valid_root_positions:
         return root_position
-    return library_root_position_for_path(path, library_roots)
+    return library_root_position_for_path(
+        path,
+        [(root.position, root.path, root.kind) for root in library_roots],
+    )
 
 
 def upsert_library_album_rows(
@@ -1178,11 +1224,82 @@ def replace_library_track_children(
             )
 
 
+def replace_library_track_source(
+    connection: sqlite3.Connection,
+    track_id: int,
+    track: TrackRecord,
+    *,
+    root_position: int | None,
+) -> None:
+    source = track.source or TrackSourceRecord(
+        source_kind=SOURCE_KIND_LOCAL,
+        root_position=root_position,
+        canonical_path=track.path,
+        size_bytes=track.file_size_bytes,
+    )
+    connection.execute(
+        """
+        INSERT INTO library_track_sources (
+            track_id,
+            source_kind,
+            root_position,
+            canonical_path,
+            object_key,
+            etag,
+            version_id,
+            last_modified,
+            content_type,
+            size_bytes,
+            sidecar_object_key,
+            sidecar_etag,
+            sidecar_version_id,
+            sidecar_last_modified,
+            sidecar_content_type,
+            sidecar_size_bytes
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(track_id) DO UPDATE SET
+            source_kind = excluded.source_kind,
+            root_position = excluded.root_position,
+            canonical_path = excluded.canonical_path,
+            object_key = excluded.object_key,
+            etag = excluded.etag,
+            version_id = excluded.version_id,
+            last_modified = excluded.last_modified,
+            content_type = excluded.content_type,
+            size_bytes = excluded.size_bytes,
+            sidecar_object_key = excluded.sidecar_object_key,
+            sidecar_etag = excluded.sidecar_etag,
+            sidecar_version_id = excluded.sidecar_version_id,
+            sidecar_last_modified = excluded.sidecar_last_modified,
+            sidecar_content_type = excluded.sidecar_content_type,
+            sidecar_size_bytes = excluded.sidecar_size_bytes
+        """,
+        (
+            track_id,
+            source.source_kind,
+            root_position,
+            source.canonical_path or track.path,
+            source.object_key,
+            source.etag,
+            source.version_id,
+            source.last_modified,
+            source.content_type,
+            source.size_bytes,
+            source.sidecar_object_key,
+            source.sidecar_etag,
+            source.sidecar_version_id,
+            source.sidecar_last_modified,
+            source.sidecar_content_type,
+            source.sidecar_size_bytes,
+        ),
+    )
+
+
 def save_library_playlists_incremental(
     connection: sqlite3.Connection,
     library: MusicLibrary,
     *,
-    library_roots: list[tuple[int, str]],
+    library_roots: list[LibraryRootSource],
     valid_root_positions: set[int],
     root_positions_by_index: list[int],
     track_ids_by_path: dict[str, int],
@@ -2173,6 +2290,58 @@ def load_library(source: Path, *, include_artwork: bool = False) -> MusicLibrary
                     data=bytes(row["data"]),
                 )
 
+        sources_by_track: dict[int, TrackSourceRecord] = {}
+        for row in connection.execute(
+            """
+            SELECT
+                track_id,
+                source_kind,
+                root_position,
+                canonical_path,
+                object_key,
+                etag,
+                version_id,
+                last_modified,
+                content_type,
+                size_bytes,
+                sidecar_object_key,
+                sidecar_etag,
+                sidecar_version_id,
+                sidecar_last_modified,
+                sidecar_content_type,
+                sidecar_size_bytes
+            FROM library_track_sources
+            """
+        ):
+            track_id = int(row["track_id"])
+            sources_by_track[track_id] = TrackSourceRecord(
+                source_kind=str(row["source_kind"] or SOURCE_KIND_LOCAL),
+                root_position=(
+                    int(row["root_position"])
+                    if row["root_position"] is not None
+                    else None
+                ),
+                canonical_path=str(row["canonical_path"] or ""),
+                object_key=row["object_key"],
+                etag=row["etag"],
+                version_id=row["version_id"],
+                last_modified=row["last_modified"],
+                content_type=row["content_type"],
+                size_bytes=(
+                    int(row["size_bytes"]) if row["size_bytes"] is not None else None
+                ),
+                sidecar_object_key=row["sidecar_object_key"],
+                sidecar_etag=row["sidecar_etag"],
+                sidecar_version_id=row["sidecar_version_id"],
+                sidecar_last_modified=row["sidecar_last_modified"],
+                sidecar_content_type=row["sidecar_content_type"],
+                sidecar_size_bytes=(
+                    int(row["sidecar_size_bytes"])
+                    if row["sidecar_size_bytes"] is not None
+                    else None
+                ),
+            )
+
         tracks: list[TrackRecord] = []
         for row in connection.execute(
             """
@@ -2255,6 +2424,7 @@ def load_library(source: Path, *, include_artwork: bool = False) -> MusicLibrary
                     album_artwork=artwork_by_track.get((track_id, ALBUM_ARTWORK_HEIGHT)),
                     duration_seconds=row["duration_seconds"],
                     bitrate=row["bitrate"],
+                    source=sources_by_track.get(track_id),
                 )
             )
 

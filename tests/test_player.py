@@ -44,6 +44,13 @@ from kukicha.use_case import connect_database
 from kukicha.use_case.database import clear_library
 from kukicha.use_case import CoverArtResolutionStats, GenreResolutionStats, save_library
 from kukicha.models import MusicLibrary, PlaylistItemRecord, PlaylistRecord, TrackArtwork, TrackRecord
+from kukicha.library_sources import (
+    RemoteRootConfig,
+    canonical_s3_path,
+    clear_s3_client_cache,
+    create_s3_client,
+)
+from kukicha.models import TrackSourceRecord
 from kukicha.player_jobs import (
     job_payload,
 )
@@ -1767,6 +1774,81 @@ class PlayerConfigTest(unittest.TestCase):
             self.assertEqual(options.toast_timeout_ms, 12000)
             self.assertEqual(options.album_artist_split_patterns, ("&", "/"))
 
+    def test_load_player_options_reads_remote_roots(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            config_path = Path(tempdir) / "kukicha.toml"
+            config_path.write_text(
+                "\n".join(
+                    (
+                        "[[RemoteRoots]]",
+                        "name = 'wasabi-music'",
+                        "endpoint_url = 'https://s3.us-east-1.wasabisys.com/'",
+                        "bucket = 'com.cconroy.music'",
+                        "prefix = '/tracks'",
+                        "profile = 'wasabi-music'",
+                        "region = 'us-east-1'",
+                        "addressing_style = 'path'",
+                    )
+                ),
+                encoding="utf-8",
+            )
+
+            options = load_player_options(config_path)
+
+        self.assertEqual(len(options.remote_roots), 1)
+        remote = options.remote_roots[0]
+        self.assertEqual(remote.name, "wasabi-music")
+        self.assertEqual(remote.endpoint_url, "https://s3.us-east-1.wasabisys.com")
+        self.assertEqual(remote.bucket, "com.cconroy.music")
+        self.assertEqual(remote.prefix, "tracks/")
+        self.assertEqual(remote.profile, "wasabi-music")
+        self.assertEqual(remote.region, "us-east-1")
+        self.assertEqual(remote.addressing_style, "path")
+
+    def test_load_player_options_rejects_invalid_remote_roots(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            config_path = Path(tempdir) / "kukicha.toml"
+            cases = (
+                (
+                    "[RemoteRoots]\nname = 'music'\n",
+                    "RemoteRoots must be an array of tables",
+                ),
+                (
+                    "[[RemoteRoots]]\n"
+                    "name = 'music'\n"
+                    "endpoint_url = 'https://s3.example.test'\n"
+                    "bucket = 'bucket'\n"
+                    "secret_access_key = 'secret'\n",
+                    "must not contain inline credentials",
+                ),
+                (
+                    "[[RemoteRoots]]\n"
+                    "name = 'all'\n"
+                    "endpoint_url = 'https://s3.example.test'\n"
+                    "bucket = 'bucket'\n"
+                    "prefix = 'music/'\n"
+                    "[[RemoteRoots]]\n"
+                    "name = 'nested'\n"
+                    "endpoint_url = 'https://s3.example.test'\n"
+                    "bucket = 'bucket'\n"
+                    "prefix = 'music/live/'\n",
+                    "must not contain nested prefixes",
+                ),
+                (
+                    "[[RemoteRoots]]\n"
+                    "name = 'music'\n"
+                    "endpoint_url = 'https://s3.example.test'\n"
+                    "bucket = 'bucket'\n"
+                    "addressing_style = 'dns'\n",
+                    "addressing_style must be one of",
+                ),
+            )
+            for text, message in cases:
+                with self.subTest(message=message):
+                    config_path.write_text(text, encoding="utf-8")
+                    with self.assertRaisesRegex(PlayerConfigError, message):
+                        load_player_options(config_path)
+
     def test_load_player_options_uses_default_paths_when_default_config_is_missing(self) -> None:
         with TemporaryDirectory() as tempdir:
             config_home = Path(tempdir)
@@ -1991,6 +2073,7 @@ class PlayerConfigTest(unittest.TestCase):
             self.assertIn(f"LogLevel: {DEFAULT_PLAYER_LOG_LEVEL} (default)", help_text)
             self.assertIn(f"DatabasePath: {(config_home / 'kukicha' / 'kukicha.sqlite').resolve()} (default)", help_text)
             self.assertIn("Roots: [] (default)", help_text)
+            self.assertIn("RemoteRoots: [] (default)", help_text)
             self.assertIn("YoutubeDownloadPath: <unset> (default)", help_text)
             self.assertIn("PreferMusicBrainzEnglishAliases: true (default)", help_text)
             self.assertIn(f"Host: {DEFAULT_PLAYER_HOST} (default)", help_text)
@@ -2012,7 +2095,7 @@ class PlayerConfigTest(unittest.TestCase):
                 help_text.index(f"AccentColor: {DEFAULT_ACCENT_COLOR} (default)"),
             )
             self.assertIn(
-                "Supported keys:\n  LogLevel\n  DatabasePath\n  Roots\n  FFmpegPath\n"
+                "Supported keys:\n  LogLevel\n  DatabasePath\n  Roots\n  RemoteRoots\n  FFmpegPath\n"
                 "  YoutubeDownloadPath\n  PreferMusicBrainzEnglishAliases\n  Host\n  Port\n"
                 "  OpenSubsonicUsername\n  OpenSubsonicPassword\n  OpenSubsonicHost\n"
                 "  OpenSubsonicPort\n  Appearance\n  AccentColor\n  ToastTimeoutMs\n"
@@ -5647,6 +5730,131 @@ class PlayerWebAdapterTest(unittest.TestCase):
             self.assertEqual(head_response.data, b"")
             self.assertEqual(head_response.headers["Content-Length"], "4")
 
+    def test_s3_client_factory_reuses_remote_clients(self) -> None:
+        remote = RemoteRootConfig(
+            name="Remote",
+            endpoint_url="https://s3.example.test",
+            bucket="bucket",
+            prefix="tracks/",
+            profile="remote-profile",
+        )
+        session = Mock()
+        created_client = object()
+        session.create_client.return_value = created_client
+
+        clear_s3_client_cache()
+        try:
+            with patch("botocore.session.Session", return_value=session) as session_class:
+                first = create_s3_client(remote)
+                second = create_s3_client(
+                    RemoteRootConfig(
+                        name="Remote",
+                        endpoint_url="https://s3.example.test",
+                        bucket="bucket",
+                        prefix="tracks/",
+                        profile="remote-profile",
+                    )
+                )
+        finally:
+            clear_s3_client_cache()
+
+        self.assertIs(first, created_client)
+        self.assertIs(second, created_client)
+        session_class.assert_called_once_with(profile="remote-profile")
+        session.create_client.assert_called_once()
+
+    def test_remote_audio_resource_supports_head_full_and_range(self) -> None:
+        class FakeS3Client:
+            def __init__(self, data: bytes) -> None:
+                self.data = data
+                self.get_ranges: list[str | None] = []
+
+            def head_object(self, **kwargs: object) -> dict[str, object]:
+                assert kwargs["Bucket"] == "bucket"
+                assert kwargs["Key"] == "tracks/01.flac"
+                return {"ContentLength": len(self.data), "ContentType": "audio/flac"}
+
+            def get_object(self, **kwargs: object) -> dict[str, object]:
+                assert kwargs["Bucket"] == "bucket"
+                assert kwargs["Key"] == "tracks/01.flac"
+                range_header = kwargs.get("Range")
+                self.get_ranges.append(str(range_header) if range_header is not None else None)
+                if isinstance(range_header, str) and range_header.startswith("bytes="):
+                    start_text, end_text = range_header.removeprefix("bytes=").split("-", 1)
+                    start = int(start_text)
+                    end = int(end_text)
+                    return {"Body": io.BytesIO(self.data[start : end + 1])}
+                return {"Body": io.BytesIO(self.data)}
+
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            database = temp_path / "kukicha.sqlite"
+            remote = RemoteRootConfig(
+                name="Remote",
+                endpoint_url="https://s3.example.test",
+                bucket="bucket",
+                prefix="tracks/",
+            )
+            track_path = canonical_s3_path(remote, "tracks/01.flac")
+            connection = connect_database(database)
+            try:
+                connection.execute(
+                    """
+                    INSERT INTO library_roots (
+                        position, root_path, kind, source_json
+                    ) VALUES (?, ?, ?, ?)
+                    """,
+                    (0, remote.root_path, "s3", remote.source_json),
+                )
+                connection.execute(
+                    """
+                    INSERT INTO library_tracks (
+                        track_id, root_position, path, file_type, title
+                    ) VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (7, 0, track_path, "flac", "Remote Track"),
+                )
+                connection.execute(
+                    """
+                    INSERT INTO library_track_sources (
+                        track_id,
+                        source_kind,
+                        root_position,
+                        canonical_path,
+                        object_key,
+                        content_type,
+                        size_bytes
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (7, "s3", 0, track_path, "tracks/01.flac", "audio/flac", 10),
+                )
+                connection.commit()
+            finally:
+                connection.close()
+
+            runtime = self.make_runtime(database)
+            fake_client = FakeS3Client(b"0123456789")
+            with (
+                patch("kukicha.player_web_adapter.PlayerRuntime", return_value=runtime),
+                patch("kukicha.player_media.create_s3_client", return_value=fake_client),
+            ):
+                app = create_player_app(self.make_options(temp_path))
+                client = app.test_client()
+                full_response = client.get("/audio/7")
+                partial_response = client.get("/audio/7", headers={"Range": "bytes=2-5"})
+                head_response = client.head("/audio/7", headers={"Range": "bytes=2-5"})
+
+        self.assertEqual(full_response.status_code, 200)
+        self.assertEqual(full_response.data, b"0123456789")
+        self.assertEqual(full_response.headers["Content-Length"], "10")
+        self.assertEqual(full_response.content_type, "audio/flac")
+        self.assertEqual(partial_response.status_code, 206)
+        self.assertEqual(partial_response.data, b"2345")
+        self.assertEqual(partial_response.headers["Content-Range"], "bytes 2-5/10")
+        self.assertEqual(head_response.status_code, 206)
+        self.assertEqual(head_response.data, b"")
+        self.assertEqual(head_response.headers["Content-Length"], "4")
+
     def test_job_events_stream_retries_and_unsubscribes_on_close(self) -> None:
         with TemporaryDirectory() as tempdir:
             temp_path = Path(tempdir)
@@ -7113,6 +7321,95 @@ class PlayerAlbumTagEditTest(unittest.TestCase):
             connection.commit()
         finally:
             connection.close()
+
+    def test_prepare_album_tag_edit_job_rejects_remote_tracks(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            database = Path(tempdir) / "kukicha.sqlite"
+            remote = RemoteRootConfig(
+                name="Remote",
+                endpoint_url="https://s3.example.test",
+                bucket="bucket",
+                prefix="tracks/",
+            )
+            track_path = canonical_s3_path(remote, "tracks/Album/01.flac")
+            connection = connect_database(database)
+            try:
+                connection.execute(
+                    """
+                    INSERT INTO library_roots (
+                        position, root_path, kind, source_json
+                    ) VALUES (?, ?, ?, ?)
+                    """,
+                    (0, remote.root_path, "s3", remote.source_json),
+                )
+                insert_library_album(
+                    connection,
+                    "old-artist::album",
+                    "Old Artist",
+                    "Album",
+                    1980,
+                    1,
+                )
+                connection.execute(
+                    """
+                    INSERT INTO library_tracks (
+                        track_id,
+                        album_id,
+                        root_position,
+                        path,
+                        file_type,
+                        artist,
+                        album_artist,
+                        album,
+                        title
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        1,
+                        "old-artist::album",
+                        0,
+                        track_path,
+                        "flac",
+                        "Artist",
+                        "Old Artist",
+                        "Album",
+                        "Track",
+                    ),
+                )
+                connection.execute(
+                    """
+                    INSERT INTO library_track_sources (
+                        track_id,
+                        source_kind,
+                        root_position,
+                        canonical_path,
+                        object_key
+                    ) VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (1, "s3", 0, track_path, "tracks/Album/01.flac"),
+                )
+                connection.commit()
+            finally:
+                connection.close()
+
+            with self.assertRaisesRegex(ValueError, "remote tracks"):
+                prepare_album_tag_edit_job(
+                    database,
+                    "old-artist::album",
+                    {
+                        "album": "Album",
+                        "album_artist": "Old Artist",
+                        "genre": "Electronic",
+                        "tracks": [
+                            {
+                                "track_id": 1,
+                                "artist": "Artist",
+                                "track_number": "1",
+                                "title": "Track",
+                            }
+                        ],
+                    },
+                )
 
     def test_prepare_album_musicbrainz_edit_job_scopes_to_requested_tracks(self) -> None:
         with TemporaryDirectory() as tempdir:

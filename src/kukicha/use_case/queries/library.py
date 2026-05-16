@@ -7,6 +7,8 @@ from sqlite3 import Connection, Row
 
 from ..database import connect_database
 from ..library import split_genres_and_styles
+from ...library_sources import SOURCE_KIND_LOCAL, SOURCE_KIND_S3, root_source_label
+from ...media_resources import AudioResource, local_audio_resource
 from ...models import ALBUM_ARTWORK_HEIGHT, TrackArtwork, normalize_genre_values
 from .filters import (
     album_where_clause,
@@ -506,6 +508,40 @@ class LibraryQueries:
         if row is None:
             raise TrackNotFoundError(track_id)
         return Path(str(row["path"]))
+
+    def get_track_audio_resource(self, track_id: int) -> AudioResource:
+        with connect_database(self.database, create=False) as connection:
+            row = connection.execute(
+                """
+                SELECT
+                    tracks.path,
+                    COALESCE(sources.source_kind, roots.kind, 'local') AS source_kind,
+                    COALESCE(roots.source_json, '{}') AS source_json,
+                    sources.object_key,
+                    sources.content_type,
+                    COALESCE(sources.size_bytes, tracks.file_size_bytes) AS size_bytes
+                FROM library_tracks AS tracks
+                LEFT JOIN library_track_sources AS sources
+                    ON sources.track_id = tracks.track_id
+                LEFT JOIN library_roots AS roots
+                    ON roots.position = tracks.root_position
+                WHERE tracks.track_id = ?
+                """,
+                (track_id,),
+            ).fetchone()
+        if row is None:
+            raise TrackNotFoundError(track_id)
+        kind = str(row["source_kind"] or SOURCE_KIND_LOCAL)
+        if kind != SOURCE_KIND_S3:
+            return local_audio_resource(str(row["path"]))
+        return AudioResource(
+            kind=SOURCE_KIND_S3,
+            path=str(row["path"]),
+            source_json=str(row["source_json"] or "{}"),
+            object_key=str(row["object_key"]) if row["object_key"] else None,
+            content_type=str(row["content_type"]) if row["content_type"] else None,
+            size_bytes=int(row["size_bytes"]) if row["size_bytes"] is not None else None,
+        )
 
     def get_playlist_item_audio_path(self, playlist_item_id: int) -> Path:
         item = self.get_playlist_item(playlist_item_id)
@@ -1660,11 +1696,21 @@ def library_root_options(connection: Connection) -> tuple[LibraryRootFilterOptio
         LibraryRootFilterOption(
             position=int(row["position"]),
             path=str(row["root_path"]),
-            label=library_root_filter_label(str(row["root_path"])),
+            label=root_source_label(
+                str(row["root_path"]),
+                str(row["kind"] or SOURCE_KIND_LOCAL),
+                str(row["source_json"] or "{}"),
+            ),
+            kind=str(row["kind"] or SOURCE_KIND_LOCAL),
+            source_json=str(row["source_json"] or "{}"),
         )
         for row in connection.execute(
             """
-            SELECT position, root_path
+            SELECT
+                position,
+                root_path,
+                COALESCE(kind, 'local') AS kind,
+                COALESCE(source_json, '{}') AS source_json
             FROM library_roots
             ORDER BY position
             """

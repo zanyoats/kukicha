@@ -33,6 +33,8 @@ from kukicha.use_case import (
     UNKNOWN_GENRE_TAG,
 )
 from kukicha.use_case.library import load_library
+from kukicha.use_case.library import save_library_with_options
+from kukicha.library_sources import RemoteRootConfig, canonical_s3_path, remote_root_source
 from kukicha.use_case.coverartarchive import (
     CoverArtArchiveClient,
     CoverArtArchiveStats,
@@ -45,6 +47,7 @@ from kukicha.models import (
     PlaylistRecord,
     TrackArtwork,
     TrackRecord,
+    TrackSourceRecord,
 )
 from kukicha.use_case.queries.library import (
     album_order_by_clause,
@@ -57,6 +60,86 @@ from kukicha.use_case.queries.filters import album_where_clause
 
 
 class LibraryAlbumPathQueryTest(unittest.TestCase):
+    def test_save_library_persists_remote_root_and_track_source_metadata(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            database = Path(tempdir) / "kukicha.sqlite"
+            remote = RemoteRootConfig(
+                name="Remote",
+                endpoint_url="https://s3.example.test",
+                bucket="bucket",
+                prefix="tracks/",
+            )
+            track_path = canonical_s3_path(remote, "tracks/Album/01.flac")
+            save_library_with_options(
+                MusicLibrary(
+                    roots=[remote.root_path],
+                    tracks=[
+                        TrackRecord(
+                            path=track_path,
+                            root_position=0,
+                            file_type="flac",
+                            artist="Artist",
+                            album_artist="Artist",
+                            album="Album",
+                            title="Track",
+                            file_size_bytes=12,
+                            source=TrackSourceRecord(
+                                source_kind="s3",
+                                root_position=0,
+                                canonical_path=track_path,
+                                object_key="tracks/Album/01.flac",
+                                etag='"etag"',
+                                last_modified="2026-05-16T12:00:00+00:00",
+                                content_type="audio/flac",
+                                size_bytes=12,
+                            ),
+                        )
+                    ],
+                    supported_extensions=[".flac"],
+                    generated_at="2026-05-16T12:00:00+00:00",
+                ),
+                database,
+                root_rows=[remote_root_source(0, remote)],
+            )
+
+            with connect_database(database, create=False) as connection:
+                root = connection.execute(
+                    """
+                    SELECT root_path, kind, source_json
+                    FROM library_roots
+                    WHERE position = 0
+                    """
+                ).fetchone()
+                source = connection.execute(
+                    """
+                    SELECT
+                        source_kind,
+                        root_position,
+                        canonical_path,
+                        object_key,
+                        etag,
+                        content_type,
+                        size_bytes
+                    FROM library_track_sources
+                    """
+                ).fetchone()
+                columns = {
+                    str(row["name"])
+                    for row in connection.execute("PRAGMA table_info(library_tracks)")
+                }
+
+        self.assertEqual(str(root["root_path"]), remote.root_path)
+        self.assertEqual(str(root["kind"]), "s3")
+        self.assertIn("s3.example.test", str(root["source_json"]))
+        self.assertEqual(str(source["source_kind"]), "s3")
+        self.assertEqual(int(source["root_position"]), 0)
+        self.assertEqual(str(source["canonical_path"]), track_path)
+        self.assertEqual(str(source["object_key"]), "tracks/Album/01.flac")
+        self.assertEqual(str(source["etag"]), '"etag"')
+        self.assertEqual(str(source["content_type"]), "audio/flac")
+        self.assertEqual(int(source["size_bytes"]), 12)
+        self.assertNotIn("size_bytes", columns)
+
     def test_connect_database_migrates_legacy_listening_source_columns(self) -> None:
         with TemporaryDirectory() as tempdir:
             database = Path(tempdir) / "kukicha.sqlite"

@@ -750,10 +750,15 @@ def start_rescan_library(runtime: PlayerRuntime) -> dict[str, object]:
     }
 
 
-def start_sync(runtime: PlayerRuntime, configured_roots: Iterable[Path]) -> object:
+def start_sync(
+    runtime: PlayerRuntime,
+    configured_roots: Iterable[Path],
+    remote_roots: Iterable[object] = (),
+) -> object:
     from .roots import run_sync_job
 
     roots = tuple(Path(root) for root in configured_roots)
+    remote_root_tuple = tuple(remote_roots)
     return runtime.enqueue_job(
         kind="sync",
         queued_message="Sync queued.",
@@ -761,9 +766,14 @@ def start_sync(runtime: PlayerRuntime, configured_roots: Iterable[Path]) -> obje
         canceled_message="Sync canceled.",
         failed_message="Sync failed.",
         context={
-            "roots_configured": len(roots),
+            "roots_configured": len(roots) + len(remote_root_tuple),
         },
-        runner=lambda cancel_token: run_sync_job(runtime, roots, cancel_token),
+        runner=lambda cancel_token: run_sync_job(
+            runtime,
+            roots,
+            remote_root_tuple,
+            cancel_token,
+        ),
     )
 
 
@@ -847,6 +857,10 @@ def start_album_edit(
 
 def track_audio_path(runtime: PlayerRuntime, track_id: int) -> Path:
     return LibraryQueries(runtime.database).get_track_audio_path(track_id)
+
+
+def track_audio_resource(runtime: PlayerRuntime, track_id: int) -> object:
+    return LibraryQueries(runtime.database).get_track_audio_resource(track_id)
 
 
 def playlist_audio_path(runtime: PlayerRuntime, playlist_item_id: int) -> Path:

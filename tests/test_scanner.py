@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
+import io
 from pathlib import Path
 import tempfile
 from types import SimpleNamespace
@@ -8,8 +10,11 @@ from unittest.mock import patch
 
 from kukicha.discogs import group_library_albums
 from kukicha.models import MusicLibrary, TrackRecord, UNKNOWN_METADATA_TAG
+from kukicha.library_sources import LibraryRootSource, RemoteRootConfig, canonical_s3_path
+from kukicha.models import TrackSourceRecord
 from kukicha.scanner import (
     PRIMARY_TAG_FIELDS,
+    build_incremental_library_from_sources,
     build_library,
     clear_external_artwork_caches,
     first_value,
@@ -310,6 +315,146 @@ class ScannerProgressTest(unittest.TestCase):
         self.assertEqual(progress_messages[0], f"scanning root 1/1: {root.resolve()}")
         self.assertIn("scanned 500 music files", progress_messages)
         self.assertEqual(progress_messages[-1], "scanned 501 music files")
+
+
+class ScannerRemoteS3Test(unittest.TestCase):
+    def remote(self) -> RemoteRootConfig:
+        return RemoteRootConfig(
+            name="Remote",
+            endpoint_url="https://s3.example.test",
+            bucket="bucket",
+            prefix="tracks/",
+        )
+
+    def source(self, remote: RemoteRootConfig) -> LibraryRootSource:
+        return LibraryRootSource(
+            position=0,
+            path=remote.root_path,
+            kind="s3",
+            source_json=remote.source_json,
+        )
+
+    def fake_client(self) -> object:
+        class FakeClient:
+            def list_objects_v2(self, **_kwargs: object) -> dict[str, object]:
+                return {
+                    "Contents": [
+                        {
+                            "Key": "tracks/Album/01.flac",
+                            "Size": 12,
+                            "LastModified": datetime(2026, 5, 16, 12, tzinfo=UTC),
+                            "ETag": '"audio-etag"',
+                        },
+                        {
+                            "Key": "tracks/Album/cover.jpg",
+                            "Size": 5,
+                            "LastModified": datetime(2026, 5, 16, 13, tzinfo=UTC),
+                            "ETag": '"cover-etag"',
+                        },
+                        {
+                            "Key": "tracks/Album/notes.txt",
+                            "Size": 1,
+                            "LastModified": datetime(2026, 5, 16, 14, tzinfo=UTC),
+                        },
+                    ]
+                }
+
+            def get_object(self, **kwargs: object) -> dict[str, object]:
+                key = kwargs["Key"]
+                data = b"audio bytes" if key == "tracks/Album/01.flac" else b"cover"
+                return {"Body": io.BytesIO(data)}
+
+        return FakeClient()
+
+    def test_remote_scan_downloads_changed_track_and_cleans_tempdir(self) -> None:
+        remote = self.remote()
+        temp_dirs: list[Path] = []
+
+        def fake_scan_track(path: Path) -> TrackRecord:
+            temp_dirs.append(path.parent)
+            self.assertTrue(path.is_file())
+            self.assertTrue((path.parent / "cover.jpg").is_file())
+            return TrackRecord(
+                path=str(path),
+                file_type="flac",
+                artist="Artist",
+                album_artist="Artist",
+                album="Album",
+                title="Track",
+            )
+
+        with patch("kukicha.scanner.scan_track", side_effect=fake_scan_track):
+            result = build_incremental_library_from_sources(
+                [self.source(remote)],
+                existing_tracks_by_path={},
+                s3_client_factory=lambda _remote: self.fake_client(),
+            )
+
+        track = result.library.tracks[0]
+        self.assertEqual(track.path, canonical_s3_path(remote, "tracks/Album/01.flac"))
+        self.assertEqual(result.scanned_paths, frozenset({track.path}))
+        self.assertEqual(track.file_size_bytes, 12)
+        self.assertEqual(track.sidecar_artwork_path, canonical_s3_path(remote, "tracks/Album/cover.jpg"))
+        self.assertIsNotNone(track.source)
+        self.assertEqual(track.source.object_key, "tracks/Album/01.flac")
+        self.assertEqual(track.source.sidecar_object_key, "tracks/Album/cover.jpg")
+        self.assertEqual(len(temp_dirs), 1)
+        self.assertFalse(temp_dirs[0].exists())
+
+    def test_remote_scan_reuses_unchanged_source_metadata(self) -> None:
+        remote = self.remote()
+        track_path = canonical_s3_path(remote, "tracks/Album/01.flac")
+        existing = TrackRecord(
+            path=track_path,
+            file_type="flac",
+            artist="Artist",
+            album_artist="Artist",
+            album="Album",
+            title="Stored",
+            source=TrackSourceRecord(
+                source_kind="s3",
+                root_position=0,
+                canonical_path=track_path,
+                object_key="tracks/Album/01.flac",
+                etag='"audio-etag"',
+                last_modified="2026-05-16T12:00:00+00:00",
+                size_bytes=12,
+                sidecar_object_key="tracks/Album/cover.jpg",
+                sidecar_etag='"cover-etag"',
+                sidecar_last_modified="2026-05-16T13:00:00+00:00",
+                sidecar_size_bytes=5,
+            ),
+        )
+
+        with patch("kukicha.scanner.scan_track", side_effect=AssertionError("unexpected scan")):
+            result = build_incremental_library_from_sources(
+                [self.source(remote)],
+                existing_tracks_by_path={track_path: existing},
+                s3_client_factory=lambda _remote: self.fake_client(),
+            )
+
+        self.assertEqual(result.scanned_paths, frozenset())
+        self.assertEqual(result.reused_paths, frozenset({track_path}))
+        self.assertEqual(result.library.tracks[0].title, "Stored")
+
+    def test_remote_scan_cleans_tempdir_after_scan_error(self) -> None:
+        remote = self.remote()
+        temp_dirs: list[Path] = []
+
+        def fail_scan(path: Path) -> TrackRecord:
+            temp_dirs.append(path.parent)
+            raise RuntimeError("boom")
+
+        with patch("kukicha.scanner.scan_track", side_effect=fail_scan):
+            with self.assertRaisesRegex(RuntimeError, "boom"):
+                build_incremental_library_from_sources(
+                    [self.source(remote)],
+                    existing_tracks_by_path={},
+                    s3_client_factory=lambda _remote: self.fake_client(),
+                )
+
+        self.assertEqual(len(temp_dirs), 1)
+        self.assertFalse(temp_dirs[0].exists())
 
 
 class ScannerPlaylistTest(unittest.TestCase):

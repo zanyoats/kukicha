@@ -26,6 +26,12 @@ from ...album_artists import (
     DEFAULT_ALBUM_ARTIST_SPLIT_PATTERNS,
     display_album_artists,
 )
+from ...library_sources import (
+    LibraryRootSource,
+    RemoteRootConfig,
+    local_root_source,
+    remote_root_source,
+)
 from ..library import (
     AlbumArtistMappingResolver,
     CoverArtResolutionStats,
@@ -38,7 +44,13 @@ from ..library import (
 )
 from ...player_runtime import PlayerJobCancelToken, PlayerJobResult, PlayerRuntime
 from ...models import MusicLibrary
-from ...scanner import SUPPORTED_EXTENSIONS, build_incremental_library, build_library
+from ...scanner import (
+    SUPPORTED_EXTENSIONS,
+    build_incremental_library,
+    build_incremental_library_from_sources,
+    build_library,
+    build_library_from_sources,
+)
 
 LOGGER = logging.getLogger("kukicha.player")
 
@@ -48,6 +60,28 @@ def library_root_count(database: Path) -> int:
         return int(connection.execute("SELECT COUNT(*) AS count FROM library_roots").fetchone()["count"])
     finally:
         connection.close()
+
+
+def query_roots_as_sources(database: Path) -> tuple[LibraryRootSource, ...]:
+    return tuple(
+        LibraryRootSource(
+            position=root.position,
+            path=root.path,
+            kind=root.kind,
+            source_json=root.source_json,
+        )
+        for root in LibraryQueries(database).library_roots()
+    )
+
+
+def root_rows_for_sources(
+    sources: Iterable[LibraryRootSource],
+) -> tuple[LibraryRootSource, ...]:
+    return tuple(sources)
+
+
+def all_sources_are_local(sources: Iterable[LibraryRootSource]) -> bool:
+    return all(source.kind == "local" for source in sources)
 
 
 def library_job_summary_text(
@@ -149,7 +183,7 @@ class LibraryRescanResult:
 
 @dataclass(frozen=True, slots=True)
 class LibrarySyncPlan:
-    root_rows: tuple[tuple[int, str], ...]
+    root_rows: tuple[LibraryRootSource, ...]
     roots_added: int
     roots_removed: int
     changed: bool
@@ -175,11 +209,11 @@ def rescan_library(
     album_artist_split_patterns: Iterable[str | None] = DEFAULT_ALBUM_ARTIST_SPLIT_PATTERNS,
     cancel_check: Callable[[], None] | None = None,
 ) -> LibraryRescanResult:
-    roots = tuple(LibraryQueries(database).library_roots())
-    if not roots:
+    root_sources = query_roots_as_sources(database)
+    if not root_sources:
         raise ValueError("no roots configured")
 
-    root_rows = [(root.position, root.path) for root in roots]
+    root_rows = root_rows_for_sources(root_sources)
 
     def scan_progress(message: str) -> None:
         if cancel_check is not None:
@@ -193,12 +227,20 @@ def rescan_library(
         track.path: track
         for track in existing_library.tracks
     }
-    incremental_build = build_incremental_library(
-        [Path(root.path) for root in roots],
-        existing_tracks_by_path=existing_tracks_by_path,
-        progress=scan_progress,
-        progress_every=500,
-    )
+    if all_sources_are_local(root_sources):
+        incremental_build = build_incremental_library(
+            [Path(root.path) for root in root_sources],
+            existing_tracks_by_path=existing_tracks_by_path,
+            progress=scan_progress,
+            progress_every=500,
+        )
+    else:
+        incremental_build = build_incremental_library_from_sources(
+            root_sources,
+            existing_tracks_by_path=existing_tracks_by_path,
+            progress=scan_progress,
+            progress_every=500,
+        )
     library = incremental_build.library
     stale_paths = set(existing_tracks_by_path) - {track.path for track in library.tracks}
     track_library_changed = bool(incremental_build.scanned_paths or stale_paths)
@@ -249,7 +291,7 @@ def rescan_library(
 
     persisted_stats = LibraryQueries(database).library_stats()
     return LibraryRescanResult(
-        roots_scanned=len(roots),
+        roots_scanned=len(root_sources),
         tracks_scanned=persisted_stats.tracks_scanned,
         albums_scanned=persisted_stats.albums_scanned,
         playlists_scanned=persisted_stats.playlists_scanned,
@@ -318,18 +360,20 @@ def sync_library_roots(
     database: Path,
     configured_roots: Iterable[Path],
     *,
+    remote_roots: Iterable[RemoteRootConfig] = (),
     album_artist_split_patterns: Iterable[str | None] = DEFAULT_ALBUM_ARTIST_SPLIT_PATTERNS,
     cancel_check: Callable[[], None] | None = None,
 ) -> LibrarySyncResult:
-    desired_roots = tuple(normalized_configured_roots(configured_roots))
-    validate_sync_roots(desired_roots)
-    sync_plan = plan_library_root_sync(database, desired_roots)
+    desired_local_roots = tuple(normalized_configured_roots(configured_roots))
+    validate_sync_roots(desired_local_roots)
+    desired_sources = configured_library_root_sources(desired_local_roots, tuple(remote_roots))
+    sync_plan = plan_library_root_sync(database, desired_sources)
 
     if cancel_check is not None:
         cancel_check()
     if not sync_plan.changed:
         return LibrarySyncResult(
-            roots_configured=len(desired_roots),
+            roots_configured=len(desired_sources),
             roots_added=0,
             roots_removed=0,
             roots_scanned=0,
@@ -347,11 +391,18 @@ def sync_library_roots(
         LOGGER.info("%s", library_scan_progress_text("sync", message))
 
     if sync_plan.root_rows:
-        library = build_library(
-            [Path(root_path) for _position, root_path in sync_plan.root_rows],
-            progress=scan_progress,
-            progress_every=500,
-        )
+        if all_sources_are_local(sync_plan.root_rows):
+            library = build_library(
+                [Path(root.path) for root in sync_plan.root_rows],
+                progress=scan_progress,
+                progress_every=500,
+            )
+        else:
+            library = build_library_from_sources(
+                sync_plan.root_rows,
+                progress=scan_progress,
+                progress_every=500,
+            )
     else:
         library = MusicLibrary(
             roots=[],
@@ -405,7 +456,7 @@ def sync_library_roots(
 
     albums = group_library_albums(library)
     return LibrarySyncResult(
-        roots_configured=len(desired_roots),
+        roots_configured=len(desired_sources),
         roots_added=sync_plan.roots_added,
         roots_removed=sync_plan.roots_removed,
         roots_scanned=len(sync_plan.root_rows),
@@ -422,6 +473,18 @@ def normalized_configured_roots(configured_roots: Iterable[Path]) -> tuple[Path,
     return tuple(Path(root).expanduser().resolve(strict=False) for root in configured_roots)
 
 
+def configured_library_root_sources(
+    local_roots: tuple[Path, ...],
+    remote_roots: tuple[RemoteRootConfig, ...],
+) -> tuple[LibraryRootSource, ...]:
+    sources: list[LibraryRootSource] = []
+    for position, root in enumerate(local_roots):
+        sources.append(local_root_source(position, root))
+    for offset, remote_root in enumerate(remote_roots):
+        sources.append(remote_root_source(len(local_roots) + offset, remote_root))
+    return tuple(sources)
+
+
 def validate_sync_roots(roots: Iterable[Path]) -> None:
     for root in roots:
         if not root.exists():
@@ -430,34 +493,54 @@ def validate_sync_roots(roots: Iterable[Path]) -> None:
             raise ValueError(f"path is not a directory: {root}")
 
 
-def plan_library_root_sync(database: Path, desired_roots: tuple[Path, ...]) -> LibrarySyncPlan:
+def plan_library_root_sync(
+    database: Path,
+    desired_roots: tuple[LibraryRootSource, ...],
+) -> LibrarySyncPlan:
     current_roots = tuple(LibraryQueries(database).library_roots())
     current_rows = tuple(
-        (
-            root.position,
-            str(Path(root.path).expanduser().resolve(strict=False)),
+        LibraryRootSource(
+            position=root.position,
+            path=(
+                str(Path(root.path).expanduser().resolve(strict=False))
+                if root.kind == "local"
+                else root.path
+            ),
+            kind=root.kind,
+            source_json=root.source_json,
         )
         for root in current_roots
     )
-    current_by_path: dict[str, int] = {}
-    for position, root_path in current_rows:
-        current_by_path.setdefault(root_path, position)
+    current_by_identity: dict[tuple[str, str], LibraryRootSource] = {}
+    for root in current_rows:
+        current_by_identity.setdefault((root.kind, root.path), root)
 
-    desired_paths = tuple(str(root) for root in desired_roots)
-    desired_path_set = set(desired_paths)
-    next_position = max((position for position, _path in current_rows), default=-1) + 1
+    desired_path_set = {(root.kind, root.path) for root in desired_roots}
+    next_position = max((root.position for root in current_rows), default=-1) + 1
     roots_added = 0
-    root_rows: list[tuple[int, str]] = []
-    for root_path in desired_paths:
-        position = current_by_path.get(root_path)
-        if position is None:
+    root_rows: list[LibraryRootSource] = []
+    for root in desired_roots:
+        current = current_by_identity.get((root.kind, root.path))
+        if current is None:
             position = next_position
             next_position += 1
             roots_added += 1
-        root_rows.append((position, root_path))
+        else:
+            position = current.position
+        root_rows.append(
+            LibraryRootSource(
+                position=position,
+                path=root.path,
+                kind=root.kind,
+                source_json=root.source_json,
+            )
+        )
 
-    roots_removed = len({root_path for _position, root_path in current_rows} - desired_path_set)
-    changed = tuple(sorted(current_rows)) != tuple(sorted(root_rows))
+    roots_removed = len({(root.kind, root.path) for root in current_rows} - desired_path_set)
+    changed = (
+        tuple(sorted(current_rows, key=root_sync_sort_key))
+        != tuple(sorted(root_rows, key=root_sync_sort_key))
+    )
     return LibrarySyncPlan(
         root_rows=tuple(root_rows),
         roots_added=roots_added,
@@ -466,15 +549,21 @@ def plan_library_root_sync(database: Path, desired_roots: tuple[Path, ...]) -> L
     )
 
 
+def root_sync_sort_key(root: LibraryRootSource) -> tuple[int, str, str, str]:
+    return (root.position, root.kind, root.path, root.source_json)
+
+
 def run_sync_job(
     runtime: PlayerRuntime,
     configured_roots: Iterable[Path],
+    remote_roots: Iterable[RemoteRootConfig],
     cancel_token: PlayerJobCancelToken,
 ) -> PlayerJobResult:
     started_at = perf_counter()
     result = sync_library_roots(
         runtime.database,
         configured_roots,
+        remote_roots=remote_roots,
         album_artist_split_patterns=runtime.album_artist_split_patterns,
         cancel_check=cancel_token.raise_if_canceled,
     )

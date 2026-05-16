@@ -241,6 +241,8 @@ class LibraryRootFilterOption:
     position: int
     path: str
     label: str
+    kind: str = "local"
+    source_json: str = "{}"
 
 
 @dataclass(frozen=True, slots=True)

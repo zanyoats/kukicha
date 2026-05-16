@@ -21,6 +21,7 @@ from ...album_artists import (
 )
 from ...display import display_album_title
 from ...discogs import file_album_id_from_album_id, local_album_id
+from ...library_sources import SOURCE_KIND_S3, is_remote_path
 from ..library import (
     CoverArtResolutionStats,
     GenreResolutionStats,
@@ -384,15 +385,20 @@ def prepare_album_musicbrainz_edit_job(
                 connection.execute(
                     """
                     SELECT
-                        track_id,
-                        album_id,
-                        root_position,
-                        path,
-                        album,
-                        title
-                    FROM library_tracks
-                    WHERE album_id = ?
-                    ORDER BY track_id
+                        tracks.track_id,
+                        tracks.album_id,
+                        tracks.root_position,
+                        tracks.path,
+                        tracks.album,
+                        tracks.title,
+                        COALESCE(sources.source_kind, roots.kind, 'local') AS source_kind
+                    FROM library_tracks AS tracks
+                    LEFT JOIN library_track_sources AS sources
+                        ON sources.track_id = tracks.track_id
+                    LEFT JOIN library_roots AS roots
+                        ON roots.position = tracks.root_position
+                    WHERE tracks.album_id = ?
+                    ORDER BY tracks.track_id
                     """,
                     (album_id,),
                 )
@@ -416,15 +422,20 @@ def prepare_album_musicbrainz_edit_job(
                 connection.execute(
                     f"""
                     SELECT
-                        track_id,
-                        album_id,
-                        root_position,
-                        path,
-                        album,
-                        title
-                    FROM library_tracks
-                    WHERE track_id IN ({placeholders})
-                    ORDER BY track_id
+                        tracks.track_id,
+                        tracks.album_id,
+                        tracks.root_position,
+                        tracks.path,
+                        tracks.album,
+                        tracks.title,
+                        COALESCE(sources.source_kind, roots.kind, 'local') AS source_kind
+                    FROM library_tracks AS tracks
+                    LEFT JOIN library_track_sources AS sources
+                        ON sources.track_id = tracks.track_id
+                    LEFT JOIN library_roots AS roots
+                        ON roots.position = tracks.root_position
+                    WHERE tracks.track_id IN ({placeholders})
+                    ORDER BY tracks.track_id
                     """,
                     requested_track_ids,
                 )
@@ -452,6 +463,8 @@ def prepare_album_musicbrainz_edit_job(
                 row_album_id = str(row["album_id"]) if row["album_id"] else ""
                 if row_album_id != album_id:
                     raise ValueError(f"track does not belong to album: {track_id}")
+                if row_is_remote_track(row):
+                    raise ValueError("audio tag edits are not supported for remote tracks")
                 snapshots.append(album_edit_snapshot_from_row(row, row_album_id=row_album_id))
             groups.append(
                 AlbumMusicBrainzEditGroupJob(
@@ -485,6 +498,14 @@ def album_edit_snapshot_from_row(
         track_artwork=None,
         album_artwork=None,
     )
+
+
+def row_is_remote_track(row: sqlite3.Row) -> bool:
+    try:
+        source_kind = str(row["source_kind"] or "")
+    except (IndexError, KeyError):
+        source_kind = ""
+    return source_kind == SOURCE_KIND_S3 or is_remote_path(str(row["path"]))
 
 
 def parse_album_tag_edit_request(
@@ -560,15 +581,20 @@ def prepare_album_tag_edit_job(
             connection.execute(
                 f"""
                 SELECT
-                    track_id,
-                    album_id,
-                    root_position,
-                    path,
-                    album,
-                    title
-                FROM library_tracks
-                WHERE track_id IN ({placeholders})
-                ORDER BY track_id
+                    tracks.track_id,
+                    tracks.album_id,
+                    tracks.root_position,
+                    tracks.path,
+                    tracks.album,
+                    tracks.title,
+                    COALESCE(sources.source_kind, roots.kind, 'local') AS source_kind
+                FROM library_tracks AS tracks
+                LEFT JOIN library_track_sources AS sources
+                    ON sources.track_id = tracks.track_id
+                LEFT JOIN library_roots AS roots
+                    ON roots.position = tracks.root_position
+                WHERE tracks.track_id IN ({placeholders})
+                ORDER BY tracks.track_id
                 """,
                 requested_track_ids,
             )
@@ -629,6 +655,8 @@ def prepare_album_tag_edit_job(
             row_album_id = str(row["album_id"]) if row["album_id"] else ""
             if row_album_id != album_id:
                 raise ValueError(f"track does not belong to album: {track_edit.track_id}")
+            if row_is_remote_track(row):
+                raise ValueError("audio tag edits are not supported for remote tracks")
             track_artworks = artwork_rows.get(track_edit.track_id, {})
             snapshots.append(
                 AlbumEditSnapshot(
@@ -768,6 +796,8 @@ def edit_library_album_musicbrainz(
                 for snapshot in group.tracks:
                     if cancel_check is not None:
                         cancel_check()
+                    if is_remote_path(snapshot.path):
+                        raise ValueError("audio tag edits are not supported for remote tracks")
                     write_album_audio_tags(
                         Path(snapshot.path),
                         album_artist=tag_values.album_artist,
@@ -1146,6 +1176,8 @@ def edit_library_album_tags(
         if cancel_check is not None:
             cancel_check()
         snapshot = snapshots_by_track_id[track_edit.track_id]
+        if is_remote_path(snapshot.path):
+            raise ValueError("audio tag edits are not supported for remote tracks")
         write_track_audio_tags(
             Path(snapshot.path),
             artist=track_edit.artist,
