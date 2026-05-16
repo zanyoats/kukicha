@@ -796,6 +796,28 @@ class OpenSubsonicWebAdapterTest(unittest.TestCase):
         self.assertEqual(by_name, ["Alpha", "Middle", "Zulu"])
         self.assertEqual(by_artist, ["Zulu", "Alpha", "Middle"])
 
+    def test_album_list2_includes_album_genre_for_client_side_filters(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            self.save_album_list_library(temp_path)
+            app = create_open_subsonic_app(self.make_options(temp_path))
+
+            response = app.test_client().get(
+                "/rest/getAlbumList2",
+                query_string={
+                    **self.auth_params(),
+                    "type": "newest",
+                    "size": "20",
+                    "offset": "0",
+                },
+            )
+
+        albums = subsonic_payload(response)["albumList2"]["album"]
+        genres_by_album = {album["name"]: album.get("genre") for album in albums}
+        self.assertEqual(genres_by_album["Alpha"], "Electronic")
+        self.assertEqual(genres_by_album["Middle"], "Jazz")
+        self.assertEqual(genres_by_album["Zulu"], "Rock")
+
     def test_album_list2_uses_library_query_recent_and_starred_sorts(self) -> None:
         with TemporaryDirectory() as tempdir:
             temp_path = Path(tempdir)

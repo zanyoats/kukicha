@@ -757,6 +757,7 @@ def album_list2_payloads(albums: Iterable[AlbumSummary]) -> list[dict[str, objec
             created=album.file_created_at,
             has_cover=False,
             art_track_id=album.art_track_id,
+            genre=album.sort_genre,
         )
         for album in albums
     ]
@@ -772,6 +773,7 @@ def album_summary_payload(
     created: object,
     has_cover: bool,
     art_track_id: int | None,
+    genre: str | None = None,
 ) -> dict[str, object]:
     return without_none(
         {
@@ -783,6 +785,7 @@ def album_summary_payload(
             "songCount": song_count,
             "created": str(created) if created else None,
             "year": year,
+            "genre": genre,
         }
     )
 
