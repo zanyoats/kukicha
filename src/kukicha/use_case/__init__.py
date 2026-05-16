@@ -71,6 +71,7 @@ from .listening import (
     ListeningNowPlaying,
     ListeningPlaylist,
     ListeningTrack,
+    NATIVE_PLAYBACK_SOURCE,
     home_dashboard,
     record_playback,
 )
@@ -199,6 +200,7 @@ __all__ = [
     "list_active_player_jobs",
     "list_player_jobs",
     "mark_stale_player_jobs_canceled",
+    "NATIVE_PLAYBACK_SOURCE",
     "prepare_album_musicbrainz_edit_job",
     "prepare_album_musicbrainz_edit_request",
     "prepare_album_edit_job",

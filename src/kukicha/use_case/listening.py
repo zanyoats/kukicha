@@ -21,6 +21,8 @@ from .queries.models import (
     TrackNotFoundError,
 )
 
+NATIVE_PLAYBACK_SOURCE = "__native"
+
 
 @dataclass(frozen=True, slots=True)
 class ListeningAlbum:
@@ -106,7 +108,7 @@ def record_playback(
         snapshot_json = json.dumps(snapshot, sort_keys=True)
         is_stream = snapshot_is_stream(snapshot)
         submit_play = submission or is_stream
-        if not submission or is_stream:
+        if source == NATIVE_PLAYBACK_SOURCE and (not submission or is_stream):
             update_now_playing(
                 connection,
                 session_key=session_key,
@@ -557,9 +559,11 @@ def now_playing_album(connection: Connection) -> ListeningNowPlaying | None:
         """
         SELECT updated_at, playback_id, album_id, playlist_key, snapshot_json
         FROM play_now_playing
+        WHERE source = ?
         ORDER BY updated_at DESC
         LIMIT 1
-        """
+        """,
+        (NATIVE_PLAYBACK_SOURCE,),
     ).fetchone()
     if row is None:
         return None

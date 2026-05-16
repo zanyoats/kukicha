@@ -57,6 +57,90 @@ from kukicha.use_case.queries.filters import album_where_clause
 
 
 class LibraryAlbumPathQueryTest(unittest.TestCase):
+    def test_connect_database_migrates_legacy_listening_source_columns(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            database = Path(tempdir) / "kukicha.sqlite"
+            legacy_connection = sqlite3.connect(database)
+            try:
+                legacy_connection.executescript(
+                    """
+                    CREATE TABLE play_events (
+                        play_event_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        played_at TEXT NOT NULL,
+                        playback_id INTEGER,
+                        track_key TEXT,
+                        album_id TEXT,
+                        playlist_key TEXT,
+                        snapshot_json TEXT NOT NULL DEFAULT '{}'
+                    );
+                    INSERT INTO play_events (
+                        played_at,
+                        playback_id,
+                        track_key,
+                        album_id,
+                        playlist_key,
+                        snapshot_json
+                    ) VALUES (
+                        '2026-05-11T12:00:00+00:00',
+                        1,
+                        'track-key',
+                        'album-key',
+                        '',
+                        '{}'
+                    );
+                    CREATE TABLE play_now_playing (
+                        session_key TEXT PRIMARY KEY,
+                        updated_at TEXT NOT NULL,
+                        playback_id INTEGER,
+                        track_key TEXT,
+                        album_id TEXT,
+                        playlist_key TEXT,
+                        snapshot_json TEXT NOT NULL DEFAULT '{}'
+                    );
+                    INSERT INTO play_now_playing (
+                        session_key,
+                        updated_at,
+                        playback_id,
+                        track_key,
+                        album_id,
+                        playlist_key,
+                        snapshot_json
+                    ) VALUES (
+                        'default',
+                        '2026-05-11T12:00:00+00:00',
+                        1,
+                        'track-key',
+                        'album-key',
+                        '',
+                        '{}'
+                    );
+                    """
+                )
+                legacy_connection.commit()
+            finally:
+                legacy_connection.close()
+
+            with connect_database(database) as connection:
+                play_event_columns = {
+                    str(row["name"])
+                    for row in connection.execute("PRAGMA table_info(play_events)")
+                }
+                now_playing_columns = {
+                    str(row["name"])
+                    for row in connection.execute("PRAGMA table_info(play_now_playing)")
+                }
+                play_event_source = connection.execute(
+                    "SELECT source FROM play_events"
+                ).fetchone()["source"]
+                now_playing_source = connection.execute(
+                    "SELECT source FROM play_now_playing"
+                ).fetchone()["source"]
+
+        self.assertIn("source", play_event_columns)
+        self.assertIn("source", now_playing_columns)
+        self.assertEqual(play_event_source, "")
+        self.assertEqual(now_playing_source, "")
+
     def test_migrates_album_artist_index_to_nocase(self) -> None:
         with TemporaryDirectory() as tempdir:
             database = Path(tempdir) / "kukicha.sqlite"

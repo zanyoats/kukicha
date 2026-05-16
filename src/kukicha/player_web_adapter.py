@@ -15,6 +15,7 @@ from werkzeug.exceptions import NotFound
 from werkzeug.serving import make_server
 
 from .use_case import (
+    NATIVE_PLAYBACK_SOURCE,
     append_queue as append_queue_command,
     delete_album_musicbrainz_override,
     mark_stale_player_jobs_canceled,
@@ -328,7 +329,7 @@ def create_player_app(options: PlayerServerOptions) -> Flask:
             playback_id,
             submission=bool_payload_value(payload.get("submission", True)),
             played_at=epoch_millis_payload_time(payload.get("time")),
-            source="player",
+            source=NATIVE_PLAYBACK_SOURCE,
         )
         return json_response({})
 

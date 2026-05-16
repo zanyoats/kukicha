@@ -31,6 +31,7 @@ from kukicha.use_case import (
     LibraryFilterOptions,
     LibraryQueries,
     LibraryRootFilterOption,
+    NATIVE_PLAYBACK_SOURCE,
     PlaylistDetails,
     PlaylistItem,
     PlaylistTrack,
@@ -3541,7 +3542,7 @@ class PlayerWebAdapterTest(unittest.TestCase):
                 track.track_id or 1,
                 submission=False,
                 played_at=datetime(2026, 5, 11, 13, 30, tzinfo=UTC),
-                source="test",
+                source=NATIVE_PLAYBACK_SOURCE,
             )
             runtime = self.make_runtime(database)
             runtime.queue_state_copy.return_value = PlayerQueueState(
@@ -3592,7 +3593,7 @@ class PlayerWebAdapterTest(unittest.TestCase):
                 track.track_id or 1,
                 submission=False,
                 played_at=datetime(2026, 5, 11, 13, 30, tzinfo=UTC),
-                source="test",
+                source=NATIVE_PLAYBACK_SOURCE,
             )
             runtime = self.make_runtime(database)
             with patch("kukicha.player_web_adapter.PlayerRuntime", return_value=runtime):
@@ -3602,6 +3603,75 @@ class PlayerWebAdapterTest(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertNotIn(b"Continue Listening", response.data)
         self.assertIn(b"No listening history yet", response.data)
+
+    def test_home_continue_listening_ignores_newer_external_now_playing(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            database = temp_path / "kukicha.sqlite"
+            native_track = TrackRecord(
+                path="/music/Native/Native Album/01.flac",
+                root_position=0,
+                file_type="flac",
+                artist="Native Artist",
+                album_artist="Native Artist",
+                album="Native Album",
+                title="Native Song",
+                track_number="1",
+            )
+            external_track = TrackRecord(
+                path="/music/External/External Album/01.flac",
+                root_position=0,
+                file_type="flac",
+                artist="External Artist",
+                album_artist="External Artist",
+                album="External Album",
+                title="External Song",
+                track_number="1",
+            )
+            save_library(
+                MusicLibrary(
+                    roots=["/music"],
+                    tracks=[native_track, external_track],
+                    supported_extensions=[".flac"],
+                    generated_at="2026-05-11T00:00:00+00:00",
+                ),
+                database,
+            )
+            record_playback(
+                database,
+                native_track.track_id or 1,
+                submission=False,
+                played_at=datetime(2026, 5, 11, 13, 30, tzinfo=UTC),
+                source=NATIVE_PLAYBACK_SOURCE,
+            )
+            record_playback(
+                database,
+                external_track.track_id or 2,
+                submission=False,
+                played_at=datetime(2026, 5, 11, 13, 31, tzinfo=UTC),
+                source="some-client",
+            )
+            runtime = self.make_runtime(database)
+            runtime.queue_state_copy.return_value = PlayerQueueState(
+                track_ids=[native_track.track_id or 1],
+                position=0,
+                loaded_track_id=native_track.track_id or 1,
+                paused=False,
+            )
+            with patch("kukicha.player_web_adapter.PlayerRuntime", return_value=runtime):
+                app = create_player_app(self.make_options(temp_path))
+                response = app.test_client().get("/")
+
+        self.assertEqual(response.status_code, 200)
+        html = response.data.decode()
+        continue_section = html.split("Continue Listening", 1)[1].split(
+            "Recently Added",
+            1,
+        )[0]
+        self.assertIn("Native Song", continue_section)
+        self.assertIn("Native Album", continue_section)
+        self.assertNotIn("External Song", continue_section)
+        self.assertNotIn("External Album", continue_section)
 
     def test_player_scrobble_endpoint_records_now_playing_and_submitted_plays(self) -> None:
         with TemporaryDirectory() as tempdir:
@@ -3642,7 +3712,7 @@ class PlayerWebAdapterTest(unittest.TestCase):
                 )
                 with connect_database(database, create=False) as connection:
                     now_row = connection.execute(
-                        "SELECT playback_id, updated_at FROM play_now_playing"
+                        "SELECT playback_id, updated_at, source FROM play_now_playing"
                     ).fetchone()
                     submitted_count = int(
                         connection.execute(
@@ -3673,6 +3743,9 @@ class PlayerWebAdapterTest(unittest.TestCase):
                     """,
                     (track.track_id,),
                 ).fetchone()
+                event_row = connection.execute(
+                    "SELECT source FROM play_events"
+                ).fetchone()
                 album_stats = connection.execute(
                     "SELECT play_count, last_played_at FROM play_album_stats"
                 ).fetchone()
@@ -3700,12 +3773,14 @@ class PlayerWebAdapterTest(unittest.TestCase):
         self.assertEqual(now_response.status_code, 200)
         self.assertEqual(int(now_row["playback_id"]), track.track_id)
         self.assertEqual(now_row["updated_at"], expected_now)
+        self.assertEqual(now_row["source"], NATIVE_PLAYBACK_SOURCE)
         self.assertEqual(submitted_count, 0)
         self.assertEqual(submit_response.status_code, 200)
         self.assertEqual(bad_response.status_code, 400)
         self.assertEqual(bad_response.get_json(), {"error": "invalid scrobble submission"})
         self.assertEqual(int(track_stats["play_count"]), 1)
         self.assertEqual(track_stats["last_played_at"], expected_played)
+        self.assertEqual(event_row["source"], NATIVE_PLAYBACK_SOURCE)
         self.assertEqual(track_stats["title"], "Emerald and Lime")
         self.assertEqual(track_stats["album"], "Small Craft on a Milk Sea")
         self.assertEqual(int(album_stats["play_count"]), 1)
@@ -3761,21 +3836,21 @@ class PlayerWebAdapterTest(unittest.TestCase):
                 first.track_id or 1,
                 submission=False,
                 played_at=current_time,
-                source="test",
+                source=NATIVE_PLAYBACK_SOURCE,
             )
             record_playback(
                 database,
                 second.track_id or 2,
                 submission=False,
                 played_at=delayed_time,
-                source="test",
+                source=NATIVE_PLAYBACK_SOURCE,
             )
             record_playback(
                 database,
                 second.track_id or 2,
                 submission=True,
                 played_at=submitted_time,
-                source="test",
+                source=NATIVE_PLAYBACK_SOURCE,
             )
             with connect_database(database, create=False) as connection:
                 stale_guard_row = connection.execute(
@@ -3795,7 +3870,7 @@ class PlayerWebAdapterTest(unittest.TestCase):
                 second.track_id or 2,
                 submission=False,
                 played_at=newer_time,
-                source="test",
+                source=NATIVE_PLAYBACK_SOURCE,
             )
             with connect_database(database, create=False) as connection:
                 newer_row = connection.execute(
@@ -4102,7 +4177,7 @@ class PlayerWebAdapterTest(unittest.TestCase):
                 -playlist_item_id,
                 submission=False,
                 played_at=played_at,
-                source="opensubsonic",
+                source=NATIVE_PLAYBACK_SOURCE,
             )
 
             with connect_database(database, create=False) as connection:
@@ -4132,7 +4207,7 @@ class PlayerWebAdapterTest(unittest.TestCase):
 
         self.assertEqual(int(now_playing["playback_id"]), -playlist_item_id)
         self.assertEqual(now_playing["updated_at"], played_at.isoformat())
-        self.assertEqual(now_playing["source"], "opensubsonic")
+        self.assertEqual(now_playing["source"], NATIVE_PLAYBACK_SOURCE)
         self.assertEqual(event_count, 1)
         self.assertEqual(int(playlist_stats["play_count"]), 1)
         self.assertEqual(playlist_stats["last_played_at"], played_at.isoformat())
@@ -4188,7 +4263,7 @@ class PlayerWebAdapterTest(unittest.TestCase):
                 playback_id,
                 submission=True,
                 played_at=datetime(2026, 5, 11, 12, 0, tzinfo=UTC),
-                source="player",
+                source=NATIVE_PLAYBACK_SOURCE,
             )
             dashboard = home_dashboard(database)
             runtime = self.make_runtime(database)

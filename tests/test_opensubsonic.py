@@ -542,9 +542,11 @@ class OpenSubsonicWebAdapterTest(unittest.TestCase):
                 },
             )
             with connect_database(database, create=False) as connection:
-                now_row = connection.execute(
-                    "SELECT playback_id, updated_at FROM play_now_playing"
-                ).fetchone()
+                now_playing_count = int(
+                    connection.execute(
+                        "SELECT COUNT(*) AS count FROM play_now_playing"
+                    ).fetchone()["count"]
+                )
                 submitted_count = int(
                     connection.execute(
                         "SELECT COUNT(*) AS count FROM play_track_stats"
@@ -561,6 +563,16 @@ class OpenSubsonicWebAdapterTest(unittest.TestCase):
                     ("time", "1770001200000"),
                     ("submission", "true"),
                 ],
+            )
+            other_client_now_response = client.get(
+                "/rest/scrobble",
+                query_string={
+                    **self.auth_params(),
+                    "c": "some-client",
+                    "id": str(second.track_id),
+                    "time": "1770001800000",
+                    "submission": "false",
+                },
             )
             xml_response = client.get(
                 "/rest/scrobble.view",
@@ -584,7 +596,6 @@ class OpenSubsonicWebAdapterTest(unittest.TestCase):
                 },
             )
 
-            expected_now = datetime.fromtimestamp(1770000000000 / 1000, tz=UTC).isoformat()
             expected_first_play = datetime.fromtimestamp(
                 1770000600000 / 1000,
                 tz=UTC,
@@ -616,12 +627,23 @@ class OpenSubsonicWebAdapterTest(unittest.TestCase):
                 genre_row = connection.execute(
                     "SELECT genre, play_count FROM play_genre_stats"
                 ).fetchone()
+                event_sources = [
+                    str(row["source"])
+                    for row in connection.execute(
+                        "SELECT source FROM play_events ORDER BY play_event_id"
+                    )
+                ]
+                final_now_playing_count = int(
+                    connection.execute(
+                        "SELECT COUNT(*) AS count FROM play_now_playing"
+                    ).fetchone()["count"]
+                )
 
         self.assertEqual(subsonic_payload(now_response)["status"], "ok")
-        self.assertEqual(int(now_row["playback_id"]), first.track_id)
-        self.assertEqual(now_row["updated_at"], expected_now)
+        self.assertEqual(now_playing_count, 0)
         self.assertEqual(submitted_count, 0)
         self.assertEqual(subsonic_payload(submit_response)["status"], "ok")
+        self.assertEqual(subsonic_payload(other_client_now_response)["status"], "ok")
         self.assertEqual(xml_response.content_type, "text/xml; charset=utf-8")
         self.assertIn(b'status="ok"', xml_response.data)
         self.assertEqual(subsonic_payload(missing_response)["status"], "failed")
@@ -635,6 +657,8 @@ class OpenSubsonicWebAdapterTest(unittest.TestCase):
                 second.track_id: (1, expected_second_play),
             },
         )
+        self.assertEqual(event_sources, ["kukicha-test", "kukicha-test"])
+        self.assertEqual(final_now_playing_count, 0)
         self.assertEqual(
             album_stats,
             {"artist::first-album": 1, "artist::second-album": 1},

@@ -521,6 +521,7 @@ def connect_database(
         connection.execute("PRAGMA synchronous=NORMAL")
         connection.executescript(DATABASE_SCHEMA)
         migrate_player_jobs_schema(connection)
+        migrate_listening_schema(connection)
         migrate_library_schema(connection)
         migrate_album_musicbrainz_link_key_schema(connection)
         migrate_album_musicbrainz_schema(connection)
@@ -538,6 +539,15 @@ def connect_database(
 
 def migrate_player_jobs_schema(connection: sqlite3.Connection) -> None:
     connection.execute("DROP TABLE IF EXISTS player_actions")
+
+
+def migrate_listening_schema(connection: sqlite3.Connection) -> None:
+    for table_name in ("play_events", "play_now_playing"):
+        columns = table_columns(connection, table_name)
+        if columns and "source" not in columns:
+            connection.execute(
+                f"ALTER TABLE {table_name} ADD COLUMN source TEXT NOT NULL DEFAULT ''"
+            )
 
 
 def migrate_library_schema(connection: sqlite3.Connection) -> None:

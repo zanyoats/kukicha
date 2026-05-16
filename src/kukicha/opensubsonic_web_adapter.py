@@ -428,6 +428,7 @@ def handle_scrobble(params: Mapping[str, list[str]]) -> dict[str, object]:
         )
     time_values = params.get("time") or []
     submission = bool_param(params, "submission", default=True)
+    client_name = first_param(params, "c") or ""
     for index, id_value in enumerate(id_values):
         try:
             track_id = int(id_value)
@@ -446,7 +447,7 @@ def handle_scrobble(params: Mapping[str, list[str]]) -> dict[str, object]:
             track_id,
             submission=submission,
             played_at=played_at,
-            source="opensubsonic",
+            source=client_name,
         )
     return {}
 
