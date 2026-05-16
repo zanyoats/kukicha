@@ -247,6 +247,18 @@ class OpenSubsonicWebAdapterTest(unittest.TestCase):
             for album in subsonic_payload(response)["albumList2"]["album"]
         ]
 
+    def album_starred_at(self, temp_path: Path, album_id: str) -> str | None:
+        with connect_database(temp_path / "kukicha.sqlite", create=False) as connection:
+            row = connection.execute(
+                """
+                SELECT starred_at
+                FROM library_albums
+                WHERE album_id = ?
+                """,
+                (album_id,),
+            ).fetchone()
+        return str(row["starred_at"]) if row is not None and row["starred_at"] else None
+
     def test_get_open_subsonic_extensions_is_public_and_advertises_form_post(self) -> None:
         with TemporaryDirectory() as tempdir:
             temp_path = Path(tempdir)
@@ -632,6 +644,101 @@ class OpenSubsonicWebAdapterTest(unittest.TestCase):
         self.assertEqual(artist_row["last_played_at"], expected_second_play)
         self.assertEqual(genre_row["genre"], "Electronic")
         self.assertEqual(int(genre_row["play_count"]), 1)
+
+    def test_star_and_unstar_update_album_ids(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            self.save_sample_library(temp_path)
+            app = create_open_subsonic_app(self.make_options(temp_path))
+            client = app.test_client()
+
+            star_response = client.get(
+                "/rest/star",
+                query_string=[
+                    *self.auth_params().items(),
+                    ("albumId", "artist::first-album"),
+                    ("albumId", "artist::second-album"),
+                ],
+            )
+            first_starred_at = self.album_starred_at(temp_path, "artist::first-album")
+            second_starred_at = self.album_starred_at(temp_path, "artist::second-album")
+
+            unstar_response = client.get(
+                "/rest/unstar",
+                query_string={
+                    **self.auth_params(),
+                    "albumId": "artist::first-album",
+                },
+            )
+            xml_unstar_response = client.get(
+                "/rest/unstar.view",
+                query_string={
+                    **self.auth_params(),
+                    "f": "xml",
+                    "albumId": "artist::second-album",
+                },
+            )
+            first_unstarred_at = self.album_starred_at(temp_path, "artist::first-album")
+            second_unstarred_at = self.album_starred_at(temp_path, "artist::second-album")
+
+        self.assertEqual(subsonic_payload(star_response)["status"], "ok")
+        self.assertIsNotNone(first_starred_at)
+        self.assertIsNotNone(second_starred_at)
+        self.assertEqual(subsonic_payload(unstar_response)["status"], "ok")
+        self.assertEqual(xml_unstar_response.content_type, "text/xml; charset=utf-8")
+        self.assertIn(b'status="ok"', xml_unstar_response.data)
+        self.assertIsNone(first_unstarred_at)
+        self.assertIsNone(second_unstarred_at)
+
+    def test_star_rejects_unsupported_targets_and_missing_album_ids(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            self.save_sample_library(temp_path)
+            app = create_open_subsonic_app(self.make_options(temp_path))
+            client = app.test_client()
+
+            id_response = client.get(
+                "/rest/star",
+                query_string={
+                    **self.auth_params(),
+                    "albumId": "artist::first-album",
+                    "id": "1",
+                },
+            )
+            artist_response = client.get(
+                "/rest/unstar",
+                query_string={
+                    **self.auth_params(),
+                    "albumId": "artist::second-album",
+                    "artistId": "artist:Artist",
+                },
+            )
+            missing_response = client.get(
+                "/rest/star",
+                query_string=self.auth_params(),
+            )
+            unknown_response = client.get(
+                "/rest/star",
+                query_string={
+                    **self.auth_params(),
+                    "albumId": "missing::album",
+                },
+            )
+            first_starred_at = self.album_starred_at(temp_path, "artist::first-album")
+            second_starred_at = self.album_starred_at(temp_path, "artist::second-album")
+
+        self.assertEqual(subsonic_payload(id_response)["status"], "failed")
+        self.assertEqual(subsonic_payload(id_response)["error"]["code"], 0)
+        self.assertIn("id", subsonic_payload(id_response)["error"]["message"])
+        self.assertEqual(subsonic_payload(artist_response)["status"], "failed")
+        self.assertEqual(subsonic_payload(artist_response)["error"]["code"], 0)
+        self.assertIn("artistId", subsonic_payload(artist_response)["error"]["message"])
+        self.assertEqual(subsonic_payload(missing_response)["status"], "failed")
+        self.assertEqual(subsonic_payload(missing_response)["error"]["code"], 10)
+        self.assertEqual(subsonic_payload(unknown_response)["status"], "failed")
+        self.assertEqual(subsonic_payload(unknown_response)["error"]["code"], 70)
+        self.assertIsNone(first_starred_at)
+        self.assertIsNone(second_starred_at)
 
     def test_album_list_requires_type(self) -> None:
         with TemporaryDirectory() as tempdir:

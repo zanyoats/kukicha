@@ -18,7 +18,7 @@ from werkzeug.serving import make_server
 from .app_metadata import kukicha_version
 from .models import ALBUM_ARTWORK_HEIGHT, TRACK_ARTWORK_HEIGHT
 from .player_config import LOGGER, PlayerServerOptions, validate_player_startup
-from .player_errors import PlayerConfigError
+from .player_errors import PlayerConfigError, PlayerNotFoundError
 from .player_media import audio_mime_type
 from .player_platform import register_player_signal_handlers, restore_signal_handlers
 from .player_runtime import PlayerRuntime
@@ -42,6 +42,7 @@ from .use_case import (
     record_playback,
     track_artwork,
     track_audio_path,
+    update_album_star,
 )
 from .use_case.queries.library import album_artist_display_text
 
@@ -121,6 +122,7 @@ def create_open_subsonic_app(options: PlayerServerOptions) -> Flask:
         except (
             AlbumNotFoundError,
             ArtistNotFoundError,
+            PlayerNotFoundError,
             TrackNotFoundError,
             FileNotFoundError,
         ):
@@ -188,6 +190,8 @@ def open_subsonic_handlers() -> dict[str, Any]:
         "download": handle_download,
         "getcoverart": handle_get_cover_art,
         "scrobble": handle_scrobble,
+        "star": handle_star,
+        "unstar": handle_unstar,
     }
 
 
@@ -444,6 +448,39 @@ def handle_scrobble(params: Mapping[str, list[str]]) -> dict[str, object]:
             played_at=played_at,
             source="opensubsonic",
         )
+    return {}
+
+
+def handle_star(params: Mapping[str, list[str]]) -> dict[str, object]:
+    return handle_album_star_update(params, starred=True)
+
+
+def handle_unstar(params: Mapping[str, list[str]]) -> dict[str, object]:
+    return handle_album_star_update(params, starred=False)
+
+
+def handle_album_star_update(
+    params: Mapping[str, list[str]],
+    *,
+    starred: bool,
+) -> dict[str, object]:
+    for unsupported_param in ("id", "artistId"):
+        if unsupported_param in params:
+            raise OpenSubsonicApiError(
+                ERROR_GENERIC,
+                f"Parameter is not implemented: {unsupported_param}",
+            )
+
+    album_ids = params.get("albumId") or []
+    if not album_ids or any(not album_id for album_id in album_ids):
+        raise OpenSubsonicApiError(
+            ERROR_REQUIRED_PARAMETER_MISSING,
+            "Required parameter is missing: albumId",
+        )
+
+    context = open_subsonic_context()
+    for album_id in album_ids:
+        update_album_star(context.runtime, album_id, {"starred": starred})
     return {}
 
 
