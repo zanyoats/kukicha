@@ -21,6 +21,11 @@ class TrackRecord:
     track_id: int | None = None
     root_position: int | None = None
     file_created_at: str | None = None
+    file_modified_at_ns: int | None = None
+    file_size_bytes: int | None = None
+    sidecar_artwork_path: str | None = None
+    sidecar_artwork_modified_at_ns: int | None = None
+    sidecar_artwork_size_bytes: int | None = None
     file_type: str | None = None
     scan_error: str | None = None
     artist: str | None = None

@@ -417,6 +417,11 @@ def save_library_with_options(
                 root_position,
                 track.path,
                 track.file_created_at,
+                track.file_modified_at_ns,
+                track.file_size_bytes,
+                track.sidecar_artwork_path,
+                track.sidecar_artwork_modified_at_ns,
+                track.sidecar_artwork_size_bytes,
                 track.file_type,
                 track.scan_error,
                 track.artist,
@@ -449,6 +454,11 @@ def save_library_with_options(
                         root_position,
                         path,
                         file_created_at,
+                        file_modified_at_ns,
+                        file_size_bytes,
+                        sidecar_artwork_path,
+                        sidecar_artwork_modified_at_ns,
+                        sidecar_artwork_size_bytes,
                         file_type,
                         scan_error,
                         artist,
@@ -466,7 +476,7 @@ def save_library_with_options(
                         date,
                         duration_seconds,
                         bitrate
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     params,
                 )
@@ -481,6 +491,11 @@ def save_library_with_options(
                         root_position,
                         path,
                         file_created_at,
+                        file_modified_at_ns,
+                        file_size_bytes,
+                        sidecar_artwork_path,
+                        sidecar_artwork_modified_at_ns,
+                        sidecar_artwork_size_bytes,
                         file_type,
                         scan_error,
                         artist,
@@ -498,7 +513,7 @@ def save_library_with_options(
                         date,
                         duration_seconds,
                         bitrate
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (track.track_id, *params),
                 )
@@ -704,6 +719,620 @@ def playlist_item_ids_by_playlist_path(
             )
         ] = int(row["playlist_item_id"])
     return item_ids
+
+
+def save_rescanned_library_incremental(
+    library: MusicLibrary,
+    destination: Path,
+    *,
+    connection: sqlite3.Connection | None = None,
+    root_rows: Iterable[tuple[int, str]],
+    scanned_paths: Iterable[str],
+    album_artist_split_patterns: Iterable[str | None] = DEFAULT_ALBUM_ARTIST_SPLIT_PATTERNS,
+) -> None:
+    library_roots = [(int(position), str(root_path)) for position, root_path in root_rows]
+    valid_root_positions = {position for position, _root in library_roots}
+    root_positions_by_index = [position for position, _root in library_roots]
+    scanned_path_set = set(scanned_paths)
+    owns_connection = connection is None
+    if connection is None:
+        connection = connect_database(destination, create=False)
+    try:
+        existing_tracks_by_path = library_track_rows_by_path(connection)
+        current_paths = {track.path for track in library.tracks}
+        stale_paths = sorted(set(existing_tracks_by_path) - current_paths)
+        track_ids_by_path = {
+            path: int(row["track_id"])
+            for path, row in existing_tracks_by_path.items()
+            if path not in stale_paths
+        }
+        if not scanned_path_set and not stale_paths:
+            save_library_playlists_incremental(
+                connection,
+                library,
+                library_roots=library_roots,
+                valid_root_positions=valid_root_positions,
+                root_positions_by_index=root_positions_by_index,
+                track_ids_by_path=track_ids_by_path,
+            )
+            set_metadata(connection, "library_generated_at", library.generated_at)
+            set_metadata(
+                connection,
+                "library_supported_extensions_json",
+                json.dumps(library.supported_extensions),
+            )
+            rebuild_root_scan_stats(connection)
+            if owns_connection:
+                connection.commit()
+            return
+
+        apply_album_artist_mappings(
+            connection,
+            library.tracks,
+            split_patterns=album_artist_split_patterns,
+        )
+        copy_track_musicbrainz_links_from_existing_album_ids(connection)
+        apply_musicbrainz_release_variants(connection, library.tracks)
+        albums = group_library_albums(library)
+        copy_album_musicbrainz_links_from_legacy_album_ids(connection, albums)
+        store_scanned_album_musicbrainz_links(connection, albums)
+        album_ids_by_key = {
+            album_lookup_key(
+                album.artist_id_text,
+                album.album,
+                album.release_variant,
+            ): album.album_id
+            for album in albums
+        }
+        current_albums_by_id = {album.album_id: album for album in albums}
+
+        affected_album_ids: set[str] = set()
+        for path in stale_paths:
+            album_id = existing_tracks_by_path[path]["album_id"]
+            if album_id:
+                affected_album_ids.add(str(album_id))
+
+        track_writes: list[tuple[TrackRecord, str | None, int | None]] = []
+        for track in library.tracks:
+            existing_row = existing_tracks_by_path.get(track.path)
+            if existing_row is not None:
+                track.track_id = int(existing_row["track_id"])
+            album_id = track_album_id(track, album_ids_by_key)
+            root_position = resolved_library_item_root_position(
+                track.root_position,
+                track.path,
+                library_roots,
+                valid_root_positions=valid_root_positions,
+                root_positions_by_index=root_positions_by_index,
+            )
+            if (
+                existing_row is None
+                or track.path in scanned_path_set
+                or nullable_text(existing_row["album_id"]) != album_id
+                or nullable_int(existing_row["root_position"]) != root_position
+                or not track_snapshot_matches_row(track, existing_row)
+            ):
+                if existing_row is not None and existing_row["album_id"]:
+                    affected_album_ids.add(str(existing_row["album_id"]))
+                if album_id:
+                    affected_album_ids.add(album_id)
+                track_writes.append((track, album_id, root_position))
+
+        upsert_library_album_rows(
+            connection,
+            (
+                current_albums_by_id[album_id]
+                for album_id in affected_album_ids
+                if album_id in current_albums_by_id
+            ),
+        )
+        delete_library_tracks_by_path(connection, stale_paths)
+        for track, album_id, root_position in track_writes:
+            track_id = upsert_library_track_row(
+                connection,
+                track,
+                album_id=album_id,
+                root_position=root_position,
+            )
+            track_ids_by_path[track.path] = track_id
+            replace_library_track_children(connection, track_id, track)
+
+        delete_missing_library_album_rows(
+            connection,
+            (
+                album_id
+                for album_id in affected_album_ids
+                if album_id not in current_albums_by_id
+            ),
+        )
+        if affected_album_ids:
+            rebuild_album_rollups(connection, affected_album_ids)
+            rebuild_album_search_index(connection, affected_album_ids)
+
+        save_library_playlists_incremental(
+            connection,
+            library,
+            library_roots=library_roots,
+            valid_root_positions=valid_root_positions,
+            root_positions_by_index=root_positions_by_index,
+            track_ids_by_path=track_ids_by_path,
+        )
+        set_metadata(connection, "library_generated_at", library.generated_at)
+        set_metadata(
+            connection,
+            "library_supported_extensions_json",
+            json.dumps(library.supported_extensions),
+        )
+        rebuild_root_scan_stats(connection)
+        if owns_connection:
+            connection.commit()
+    finally:
+        if owns_connection:
+            connection.close()
+
+
+def library_track_rows_by_path(
+    connection: sqlite3.Connection,
+) -> dict[str, sqlite3.Row]:
+    return {
+        str(row["path"]): row
+        for row in connection.execute(
+            """
+            SELECT
+                track_id,
+                album_id,
+                root_position,
+                path,
+                file_modified_at_ns,
+                file_size_bytes,
+                sidecar_artwork_path,
+                sidecar_artwork_modified_at_ns,
+                sidecar_artwork_size_bytes
+            FROM library_tracks
+            """
+        )
+    }
+
+
+def track_snapshot_matches_row(track: TrackRecord, row: sqlite3.Row) -> bool:
+    return (
+        nullable_int(row["file_modified_at_ns"]) == track.file_modified_at_ns
+        and nullable_int(row["file_size_bytes"]) == track.file_size_bytes
+        and nullable_text(row["sidecar_artwork_path"]) == track.sidecar_artwork_path
+        and nullable_int(row["sidecar_artwork_modified_at_ns"])
+        == track.sidecar_artwork_modified_at_ns
+        and nullable_int(row["sidecar_artwork_size_bytes"])
+        == track.sidecar_artwork_size_bytes
+    )
+
+
+def nullable_int(value: object) -> int | None:
+    return int(value) if value is not None else None
+
+
+def nullable_text(value: object) -> str | None:
+    return str(value) if value is not None else None
+
+
+def resolved_library_item_root_position(
+    root_position: int | None,
+    path: str,
+    library_roots: list[tuple[int, str]],
+    *,
+    valid_root_positions: set[int],
+    root_positions_by_index: list[int],
+) -> int | None:
+    if (
+        root_position is not None
+        and 0 <= root_position < len(root_positions_by_index)
+    ):
+        return root_positions_by_index[root_position]
+    if root_position in valid_root_positions:
+        return root_position
+    return library_root_position_for_path(path, library_roots)
+
+
+def upsert_library_album_rows(
+    connection: sqlite3.Connection,
+    albums: Iterable[LocalAlbum],
+) -> None:
+    added_at_by_album_id = album_added_at_by_album_id(connection)
+    starred_at_by_album_id = album_starred_at_by_album_id(connection)
+    new_album_added_at = utc_now_iso()
+    for album in albums:
+        connection.execute(
+            """
+            INSERT INTO library_albums (
+                album_id,
+                album,
+                year,
+                track_count,
+                file_created_at,
+                added_at,
+                starred_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(album_id) DO UPDATE SET
+                album = excluded.album,
+                year = excluded.year,
+                track_count = excluded.track_count,
+                file_created_at = excluded.file_created_at,
+                added_at = COALESCE(NULLIF(library_albums.added_at, ''), excluded.added_at),
+                starred_at = COALESCE(library_albums.starred_at, excluded.starred_at)
+            """,
+            (
+                album.album_id,
+                album.album,
+                album.year,
+                album.track_count,
+                album.file_created_at or "",
+                added_at_by_album_id.get(album.album_id, new_album_added_at),
+                starred_at_by_album_id.get(album.album_id),
+            ),
+        )
+        connection.execute(
+            "DELETE FROM library_album_artists WHERE album_id = ?",
+            (album.album_id,),
+        )
+        for position, artist in enumerate(album.artists):
+            connection.execute(
+                """
+                INSERT INTO library_album_artists (album_id, position, artist)
+                VALUES (?, ?, ?)
+                """,
+                (album.album_id, position, artist),
+            )
+
+
+def delete_missing_library_album_rows(
+    connection: sqlite3.Connection,
+    album_ids: Iterable[str],
+) -> None:
+    scoped_album_ids = list(dict.fromkeys(album_ids))
+    if not scoped_album_ids:
+        return
+    for batch in batched(scoped_album_ids, size=500):
+        placeholders = ", ".join("?" for _value in batch)
+        connection.execute(
+            f"DELETE FROM library_albums WHERE album_id IN ({placeholders})",
+            batch,
+        )
+
+
+def delete_library_tracks_by_path(
+    connection: sqlite3.Connection,
+    paths: Iterable[str],
+) -> None:
+    scoped_paths = list(dict.fromkeys(paths))
+    if not scoped_paths:
+        return
+    for batch in batched(scoped_paths, size=500):
+        placeholders = ", ".join("?" for _value in batch)
+        connection.execute(
+            f"DELETE FROM library_tracks WHERE path IN ({placeholders})",
+            batch,
+        )
+
+
+def upsert_library_track_row(
+    connection: sqlite3.Connection,
+    track: TrackRecord,
+    *,
+    album_id: str | None,
+    root_position: int | None,
+) -> int:
+    params = library_track_row_params(track, album_id=album_id, root_position=root_position)
+    if track.track_id is None:
+        cursor = connection.execute(
+            """
+            INSERT INTO library_tracks (
+                album_id,
+                root_position,
+                path,
+                file_created_at,
+                file_modified_at_ns,
+                file_size_bytes,
+                sidecar_artwork_path,
+                sidecar_artwork_modified_at_ns,
+                sidecar_artwork_size_bytes,
+                file_type,
+                scan_error,
+                artist,
+                album_artist,
+                composer,
+                album,
+                title,
+                play_fingerprint,
+                work,
+                grouping,
+                movement_name,
+                is_compilation,
+                track_number,
+                disc_number,
+                date,
+                duration_seconds,
+                bitrate
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            params,
+        )
+        track.track_id = int(cursor.lastrowid)
+    else:
+        connection.execute(
+            """
+            UPDATE library_tracks
+            SET album_id = ?,
+                root_position = ?,
+                path = ?,
+                file_created_at = ?,
+                file_modified_at_ns = ?,
+                file_size_bytes = ?,
+                sidecar_artwork_path = ?,
+                sidecar_artwork_modified_at_ns = ?,
+                sidecar_artwork_size_bytes = ?,
+                file_type = ?,
+                scan_error = ?,
+                artist = ?,
+                album_artist = ?,
+                composer = ?,
+                album = ?,
+                title = ?,
+                play_fingerprint = ?,
+                work = ?,
+                grouping = ?,
+                movement_name = ?,
+                is_compilation = ?,
+                track_number = ?,
+                disc_number = ?,
+                date = ?,
+                duration_seconds = ?,
+                bitrate = ?
+            WHERE track_id = ?
+            """,
+            (*params, track.track_id),
+        )
+    return int(track.track_id)
+
+
+def library_track_row_params(
+    track: TrackRecord,
+    *,
+    album_id: str | None,
+    root_position: int | None,
+) -> tuple[object, ...]:
+    return (
+        album_id,
+        root_position,
+        track.path,
+        track.file_created_at,
+        track.file_modified_at_ns,
+        track.file_size_bytes,
+        track.sidecar_artwork_path,
+        track.sidecar_artwork_modified_at_ns,
+        track.sidecar_artwork_size_bytes,
+        track.file_type,
+        track.scan_error,
+        track.artist,
+        track.album_artist,
+        track.composer,
+        track.album,
+        track.title,
+        track_play_fingerprint(
+            album_id=album_id or "",
+            disc_number=track.disc_number,
+            track_number=track.track_number,
+            title=track.title or "",
+            path=track.path,
+        ),
+        track.work,
+        track.grouping,
+        track.movement_name,
+        1 if track.is_compilation else 0,
+        track.track_number,
+        track.disc_number,
+        track.date,
+        track.duration_seconds,
+        track.bitrate,
+    )
+
+
+def replace_library_track_children(
+    connection: sqlite3.Connection,
+    track_id: int,
+    track: TrackRecord,
+) -> None:
+    connection.execute("DELETE FROM library_track_genres WHERE track_id = ?", (track_id,))
+    connection.execute("DELETE FROM library_track_styles WHERE track_id = ?", (track_id,))
+    connection.execute("DELETE FROM library_track_artwork WHERE track_id = ?", (track_id,))
+    for position, genre in enumerate(normalize_genre_values(track.genres)):
+        connection.execute(
+            """
+            INSERT INTO library_track_genres (track_id, position, genre)
+            VALUES (?, ?, ?)
+            """,
+            (track_id, position, genre),
+        )
+    for position, style in enumerate(normalize_genre_values(track.styles)):
+        connection.execute(
+            """
+            INSERT INTO library_track_styles (track_id, position, style)
+            VALUES (?, ?, ?)
+            """,
+            (track_id, position, style),
+        )
+    for height_px, artwork in (
+        (TRACK_ARTWORK_HEIGHT, track.artwork),
+        (ALBUM_ARTWORK_HEIGHT, track.album_artwork),
+    ):
+        if artwork is not None and artwork.data:
+            connection.execute(
+                """
+                INSERT INTO library_track_artwork (
+                    track_id,
+                    height_px,
+                    mime_type,
+                    data
+                )
+                VALUES (?, ?, ?, ?)
+                """,
+                (track_id, height_px, artwork.mime_type, artwork.data),
+            )
+
+
+def save_library_playlists_incremental(
+    connection: sqlite3.Connection,
+    library: MusicLibrary,
+    *,
+    library_roots: list[tuple[int, str]],
+    valid_root_positions: set[int],
+    root_positions_by_index: list[int],
+    track_ids_by_path: dict[str, int],
+) -> None:
+    existing_playlists_by_path = playlist_rows_by_path(connection)
+    current_playlist_paths = {playlist.path for playlist in library.playlists}
+    stale_playlist_paths = sorted(set(existing_playlists_by_path) - current_playlist_paths)
+    for batch in batched(stale_playlist_paths, size=500):
+        placeholders = ", ".join("?" for _value in batch)
+        connection.execute(
+            f"DELETE FROM library_playlists WHERE path IN ({placeholders})",
+            batch,
+        )
+
+    for playlist in library.playlists:
+        root_position = resolved_library_item_root_position(
+            playlist.root_position,
+            playlist.path,
+            library_roots,
+            valid_root_positions=valid_root_positions,
+            root_positions_by_index=root_positions_by_index,
+        )
+        cover_svg = playlist.cover_svg or playlist_cover_svg(playlist.name)
+        existing_row = existing_playlists_by_path.get(playlist.path)
+        if existing_row is None:
+            cursor = connection.execute(
+                """
+                INSERT INTO library_playlists (
+                    root_position,
+                    path,
+                    name,
+                    cover_svg,
+                    file_created_at
+                ) VALUES (?, ?, ?, ?, ?)
+                """,
+                (root_position, playlist.path, playlist.name, cover_svg, playlist.file_created_at),
+            )
+            playlist_id = int(cursor.lastrowid)
+        else:
+            playlist_id = int(existing_row["playlist_id"])
+            playlist_changed = (
+                nullable_int(existing_row["root_position"]) != root_position
+                or str(existing_row["name"]) != playlist.name
+                or str(existing_row["cover_svg"] or "") != cover_svg
+                or nullable_text(existing_row["file_created_at"]) != playlist.file_created_at
+            )
+            if playlist_changed:
+                connection.execute(
+                    """
+                    UPDATE library_playlists
+                    SET root_position = ?,
+                        name = ?,
+                        cover_svg = ?,
+                        file_created_at = ?
+                    WHERE playlist_id = ?
+                    """,
+                    (root_position, playlist.name, cover_svg, playlist.file_created_at, playlist_id),
+                )
+        playlist.playlist_id = playlist_id
+        desired_items = playlist_item_rows(playlist, track_ids_by_path)
+        if desired_items == existing_playlist_item_rows(connection, playlist_id):
+            continue
+        connection.execute(
+            "DELETE FROM library_playlist_items WHERE playlist_id = ?",
+            (playlist_id,),
+        )
+        for position, item in enumerate(desired_items):
+            connection.execute(
+                """
+                INSERT INTO library_playlist_items (
+                    playlist_id,
+                    position,
+                    path,
+                    track_id,
+                    title,
+                    duration_seconds,
+                    duration_is_indeterminate,
+                    genre,
+                    cover_url
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (playlist_id, position, *item),
+            )
+
+
+def playlist_rows_by_path(connection: sqlite3.Connection) -> dict[str, sqlite3.Row]:
+    return {
+        str(row["path"]): row
+        for row in connection.execute(
+            """
+            SELECT playlist_id, root_position, path, name, cover_svg, file_created_at
+            FROM library_playlists
+            """
+        )
+    }
+
+
+def playlist_item_rows(
+    playlist: PlaylistRecord,
+    track_ids_by_path: dict[str, int],
+) -> list[tuple[object, ...]]:
+    rows: list[tuple[object, ...]] = []
+    for item in playlist.items:
+        track_id = item.track_id or track_ids_by_path.get(item.path)
+        is_tracked = track_id is not None
+        rows.append(
+            (
+                item.path,
+                track_id,
+                None if is_tracked else item.title or item.path,
+                None if is_tracked or item.duration_is_indeterminate else item.duration_seconds,
+                0 if is_tracked else 1 if item.duration_is_indeterminate else 0,
+                None if is_tracked else item.genre,
+                None if is_tracked else item.cover_url,
+            )
+        )
+    return rows
+
+
+def existing_playlist_item_rows(
+    connection: sqlite3.Connection,
+    playlist_id: int,
+) -> list[tuple[object, ...]]:
+    return [
+        (
+            str(row["path"]),
+            nullable_int(row["track_id"]),
+            row["title"],
+            row["duration_seconds"],
+            int(row["duration_is_indeterminate"]),
+            row["genre"],
+            row["cover_url"],
+        )
+        for row in connection.execute(
+            """
+            SELECT
+                path,
+                track_id,
+                title,
+                duration_seconds,
+                duration_is_indeterminate,
+                genre,
+                cover_url
+            FROM library_playlist_items
+            WHERE playlist_id = ?
+            ORDER BY position
+            """,
+            (playlist_id,),
+        )
+    ]
 
 
 def copy_album_musicbrainz_links_from_legacy_album_ids(
@@ -1553,6 +2182,11 @@ def load_library(source: Path, *, include_artwork: bool = False) -> MusicLibrary
                 root_position,
                 path,
                 file_created_at,
+                file_modified_at_ns,
+                file_size_bytes,
+                sidecar_artwork_path,
+                sidecar_artwork_modified_at_ns,
+                sidecar_artwork_size_bytes,
                 file_type,
                 scan_error,
                 artist,
@@ -1591,6 +2225,11 @@ def load_library(source: Path, *, include_artwork: bool = False) -> MusicLibrary
                         else None
                     ),
                     file_created_at=row["file_created_at"],
+                    file_modified_at_ns=row["file_modified_at_ns"],
+                    file_size_bytes=row["file_size_bytes"],
+                    sidecar_artwork_path=row["sidecar_artwork_path"],
+                    sidecar_artwork_modified_at_ns=row["sidecar_artwork_modified_at_ns"],
+                    sidecar_artwork_size_bytes=row["sidecar_artwork_size_bytes"],
                     file_type=row["file_type"],
                     scan_error=row["scan_error"],
                     artist=row["artist"],

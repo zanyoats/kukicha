@@ -9,6 +9,7 @@ import re
 import struct
 import unicodedata
 from collections.abc import Iterable
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from functools import lru_cache
 from io import BytesIO
@@ -128,6 +129,26 @@ EXTGENRE_PREFIX = "#EXTGENRE:"
 EXTALBUMARTURL_PREFIX = "#EXTALBUMARTURL:"
 
 
+@dataclass(frozen=True, slots=True)
+class IncrementalLibraryBuild:
+    library: MusicLibrary
+    scanned_paths: frozenset[str]
+    reused_paths: frozenset[str]
+
+
+@dataclass(frozen=True, slots=True)
+class FileSnapshot:
+    modified_at_ns: int
+    size_bytes: int
+
+
+@dataclass(frozen=True, slots=True)
+class SidecarArtworkSnapshot:
+    path: str
+    modified_at_ns: int
+    size_bytes: int
+
+
 def build_library(
     roots: Iterable[Path],
     *,
@@ -135,10 +156,29 @@ def build_library(
     progress_every: int = DEFAULT_SCAN_PROGRESS_EVERY,
     on_missing_required_tags: Callable[[TrackRecord, list[str]], None] | None = None,
 ) -> MusicLibrary:
+    return build_incremental_library(
+        roots,
+        existing_tracks_by_path={},
+        progress=progress,
+        progress_every=progress_every,
+        on_missing_required_tags=on_missing_required_tags,
+    ).library
+
+
+def build_incremental_library(
+    roots: Iterable[Path],
+    *,
+    existing_tracks_by_path: dict[str, TrackRecord],
+    progress: Callable[[str], None] | None = None,
+    progress_every: int = DEFAULT_SCAN_PROGRESS_EVERY,
+    on_missing_required_tags: Callable[[TrackRecord, list[str]], None] | None = None,
+) -> IncrementalLibraryBuild:
     clear_external_artwork_caches()
     resolved_roots = [root.expanduser().resolve() for root in roots]
     tracks: list[TrackRecord] = []
     playlist_paths: list[tuple[int, Path]] = []
+    scanned_paths: set[str] = set()
+    reused_paths: set[str] = set()
     count = 0
     progress_step = max(1, int(progress_every))
     for root_position, root in enumerate(resolved_roots):
@@ -149,8 +189,15 @@ def build_library(
                 playlist_paths.append((root_position, path))
                 continue
             count += 1
-            track = scan_track(path)
-            track.root_position = root_position
+            path_text = str(path)
+            existing_track = existing_tracks_by_path.get(path_text)
+            if existing_track is not None and track_file_snapshot_matches(existing_track, path):
+                track = reused_track_record(existing_track, root_position=root_position)
+                reused_paths.add(path_text)
+            else:
+                track = scan_track(path)
+                track.root_position = root_position
+                scanned_paths.add(path_text)
             missing_fields = missing_required_tags(track)
             if missing_fields:
                 if on_missing_required_tags is not None:
@@ -162,12 +209,25 @@ def build_library(
     if progress and count % progress_step:
         progress(f"scanned {count} music files")
     playlists = parse_playlists(playlist_paths, tracks)
-    return MusicLibrary(
-        roots=[str(root) for root in resolved_roots],
-        tracks=tracks,
-        supported_extensions=sorted(SUPPORTED_EXTENSIONS),
-        generated_at=datetime.now(UTC).isoformat(),
-        playlists=playlists,
+    return IncrementalLibraryBuild(
+        library=MusicLibrary(
+            roots=[str(root) for root in resolved_roots],
+            tracks=tracks,
+            supported_extensions=sorted(SUPPORTED_EXTENSIONS),
+            generated_at=datetime.now(UTC).isoformat(),
+            playlists=playlists,
+        ),
+        scanned_paths=frozenset(scanned_paths),
+        reused_paths=frozenset(reused_paths),
+    )
+
+
+def reused_track_record(track: TrackRecord, *, root_position: int) -> TrackRecord:
+    return replace(
+        track,
+        root_position=root_position,
+        genres=list(track.genres),
+        styles=list(track.styles),
     )
 
 
@@ -488,6 +548,7 @@ def scan_track(path: Path) -> TrackRecord:
         file_created_at=file_created_at(path),
         file_type=path.suffix.lower().lstrip("."),
     )
+    apply_track_file_snapshot(record, path)
 
     try:
         audio = MutagenFile(path, easy=False)
@@ -539,6 +600,76 @@ def scan_track(path: Path) -> TrackRecord:
     bitrate = getattr(info, "bitrate", None)
     record.bitrate = int(bitrate) if bitrate else None
     return record
+
+
+def apply_track_file_snapshot(record: TrackRecord, path: Path) -> None:
+    file_snapshot = track_file_snapshot(path)
+    if file_snapshot is not None:
+        record.file_modified_at_ns = file_snapshot.modified_at_ns
+        record.file_size_bytes = file_snapshot.size_bytes
+
+    sidecar_snapshot = selected_sidecar_artwork_snapshot(path)
+    if sidecar_snapshot is None:
+        record.sidecar_artwork_path = None
+        record.sidecar_artwork_modified_at_ns = None
+        record.sidecar_artwork_size_bytes = None
+        return
+
+    record.sidecar_artwork_path = sidecar_snapshot.path
+    record.sidecar_artwork_modified_at_ns = sidecar_snapshot.modified_at_ns
+    record.sidecar_artwork_size_bytes = sidecar_snapshot.size_bytes
+
+
+def track_file_snapshot_matches(track: TrackRecord, path: Path) -> bool:
+    file_snapshot = track_file_snapshot(path)
+    if file_snapshot is None:
+        return False
+    if track.file_modified_at_ns != file_snapshot.modified_at_ns:
+        return False
+    if track.file_size_bytes != file_snapshot.size_bytes:
+        return False
+
+    sidecar_snapshot = selected_sidecar_artwork_snapshot(path)
+    if sidecar_snapshot is None:
+        return (
+            track.sidecar_artwork_path is None
+            and track.sidecar_artwork_modified_at_ns is None
+            and track.sidecar_artwork_size_bytes is None
+        )
+    return (
+        track.sidecar_artwork_path == sidecar_snapshot.path
+        and track.sidecar_artwork_modified_at_ns == sidecar_snapshot.modified_at_ns
+        and track.sidecar_artwork_size_bytes == sidecar_snapshot.size_bytes
+    )
+
+
+def track_file_snapshot(path: Path) -> FileSnapshot | None:
+    try:
+        stat_result = path.stat()
+    except OSError:
+        return None
+    return FileSnapshot(
+        modified_at_ns=int(getattr(stat_result, "st_mtime_ns", int(stat_result.st_mtime * 1_000_000_000))),
+        size_bytes=int(stat_result.st_size),
+    )
+
+
+def selected_sidecar_artwork_snapshot(path: Path) -> SidecarArtworkSnapshot | None:
+    return cached_sidecar_artwork_snapshot(str(path.parent))
+
+
+@lru_cache(maxsize=4096)
+def cached_sidecar_artwork_snapshot(directory: str) -> SidecarArtworkSnapshot | None:
+    for artwork_path in iter_external_artwork_paths(Path(directory)):
+        snapshot = track_file_snapshot(artwork_path)
+        if snapshot is None:
+            continue
+        return SidecarArtworkSnapshot(
+            path=str(artwork_path),
+            modified_at_ns=snapshot.modified_at_ns,
+            size_bytes=snapshot.size_bytes,
+        )
+    return None
 
 
 def fallback_track_title(path: Path) -> str:
@@ -850,6 +981,7 @@ def cached_external_artwork(directory: str) -> TrackArtwork | None:
 def clear_external_artwork_caches() -> None:
     cached_external_artwork.cache_clear()
     cached_external_artworks.cache_clear()
+    cached_sidecar_artwork_snapshot.cache_clear()
 
 
 def iter_external_artwork_paths(directory: Path) -> Iterable[Path]:

@@ -8,6 +8,7 @@ from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from queue import Queue
 from tempfile import TemporaryDirectory
+from types import SimpleNamespace
 import unittest
 from unittest.mock import Mock, call, patch
 from urllib.parse import parse_qs
@@ -5683,6 +5684,31 @@ class PlayerWebAdapterTest(unittest.TestCase):
 
 
 class PlayerRootMutationTest(unittest.TestCase):
+    def track_snapshot_kwargs(self, path: Path) -> dict[str, object]:
+        stat_result = path.stat()
+        return {
+            "file_modified_at_ns": stat_result.st_mtime_ns,
+            "file_size_bytes": stat_result.st_size,
+        }
+
+    def fake_audio(
+        self,
+        *,
+        artist: str = "Artist",
+        album_artist: str = "Artist",
+        album: str = "Album",
+        title: str = "Track",
+    ) -> SimpleNamespace:
+        return SimpleNamespace(
+            tags={
+                "artist": [artist],
+                "albumartist": [album_artist],
+                "album": [album],
+                "title": [title],
+            },
+            info=SimpleNamespace(length=123.0, bitrate=128000),
+        )
+
     def test_sync_library_roots_noops_when_config_matches_database(self) -> None:
         with TemporaryDirectory() as tempdir:
             temp_path = Path(tempdir)
@@ -6026,6 +6052,405 @@ class PlayerRootMutationTest(unittest.TestCase):
                     finally:
                         connection.close()
 
+    def test_rescan_library_skips_unchanged_track_metadata_rows(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            database = temp_path / "kukicha.sqlite"
+            root = (temp_path / "music").resolve()
+            track_path = root / "Artist" / "Album" / "01.flac"
+            track_path.parent.mkdir(parents=True)
+            track_path.write_bytes(b"stable audio")
+            save_library(
+                MusicLibrary(
+                    roots=[str(root)],
+                    tracks=[
+                        TrackRecord(
+                            path=str(track_path),
+                            root_position=0,
+                            file_type="flac",
+                            artist="Artist",
+                            album_artist="Artist",
+                            album="Album",
+                            title="Stored Title",
+                            genres=["Electronic"],
+                            **self.track_snapshot_kwargs(track_path),
+                        )
+                    ],
+                    supported_extensions=[".flac"],
+                    generated_at="2026-04-21T12:00:00+00:00",
+                ),
+                database,
+            )
+            connection = connect_database(database, create=False)
+            try:
+                original_track_id = int(
+                    connection.execute(
+                        "SELECT track_id FROM library_tracks WHERE path = ?",
+                        (str(track_path),),
+                    ).fetchone()["track_id"]
+                )
+            finally:
+                connection.close()
+
+            with patch("kukicha.scanner.MutagenFile", side_effect=AssertionError("unexpected scan")):
+                result = rescan_library(database)
+
+            self.assertEqual(result.tracks_scanned, 1)
+            connection = connect_database(database, create=False)
+            try:
+                row = connection.execute(
+                    "SELECT track_id, title FROM library_tracks WHERE path = ?",
+                    (str(track_path),),
+                ).fetchone()
+                self.assertEqual(int(row["track_id"]), original_track_id)
+                self.assertEqual(str(row["title"]), "Stored Title")
+            finally:
+                connection.close()
+
+    def test_rescan_library_reports_persisted_album_count_for_reused_musicbrainz_variants(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            database = temp_path / "kukicha.sqlite"
+            root_a = (temp_path / "music-a").resolve()
+            root_b = (temp_path / "music-b").resolve()
+            path_a = root_a / "Artist" / "Album" / "01.flac"
+            path_b = root_b / "Artist" / "Album" / "01.flac"
+            path_a.parent.mkdir(parents=True)
+            path_b.parent.mkdir(parents=True)
+            path_a.write_bytes(b"root a audio")
+            path_b.write_bytes(b"root b audio")
+            save_library(
+                MusicLibrary(
+                    roots=[str(root_a), str(root_b)],
+                    tracks=[
+                        TrackRecord(
+                            path=str(path_a),
+                            root_position=0,
+                            file_type="flac",
+                            artist="Artist",
+                            album_artist="Artist",
+                            album="Album",
+                            title="Root A",
+                            musicbrainz_release_variant="aaa",
+                            **self.track_snapshot_kwargs(path_a),
+                        ),
+                        TrackRecord(
+                            path=str(path_b),
+                            root_position=1,
+                            file_type="flac",
+                            artist="Artist",
+                            album_artist="Artist",
+                            album="Album",
+                            title="Root B",
+                            musicbrainz_release_variant="bbb",
+                            **self.track_snapshot_kwargs(path_b),
+                        ),
+                    ],
+                    supported_extensions=[".flac"],
+                    generated_at="2026-04-21T12:00:00+00:00",
+                ),
+                database,
+            )
+
+            with patch("kukicha.scanner.MutagenFile", side_effect=AssertionError("unexpected scan")):
+                result = rescan_library(database)
+
+            self.assertEqual(result.tracks_scanned, 2)
+            self.assertEqual(result.albums_scanned, 2)
+            connection = connect_database(database, create=False)
+            try:
+                self.assertEqual(
+                    int(connection.execute("SELECT COUNT(*) AS count FROM library_albums").fetchone()["count"]),
+                    2,
+                )
+            finally:
+                connection.close()
+
+    def test_rescan_library_refreshes_same_path_when_file_snapshot_changes(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            database = temp_path / "kukicha.sqlite"
+            root = (temp_path / "music").resolve()
+            track_path = root / "Artist" / "Album" / "01.flac"
+            track_path.parent.mkdir(parents=True)
+            track_path.write_bytes(b"old audio")
+            save_library(
+                MusicLibrary(
+                    roots=[str(root)],
+                    tracks=[
+                        TrackRecord(
+                            path=str(track_path),
+                            root_position=0,
+                            file_type="flac",
+                            artist="Artist",
+                            album_artist="Artist",
+                            album="Album",
+                            title="Old Title",
+                            **self.track_snapshot_kwargs(track_path),
+                        )
+                    ],
+                    supported_extensions=[".flac"],
+                    generated_at="2026-04-21T12:00:00+00:00",
+                ),
+                database,
+            )
+            original_stat = track_path.stat()
+            track_path.write_bytes(b"new audio bytes")
+            os.utime(
+                track_path,
+                ns=(
+                    original_stat.st_mtime_ns + 1_000_000_000,
+                    original_stat.st_mtime_ns + 1_000_000_000,
+                ),
+            )
+            connection = connect_database(database, create=False)
+            try:
+                original_track_id = int(
+                    connection.execute(
+                        "SELECT track_id FROM library_tracks WHERE path = ?",
+                        (str(track_path),),
+                    ).fetchone()["track_id"]
+                )
+            finally:
+                connection.close()
+
+            with (
+                patch("kukicha.scanner.MutagenFile", return_value=self.fake_audio(title="New Title")) as mutagen_file,
+                patch("kukicha.use_case.commands.roots.resolve_library_genres", return_value=None),
+                patch("kukicha.use_case.commands.roots.resolve_library_cover_art", return_value=None),
+            ):
+                rescan_library(database)
+
+            self.assertGreaterEqual(mutagen_file.call_count, 1)
+            connection = connect_database(database, create=False)
+            try:
+                row = connection.execute(
+                    """
+                    SELECT track_id, title, file_modified_at_ns, file_size_bytes
+                    FROM library_tracks
+                    WHERE path = ?
+                    """,
+                    (str(track_path),),
+                ).fetchone()
+                self.assertEqual(int(row["track_id"]), original_track_id)
+                self.assertEqual(str(row["title"]), "New Title")
+                self.assertEqual(int(row["file_modified_at_ns"]), track_path.stat().st_mtime_ns)
+                self.assertEqual(int(row["file_size_bytes"]), track_path.stat().st_size)
+            finally:
+                connection.close()
+
+    def test_rescan_library_prunes_stale_paths_without_rewriting_unchanged_tracks(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            database = temp_path / "kukicha.sqlite"
+            root = (temp_path / "music").resolve()
+            keep_path = root / "Artist" / "Keep" / "01.flac"
+            stale_path = root / "Artist" / "Gone" / "01.flac"
+            keep_path.parent.mkdir(parents=True)
+            stale_path.parent.mkdir(parents=True)
+            keep_path.write_bytes(b"keep audio")
+            stale_path.write_bytes(b"gone audio")
+            save_library(
+                MusicLibrary(
+                    roots=[str(root)],
+                    tracks=[
+                        TrackRecord(
+                            path=str(keep_path),
+                            root_position=0,
+                            file_type="flac",
+                            artist="Artist",
+                            album_artist="Artist",
+                            album="Keep",
+                            title="Keep",
+                            **self.track_snapshot_kwargs(keep_path),
+                        ),
+                        TrackRecord(
+                            path=str(stale_path),
+                            root_position=0,
+                            file_type="flac",
+                            artist="Artist",
+                            album_artist="Artist",
+                            album="Gone",
+                            title="Gone",
+                            **self.track_snapshot_kwargs(stale_path),
+                        ),
+                    ],
+                    supported_extensions=[".flac"],
+                    generated_at="2026-04-21T12:00:00+00:00",
+                ),
+                database,
+            )
+            stale_path.unlink()
+            connection = connect_database(database, create=False)
+            try:
+                keep_track_id = int(
+                    connection.execute(
+                        "SELECT track_id FROM library_tracks WHERE path = ?",
+                        (str(keep_path),),
+                    ).fetchone()["track_id"]
+                )
+            finally:
+                connection.close()
+
+            with (
+                patch("kukicha.scanner.MutagenFile", side_effect=AssertionError("unexpected scan")),
+                patch("kukicha.use_case.commands.roots.resolve_library_genres", return_value=None),
+                patch("kukicha.use_case.commands.roots.resolve_library_cover_art", return_value=None),
+            ):
+                rescan_library(database)
+
+            connection = connect_database(database, create=False)
+            try:
+                tracks = list(
+                    connection.execute(
+                        "SELECT track_id, path FROM library_tracks ORDER BY path"
+                    )
+                )
+                self.assertEqual(
+                    [(int(row["track_id"]), str(row["path"])) for row in tracks],
+                    [(keep_track_id, str(keep_path))],
+                )
+                self.assertIsNone(
+                    connection.execute(
+                        "SELECT 1 FROM library_albums WHERE album = ?",
+                        ("Gone",),
+                    ).fetchone()
+                )
+                self.assertEqual(
+                    int(connection.execute("SELECT COUNT(*) AS count FROM library_album_search").fetchone()["count"]),
+                    1,
+                )
+            finally:
+                connection.close()
+
+    def test_rescan_library_reparses_same_path_playlist_contents(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            database = temp_path / "kukicha.sqlite"
+            root = (temp_path / "music").resolve()
+            track_path = root / "Artist" / "Album" / "01.flac"
+            playlist_path = root / "mix.m3u8"
+            track_path.parent.mkdir(parents=True)
+            track_path.write_bytes(b"stable audio")
+            playlist_path.write_text("Artist/Album/01.flac\n", encoding="utf-8")
+            save_library(
+                MusicLibrary(
+                    roots=[str(root)],
+                    tracks=[
+                        TrackRecord(
+                            path=str(track_path),
+                            root_position=0,
+                            file_type="flac",
+                            artist="Artist",
+                            album_artist="Artist",
+                            album="Album",
+                            title="Track",
+                            **self.track_snapshot_kwargs(track_path),
+                        )
+                    ],
+                    playlists=[
+                        PlaylistRecord(
+                            path=str(playlist_path),
+                            name="mix",
+                            root_position=0,
+                            items=[PlaylistItemRecord(path=str(track_path))],
+                        )
+                    ],
+                    supported_extensions=[".flac"],
+                    generated_at="2026-04-21T12:00:00+00:00",
+                ),
+                database,
+            )
+            playlist_path.write_text(
+                "#EXTM3U\n#EXTINF:123,Stream Title\nhttps://example.test/stream.mp3\n",
+                encoding="utf-8",
+            )
+
+            with patch("kukicha.scanner.MutagenFile", side_effect=AssertionError("unexpected scan")):
+                rescan_library(database)
+
+            connection = connect_database(database, create=False)
+            try:
+                row = connection.execute(
+                    """
+                    SELECT items.path, items.track_id, items.title, items.duration_seconds
+                    FROM library_playlist_items AS items
+                    JOIN library_playlists AS playlists
+                        ON playlists.playlist_id = items.playlist_id
+                    WHERE playlists.path = ?
+                    """,
+                    (str(playlist_path),),
+                ).fetchone()
+                self.assertEqual(str(row["path"]), "https://example.test/stream.mp3")
+                self.assertIsNone(row["track_id"])
+                self.assertEqual(str(row["title"]), "Stream Title")
+                self.assertEqual(float(row["duration_seconds"]), 123.0)
+            finally:
+                connection.close()
+
+    def test_rescan_library_refreshes_when_sidecar_cover_snapshot_changes(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            database = temp_path / "kukicha.sqlite"
+            root = (temp_path / "music").resolve()
+            track_path = root / "Artist" / "Album" / "01.flac"
+            cover_path = root / "Artist" / "Album" / "cover.jpg"
+            track_path.parent.mkdir(parents=True)
+            track_path.write_bytes(b"stable audio")
+            save_library(
+                MusicLibrary(
+                    roots=[str(root)],
+                    tracks=[
+                        TrackRecord(
+                            path=str(track_path),
+                            root_position=0,
+                            file_type="flac",
+                            artist="Artist",
+                            album_artist="Artist",
+                            album="Album",
+                            title="Track",
+                            **self.track_snapshot_kwargs(track_path),
+                        )
+                    ],
+                    supported_extensions=[".flac"],
+                    generated_at="2026-04-21T12:00:00+00:00",
+                ),
+                database,
+            )
+            cover_path.write_bytes(b"fake image bytes")
+            artwork = TrackArtwork(mime_type="image/jpeg", data=b"thumb")
+
+            def fake_thumbnail_artworks(_artwork: object, *, heights: object) -> dict[int, TrackArtwork]:
+                return {int(height): artwork for height in heights}
+
+            with (
+                patch("kukicha.scanner.MutagenFile", return_value=self.fake_audio()) as mutagen_file,
+                patch("kukicha.scanner.thumbnail_artworks", side_effect=fake_thumbnail_artworks),
+                patch("kukicha.use_case.commands.roots.resolve_library_genres", return_value=None),
+                patch("kukicha.use_case.commands.roots.resolve_library_cover_art", return_value=None),
+            ):
+                rescan_library(database)
+
+            self.assertGreaterEqual(mutagen_file.call_count, 1)
+            connection = connect_database(database, create=False)
+            try:
+                row = connection.execute(
+                    """
+                    SELECT tracks.sidecar_artwork_path, artwork.data
+                    FROM library_tracks AS tracks
+                    JOIN library_track_artwork AS artwork
+                        ON artwork.track_id = tracks.track_id
+                    WHERE tracks.path = ?
+                        AND artwork.height_px = ?
+                    """,
+                    (str(track_path), 32),
+                ).fetchone()
+                self.assertIsNotNone(row)
+                self.assertEqual(str(row["sidecar_artwork_path"]), str(cover_path))
+                self.assertEqual(bytes(row["data"]), b"thumb")
+            finally:
+                connection.close()
+
     def test_rescan_library_scans_all_roots_and_preserves_root_positions(self) -> None:
         with TemporaryDirectory() as tempdir:
             temp_path = Path(tempdir)
@@ -6114,12 +6539,16 @@ class PlayerRootMutationTest(unittest.TestCase):
                 generated_at="2026-04-21T12:00:00+00:00",
             )
 
-            def fake_build_library(roots: object, *_args: object, **_kwargs: object) -> MusicLibrary:
+            def fake_build_library(roots: object, *_args: object, **_kwargs: object) -> SimpleNamespace:
                 self.assertEqual([str(root) for root in roots], ["/music/a", "/music/b"])
-                return rescanned_library
+                return SimpleNamespace(
+                    library=rescanned_library,
+                    scanned_paths=frozenset(track.path for track in rescanned_library.tracks),
+                    reused_paths=frozenset(),
+                )
 
             with (
-                patch("kukicha.use_case.commands.roots.build_library", side_effect=fake_build_library),
+                patch("kukicha.use_case.commands.roots.build_incremental_library", side_effect=fake_build_library),
                 patch("kukicha.use_case.commands.roots.resolve_library_genres", return_value=None),
                 patch("kukicha.use_case.commands.roots.resolve_library_cover_art", return_value=None),
             ):
@@ -6292,7 +6721,14 @@ class PlayerRootMutationTest(unittest.TestCase):
                 raise RuntimeError("boom")
 
             with (
-                patch("kukicha.use_case.commands.roots.build_library", return_value=rescanned_library),
+                patch(
+                    "kukicha.use_case.commands.roots.build_incremental_library",
+                    return_value=SimpleNamespace(
+                        library=rescanned_library,
+                        scanned_paths=frozenset(track.path for track in rescanned_library.tracks),
+                        reused_paths=frozenset(),
+                    ),
+                ),
                 patch("kukicha.use_case.commands.roots.resolve_library_genres", side_effect=failing_resolve),
             ):
                 with self.assertRaisesRegex(RuntimeError, "boom"):
@@ -6420,9 +6856,9 @@ class PlayerJobLogTest(unittest.TestCase):
                 ),
             ),
             (
-                "tracks scanned: 12",
-                "albums scanned: 3",
-                "playlists scanned: 2",
+                "tracks in library: 12",
+                "albums in library: 3",
+                "playlists in library: 2",
                 "exact genre matches: 4",
                 "exact style matches: 5",
                 "fuzzy genre matches: 6",
@@ -6446,6 +6882,32 @@ class PlayerJobLogTest(unittest.TestCase):
                 "cover art missing: 24",
                 "cover art album overrides: 25",
                 "cover art tracks updated: 26",
+            ),
+        )
+
+    def test_library_job_detail_lines_describe_incremental_rescan_fast_path(self) -> None:
+        self.assertEqual(
+            library_job_detail_lines(
+                tracks_scanned=5_475,
+                albums_scanned=407,
+                playlists_scanned=4,
+                audio_files_checked=5_475,
+                audio_files_read=0,
+                audio_files_reused=5_475,
+                stale_tracks_pruned=0,
+                metadata_resolution_skipped=True,
+                genre_resolution=GenreResolutionStats(),
+                cover_art_resolution=CoverArtResolutionStats(),
+            ),
+            (
+                "tracks in library: 5475",
+                "albums in library: 407",
+                "playlists in library: 4",
+                "audio files checked: 5475",
+                "audio files read: 0",
+                "audio files reused: 5475",
+                "stale tracks pruned: 0",
+                "metadata resolution skipped: no audio file changes",
             ),
         )
 

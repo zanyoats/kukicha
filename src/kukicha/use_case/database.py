@@ -401,6 +401,11 @@ CREATE TABLE IF NOT EXISTS library_tracks (
     root_position INTEGER,
     path TEXT NOT NULL UNIQUE,
     file_created_at TEXT,
+    file_modified_at_ns INTEGER,
+    file_size_bytes INTEGER,
+    sidecar_artwork_path TEXT,
+    sidecar_artwork_modified_at_ns INTEGER,
+    sidecar_artwork_size_bytes INTEGER,
     file_type TEXT,
     scan_error TEXT,
     artist TEXT,
@@ -571,6 +576,20 @@ def migrate_library_schema(connection: sqlite3.Connection) -> None:
     if "file_created_at" not in columns:
         connection.execute("ALTER TABLE library_tracks ADD COLUMN file_created_at TEXT")
         created_track_file_created_at = True
+    if "file_modified_at_ns" not in columns:
+        connection.execute("ALTER TABLE library_tracks ADD COLUMN file_modified_at_ns INTEGER")
+    if "file_size_bytes" not in columns:
+        connection.execute("ALTER TABLE library_tracks ADD COLUMN file_size_bytes INTEGER")
+    if "sidecar_artwork_path" not in columns:
+        connection.execute("ALTER TABLE library_tracks ADD COLUMN sidecar_artwork_path TEXT")
+    if "sidecar_artwork_modified_at_ns" not in columns:
+        connection.execute(
+            "ALTER TABLE library_tracks ADD COLUMN sidecar_artwork_modified_at_ns INTEGER"
+        )
+    if "sidecar_artwork_size_bytes" not in columns:
+        connection.execute(
+            "ALTER TABLE library_tracks ADD COLUMN sidecar_artwork_size_bytes INTEGER"
+        )
 
     album_columns = table_columns(connection, "library_albums")
     created_album_file_created_at = False
@@ -1187,10 +1206,31 @@ def ensure_album_search_index(connection: sqlite3.Connection) -> None:
         rebuild_album_search_index(connection)
 
 
-def rebuild_album_search_index(connection: sqlite3.Connection) -> None:
-    connection.execute("DELETE FROM library_album_search")
+def rebuild_album_search_index(
+    connection: sqlite3.Connection,
+    album_ids: Iterable[str] | None = None,
+) -> None:
+    scoped_album_ids = None
+    if album_ids is not None:
+        scoped_album_ids = tuple(dict.fromkeys(album_id for album_id in album_ids if album_id))
+        if not scoped_album_ids:
+            return
+
+    if scoped_album_ids is None:
+        connection.execute("DELETE FROM library_album_search")
+        album_scope_sql = ""
+        album_scope_params: list[object] = []
+    else:
+        placeholders = ", ".join("?" for _album_id in scoped_album_ids)
+        connection.execute(
+            f"DELETE FROM library_album_search WHERE album_id IN ({placeholders})",
+            scoped_album_ids,
+        )
+        album_scope_sql = f"WHERE albums.album_id IN ({placeholders})"
+        album_scope_params = list(scoped_album_ids)
+
     connection.execute(
-        """
+        f"""
         WITH ordered_album_artists AS (
             SELECT album_id, artist
             FROM library_album_artists
@@ -1212,8 +1252,10 @@ def rebuild_album_search_index(connection: sqlite3.Connection) -> None:
         FROM library_albums AS albums
         LEFT JOIN album_artists
             ON album_artists.album_id = albums.album_id
+        {album_scope_sql}
         ORDER BY albums.album_id
-        """
+        """,
+        album_scope_params,
     )
     set_metadata(
         connection,

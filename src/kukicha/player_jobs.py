@@ -64,6 +64,10 @@ def humanize_job_context_key(key: str) -> str:
         "tracks_scanned": "Tracks",
         "albums_scanned": "Albums",
         "playlists_scanned": "Playlists",
+        "audio_files_checked": "Audio Checked",
+        "audio_files_read": "Audio Read",
+        "audio_files_reused": "Audio Reused",
+        "stale_tracks_pruned": "Stale Tracks",
         "duration_seconds": "Duration",
         "error": "Error",
     }
@@ -80,6 +84,10 @@ def format_job_context_value(key: str, value: object) -> str:
         "tracks_scanned",
         "albums_scanned",
         "playlists_scanned",
+        "audio_files_checked",
+        "audio_files_read",
+        "audio_files_reused",
+        "stale_tracks_pruned",
     }
     if key == "path":
         from .use_case import library_root_filter_label
@@ -117,6 +125,10 @@ def job_context_items(context: dict[str, object]) -> list[dict[str, str]]:
         "tracks_scanned",
         "albums_scanned",
         "playlists_scanned",
+        "audio_files_checked",
+        "audio_files_read",
+        "audio_files_reused",
+        "stale_tracks_pruned",
         "duration_seconds",
         "error",
     )

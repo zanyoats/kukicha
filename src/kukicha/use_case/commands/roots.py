@@ -30,13 +30,15 @@ from ..library import (
     AlbumArtistMappingResolver,
     CoverArtResolutionStats,
     GenreResolutionStats,
+    load_library,
     resolve_library_cover_art,
     resolve_library_genres,
+    save_rescanned_library_incremental,
     save_library_with_options,
 )
 from ...player_runtime import PlayerJobCancelToken, PlayerJobResult, PlayerRuntime
 from ...models import MusicLibrary
-from ...scanner import SUPPORTED_EXTENSIONS, build_library
+from ...scanner import SUPPORTED_EXTENSIONS, build_incremental_library, build_library
 
 LOGGER = logging.getLogger("kukicha.player")
 
@@ -71,15 +73,33 @@ def library_job_detail_lines(
     tracks_scanned: int,
     albums_scanned: int,
     playlists_scanned: int | None = None,
+    audio_files_checked: int | None = None,
+    audio_files_read: int | None = None,
+    audio_files_reused: int | None = None,
+    stale_tracks_pruned: int | None = None,
+    metadata_resolution_skipped: bool = False,
     genre_resolution: GenreResolutionStats,
     cover_art_resolution: CoverArtResolutionStats,
 ) -> tuple[str, ...]:
     scan_lines = [
-        f"tracks scanned: {tracks_scanned}",
-        f"albums scanned: {albums_scanned}",
+        f"tracks in library: {tracks_scanned}",
+        f"albums in library: {albums_scanned}",
     ]
     if playlists_scanned is not None:
-        scan_lines.append(f"playlists scanned: {playlists_scanned}")
+        scan_lines.append(f"playlists in library: {playlists_scanned}")
+    if audio_files_checked is not None:
+        scan_lines.append(f"audio files checked: {audio_files_checked}")
+    if audio_files_read is not None:
+        scan_lines.append(f"audio files read: {audio_files_read}")
+    if audio_files_reused is not None:
+        scan_lines.append(f"audio files reused: {audio_files_reused}")
+    if stale_tracks_pruned is not None:
+        scan_lines.append(f"stale tracks pruned: {stale_tracks_pruned}")
+    if metadata_resolution_skipped:
+        return (
+            *scan_lines,
+            "metadata resolution skipped: no audio file changes",
+        )
     return (
         *scan_lines,
         f"exact genre matches: {genre_resolution.exact_genre_matches}",
@@ -118,6 +138,11 @@ class LibraryRescanResult:
     tracks_scanned: int
     albums_scanned: int
     playlists_scanned: int
+    audio_files_checked: int
+    audio_files_read: int
+    audio_files_reused: int
+    stale_tracks_pruned: int
+    metadata_resolution_skipped: bool
     genre_resolution: GenreResolutionStats
     cover_art_resolution: CoverArtResolutionStats
 
@@ -163,11 +188,21 @@ def rescan_library(
 
     if cancel_check is not None:
         cancel_check()
-    library = build_library(
+    existing_library = load_library(database)
+    existing_tracks_by_path = {
+        track.path: track
+        for track in existing_library.tracks
+    }
+    incremental_build = build_incremental_library(
         [Path(root.path) for root in roots],
+        existing_tracks_by_path=existing_tracks_by_path,
         progress=scan_progress,
         progress_every=500,
     )
+    library = incremental_build.library
+    stale_paths = set(existing_tracks_by_path) - {track.path for track in library.tracks}
+    track_library_changed = bool(incremental_build.scanned_paths or stale_paths)
+    metadata_resolution_skipped = not track_library_changed
     if cancel_check is not None:
         cancel_check()
     connection = connect_database(database, create=False)
@@ -176,23 +211,28 @@ def rescan_library(
         try:
             if cancel_check is not None:
                 cancel_check()
-            genre_resolution = resolve_library_genres(
-                library,
-                database,
-                connection=connection,
-                album_artist_split_patterns=album_artist_split_patterns,
-            ) or GenreResolutionStats()
-            cover_art_resolution = resolve_library_cover_art(
-                library,
-                database,
-                connection=connection,
-                album_artist_split_patterns=album_artist_split_patterns,
-            ) or CoverArtResolutionStats()
-            save_library_with_options(
+            if track_library_changed:
+                genre_resolution = resolve_library_genres(
+                    library,
+                    database,
+                    connection=connection,
+                    album_artist_split_patterns=album_artist_split_patterns,
+                ) or GenreResolutionStats()
+                cover_art_resolution = resolve_library_cover_art(
+                    library,
+                    database,
+                    connection=connection,
+                    album_artist_split_patterns=album_artist_split_patterns,
+                ) or CoverArtResolutionStats()
+            else:
+                genre_resolution = GenreResolutionStats()
+                cover_art_resolution = CoverArtResolutionStats()
+            save_rescanned_library_incremental(
                 library,
                 database,
                 connection=connection,
                 root_rows=root_rows,
+                scanned_paths=incremental_build.scanned_paths,
                 album_artist_split_patterns=album_artist_split_patterns,
             )
             if cancel_check is not None:
@@ -207,12 +247,17 @@ def rescan_library(
     finally:
         connection.close()
 
-    albums = group_library_albums(library)
+    persisted_stats = LibraryQueries(database).library_stats()
     return LibraryRescanResult(
         roots_scanned=len(roots),
-        tracks_scanned=len(library.tracks),
-        albums_scanned=len(albums),
-        playlists_scanned=len(library.playlists),
+        tracks_scanned=persisted_stats.tracks_scanned,
+        albums_scanned=persisted_stats.albums_scanned,
+        playlists_scanned=persisted_stats.playlists_scanned,
+        audio_files_checked=len(library.tracks) + len(stale_paths),
+        audio_files_read=len(incremental_build.scanned_paths),
+        audio_files_reused=len(incremental_build.reused_paths),
+        stale_tracks_pruned=len(stale_paths),
+        metadata_resolution_skipped=metadata_resolution_skipped,
         genre_resolution=genre_resolution,
         cover_art_resolution=cover_art_resolution,
     )
@@ -244,6 +289,11 @@ def run_rescan_library_job(
         tracks_scanned=result.tracks_scanned,
         albums_scanned=result.albums_scanned,
         playlists_scanned=result.playlists_scanned,
+        audio_files_checked=result.audio_files_checked,
+        audio_files_read=result.audio_files_read,
+        audio_files_reused=result.audio_files_reused,
+        stale_tracks_pruned=result.stale_tracks_pruned,
+        metadata_resolution_skipped=result.metadata_resolution_skipped,
         genre_resolution=result.genre_resolution,
         cover_art_resolution=result.cover_art_resolution,
     ):
@@ -255,6 +305,10 @@ def run_rescan_library_job(
             "tracks_scanned": result.tracks_scanned,
             "albums_scanned": result.albums_scanned,
             "playlists_scanned": result.playlists_scanned,
+            "audio_files_checked": result.audio_files_checked,
+            "audio_files_read": result.audio_files_read,
+            "audio_files_reused": result.audio_files_reused,
+            "stale_tracks_pruned": result.stale_tracks_pruned,
             "duration_seconds": duration_seconds,
         },
     )
