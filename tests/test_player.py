@@ -17,7 +17,9 @@ from kukicha.app_metadata import kukicha_version
 from kukicha.use_case import (
     ALBUM_LIST_SORT_ALBUMS,
     ALBUM_LIST_SORT_ARTIST,
+    ALBUM_LIST_SORT_FREQUENT,
     ALBUM_LIST_SORT_GENRE,
+    ALBUM_LIST_SORT_RECENT,
     ALBUM_LIST_SORT_RECENTLY_ADDED,
     ALBUM_LIST_SORT_STARRED,
     AlbumDetails,
@@ -2373,6 +2375,8 @@ class PlayerGenreFilterQueryParamsTest(unittest.TestCase):
         artist_query = album_list_query_from_params(parse_qs("sort=artist"))
         albums_query = album_list_query_from_params(parse_qs("sort=albums"))
         genre_query = album_list_query_from_params(parse_qs("sort=genre"))
+        recent_query = album_list_query_from_params(parse_qs("sort=recent"))
+        frequent_query = album_list_query_from_params(parse_qs("sort=frequent"))
         starred_query = album_list_query_from_params(parse_qs("sort=starred"))
         invalid_query = album_list_query_from_params(parse_qs("sort=unknown"))
 
@@ -2380,6 +2384,8 @@ class PlayerGenreFilterQueryParamsTest(unittest.TestCase):
         self.assertEqual(artist_query.sort, ALBUM_LIST_SORT_ARTIST)
         self.assertEqual(albums_query.sort, ALBUM_LIST_SORT_ALBUMS)
         self.assertEqual(genre_query.sort, ALBUM_LIST_SORT_GENRE)
+        self.assertEqual(recent_query.sort, ALBUM_LIST_SORT_RECENT)
+        self.assertEqual(frequent_query.sort, ALBUM_LIST_SORT_FREQUENT)
         self.assertEqual(starred_query.sort, ALBUM_LIST_SORT_STARRED)
         self.assertEqual(invalid_query.sort, ALBUM_LIST_SORT_ARTIST)
 
@@ -2397,6 +2403,14 @@ class PlayerGenreFilterQueryParamsTest(unittest.TestCase):
             "/albums?sort=albums",
         )
         self.assertEqual(
+            album_index_url(AlbumListQuery(sort=ALBUM_LIST_SORT_RECENT)),
+            "/albums?sort=recent",
+        )
+        self.assertEqual(
+            album_index_url(AlbumListQuery(sort=ALBUM_LIST_SORT_FREQUENT)),
+            "/albums?sort=frequent",
+        )
+        self.assertEqual(
             album_index_url(AlbumListQuery(sort=ALBUM_LIST_SORT_GENRE)),
             "/albums?sort=genre",
         )
@@ -2411,26 +2425,26 @@ class PlayerGenreFilterQueryParamsTest(unittest.TestCase):
         self.assertIsNone(query.is_playlist)
         self.assertEqual(album_index_url(AlbumListQuery(is_playlist=True, search="Road")), "/albums?search=Road")
 
-    def test_album_cursor_query_param_round_trips_and_playlist_urls_ignore_playlist_query_state(self) -> None:
-        query = album_list_query_from_params(parse_qs("cursor=abc123&page=3"))
+    def test_album_size_offset_query_params_round_trip_and_playlist_urls_ignore_album_query_state(self) -> None:
+        query = album_list_query_from_params(parse_qs("size=80&offset=160"))
 
-        self.assertEqual(query.cursor, "abc123")
+        self.assertEqual(query.size, 80)
+        self.assertEqual(query.offset, 160)
         self.assertEqual(
-            album_index_url(AlbumListQuery(cursor="abc123", page=3)),
-            "/albums?cursor=abc123",
+            album_index_url(AlbumListQuery(size=80, offset=160)),
+            "/albums?size=80&offset=160",
         )
         self.assertEqual(
             album_index_url(
-                AlbumListQuery(cursor="abc123", page=3),
-                page=4,
-                cursor="def456",
+                AlbumListQuery(size=80, offset=160),
+                offset=240,
             ),
-            "/albums?cursor=def456",
+            "/albums?size=80&offset=240",
         )
         self.assertEqual(
             playlist_index_url(
-                AlbumListQuery(search="Road", page=3, per_page=80, cursor="abc123"),
-                page=4,
+                AlbumListQuery(search="Road", size=80, offset=160),
+                offset=240,
             ),
             "/playlists",
         )
@@ -2443,8 +2457,8 @@ class PlayerAlbumDetailLinksTest(unittest.TestCase):
             album="Selected Ambient Works Volume II",
             root_positions=(0, 2),
             genre_filters=(GenreStyleFilter(genre="Ambient", styles=("IDM",)),),
-            page=4,
-            per_page=80,
+            size=80,
+            offset=240,
             search="aphex",
             sort=ALBUM_LIST_SORT_ARTIST,
         )
@@ -2461,8 +2475,8 @@ class PlayerAlbumDetailLinksTest(unittest.TestCase):
             (GenreStyleFilter(genre="Electronic", styles=("Techno",)),),
         )
         self.assertEqual(linked.root_positions, ())
-        self.assertEqual(linked.page, 1)
-        self.assertEqual(linked.per_page, 80)
+        self.assertEqual(linked.offset, 0)
+        self.assertEqual(linked.size, 80)
         self.assertEqual(linked.sort, ALBUM_LIST_SORT_ARTIST)
         self.assertEqual(linked.album, "Selected Ambient Works Volume II")
         self.assertEqual(linked.search, "aphex")
@@ -2485,7 +2499,8 @@ class PlayerAlbumDetailLinksTest(unittest.TestCase):
         )
         query = AlbumListQuery(
             root_positions=(1,),
-            per_page=80,
+            size=80,
+            offset=160,
             search="saw",
         )
         filters = LibraryFilterOptions(
@@ -2501,22 +2516,22 @@ class PlayerAlbumDetailLinksTest(unittest.TestCase):
 
         self.assertEqual(
             [(item.label, item.url) for item in artist_links],
-            [("Aphex Twin", "/albums?artist=Aphex+Twin&search=saw&per_page=80")],
+            [("Aphex Twin", "/albums?artist=Aphex+Twin&search=saw&size=80")],
         )
         self.assertEqual(
             [(item.label, item.url) for item in genre_links],
             [
                 (
                     "Electronic",
-                    "/albums?search=saw&genre[0][p]=Electronic&per_page=80",
+                    "/albums?search=saw&genre[0][p]=Electronic&size=80",
                 ),
                 (
                     "Jazz",
-                    "/albums?search=saw&genre[0][p]=Jazz&per_page=80",
+                    "/albums?search=saw&genre[0][p]=Jazz&size=80",
                 ),
                 (
                     "Field Recording",
-                    "/albums?search=saw&genre[0][p]=Field+Recording&per_page=80",
+                    "/albums?search=saw&genre[0][p]=Field+Recording&size=80",
                 ),
             ],
         )
@@ -2525,11 +2540,11 @@ class PlayerAlbumDetailLinksTest(unittest.TestCase):
             [
                 (
                     "IDM",
-                    "/albums?search=saw&genre[0][p]=Electronic&genre[0][c][]=IDM&per_page=80",
+                    "/albums?search=saw&genre[0][p]=Electronic&genre[0][c][]=IDM&size=80",
                 ),
                 (
                     "Bebop",
-                    "/albums?search=saw&genre[0][p]=Jazz&genre[0][c][]=Bebop&per_page=80",
+                    "/albums?search=saw&genre[0][p]=Jazz&genre[0][c][]=Bebop&size=80",
                 ),
             ],
         )
@@ -2546,7 +2561,8 @@ class PlayerAlbumDetailLinksTest(unittest.TestCase):
         query = AlbumListQuery(
             artists=("Current Artist",),
             genre_filters=(GenreStyleFilter(genre="Ambient"),),
-            per_page=80,
+            size=80,
+            offset=160,
             search="ignored",
             sort=ALBUM_LIST_SORT_ARTIST,
         )
@@ -2554,7 +2570,7 @@ class PlayerAlbumDetailLinksTest(unittest.TestCase):
         self.assertEqual(
             album_artist_url(album, query),
             "/albums?artist=Brian+Eno&artist=Robert+Fripp&search=ignored"
-            "&genre[0][p]=Ambient&per_page=80",
+            "&genre[0][p]=Ambient&size=80",
         )
         self.assertEqual(album_artist_url(replace(album, is_playlist=True), query), "")
         self.assertEqual(album_artist_url(replace(album, album_artists=()), query), "")
@@ -2572,7 +2588,8 @@ class PlayerAlbumDetailLinksTest(unittest.TestCase):
         query = AlbumListQuery(
             artists=("Current Artist",),
             genre_filters=(GenreStyleFilter(genre="Ambient"),),
-            per_page=80,
+            size=80,
+            offset=160,
             search="ignored",
             sort=ALBUM_LIST_SORT_ARTIST,
         )
@@ -2589,11 +2606,11 @@ class PlayerAlbumDetailLinksTest(unittest.TestCase):
         )
 
         self.assertIn(
-            'href="/albums?artist=Brian+Eno&amp;search=ignored&amp;genre[0][p]=Ambient&amp;per_page=80" data-nav>Brian Eno</a>,',
+            'href="/albums?artist=Brian+Eno&amp;search=ignored&amp;genre[0][p]=Ambient&amp;size=80" data-nav>Brian Eno</a>,',
             html,
         )
         self.assertIn(
-            'href="/albums?artist=Robert+Fripp&amp;search=ignored&amp;genre[0][p]=Ambient&amp;per_page=80" data-nav>Robert Fripp</a>',
+            'href="/albums?artist=Robert+Fripp&amp;search=ignored&amp;genre[0][p]=Ambient&amp;size=80" data-nav>Robert Fripp</a>',
             html,
         )
         self.assertNotIn("artist=Brian+Eno&amp;artist=Robert+Fripp", html)
@@ -3881,6 +3898,8 @@ class PlayerWebAdapterTest(unittest.TestCase):
         self.assertEqual(len(dashboard.recent_genres), 6)
         self.assertEqual(len(dashboard.recent_tracks), 12)
         self.assertEqual(dashboard.recent_tracks[0].art_track_id, tracks[-1].track_id)
+        self.assertIn('href="/albums?sort=recent" data-nav>Recent</a>', html)
+        self.assertNotIn(">All albums</a>", html)
         self.assertLess(html.index("Recent Artists"), html.index("Recent Tracks"))
         self.assertIn("Played 2026-05-11", html)
         artist_section = html.split("Recent Artists", 1)[1].split("Recent Tracks", 1)[0]
@@ -4629,7 +4648,7 @@ class PlayerWebAdapterTest(unittest.TestCase):
                     "&genre[0][c][]=Ambient"
                 )
                 album_response = client.get(
-                    "/albums/artist-a::album?artist=Artist+A&per_page=80"
+                    "/albums/artist-a::album?artist=Artist+A&size=80"
                 )
                 artist_response = client.get("/albums?artist=Artist+A")
 
@@ -4667,7 +4686,7 @@ class PlayerWebAdapterTest(unittest.TestCase):
         )
         self.assertIn(b'href="/albums?artist=Artist+A" data-nav>Artist A</a>', album_response.data)
         self.assertIn(b'href="/albums?genre[0][p]=Electronic"', album_response.data)
-        self.assertNotIn(b"per_page=80", album_response.data)
+        self.assertNotIn(b"size=80", album_response.data)
         self.assertNotIn(b"/albums/artist-a::album/edit?", album_response.data)
 
     def test_lazy_filter_endpoints_are_not_registered(self) -> None:

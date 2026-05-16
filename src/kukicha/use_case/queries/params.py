@@ -10,7 +10,7 @@ from .models import (
 )
 
 GENRE_FILTER_PARAM_RE = re.compile(r"^genre\[(\d+)]\[(p|c)](?:\[\])?$")
-DEFAULT_ALBUMS_PER_PAGE = 200
+DEFAULT_ALBUMS_SIZE = 200
 _UNSET = object()
 
 
@@ -20,13 +20,12 @@ def album_list_query_from_params(params: dict[str, list[str]]) -> AlbumListQuery
         album=first_value(params.get("album", ())),
         search=first_value(params.get("search", ())),
         genre_filters=genre_filters_from_params(params),
-        page=parse_positive_int(first_value(params.get("page", ())), default=1),
-        per_page=parse_positive_int(
-            first_value(params.get("per_page", ())),
-            default=DEFAULT_ALBUMS_PER_PAGE,
+        size=parse_positive_int(
+            first_value(params.get("size", ())),
+            default=DEFAULT_ALBUMS_SIZE,
         ),
+        offset=parse_non_negative_int(first_value(params.get("offset", ())), default=0),
         sort=first_value(params.get("sort", ())) or DEFAULT_ALBUM_LIST_SORT,
-        cursor=first_value(params.get("cursor", ())),
     )
 
 
@@ -67,11 +66,20 @@ def parse_positive_int(value: str | None, *, default: int) -> int:
     return max(1, parsed)
 
 
+def parse_non_negative_int(value: str | None, *, default: int) -> int:
+    if value is None:
+        return default
+    try:
+        parsed = int(value)
+    except ValueError:
+        return default
+    return max(0, parsed)
+
+
 def album_query_params(
     query: AlbumListQuery,
     *,
-    page: int | None = None,
-    cursor: str | None | object = _UNSET,
+    offset: int | None | object = _UNSET,
 ) -> list[tuple[str, object]]:
     params: list[tuple[str, object]] = []
     params.extend(("artist", artist) for artist in query.artists)
@@ -87,19 +95,20 @@ def album_query_params(
         )
     if query.sort != DEFAULT_ALBUM_LIST_SORT:
         params.append(("sort", query.sort))
-    resolved_cursor = query.cursor if cursor is _UNSET else cursor
-    if resolved_cursor:
-        params.append(("cursor", resolved_cursor))
-    if query.per_page != DEFAULT_ALBUMS_PER_PAGE:
-        params.append(("per_page", query.per_page))
+    if query.size != DEFAULT_ALBUMS_SIZE:
+        params.append(("size", query.size))
+    resolved_offset = query.offset if offset is _UNSET else offset
+    if resolved_offset:
+        params.append(("offset", resolved_offset))
     return params
 
 
 __all__ = [
-    "DEFAULT_ALBUMS_PER_PAGE",
+    "DEFAULT_ALBUMS_SIZE",
     "album_list_query_from_params",
     "album_query_params",
     "first_value",
     "genre_filters_from_params",
+    "parse_non_negative_int",
     "parse_positive_int",
 ]

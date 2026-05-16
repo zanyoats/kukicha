@@ -8,7 +8,9 @@ from .library import (
 from .models import (
     ALBUM_LIST_SORT_ALBUMS,
     ALBUM_LIST_SORT_ARTIST,
+    ALBUM_LIST_SORT_FREQUENT,
     ALBUM_LIST_SORT_GENRE,
+    ALBUM_LIST_SORT_RECENT,
     ALBUM_LIST_SORT_RECENTLY_ADDED,
     ALBUM_LIST_SORT_STARRED,
     AlbumArtistSplitMapping,
@@ -36,7 +38,7 @@ from .models import (
     TrackNotFoundError,
 )
 from .params import (
-    DEFAULT_ALBUMS_PER_PAGE,
+    DEFAULT_ALBUMS_SIZE,
     album_list_query_from_params,
     album_query_params,
     genre_filters_from_params,
@@ -46,7 +48,9 @@ from .musicbrainz import album_musicbrainz_link
 __all__ = [
     "ALBUM_LIST_SORT_ALBUMS",
     "ALBUM_LIST_SORT_ARTIST",
+    "ALBUM_LIST_SORT_FREQUENT",
     "ALBUM_LIST_SORT_GENRE",
+    "ALBUM_LIST_SORT_RECENT",
     "ALBUM_LIST_SORT_RECENTLY_ADDED",
     "ALBUM_LIST_SORT_STARRED",
     "AlbumArtistSplitMapping",
@@ -57,7 +61,7 @@ __all__ = [
     "AlbumPage",
     "AlbumSummary",
     "CacheStat",
-    "DEFAULT_ALBUMS_PER_PAGE",
+    "DEFAULT_ALBUMS_SIZE",
     "GenreFilterGroup",
     "GenreStyleFilter",
     "LibraryFilterOptions",

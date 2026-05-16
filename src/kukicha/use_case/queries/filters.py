@@ -41,11 +41,10 @@ def expanded_album_list_query(
         styles=styles,
         genre_filters=genre_filters,
         is_playlist=query.is_playlist,
-        page=query.page,
-        per_page=query.per_page,
+        size=query.size,
+        offset=query.offset,
         search=query.search,
         sort=query.sort,
-        cursor=query.cursor,
     )
 
 

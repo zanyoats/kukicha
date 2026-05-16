@@ -60,11 +60,10 @@ def album_index_query_from_query_string(query_string: str) -> AlbumListQuery:
         genres=parsed.genres,
         styles=parsed.styles,
         genre_filters=parsed.genre_filters,
-        page=parsed.page,
-        per_page=parsed.per_page,
+        size=parsed.size,
+        offset=parsed.offset,
         search=parsed.search,
         sort=parsed.sort,
-        cursor=parsed.cursor,
         is_playlist=False,
     )
 
@@ -79,7 +78,7 @@ def playlist_index_query_from_query_string(_query_string: str) -> AlbumListQuery
 def build_index_context(runtime: PlayerRuntime, query_string: str) -> dict[str, Any]:
     from .player_navigation import (
         ALBUM_SORT_OPTIONS,
-        DEFAULT_ALBUMS_PER_PAGE,
+        DEFAULT_ALBUMS_SIZE,
         album_index_url,
         checked_genre_values,
         player_page_context,
@@ -107,13 +106,13 @@ def build_index_context(runtime: PlayerRuntime, query_string: str) -> dict[str, 
         selected_genre_filter_count_label=format_compact_count(genre_filter_count),
         previous_url=album_index_url(
             query,
-            cursor=album_page.previous_cursor,
+            offset=max(0, album_page.offset - album_page.size),
         )
         if album_page.has_previous
         else "",
         next_url=album_index_url(
             query,
-            cursor=album_page.next_cursor,
+            offset=album_page.offset + album_page.size,
         )
         if album_page.has_next
         else "",
@@ -127,7 +126,7 @@ def build_index_context(runtime: PlayerRuntime, query_string: str) -> dict[str, 
         pagination_label="Album pages",
         show_pagination_controls=True,
         sort_options=ALBUM_SORT_OPTIONS,
-        default_per_page=DEFAULT_ALBUMS_PER_PAGE,
+        default_size=DEFAULT_ALBUMS_SIZE,
     )
     context.update(player_page_context("library"))
     return context

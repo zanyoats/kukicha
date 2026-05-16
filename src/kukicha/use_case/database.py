@@ -197,7 +197,11 @@ CREATE TABLE IF NOT EXISTS play_album_stats (
     snapshot_json TEXT NOT NULL DEFAULT '{}'
 );
 CREATE INDEX IF NOT EXISTS idx_play_album_stats_recent
-    ON play_album_stats (last_played_at DESC, play_count DESC, album_id);
+    ON play_album_stats (last_played_at DESC, play_count DESC, album_id)
+    WHERE album_id IS NOT NULL AND album_id != '';
+CREATE INDEX IF NOT EXISTS idx_play_album_stats_frequent
+    ON play_album_stats (play_count DESC, last_played_at DESC, album_id)
+    WHERE album_id IS NOT NULL AND album_id != '';
 
 CREATE TABLE IF NOT EXISTS play_artist_stats (
     artist_key TEXT PRIMARY KEY,
@@ -638,6 +642,21 @@ def migrate_library_schema(connection: sqlite3.Connection) -> None:
     if created_album_added_at:
         backfill_library_album_added_at(connection)
 
+    connection.execute("DROP INDEX IF EXISTS idx_play_album_stats_recent")
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_play_album_stats_recent
+            ON play_album_stats (last_played_at DESC, play_count DESC, album_id)
+            WHERE album_id IS NOT NULL AND album_id != ''
+        """
+    )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_play_album_stats_frequent
+            ON play_album_stats (play_count DESC, last_played_at DESC, album_id)
+            WHERE album_id IS NOT NULL AND album_id != ''
+        """
+    )
     connection.execute(
         """
         CREATE INDEX IF NOT EXISTS idx_library_tracks_root_position

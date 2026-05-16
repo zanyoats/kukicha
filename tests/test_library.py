@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import base64
-import json
 from pathlib import Path
 import sqlite3
 from tempfile import TemporaryDirectory
@@ -14,7 +12,9 @@ from kukicha.use_case import connect_database
 from kukicha.use_case import (
     ALBUM_LIST_SORT_ALBUMS,
     ALBUM_LIST_SORT_ARTIST,
+    ALBUM_LIST_SORT_FREQUENT,
     ALBUM_LIST_SORT_GENRE,
+    ALBUM_LIST_SORT_RECENT,
     ALBUM_LIST_SORT_RECENTLY_ADDED,
     ALBUM_LIST_SORT_STARRED,
     GenreStyleFilter,
@@ -50,7 +50,6 @@ from kukicha.use_case.queries.library import (
     album_order_by_clause,
     album_sort_columns,
     album_sort_select_sql,
-    decode_album_page_cursor,
 )
 from kukicha.use_case.queries.musicbrainz import album_musicbrainz_link
 from kukicha.use_case.musicbrainz import store_musicbrainz_entity
@@ -252,6 +251,16 @@ class LibraryAlbumPathQueryTest(unittest.TestCase):
                 "albums.artist_sort_key",
                 "CASE WHEN albums.year IS NULL THEN 1 ELSE 0 END",
                 "albums.year",
+                "albums.album_id",
+            ],
+            ALBUM_LIST_SORT_RECENT: [
+                "recent_album_stats.last_played_at",
+                "recent_album_stats.play_count",
+                "albums.album_id",
+            ],
+            ALBUM_LIST_SORT_FREQUENT: [
+                "frequent_album_stats.play_count",
+                "frequent_album_stats.last_played_at",
                 "albums.album_id",
             ],
             ALBUM_LIST_SORT_GENRE: [
@@ -2860,6 +2869,186 @@ class LibraryPlaylistPersistenceTest(unittest.TestCase):
         )
         self.assertEqual([item.album for item in playlists], ["Recent Mix"])
 
+    def test_list_album_page_recent_sort_filters_to_played_albums(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            database = Path(tempdir) / "kukicha.sqlite"
+            save_library(
+                MusicLibrary(
+                    roots=[],
+                    tracks=[
+                        TrackRecord(
+                            path="/music/Alpha/First/01.flac",
+                            file_type="flac",
+                            artist="Alpha",
+                            album_artist="Alpha",
+                            album="First",
+                            title="Song",
+                        ),
+                        TrackRecord(
+                            path="/music/Beta/Second/01.flac",
+                            file_type="flac",
+                            artist="Beta",
+                            album_artist="Beta",
+                            album="Second",
+                            title="Song",
+                        ),
+                        TrackRecord(
+                            path="/music/Gamma/Third/01.flac",
+                            file_type="flac",
+                            artist="Gamma",
+                            album_artist="Gamma",
+                            album="Third",
+                            title="Song",
+                        ),
+                        TrackRecord(
+                            path="/music/Delta/Fourth/01.flac",
+                            file_type="flac",
+                            artist="Delta",
+                            album_artist="Delta",
+                            album="Fourth",
+                            title="Song",
+                        ),
+                        TrackRecord(
+                            path="/music/Epsilon/Unplayed/01.flac",
+                            file_type="flac",
+                            artist="Epsilon",
+                            album_artist="Epsilon",
+                            album="Unplayed",
+                            title="Song",
+                        ),
+                    ],
+                    supported_extensions=[".flac"],
+                    generated_at="2026-05-01T00:00:00+00:00",
+                ),
+                database,
+            )
+            with connect_database(database) as connection:
+                album_ids = {
+                    str(row["album"]): str(row["album_id"])
+                    for row in connection.execute(
+                        "SELECT album_id, album FROM library_albums"
+                    )
+                }
+                for album, play_count, last_played_at in (
+                    ("First", 1, "2026-05-10T12:00:00+00:00"),
+                    ("Second", 1, "2026-05-11T12:00:00+00:00"),
+                    ("Third", 5, "2026-05-11T12:00:00+00:00"),
+                    ("Fourth", 1, "2026-05-11T12:00:00+00:00"),
+                ):
+                    connection.execute(
+                        """
+                        INSERT INTO play_album_stats (
+                            album_id,
+                            play_count,
+                            last_played_at
+                        )
+                        VALUES (?, ?, ?)
+                        """,
+                        (album_ids[album], play_count, last_played_at),
+                    )
+
+            recent = LibraryQueries(database).list_album_page(
+                AlbumListQuery(sort=ALBUM_LIST_SORT_RECENT)
+            )
+
+        self.assertEqual(
+            [item.album for item in recent.items],
+            ["Third", "Second", "Fourth", "First"],
+        )
+        self.assertNotIn("Unplayed", [item.album for item in recent.items])
+
+    def test_list_album_page_frequent_sort_filters_to_played_albums(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            database = Path(tempdir) / "kukicha.sqlite"
+            save_library(
+                MusicLibrary(
+                    roots=[],
+                    tracks=[
+                        TrackRecord(
+                            path="/music/Alpha/First/01.flac",
+                            file_type="flac",
+                            artist="Alpha",
+                            album_artist="Alpha",
+                            album="First",
+                            title="Song",
+                        ),
+                        TrackRecord(
+                            path="/music/Beta/Second/01.flac",
+                            file_type="flac",
+                            artist="Beta",
+                            album_artist="Beta",
+                            album="Second",
+                            title="Song",
+                        ),
+                        TrackRecord(
+                            path="/music/Gamma/Third/01.flac",
+                            file_type="flac",
+                            artist="Gamma",
+                            album_artist="Gamma",
+                            album="Third",
+                            title="Song",
+                        ),
+                        TrackRecord(
+                            path="/music/Delta/Fourth/01.flac",
+                            file_type="flac",
+                            artist="Delta",
+                            album_artist="Delta",
+                            album="Fourth",
+                            title="Song",
+                        ),
+                        TrackRecord(
+                            path="/music/Epsilon/Unplayed/01.flac",
+                            file_type="flac",
+                            artist="Epsilon",
+                            album_artist="Epsilon",
+                            album="Unplayed",
+                            title="Song",
+                        ),
+                    ],
+                    supported_extensions=[".flac"],
+                    generated_at="2026-05-01T00:00:00+00:00",
+                ),
+                database,
+            )
+            with connect_database(database) as connection:
+                album_ids = {
+                    str(row["album"]): str(row["album_id"])
+                    for row in connection.execute(
+                        "SELECT album_id, album FROM library_albums"
+                    )
+                }
+                for album, play_count, last_played_at in (
+                    ("First", 1, "2026-05-12T12:00:00+00:00"),
+                    ("Second", 5, "2026-05-10T12:00:00+00:00"),
+                    ("Third", 5, "2026-05-11T12:00:00+00:00"),
+                    ("Fourth", 5, "2026-05-11T12:00:00+00:00"),
+                ):
+                    connection.execute(
+                        """
+                        INSERT INTO play_album_stats (
+                            album_id,
+                            play_count,
+                            last_played_at
+                        )
+                        VALUES (?, ?, ?)
+                        """,
+                        (album_ids[album], play_count, last_played_at),
+                    )
+
+            frequent = LibraryQueries(database).list_album_page(
+                AlbumListQuery(sort=ALBUM_LIST_SORT_FREQUENT)
+            )
+
+        tied_albums = sorted(
+            ("Third", "Fourth"),
+            key=lambda album: album_ids[album],
+        )
+        self.assertEqual(
+            [item.album for item in frequent.items],
+            [*tied_albums, "Second", "First"],
+        )
+        self.assertNotIn("Unplayed", [item.album for item in frequent.items])
+
     def test_save_library_preserves_album_added_at_and_stamps_new_album_ids(self) -> None:
         with TemporaryDirectory() as tempdir:
             database = Path(tempdir) / "kukicha.sqlite"
@@ -3254,59 +3443,8 @@ class LibraryPlaylistPersistenceTest(unittest.TestCase):
         self.assertFalse(albums[0].is_playlist)
 
 
-class LibraryAlbumCursorPaginationTest(unittest.TestCase):
-    def test_album_page_cursor_decodes_valid_values_and_rejects_invalid_values(self) -> None:
-        with TemporaryDirectory() as tempdir:
-            database = Path(tempdir) / "kukicha.sqlite"
-            save_library(album_cursor_library(), database)
-
-            page = LibraryQueries(database).list_album_page(
-                AlbumListQuery(sort=ALBUM_LIST_SORT_ARTIST, per_page=1)
-            )
-
-        self.assertIsNotNone(page.next_cursor)
-        sort_columns = album_sort_columns(AlbumListQuery(sort=ALBUM_LIST_SORT_ARTIST))
-        decoded = decode_album_page_cursor(
-            page.next_cursor,
-            ALBUM_LIST_SORT_ARTIST,
-            sort_columns,
-        )
-        self.assertIsNotNone(decoded)
-        self.assertIsNone(
-            decode_album_page_cursor(
-                "not-a-cursor",
-                ALBUM_LIST_SORT_ARTIST,
-                sort_columns,
-            )
-        )
-        self.assertIsNone(
-            decode_album_page_cursor(
-                page.next_cursor,
-                ALBUM_LIST_SORT_GENRE,
-                album_sort_columns(AlbumListQuery(sort=ALBUM_LIST_SORT_GENRE)),
-            )
-        )
-
-        wrong_version = base64.urlsafe_b64encode(
-            json.dumps(
-                {
-                    "v": 999,
-                    "sort": ALBUM_LIST_SORT_ARTIST,
-                    "direction": "next",
-                    "values": ["artist", 0, 2001, "album"],
-                    "album_id": "artist::album",
-                }
-            ).encode("utf-8")
-        ).decode("ascii").rstrip("=")
-        self.assertIsNone(
-            decode_album_page_cursor(
-                wrong_version,
-                ALBUM_LIST_SORT_ARTIST,
-                sort_columns,
-            )
-        )
-
-    def test_list_album_page_uses_cursor_pagination_for_each_album_sort(self) -> None:
+class LibraryAlbumOffsetPaginationTest(unittest.TestCase):
+    def test_list_album_page_uses_offset_pagination_for_each_album_sort(self) -> None:
         expected_by_sort = {
             ALBUM_LIST_SORT_RECENTLY_ADDED: [
                 "Beta New",
@@ -3347,7 +3485,7 @@ class LibraryAlbumCursorPaginationTest(unittest.TestCase):
 
         with TemporaryDirectory() as tempdir:
             database = Path(tempdir) / "kukicha.sqlite"
-            save_library(album_cursor_library(), database)
+            save_library(album_offset_library(), database)
             with connect_database(database) as connection:
                 for album, added_at in (
                     ("Beta New", "2026-04-26T12:00:00+00:00"),
@@ -3375,37 +3513,26 @@ class LibraryAlbumCursorPaginationTest(unittest.TestCase):
 
             for sort, expected in expected_by_sort.items():
                 with self.subTest(sort=sort):
-                    first = api.list_album_page(AlbumListQuery(sort=sort, per_page=2))
+                    first = api.list_album_page(AlbumListQuery(sort=sort, size=2))
                     second = api.list_album_page(
                         AlbumListQuery(
                             sort=sort,
-                            per_page=2,
-                            page=2,
-                            cursor=first.next_cursor,
+                            size=2,
+                            offset=2,
                         )
                     )
                     third = api.list_album_page(
                         AlbumListQuery(
                             sort=sort,
-                            per_page=2,
-                            page=3,
-                            cursor=second.next_cursor,
+                            size=2,
+                            offset=4,
                         )
                     )
-                    back_to_second = api.list_album_page(
+                    beyond_last = api.list_album_page(
                         AlbumListQuery(
                             sort=sort,
-                            per_page=2,
-                            page=2,
-                            cursor=third.previous_cursor,
-                        )
-                    )
-                    back_to_first = api.list_album_page(
-                        AlbumListQuery(
-                            sort=sort,
-                            per_page=2,
-                            page=1,
-                            cursor=second.previous_cursor,
+                            size=2,
+                            offset=6,
                         )
                     )
 
@@ -3415,20 +3542,21 @@ class LibraryAlbumCursorPaginationTest(unittest.TestCase):
                     )
                     self.assertFalse(first.has_previous)
                     self.assertTrue(first.has_next)
+                    self.assertEqual(first.size, 2)
+                    self.assertEqual(first.offset, 0)
                     self.assertTrue(second.has_previous)
                     self.assertTrue(second.has_next)
+                    self.assertEqual(second.size, 2)
+                    self.assertEqual(second.offset, 2)
                     self.assertTrue(third.has_previous)
                     self.assertFalse(third.has_next)
-                    self.assertEqual(
-                        [item.album for item in back_to_second.items],
-                        [item.album for item in second.items],
-                    )
-                    self.assertEqual(
-                        [item.album for item in back_to_first.items],
-                        [item.album for item in first.items],
-                    )
+                    self.assertEqual(third.size, 2)
+                    self.assertEqual(third.offset, 4)
+                    self.assertEqual([item.album for item in beyond_last.items], [])
+                    self.assertTrue(beyond_last.has_previous)
+                    self.assertFalse(beyond_last.has_next)
 
-    def test_album_cursor_pagination_respects_search_root_and_genre_filters(self) -> None:
+    def test_album_offset_pagination_respects_search_root_and_genre_filters(self) -> None:
         with TemporaryDirectory() as tempdir:
             database = Path(tempdir) / "kukicha.sqlite"
             save_library(
@@ -3487,15 +3615,14 @@ class LibraryAlbumCursorPaginationTest(unittest.TestCase):
             api = LibraryQueries(database)
 
             search_first = api.list_album_page(
-                AlbumListQuery(search="Ambient", sort=ALBUM_LIST_SORT_ARTIST, per_page=2)
+                AlbumListQuery(search="Ambient", sort=ALBUM_LIST_SORT_ARTIST, size=2)
             )
             search_second = api.list_album_page(
                 AlbumListQuery(
                     search="Ambient",
                     sort=ALBUM_LIST_SORT_ARTIST,
-                    per_page=2,
-                    page=2,
-                    cursor=search_first.next_cursor,
+                    size=2,
+                    offset=2,
                 )
             )
             filtered_first = api.list_album_page(
@@ -3503,7 +3630,7 @@ class LibraryAlbumCursorPaginationTest(unittest.TestCase):
                     root_positions=(0,),
                     genre_filters=(GenreStyleFilter(genre="Ambient"),),
                     sort=ALBUM_LIST_SORT_GENRE,
-                    per_page=1,
+                    size=1,
                 )
             )
             filtered_second = api.list_album_page(
@@ -3511,9 +3638,8 @@ class LibraryAlbumCursorPaginationTest(unittest.TestCase):
                     root_positions=(0,),
                     genre_filters=(GenreStyleFilter(genre="Ambient"),),
                     sort=ALBUM_LIST_SORT_GENRE,
-                    per_page=1,
-                    page=2,
-                    cursor=filtered_first.next_cursor,
+                    size=1,
+                    offset=1,
                 )
             )
 
@@ -3529,7 +3655,7 @@ class LibraryAlbumCursorPaginationTest(unittest.TestCase):
     def test_album_sort_key_columns_and_indexes_are_created_and_populated(self) -> None:
         with TemporaryDirectory() as tempdir:
             database = Path(tempdir) / "kukicha.sqlite"
-            save_library(album_cursor_library(), database)
+            save_library(album_offset_library(), database)
             connection = connect_database(database)
             try:
                 album_columns = {
@@ -3566,6 +3692,22 @@ class LibraryAlbumCursorPaginationTest(unittest.TestCase):
                     FROM sqlite_master
                     WHERE type = 'index'
                         AND name = 'idx_library_albums_album_sort'
+                    """
+                ).fetchone()
+                recent_listening_index_row = connection.execute(
+                    """
+                    SELECT sql
+                    FROM sqlite_master
+                    WHERE type = 'index'
+                        AND name = 'idx_play_album_stats_recent'
+                    """
+                ).fetchone()
+                frequent_listening_index_row = connection.execute(
+                    """
+                    SELECT sql
+                    FROM sqlite_master
+                    WHERE type = 'index'
+                        AND name = 'idx_play_album_stats_frequent'
                     """
                 ).fetchone()
                 root_indexes = {
@@ -3616,8 +3758,25 @@ class LibraryAlbumCursorPaginationTest(unittest.TestCase):
         self.assertIsNotNone(starred_index_row)
         self.assertIsNotNone(recently_added_index_row)
         self.assertIsNotNone(album_sort_index_row)
+        self.assertIsNotNone(recent_listening_index_row)
+        self.assertIsNotNone(frequent_listening_index_row)
         self.assertIn("added_at DESC", str(recently_added_index_row["sql"]))
         self.assertIn("album_sort_key", str(album_sort_index_row["sql"]))
+        self.assertIn("last_played_at DESC", str(recent_listening_index_row["sql"]))
+        self.assertIn(
+            "WHERE album_id IS NOT NULL AND album_id != ''",
+            str(recent_listening_index_row["sql"]),
+        )
+        self.assertIn("play_count DESC", str(frequent_listening_index_row["sql"]))
+        self.assertIn("last_played_at DESC", str(frequent_listening_index_row["sql"]))
+        self.assertIn(
+            "(play_count DESC, last_played_at DESC, album_id)",
+            str(frequent_listening_index_row["sql"]),
+        )
+        self.assertIn(
+            "WHERE album_id IS NOT NULL AND album_id != ''",
+            str(frequent_listening_index_row["sql"]),
+        )
         self.assertIn(
             "WHERE starred_at IS NOT NULL",
             str(starred_index_row["sql"]),
@@ -3638,7 +3797,7 @@ class LibraryAlbumCursorPaginationTest(unittest.TestCase):
         self.assertEqual(str(root_row["genre_sort_key"]), "jazz")
 
 
-def album_cursor_library() -> MusicLibrary:
+def album_offset_library() -> MusicLibrary:
     return MusicLibrary(
         roots=["/music"],
         tracks=[

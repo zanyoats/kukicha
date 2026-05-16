@@ -1,13 +1,9 @@
 from __future__ import annotations
 
-import base64
-import binascii
 from collections.abc import Iterable
 from dataclasses import dataclass
-import json
 from pathlib import Path
 from sqlite3 import Connection, Row
-from typing import Any
 
 from ..database import connect_database
 from ..library import split_genres_and_styles
@@ -22,7 +18,9 @@ from .filters import (
 from .models import (
     ALBUM_LIST_SORT_ALBUMS,
     ALBUM_LIST_SORT_ARTIST,
+    ALBUM_LIST_SORT_FREQUENT,
     ALBUM_LIST_SORT_GENRE,
+    ALBUM_LIST_SORT_RECENT,
     ALBUM_LIST_SORT_RECENTLY_ADDED,
     ALBUM_LIST_SORT_STARRED,
     AlbumArtistSplitMapping,
@@ -64,9 +62,6 @@ CACHE_STAT_TABLES = (
     ("Cover Art Images", "cover_art_archive_image_cache"),
     ("iTunes Artwork", "itunes_lookup_image_cache"),
 )
-ALBUM_PAGE_CURSOR_VERSION = 1
-ALBUM_PAGE_CURSOR_NEXT = "next"
-ALBUM_PAGE_CURSOR_PREVIOUS = "previous"
 
 
 @dataclass(frozen=True, slots=True)
@@ -74,12 +69,6 @@ class AlbumSortColumn:
     expression: str
     alias: str
     direction: str = "ASC"
-
-
-@dataclass(frozen=True, slots=True)
-class AlbumPageCursor:
-    direction: str
-    values: tuple[object, ...]
 
 
 class LibraryQueries:
@@ -107,26 +96,10 @@ class LibraryQueries:
     ) -> AlbumPage:
         where_sql, params = album_where_clause(query)
         sort_columns = album_sort_columns(query)
-        cursor = decode_album_page_cursor(query.cursor, query.sort, sort_columns)
-        if query.cursor and cursor is None:
-            page_number = 1
-        elif cursor is None:
-            page_number = 1
-        else:
-            page_number = (
-                max(query.page, 2)
-                if cursor.direction == ALBUM_PAGE_CURSOR_NEXT
-                else query.page
-            )
-        cursor_sql, cursor_params = album_cursor_where_clause(cursor, sort_columns)
-        where_sql = append_album_cursor_where_clause(where_sql, cursor_sql)
-        order_sql = album_order_by_clause(
-            sort_columns,
-            reverse=cursor is not None
-            and cursor.direction == ALBUM_PAGE_CURSOR_PREVIOUS,
-        )
+        order_sql = album_order_by_clause(sort_columns)
         sort_select_sql = album_sort_select_sql(sort_columns)
-        limit = query.per_page + 1
+        play_stats_join_sql = album_play_stats_join_sql(query)
+        limit = query.size + 1
 
         if query.root_positions:
             root_placeholders = placeholders_for(query.root_positions)
@@ -156,20 +129,18 @@ class LibraryQueries:
                     FROM library_albums AS albums
                     JOIN selected_album_roots
                         ON selected_album_roots.album_id = albums.album_id
+                    {play_stats_join_sql}
                     {where_sql}
                     {order_sql}
-                    LIMIT ?
+                    LIMIT ? OFFSET ?
                     """,
-                    [*query.root_positions, *params, *cursor_params, limit],
+                    [*query.root_positions, *params, limit, query.offset],
                 )
             )
             return self._album_page_from_rows(
                 connection,
                 rows,
                 query=query,
-                cursor=cursor,
-                sort_columns=sort_columns,
-                page_number=page_number,
                 root_positions=query.root_positions,
             )
 
@@ -187,20 +158,18 @@ class LibraryQueries:
                     albums.art_track_id
                     {sort_select_sql}
                 FROM library_albums AS albums
+                {play_stats_join_sql}
                 {where_sql}
                 {order_sql}
-                LIMIT ?
+                LIMIT ? OFFSET ?
                 """,
-                [*params, *cursor_params, limit],
+                [*params, limit, query.offset],
             )
         )
         return self._album_page_from_rows(
             connection,
             rows,
             query=query,
-            cursor=cursor,
-            sort_columns=sort_columns,
-            page_number=page_number,
         )
 
     def _album_page_from_rows(
@@ -209,20 +178,10 @@ class LibraryQueries:
         rows: list[Row],
         *,
         query: AlbumListQuery,
-        cursor: AlbumPageCursor | None,
-        sort_columns: tuple[AlbumSortColumn, ...],
-        page_number: int,
         root_positions: tuple[int, ...] = (),
     ) -> AlbumPage:
-        has_extra = len(rows) > query.per_page
-        page_rows = rows[: query.per_page]
-        if cursor is not None and cursor.direction == ALBUM_PAGE_CURSOR_PREVIOUS:
-            page_rows = list(reversed(page_rows))
-            has_previous = has_extra
-            has_next = bool(page_rows)
-        else:
-            has_previous = cursor is not None and bool(page_rows)
-            has_next = has_extra
+        has_extra = len(rows) > query.size
+        page_rows = rows[: query.size]
 
         return AlbumPage(
             items=self._album_summaries_from_rows(
@@ -230,30 +189,10 @@ class LibraryQueries:
                 page_rows,
                 root_positions=root_positions,
             ),
-            page=page_number,
-            per_page=query.per_page,
-            has_next=has_next,
-            has_previous=has_previous,
-            next_cursor=(
-                encode_album_page_cursor(
-                    query.sort,
-                    ALBUM_PAGE_CURSOR_NEXT,
-                    page_rows[-1],
-                    sort_columns,
-                )
-                if has_next and page_rows
-                else None
-            ),
-            previous_cursor=(
-                encode_album_page_cursor(
-                    query.sort,
-                    ALBUM_PAGE_CURSOR_PREVIOUS,
-                    page_rows[0],
-                    sort_columns,
-                )
-                if has_previous and page_rows
-                else None
-            ),
+            size=query.size,
+            offset=query.offset,
+            has_next=has_extra,
+            has_previous=query.offset > 0,
         )
 
     def _playlist_list_page(
@@ -269,8 +208,8 @@ class LibraryQueries:
         )
         return AlbumPage(
             items=items,
-            page=1,
-            per_page=query.per_page,
+            size=query.size,
+            offset=0,
         )
 
     def _playlist_list_items(
@@ -1241,6 +1180,36 @@ def album_sort_columns(query: AlbumListQuery) -> tuple[AlbumSortColumn, ...]:
             album_id_column,
         )
 
+    if query.sort == ALBUM_LIST_SORT_RECENT:
+        return (
+            AlbumSortColumn(
+                "recent_album_stats.last_played_at",
+                "sort_recent_last_played_at",
+                direction="DESC",
+            ),
+            AlbumSortColumn(
+                "recent_album_stats.play_count",
+                "sort_recent_play_count",
+                direction="DESC",
+            ),
+            album_id_column,
+        )
+
+    if query.sort == ALBUM_LIST_SORT_FREQUENT:
+        return (
+            AlbumSortColumn(
+                "frequent_album_stats.play_count",
+                "sort_frequent_play_count",
+                direction="DESC",
+            ),
+            AlbumSortColumn(
+                "frequent_album_stats.last_played_at",
+                "sort_frequent_last_played_at",
+                direction="DESC",
+            ),
+            album_id_column,
+        )
+
     return (
         AlbumSortColumn(
             "CASE WHEN NULLIF(albums.added_at, '') IS NULL THEN 1 ELSE 0 END",
@@ -1257,6 +1226,24 @@ def album_sort_columns(query: AlbumListQuery) -> tuple[AlbumSortColumn, ...]:
         album_column,
         album_id_column,
     )
+
+
+def album_play_stats_join_sql(query: AlbumListQuery) -> str:
+    if query.sort == ALBUM_LIST_SORT_RECENT:
+        return """
+                    JOIN play_album_stats AS recent_album_stats
+                        ON recent_album_stats.album_id = albums.album_id
+                        AND recent_album_stats.album_id IS NOT NULL
+                        AND recent_album_stats.album_id != ''
+    """
+    if query.sort == ALBUM_LIST_SORT_FREQUENT:
+        return """
+                    JOIN play_album_stats AS frequent_album_stats
+                        ON frequent_album_stats.album_id = albums.album_id
+                        AND frequent_album_stats.album_id IS NOT NULL
+                        AND frequent_album_stats.album_id != ''
+    """
+    return ""
 
 
 def album_sort_select_sql(sort_columns: tuple[AlbumSortColumn, ...]) -> str:
@@ -1278,115 +1265,6 @@ def album_order_by_clause(
             direction = "DESC" if direction == "ASC" else "ASC"
         parts.append(f"{column.expression} {direction}")
     return "ORDER BY " + ", ".join(parts)
-
-
-def append_album_cursor_where_clause(where_sql: str, cursor_sql: str) -> str:
-    if not cursor_sql:
-        return where_sql
-    if where_sql:
-        return f"{where_sql} AND ({cursor_sql})"
-    return f"WHERE ({cursor_sql})"
-
-
-def album_cursor_where_clause(
-    cursor: AlbumPageCursor | None,
-    sort_columns: tuple[AlbumSortColumn, ...],
-) -> tuple[str, list[object]]:
-    if cursor is None:
-        return "", []
-
-    params: list[object] = []
-    clauses: list[str] = []
-    for index, column in enumerate(sort_columns):
-        comparisons: list[str] = []
-        comparison_params: list[object] = []
-        for previous_index, previous_column in enumerate(sort_columns[:index]):
-            previous_value = cursor.values[previous_index]
-            if previous_value is None:
-                comparisons.append(f"{previous_column.expression} IS NULL")
-            else:
-                comparisons.append(f"{previous_column.expression} = ?")
-                comparison_params.append(previous_value)
-
-        value = cursor.values[index]
-        if value is None:
-            continue
-        is_ascending = column.direction == "ASC"
-        if cursor.direction == ALBUM_PAGE_CURSOR_NEXT:
-            operator = ">" if is_ascending else "<"
-        else:
-            operator = "<" if is_ascending else ">"
-        comparisons.append(f"{column.expression} {operator} ?")
-        comparison_params.append(value)
-        clauses.append("(" + " AND ".join(comparisons) + ")")
-        params.extend(comparison_params)
-
-    return " OR ".join(clauses), params
-
-
-def encode_album_page_cursor(
-    sort: str,
-    direction: str,
-    row: Row,
-    sort_columns: tuple[AlbumSortColumn, ...],
-) -> str:
-    payload = {
-        "v": ALBUM_PAGE_CURSOR_VERSION,
-        "sort": sort,
-        "direction": direction,
-        "values": [
-            cursor_json_value(row[column.alias])
-            for column in sort_columns
-            if column.alias != "sort_album_id"
-        ],
-        "album_id": str(row["album_id"]),
-    }
-    encoded = base64.urlsafe_b64encode(
-        json.dumps(payload, separators=(",", ":"), sort_keys=True).encode("utf-8")
-    )
-    return encoded.decode("ascii").rstrip("=")
-
-
-def decode_album_page_cursor(
-    value: str | None,
-    sort: str,
-    sort_columns: tuple[AlbumSortColumn, ...],
-) -> AlbumPageCursor | None:
-    if not value:
-        return None
-    try:
-        decoded = base64.urlsafe_b64decode(value + "=" * (-len(value) % 4))
-        payload = json.loads(decoded.decode("utf-8"))
-    except (binascii.Error, UnicodeDecodeError, json.JSONDecodeError, ValueError):
-        return None
-
-    if not isinstance(payload, dict):
-        return None
-    if payload.get("v") != ALBUM_PAGE_CURSOR_VERSION or payload.get("sort") != sort:
-        return None
-    direction = payload.get("direction")
-    if direction not in {ALBUM_PAGE_CURSOR_NEXT, ALBUM_PAGE_CURSOR_PREVIOUS}:
-        return None
-    values = payload.get("values")
-    album_id = payload.get("album_id")
-    if not isinstance(values, list) or not isinstance(album_id, str):
-        return None
-    if len(values) != len(sort_columns) - 1:
-        return None
-    if not all(item is None or isinstance(item, (int, str)) for item in values):
-        return None
-    return AlbumPageCursor(
-        direction=direction,
-        values=(*values, album_id),
-    )
-
-
-def cursor_json_value(value: Any) -> str | int | None:
-    if isinstance(value, int):
-        return value
-    if value is None:
-        return None
-    return str(value)
 
 
 def album_artists_by_album(
@@ -1585,7 +1463,9 @@ def library_root_options(connection: Connection) -> tuple[LibraryRootFilterOptio
 __all__ = [
     "ALBUM_LIST_SORT_ALBUMS",
     "ALBUM_LIST_SORT_ARTIST",
+    "ALBUM_LIST_SORT_FREQUENT",
     "ALBUM_LIST_SORT_GENRE",
+    "ALBUM_LIST_SORT_RECENT",
     "ALBUM_LIST_SORT_RECENTLY_ADDED",
     "ALBUM_LIST_SORT_STARRED",
     "AlbumArtistSplitMapping",

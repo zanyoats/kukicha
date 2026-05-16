@@ -9,7 +9,9 @@ from urllib.parse import quote, urlencode
 from .use_case import (
     ALBUM_LIST_SORT_ALBUMS,
     ALBUM_LIST_SORT_ARTIST,
+    ALBUM_LIST_SORT_FREQUENT,
     ALBUM_LIST_SORT_GENRE,
+    ALBUM_LIST_SORT_RECENT,
     ALBUM_LIST_SORT_RECENTLY_ADDED,
     ALBUM_LIST_SORT_STARRED,
     AlbumDetails,
@@ -20,7 +22,7 @@ from .use_case import (
     LibraryAlbumArtistStats,
     LibraryFilterOptions,
 )
-from .use_case import DEFAULT_ALBUMS_PER_PAGE, album_query_params
+from .use_case import DEFAULT_ALBUMS_SIZE, album_query_params
 from .display import display_album_title
 from .models import ALBUM_ARTWORK_HEIGHT
 from .player_common import format_count_label, plural
@@ -31,6 +33,8 @@ PLAYLIST_COVER_DATA_URL = playlist_cover_data_url(PLAYLIST_COVER_SVG)
 ALBUM_SORT_OPTIONS = (
     (ALBUM_LIST_SORT_ARTIST, "Artist"),
     (ALBUM_LIST_SORT_ALBUMS, "Albums"),
+    (ALBUM_LIST_SORT_RECENT, "Recent"),
+    (ALBUM_LIST_SORT_FREQUENT, "Frequent"),
     (ALBUM_LIST_SORT_RECENTLY_ADDED, "Recently Added"),
     (ALBUM_LIST_SORT_GENRE, "Genre"),
     (ALBUM_LIST_SORT_STARRED, "Starred"),
@@ -49,7 +53,7 @@ PLAYER_PAGE_LINKS = (
 )
 PLAYER_PAGE_BY_KEY = {key: {"title": title, "url": url} for key, title, url in PLAYER_PAGE_LINKS}
 PLAYER_PAGE_ROUTE_KEYS = {url: key for key, _title, url in PLAYER_PAGE_LINKS[2:]}
-_URL_CURSOR_UNSET = object()
+_URL_OFFSET_UNSET = object()
 
 @dataclass(frozen=True, slots=True)
 class PlayerPageLink:
@@ -131,17 +135,16 @@ def player_page_context(page_key: str) -> dict[str, Any]:
 def album_index_url(
     query: AlbumListQuery,
     *,
-    page: int | None = None,
-    cursor: str | None | object = _URL_CURSOR_UNSET,
+    offset: int | None | object = _URL_OFFSET_UNSET,
 ) -> str:
-    if cursor is _URL_CURSOR_UNSET:
-        params = album_query_params(query, page=page)
+    if offset is _URL_OFFSET_UNSET:
+        params = album_query_params(query)
     else:
-        params = album_query_params(query, page=page, cursor=cursor)
+        params = album_query_params(query, offset=offset)
     encoded = urlencode(params, doseq=True, safe="[]")
     return f"/albums?{encoded}" if encoded else "/albums"
 
-def playlist_index_url(_query: AlbumListQuery, *, page: int | None = None) -> str:
+def playlist_index_url(_query: AlbumListQuery, *, offset: int | None = None) -> str:
     return "/playlists"
 
 def artist_cloud_links(
@@ -244,7 +247,7 @@ def album_meta_query(
         album=query.album,
         genre_filters=genre_filters or query.genre_filters,
         is_playlist=query.is_playlist,
-        per_page=query.per_page,
+        size=query.size,
         search=query.search,
         sort=query.sort,
     )

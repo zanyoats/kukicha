@@ -585,12 +585,12 @@ test("library filter form patch preserves artist hidden inputs before changing s
   });
   const document = harness.document;
   const currentForm = filterForm(document, [
-    testInput(document, {type: "hidden", name: "per_page", value: ""}),
+    testInput(document, {type: "hidden", name: "size", value: ""}),
     testInput(document, {type: "radio", name: "sort", value: "recently_added"}),
     testInput(document, {type: "radio", name: "sort", value: "artist", checked: true}),
   ]);
   const nextForm = filterForm(document, [
-    testInput(document, {type: "hidden", name: "per_page", value: ""}),
+    testInput(document, {type: "hidden", name: "size", value: ""}),
     testInput(document, {type: "hidden", name: "artist", value: "Amon Tobin"}),
     testInput(document, {type: "radio", name: "sort", value: "recently_added"}),
     testInput(document, {type: "radio", name: "sort", value: "artist", checked: true}),

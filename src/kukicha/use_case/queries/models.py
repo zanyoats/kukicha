@@ -33,6 +33,8 @@ class TrackNotFoundError(LibraryQueryError, KeyError):
 
 
 ALBUM_LIST_SORT_RECENTLY_ADDED = "recently_added"
+ALBUM_LIST_SORT_RECENT = "recent"
+ALBUM_LIST_SORT_FREQUENT = "frequent"
 ALBUM_LIST_SORT_ARTIST = "artist"
 ALBUM_LIST_SORT_ALBUMS = "albums"
 ALBUM_LIST_SORT_GENRE = "genre"
@@ -41,6 +43,8 @@ DEFAULT_ALBUM_LIST_SORT = ALBUM_LIST_SORT_ARTIST
 ALBUM_LIST_SORT_VALUES = frozenset(
     (
         ALBUM_LIST_SORT_RECENTLY_ADDED,
+        ALBUM_LIST_SORT_RECENT,
+        ALBUM_LIST_SORT_FREQUENT,
         ALBUM_LIST_SORT_ARTIST,
         ALBUM_LIST_SORT_ALBUMS,
         ALBUM_LIST_SORT_GENRE,
@@ -68,15 +72,13 @@ class AlbumListQuery:
     styles: tuple[str, ...] = ()
     genre_filters: tuple[GenreStyleFilter, ...] = ()
     is_playlist: bool | None = None
-    page: int = 1
-    per_page: int = 200
+    size: int = 200
+    offset: int = 0
     search: str | None = None
     sort: str = DEFAULT_ALBUM_LIST_SORT
-    cursor: str | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "search", normalized_search(self.search))
-        object.__setattr__(self, "cursor", normalized_search(self.cursor))
         object.__setattr__(self, "artists", normalized_tuple(self.artists))
         object.__setattr__(self, "root_positions", normalized_int_tuple(self.root_positions))
         object.__setattr__(self, "genres", normalized_tuple(self.genres))
@@ -86,8 +88,8 @@ class AlbumListQuery:
             "genre_filters",
             normalized_genre_style_filters(self.genre_filters),
         )
-        object.__setattr__(self, "page", max(1, int(self.page)))
-        object.__setattr__(self, "per_page", min(200, max(1, int(self.per_page))))
+        object.__setattr__(self, "size", min(200, max(1, int(self.size))))
+        object.__setattr__(self, "offset", max(0, int(self.offset)))
         object.__setattr__(self, "sort", normalized_album_list_sort(self.sort))
 
 
@@ -197,12 +199,10 @@ class PlaylistDetails:
 @dataclass(frozen=True, slots=True)
 class AlbumPage:
     items: tuple[AlbumSummary, ...]
-    page: int
-    per_page: int
+    size: int
+    offset: int
     has_next: bool = False
     has_previous: bool = False
-    next_cursor: str | None = None
-    previous_cursor: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
