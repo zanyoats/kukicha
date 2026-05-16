@@ -601,6 +601,92 @@ class LibraryAlbumPathQueryTest(unittest.TestCase):
         self.assertFalse(hasattr(root_b_page.items[0], "track_ids"))
         self.assertEqual([album.album for album in root_b_genre_page.items], ["Album"])
 
+    def test_list_genres_counts_album_genres_without_styles_or_taxonomy(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            database = Path(tempdir) / "kukicha.sqlite"
+            tracks = [
+                TrackRecord(
+                    path="/music/Artist/Alpha/01.flac",
+                    root_position=0,
+                    file_type="flac",
+                    artist="Artist",
+                    album_artist="Artist",
+                    album="Alpha",
+                    title="One",
+                    genres=["Electronic"],
+                    styles=["Electronica"],
+                ),
+                TrackRecord(
+                    path="/music/Artist/Alpha/02.flac",
+                    root_position=0,
+                    file_type="flac",
+                    artist="Artist",
+                    album_artist="Artist",
+                    album="Alpha",
+                    title="Two",
+                    genres=["Electronic"],
+                    styles=["Electronica"],
+                ),
+                TrackRecord(
+                    path="/music/Artist/Beta/01.flac",
+                    root_position=0,
+                    file_type="flac",
+                    artist="Artist",
+                    album_artist="Artist",
+                    album="Beta",
+                    title="One",
+                    genres=["Rock"],
+                ),
+                TrackRecord(
+                    path="/music/Artist/Gamma/01.flac",
+                    root_position=0,
+                    file_type="flac",
+                    artist="Artist",
+                    album_artist="Artist",
+                    album="Gamma",
+                    title="One",
+                    genres=["Ambient"],
+                ),
+            ]
+            save_library(
+                MusicLibrary(
+                    roots=["/music"],
+                    tracks=tracks,
+                    supported_extensions=[".flac"],
+                    generated_at="2026-04-22T00:00:00+00:00",
+                ),
+                database,
+            )
+
+            genres = LibraryQueries(database).list_genres()
+
+        self.assertEqual(
+            [(genre.value, genre.song_count, genre.album_count) for genre in genres],
+            [
+                ("Ambient", 1, 1),
+                ("Electronic", 2, 1),
+                ("Rock", 1, 1),
+            ],
+        )
+        self.assertNotIn("Electronica", [genre.value for genre in genres])
+
+    def test_list_genres_returns_empty_for_empty_library(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            database = Path(tempdir) / "kukicha.sqlite"
+            save_library(
+                MusicLibrary(
+                    roots=["/music"],
+                    tracks=[],
+                    supported_extensions=[".flac"],
+                    generated_at="2026-04-22T00:00:00+00:00",
+                ),
+                database,
+            )
+
+            genres = LibraryQueries(database).list_genres()
+
+        self.assertEqual(genres, ())
+
     def test_album_art_track_id_uses_track_that_has_album_artwork(self) -> None:
         with TemporaryDirectory() as tempdir:
             database = Path(tempdir) / "kukicha.sqlite"

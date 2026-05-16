@@ -33,6 +33,7 @@ from .use_case import (
     AlbumListQuery,
     AlbumSummary,
     GenreStyleFilter,
+    LibraryGenre,
     LibraryQueries,
     TrackNotFoundError,
     connect_database,
@@ -170,6 +171,7 @@ def open_subsonic_handlers() -> dict[str, Any]:
         "getlicense": handle_get_license,
         "getopensubsonicextensions": handle_get_open_subsonic_extensions,
         "getmusicfolders": handle_get_music_folders,
+        "getgenres": handle_get_genres,
         "getartists": handle_get_artists,
         "getartist": handle_get_artist,
         "getalbumlist2": handle_get_album_list2,
@@ -318,6 +320,11 @@ def handle_get_music_folders(params: Mapping[str, list[str]]) -> dict[str, objec
         for root in LibraryQueries(open_subsonic_context().database).library_roots()
     ]
     return {"musicFolders": {"musicFolder": folders}}
+
+
+def handle_get_genres(params: Mapping[str, list[str]]) -> dict[str, object]:
+    genres = LibraryQueries(open_subsonic_context().database).list_genres()
+    return {"genres": {"genre": genre_payloads(genres)}}
 
 
 def handle_get_artists(params: Mapping[str, list[str]]) -> dict[str, object]:
@@ -762,6 +769,17 @@ def artist_name_from_id(value: str) -> str:
     if value.startswith("artist:"):
         return value[len("artist:") :]
     return value
+
+
+def genre_payloads(genres: Iterable[LibraryGenre]) -> list[dict[str, object]]:
+    return [
+        {
+            "value": genre.value,
+            "songCount": genre.song_count,
+            "albumCount": genre.album_count,
+        }
+        for genre in genres
+    ]
 
 
 def album_list2_query_from_params(

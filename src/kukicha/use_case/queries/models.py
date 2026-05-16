@@ -219,6 +219,13 @@ class LibraryRootFilterOption:
 
 
 @dataclass(frozen=True, slots=True)
+class LibraryGenre:
+    value: str
+    song_count: int
+    album_count: int
+
+
+@dataclass(frozen=True, slots=True)
 class AlbumArtistSplitMapping:
     album_artist: str
     mapped_artists: tuple[str, ...]

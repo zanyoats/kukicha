@@ -35,6 +35,7 @@ from .models import (
     GenreStyleFilter,
     LibraryFilterOptions,
     LibraryAlbumArtistStats,
+    LibraryGenre,
     LibraryRootAlbumArtistStats,
     LibraryRootFilterOption,
     LibraryRootStats,
@@ -592,6 +593,33 @@ class LibraryQueries:
     def library_roots(self) -> tuple[LibraryRootFilterOption, ...]:
         with connect_database(self.database, create=False) as connection:
             return library_root_options(connection)
+
+    def list_genres(self) -> tuple[LibraryGenre, ...]:
+        with connect_database(self.database, create=False) as connection:
+            rows = list(
+                connection.execute(
+                    """
+                    SELECT
+                        album_genres.genre,
+                        COUNT(DISTINCT tracks.track_id) AS song_count,
+                        COUNT(DISTINCT album_genres.album_id) AS album_count
+                    FROM library_album_genres AS album_genres
+                    LEFT JOIN library_tracks AS tracks
+                        ON tracks.album_id = album_genres.album_id
+                    WHERE album_genres.genre != ''
+                    GROUP BY album_genres.genre
+                    ORDER BY album_genres.genre COLLATE NOCASE
+                    """
+                )
+            )
+        return tuple(
+            LibraryGenre(
+                value=str(row["genre"]),
+                song_count=int(row["song_count"]),
+                album_count=int(row["album_count"]),
+            )
+            for row in rows
+        )
 
     def album_artist_split_mappings(self) -> tuple[AlbumArtistSplitMapping, ...]:
         with connect_database(self.database, create=False) as connection:
@@ -1477,6 +1505,7 @@ __all__ = [
     "GenreFilterGroup",
     "GenreStyleFilter",
     "LibraryAlbumArtistStats",
+    "LibraryGenre",
     "LibraryQueries",
     "LibraryFilterOptions",
     "LibraryRootAlbumArtistStats",

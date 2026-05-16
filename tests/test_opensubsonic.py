@@ -190,6 +190,42 @@ class OpenSubsonicWebAdapterTest(unittest.TestCase):
             temp_path / "kukicha.sqlite",
         )
 
+    def save_genre_library(self, temp_path: Path) -> None:
+        root = temp_path / "music"
+        specs = (
+            ("Artist", "Alpha", "01.flac", "Electronic", "Electronica"),
+            ("Artist", "Alpha", "02.flac", "Electronic", "Electronica"),
+            ("Artist", "Beta", "01.flac", "Rock", ""),
+            ("Artist", "Gamma", "01.flac", "Ambient", ""),
+        )
+        tracks = []
+        for artist, album, filename, genre, style in specs:
+            path = root / artist / album / filename
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(f"{album}-{filename}".encode("utf-8"))
+            tracks.append(
+                TrackRecord(
+                    path=str(path),
+                    root_position=0,
+                    file_type="flac",
+                    artist=artist,
+                    album_artist=artist,
+                    album=album,
+                    title=filename,
+                    genres=[genre],
+                    styles=[style] if style else [],
+                )
+            )
+        save_library(
+            MusicLibrary(
+                roots=[str(root)],
+                tracks=tracks,
+                supported_extensions=[".flac"],
+                generated_at="2026-05-07T00:00:00+00:00",
+            ),
+            temp_path / "kukicha.sqlite",
+        )
+
     def album_list2_names(
         self,
         temp_path: Path,
@@ -413,6 +449,68 @@ class OpenSubsonicWebAdapterTest(unittest.TestCase):
         self.assertEqual(song["title"], "First Track")
         self.assertEqual(song["size"], 10)
         self.assertEqual(second.track_id, 2)
+
+    def test_get_genres_returns_album_genre_counts(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            self.save_genre_library(temp_path)
+            app = create_open_subsonic_app(self.make_options(temp_path))
+
+            response = app.test_client().get(
+                "/rest/getGenres",
+                query_string=self.auth_params(),
+            )
+
+        genres = subsonic_payload(response)["genres"]["genre"]
+        self.assertEqual(
+            genres,
+            [
+                {"value": "Ambient", "songCount": 1, "albumCount": 1},
+                {"value": "Electronic", "songCount": 2, "albumCount": 1},
+                {"value": "Rock", "songCount": 1, "albumCount": 1},
+            ],
+        )
+        self.assertNotIn("Electronica", [genre["value"] for genre in genres])
+
+    def test_get_genres_returns_empty_for_empty_library(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            save_library(
+                MusicLibrary(
+                    roots=[str(temp_path / "music")],
+                    tracks=[],
+                    supported_extensions=[".flac"],
+                    generated_at="2026-05-07T00:00:00+00:00",
+                ),
+                temp_path / "kukicha.sqlite",
+            )
+            app = create_open_subsonic_app(self.make_options(temp_path))
+
+            response = app.test_client().get(
+                "/rest/getGenres",
+                query_string=self.auth_params(),
+            )
+
+        self.assertEqual(subsonic_payload(response)["genres"]["genre"], [])
+
+    def test_get_genres_supports_xml_response(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            self.save_genre_library(temp_path)
+            app = create_open_subsonic_app(self.make_options(temp_path))
+
+            response = app.test_client().get(
+                "/rest/getGenres",
+                query_string={**self.auth_params(), "f": "xml"},
+            )
+
+        self.assertEqual(response.content_type, "text/xml; charset=utf-8")
+        self.assertIn(b"<genres>", response.data)
+        self.assertIn(
+            b'<genre value="Electronic" songCount="2" albumCount="1"/>',
+            response.data,
+        )
+        self.assertNotIn(b"Electronica", response.data)
 
     def test_scrobble_tracks_now_playing_and_submitted_play_counts(self) -> None:
         with TemporaryDirectory() as tempdir:
