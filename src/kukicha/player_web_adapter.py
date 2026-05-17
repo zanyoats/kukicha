@@ -9,6 +9,7 @@ from queue import Empty, Queue
 import re
 import sqlite3
 from typing import Any
+from urllib.parse import quote
 
 from flask import Flask, Response, abort, current_app, redirect, request, stream_with_context
 from werkzeug.exceptions import NotFound
@@ -48,6 +49,7 @@ from .player_config import (
     player_theme_context,
     validate_player_startup,
 )
+from .player_auth import signed_auth_cookie, verify_auth_cookie, verify_password
 from .player_errors import PlayerConfigError, PlayerConflictError, PlayerNotFoundError
 from .media_resources import AudioResource, local_audio_resource
 from .player_media import audio_resource_head, iter_audio_resource_bytes
@@ -141,6 +143,41 @@ def create_player_app(options: PlayerServerOptions) -> Flask:
     @app.context_processor
     def inject_player_theme() -> dict[str, object]:
         return player_theme_context(options.accent_color, options.appearance)
+
+    @app.before_request
+    def require_player_login() -> Response | None:
+        auth = player_context().options.auth
+        if auth is None or is_public_path():
+            return None
+        if verify_auth_cookie(auth, request.cookies.get(auth.cookie_name)):
+            return None
+        if should_return_auth_unauthorized():
+            return auth_required_response()
+        return redirect(login_url(), code=302)
+
+    @app.get("/login")
+    def login_page() -> Response:
+        return login_response()
+
+    @app.post("/login")
+    def login_submit() -> Response:
+        auth = player_context().options.auth
+        if auth is None:
+            return redirect(safe_next_url(request.values.get("next")), code=302)
+        username = request.form.get("username", "")
+        password = request.form.get("password", "")
+        next_url = safe_next_url(request.values.get("next"))
+        if username != auth.username or not verify_password(auth, password):
+            return login_response(error="Invalid username or password.", status=401)
+        response = redirect(next_url, code=302)
+        response.set_cookie(
+            auth.cookie_name,
+            signed_auth_cookie(auth),
+            max_age=auth.cookie_max_age_seconds,
+            httponly=True,
+            samesite="Strict",
+        )
+        return response
 
     @app.errorhandler(PlayerConflictError)
     def handle_conflict(error: PlayerConflictError) -> Response:
@@ -469,6 +506,61 @@ def player_context() -> PlayerWebContext:
 
 def wants_json_error() -> bool:
     return request.path.startswith("/api/") or request.method == "POST"
+
+
+def is_public_path() -> bool:
+    if request.path in {"/login", "/healthz", "/favicon.ico"}:
+        return True
+    return request.path.startswith("/static/")
+
+
+def should_return_auth_unauthorized() -> bool:
+    if request.method not in {"GET", "HEAD"}:
+        return True
+    return request.path.startswith(("/api/", "/audio/", "/playlist-audio/", "/art/"))
+
+
+def auth_required_response() -> Response:
+    if request.path.startswith("/api/"):
+        return json_response({"error": "authentication required"}, status=401)
+    return Response(
+        "authentication required",
+        status=401,
+        content_type="text/plain; charset=utf-8",
+    )
+
+
+def login_url() -> str:
+    next_url = request.full_path
+    if next_url.endswith("?"):
+        next_url = request.path
+    return f"/login?next={quote(next_url, safe='')}"
+
+
+def safe_next_url(value: str | None) -> str:
+    if (
+        value
+        and value.startswith("/")
+        and not value.startswith("//")
+        and "\r" not in value
+        and "\n" not in value
+    ):
+        return value
+    return "/"
+
+
+def login_response(error: str = "", *, status: int = 200) -> Response:
+    from flask import render_template
+
+    next_url = safe_next_url(request.values.get("next"))
+    html = render_template(
+        "player/login.html",
+        app_title="Kukicha Login",
+        page_name="login",
+        error=error,
+        next_url=next_url,
+    )
+    return Response(html, status=status, content_type="text/html; charset=utf-8")
 
 
 def query_string() -> str:

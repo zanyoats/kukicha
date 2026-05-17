@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import os
+import tomllib
 from dataclasses import replace
 from datetime import UTC, datetime
 from importlib.metadata import PackageNotFoundError, version
@@ -58,6 +59,8 @@ from kukicha.player_jobs import (
 from kukicha.player_config import (
     ACCENT_COLOR_CODES,
     DEFAULT_ACCENT_COLOR,
+    DEFAULT_AUTH_COOKIE_MAX_AGE,
+    DEFAULT_AUTH_COOKIE_NAME,
     DEFAULT_OPEN_SUBSONIC_HOST,
     DEFAULT_OPEN_SUBSONIC_PASSWORD,
     DEFAULT_OPEN_SUBSONIC_PORT,
@@ -70,6 +73,7 @@ from kukicha.player_config import (
     DEFAULT_TOAST_TIMEOUT_MS,
     APPEARANCE_THEMES,
     CONTROL_ACCENT_MINIMUM_CONTRAST,
+    PlayerAuthOptions,
     PlayerServerOptions,
     build_template_environment,
     contrast_ratio,
@@ -79,6 +83,7 @@ from kukicha.player_config import (
     player_config_help_text,
     validate_player_startup,
 )
+from kukicha.player_auth import hash_password, signed_auth_cookie, verify_password
 from kukicha.use_case import (
     append_queue as append_queue_command,
     edit_library_album_edit,
@@ -155,6 +160,18 @@ from kukicha.player_runtime import (
 )
 from kukicha.player_web_adapter import create_player_app, serve_player, start_player_sync
 from kukicha.playlist_art import playlist_cover_data_url, playlist_cover_svg
+
+
+TEST_ARGON2ID_HASH = (
+    "$argon2id$v=19$m=65536,t=3,p=4$"
+    "c29tZXNhbHR2YWx1ZQ$"
+    "c29tZXBhc3N3b3JkaGFzaHZhbHVl"
+)
+
+
+class TtyStringIO(io.StringIO):
+    def isatty(self) -> bool:
+        return True
 
 
 def insert_library_album(
@@ -1695,6 +1712,25 @@ class PlayerPlaylistMembershipTest(unittest.TestCase):
 
 
 class PlayerConfigTest(unittest.TestCase):
+    def write_password_hash(self, path: Path, *, mode: int = 0o600, text: str = TEST_ARGON2ID_HASH) -> None:
+        path.write_text(f"{text}\n", encoding="utf-8")
+        path.chmod(mode)
+
+    def write_config(self, config_path: Path, text: str) -> Path:
+        password_hash_file = config_path.parent / "password.hash"
+        self.write_password_hash(password_hash_file)
+        config_body = text.rstrip()
+        auth_section = "\n".join(
+            (
+                "[auth]",
+                "username = 'listener'",
+                "password_hash_file = 'password.hash'",
+            )
+        )
+        output = f"{config_body}\n\n{auth_section}\n" if config_body else f"{auth_section}\n"
+        config_path.write_text(output, encoding="utf-8")
+        return password_hash_file
+
     def test_default_toast_timeout_is_five_seconds(self) -> None:
         self.assertEqual(DEFAULT_TOAST_TIMEOUT_MS, 5000)
 
@@ -1721,7 +1757,8 @@ class PlayerConfigTest(unittest.TestCase):
         with TemporaryDirectory() as tempdir:
             temp_path = Path(tempdir)
             config_path = temp_path / "kukicha.toml"
-            config_path.write_text(
+            self.write_config(
+                config_path,
                 "\n".join(
                     (
                         "LogLevel = 'info'",
@@ -1742,7 +1779,6 @@ class PlayerConfigTest(unittest.TestCase):
                         "AlbumArtistSplitPatterns = ['&', '/']",
                     )
                 ),
-                encoding="utf-8",
             )
 
             options = load_player_options(config_path)
@@ -1773,11 +1809,108 @@ class PlayerConfigTest(unittest.TestCase):
             self.assertEqual(options.appearance, "dark")
             self.assertEqual(options.toast_timeout_ms, 12000)
             self.assertEqual(options.album_artist_split_patterns, ("&", "/"))
+            self.assertIsNotNone(options.auth)
+            assert options.auth is not None
+            self.assertEqual(options.auth.username, "listener")
+            self.assertEqual(options.auth.password_hash_file, (temp_path / "password.hash").resolve())
+            self.assertEqual(options.auth.cookie_max_age, DEFAULT_AUTH_COOKIE_MAX_AGE)
+            self.assertEqual(options.auth.cookie_name, DEFAULT_AUTH_COOKIE_NAME)
+
+    def test_load_player_options_reads_auth_cookie_config(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            config_path = temp_path / "kukicha.toml"
+            password_hash_file = temp_path / "auth" / "password.hash"
+            password_hash_file.parent.mkdir()
+            self.write_password_hash(password_hash_file)
+            config_path.write_text(
+                "\n".join(
+                    (
+                        "[auth]",
+                        "username = 'listener'",
+                        "password_hash_file = 'auth/password.hash'",
+                        "cookie_max_age = '365d'",
+                        "cookie_name = 'kukicha_session'",
+                    )
+                ),
+                encoding="utf-8",
+            )
+
+            options = load_player_options(config_path)
+
+            self.assertIsNotNone(options.auth)
+            assert options.auth is not None
+            self.assertEqual(options.auth.username, "listener")
+            self.assertEqual(options.auth.password_hash_file, password_hash_file.resolve())
+            self.assertEqual(options.auth.cookie_max_age, "365d")
+            self.assertEqual(options.auth.cookie_max_age_seconds, 365 * 24 * 60 * 60)
+            self.assertEqual(options.auth.cookie_name, "kukicha_session")
+
+    def test_load_player_options_rejects_missing_auth_section(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            config_path = Path(tempdir) / "kukicha.toml"
+            config_path.write_text("LogLevel = 'INFO'\n", encoding="utf-8")
+
+            with self.assertRaisesRegex(PlayerConfigError, r"\[auth\] section is required"):
+                load_player_options(config_path)
+
+    def test_load_player_options_rejects_invalid_auth_config(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            config_path = temp_path / "kukicha.toml"
+            password_hash_file = temp_path / "password.hash"
+            self.write_password_hash(password_hash_file)
+            cases = (
+                (
+                    "[auth]\npassword_hash_file = 'password.hash'\n",
+                    "missing required key",
+                ),
+                (
+                    "[auth]\nusername = 'listener'\npassword_hash_file = 'missing.hash'\n",
+                    "does not exist",
+                ),
+                (
+                    "[auth]\nusername = 'listener'\npassword_hash_file = 'password.hash'\n"
+                    "cookie_max_age = '0d'\n",
+                    "positive day duration",
+                ),
+                (
+                    "[auth]\nusername = 'listener'\npassword_hash_file = 'password.hash'\n"
+                    "cookie_name = 'bad cookie'\n",
+                    "valid HTTP cookie name",
+                ),
+                (
+                    "[auth]\nusername = 'listener'\npassword_hash_file = 'password.hash'\n"
+                    "bogus = true\n",
+                    "unsupported auth key",
+                ),
+            )
+            for text, message in cases:
+                with self.subTest(message=message):
+                    config_path.write_text(text, encoding="utf-8")
+                    with self.assertRaisesRegex(PlayerConfigError, message):
+                        load_player_options(config_path)
+
+    def test_load_player_options_rejects_unsafe_password_hash_file(self) -> None:
+        if os.name == "nt":
+            self.skipTest("POSIX file mode checks do not apply on Windows")
+        with TemporaryDirectory() as tempdir:
+            config_path = Path(tempdir) / "kukicha.toml"
+            password_hash_file = Path(tempdir) / "password.hash"
+            self.write_password_hash(password_hash_file, mode=0o644)
+            config_path.write_text(
+                "[auth]\nusername = 'listener'\npassword_hash_file = 'password.hash'\n",
+                encoding="utf-8",
+            )
+
+            with self.assertRaisesRegex(PlayerConfigError, "permissions must be 600"):
+                load_player_options(config_path)
 
     def test_load_player_options_reads_remote_roots(self) -> None:
         with TemporaryDirectory() as tempdir:
             config_path = Path(tempdir) / "kukicha.toml"
-            config_path.write_text(
+            self.write_config(
+                config_path,
                 "\n".join(
                     (
                         "[[RemoteRoots]]",
@@ -1790,7 +1923,6 @@ class PlayerConfigTest(unittest.TestCase):
                         "addressing_style = 'path'",
                     )
                 ),
-                encoding="utf-8",
             )
 
             options = load_player_options(config_path)
@@ -1845,17 +1977,27 @@ class PlayerConfigTest(unittest.TestCase):
             )
             for text, message in cases:
                 with self.subTest(message=message):
-                    config_path.write_text(text, encoding="utf-8")
+                    self.write_config(config_path, text)
                     with self.assertRaisesRegex(PlayerConfigError, message):
                         load_player_options(config_path)
 
-    def test_load_player_options_uses_default_paths_when_default_config_is_missing(self) -> None:
+    def test_load_player_options_rejects_missing_default_config(self) -> None:
         with TemporaryDirectory() as tempdir:
             config_home = Path(tempdir)
             with patch.dict(os.environ, {"XDG_CONFIG_HOME": str(config_home)}, clear=False):
+                with self.assertRaisesRegex(PlayerConfigError, "config file does not exist"):
+                    load_player_options()
+
+    def test_load_player_options_uses_default_paths_when_default_config_exists(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            config_home = Path(tempdir)
+            config_path = config_home / "kukicha" / "kukicha.toml"
+            config_path.parent.mkdir(parents=True)
+            self.write_config(config_path, "")
+            with patch.dict(os.environ, {"XDG_CONFIG_HOME": str(config_home)}, clear=False):
                 options = load_player_options()
 
-            self.assertEqual(options.config_path, (config_home / "kukicha" / "kukicha.toml").resolve())
+            self.assertEqual(options.config_path, config_path.resolve())
             self.assertEqual(options.database, (config_home / "kukicha" / "kukicha.sqlite").resolve())
             self.assertIsNone(options.ffmpeg_path)
             self.assertIsNone(options.youtube_download_path)
@@ -1882,10 +2024,7 @@ class PlayerConfigTest(unittest.TestCase):
     def test_load_player_options_accepts_empty_album_artist_split_patterns(self) -> None:
         with TemporaryDirectory() as tempdir:
             config_path = Path(tempdir) / "kukicha.toml"
-            config_path.write_text(
-                "AlbumArtistSplitPatterns = []\n",
-                encoding="utf-8",
-            )
+            self.write_config(config_path, "AlbumArtistSplitPatterns = []\n")
 
             options = load_player_options(config_path)
 
@@ -1894,10 +2033,7 @@ class PlayerConfigTest(unittest.TestCase):
     def test_load_player_options_rejects_non_string_album_artist_split_patterns(self) -> None:
         with TemporaryDirectory() as tempdir:
             config_path = Path(tempdir) / "kukicha.toml"
-            config_path.write_text(
-                "AlbumArtistSplitPatterns = ['&', 1]\n",
-                encoding="utf-8",
-            )
+            self.write_config(config_path, "AlbumArtistSplitPatterns = ['&', 1]\n")
 
             with self.assertRaisesRegex(
                 PlayerConfigError,
@@ -1917,7 +2053,7 @@ class PlayerConfigTest(unittest.TestCase):
                 ("Roots = ['music/live', 'music']\n", "Roots must not contain nested paths"),
             ):
                 with self.subTest(text=text):
-                    config_path.write_text(text, encoding="utf-8")
+                    self.write_config(config_path, text)
                     with self.assertRaisesRegex(PlayerConfigError, message):
                         load_player_options(config_path)
 
@@ -1935,10 +2071,7 @@ class PlayerConfigTest(unittest.TestCase):
             except OSError as error:
                 self.skipTest(f"symlink unavailable: {error}")
             config_path = temp_path / "kukicha.toml"
-            config_path.write_text(
-                "Roots = ['library', 'linked-album-alias']\n",
-                encoding="utf-8",
-            )
+            self.write_config(config_path, "Roots = ['library', 'linked-album-alias']\n")
 
             with self.assertRaisesRegex(
                 PlayerConfigError,
@@ -1955,7 +2088,7 @@ class PlayerConfigTest(unittest.TestCase):
     def test_load_player_options_rejects_invalid_toast_timeouts(self) -> None:
         with TemporaryDirectory() as tempdir:
             config_path = Path(tempdir) / "kukicha.toml"
-            config_path.write_text("ToastTimeoutMs = 0\n", encoding="utf-8")
+            self.write_config(config_path, "ToastTimeoutMs = 0\n")
 
             with self.assertRaisesRegex(PlayerConfigError, "ToastTimeoutMs must be greater than 0"):
                 load_player_options(config_path)
@@ -1963,10 +2096,7 @@ class PlayerConfigTest(unittest.TestCase):
     def test_load_player_options_rejects_invalid_musicbrainz_alias_preference(self) -> None:
         with TemporaryDirectory() as tempdir:
             config_path = Path(tempdir) / "kukicha.toml"
-            config_path.write_text(
-                "PreferMusicBrainzEnglishAliases = 'yes'\n",
-                encoding="utf-8",
-            )
+            self.write_config(config_path, "PreferMusicBrainzEnglishAliases = 'yes'\n")
 
             with self.assertRaisesRegex(
                 PlayerConfigError,
@@ -1977,12 +2107,12 @@ class PlayerConfigTest(unittest.TestCase):
     def test_load_player_options_rejects_invalid_accent_color(self) -> None:
         with TemporaryDirectory() as tempdir:
             config_path = Path(tempdir) / "kukicha.toml"
-            config_path.write_text("AccentColor = 'plaid'\n", encoding="utf-8")
+            self.write_config(config_path, "AccentColor = 'plaid'\n")
 
             with self.assertRaisesRegex(PlayerConfigError, "AccentColor must be a supported palette color"):
                 load_player_options(config_path)
 
-            config_path.write_text("AccentColor = 123\n", encoding="utf-8")
+            self.write_config(config_path, "AccentColor = 123\n")
 
             with self.assertRaisesRegex(PlayerConfigError, "AccentColor must be a non-empty string"):
                 load_player_options(config_path)
@@ -2000,7 +2130,7 @@ class PlayerConfigTest(unittest.TestCase):
                 "light-border",
             ):
                 with self.subTest(value=value):
-                    config_path.write_text(f"AccentColor = '{value}'\n", encoding="utf-8")
+                    self.write_config(config_path, f"AccentColor = '{value}'\n")
 
                     with self.assertRaisesRegex(
                         PlayerConfigError,
@@ -2011,12 +2141,12 @@ class PlayerConfigTest(unittest.TestCase):
     def test_load_player_options_rejects_invalid_appearance(self) -> None:
         with TemporaryDirectory() as tempdir:
             config_path = Path(tempdir) / "kukicha.toml"
-            config_path.write_text("Appearance = 'sepia'\n", encoding="utf-8")
+            self.write_config(config_path, "Appearance = 'sepia'\n")
 
             with self.assertRaisesRegex(PlayerConfigError, "Appearance must be one of"):
                 load_player_options(config_path)
 
-            config_path.write_text("Appearance = 123\n", encoding="utf-8")
+            self.write_config(config_path, "Appearance = 123\n")
 
             with self.assertRaisesRegex(PlayerConfigError, "Appearance must be a non-empty string"):
                 load_player_options(config_path)
@@ -2024,7 +2154,7 @@ class PlayerConfigTest(unittest.TestCase):
     def test_load_player_options_accepts_system_appearance(self) -> None:
         with TemporaryDirectory() as tempdir:
             config_path = Path(tempdir) / "kukicha.toml"
-            config_path.write_text("Appearance = 'SYSTEM'\n", encoding="utf-8")
+            self.write_config(config_path, "Appearance = 'SYSTEM'\n")
 
             options = load_player_options(config_path)
 
@@ -2033,7 +2163,7 @@ class PlayerConfigTest(unittest.TestCase):
     def test_load_player_options_accepts_palette_accent_color_code(self) -> None:
         with TemporaryDirectory() as tempdir:
             config_path = Path(tempdir) / "kukicha.toml"
-            config_path.write_text("AccentColor = '#06B6D4'\n", encoding="utf-8")
+            self.write_config(config_path, "AccentColor = '#06B6D4'\n")
 
             options = load_player_options(config_path)
 
@@ -2068,38 +2198,17 @@ class PlayerConfigTest(unittest.TestCase):
             with patch.dict(os.environ, {"XDG_CONFIG_HOME": str(config_home)}, clear=False):
                 help_text = player_config_help_text()
 
-            self.assertIn("status: missing (defaults in effect)", help_text)
+            self.assertIn("status: missing (startup would fail)", help_text)
             self.assertIn(f"path: {(config_home / 'kukicha' / 'kukicha.toml').resolve()}", help_text)
-            self.assertIn(f"LogLevel: {DEFAULT_PLAYER_LOG_LEVEL} (default)", help_text)
-            self.assertIn(f"DatabasePath: {(config_home / 'kukicha' / 'kukicha.sqlite').resolve()} (default)", help_text)
-            self.assertIn("Roots: [] (default)", help_text)
-            self.assertIn("RemoteRoots: [] (default)", help_text)
-            self.assertIn("YoutubeDownloadPath: <unset> (default)", help_text)
-            self.assertIn("PreferMusicBrainzEnglishAliases: true (default)", help_text)
-            self.assertIn(f"Host: {DEFAULT_PLAYER_HOST} (default)", help_text)
-            self.assertIn(f"Port: {DEFAULT_PLAYER_PORT} (default)", help_text)
-            self.assertIn(f"OpenSubsonicUsername: {DEFAULT_OPEN_SUBSONIC_USERNAME} (default)", help_text)
-            self.assertIn("OpenSubsonicPassword: <hidden> (default)", help_text)
-            self.assertIn(f"OpenSubsonicHost: {DEFAULT_OPEN_SUBSONIC_HOST} (default)", help_text)
-            self.assertIn(f"OpenSubsonicPort: {DEFAULT_OPEN_SUBSONIC_PORT} (default)", help_text)
-            self.assertIn(f"AccentColor: {DEFAULT_ACCENT_COLOR} (default)", help_text)
-            self.assertIn(f"Appearance: {DEFAULT_APPEARANCE} (default)", help_text)
-            self.assertIn(f"ToastTimeoutMs: {DEFAULT_TOAST_TIMEOUT_MS} (default)", help_text)
-            self.assertIn("FFmpegPath: <unset> (default)", help_text)
-            self.assertIn(
-                "AlbumArtistSplitPatterns: ['with', 'and', '&', ',', ';', '/'] (default)",
-                help_text,
-            )
-            self.assertLess(
-                help_text.index(f"Appearance: {DEFAULT_APPEARANCE} (default)"),
-                help_text.index(f"AccentColor: {DEFAULT_ACCENT_COLOR} (default)"),
-            )
+            self.assertIn("error: config file does not exist", help_text)
+            self.assertNotIn("Current values:", help_text)
             self.assertIn(
                 "Supported keys:\n  LogLevel\n  DatabasePath\n  Roots\n  RemoteRoots\n  FFmpegPath\n"
                 "  YoutubeDownloadPath\n  PreferMusicBrainzEnglishAliases\n  Host\n  Port\n"
                 "  OpenSubsonicUsername\n  OpenSubsonicPassword\n  OpenSubsonicHost\n"
                 "  OpenSubsonicPort\n  Appearance\n  AccentColor\n  ToastTimeoutMs\n"
-                "  AlbumArtistSplitPatterns",
+                "  AlbumArtistSplitPatterns\n  auth.username\n  auth.password_hash_file\n"
+                "  auth.cookie_max_age\n  auth.cookie_name",
                 help_text,
             )
             self.assertNotIn("LinkedToastTimeoutMs", help_text)
@@ -2144,6 +2253,15 @@ class CliPlayerCommandTest(unittest.TestCase):
         self.assertEqual(args.command, "opensubsonic")
         self.assertTrue(callable(args.func))
 
+    def test_auth_password_subcommand_is_available(self) -> None:
+        parser = build_parser()
+
+        args = parser.parse_args(["auth", "password"])
+
+        self.assertEqual(args.command, "auth")
+        self.assertEqual(args.auth_command, "password")
+        self.assertTrue(callable(args.func))
+
     def test_rescan_subcommand_is_not_available(self) -> None:
         parser = build_parser()
 
@@ -2175,6 +2293,9 @@ class CliPlayerCommandTest(unittest.TestCase):
         with TemporaryDirectory() as tempdir:
             temp_path = Path(tempdir)
             config_path = temp_path / "custom.toml"
+            password_hash_file = temp_path / "password.hash"
+            password_hash_file.write_text(f"{TEST_ARGON2ID_HASH}\n", encoding="utf-8")
+            password_hash_file.chmod(0o600)
             config_path.write_text(
                 "\n".join(
                     (
@@ -2182,6 +2303,9 @@ class CliPlayerCommandTest(unittest.TestCase):
                         "DatabasePath = 'custom.sqlite'",
                         "Host = '0.0.0.0'",
                         "Port = 43210",
+                        "[auth]",
+                        "username = 'listener'",
+                        "password_hash_file = 'password.hash'",
                     )
                 ),
                 encoding="utf-8",
@@ -2202,6 +2326,172 @@ class CliPlayerCommandTest(unittest.TestCase):
             self.assertIn("Host: 0.0.0.0 (configured)", help_text)
             self.assertIn("Port: 43210 (configured)", help_text)
             self.assertIn("FFmpegPath: <unset> (default)", help_text)
+
+
+class InitCommandTest(unittest.TestCase):
+    def run_init(
+        self,
+        config_path: Path,
+        *,
+        stdin: str = "",
+        username: str = "listener",
+        password: str = "secret",
+    ) -> int:
+        args = build_parser().parse_args(["--config", str(config_path), "init"])
+        env = {
+            "KUKICHA_USERNAME": username,
+            "KUKICHA_PASSWORD": password,
+        }
+        with (
+            patch.dict(os.environ, env, clear=False),
+            patch("sys.stdin", io.StringIO(stdin)),
+            patch("sys.stdout", new=io.StringIO()),
+            patch("sys.stderr", new=io.StringIO()),
+        ):
+            return args.func(args)
+
+    def test_init_uses_env_credentials_and_stdin_config(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            config_path = Path(tempdir) / "kukicha.toml"
+            exit_code = self.run_init(
+                config_path,
+                stdin="\n".join(
+                    (
+                        "Host = '0.0.0.0'",
+                        "Port = 4533",
+                        "Roots = ['/music']",
+                        "Appearance = 'dim'",
+                        "",
+                    )
+                ),
+            )
+
+            self.assertEqual(exit_code, 0)
+            config = tomllib.loads(config_path.read_text(encoding="utf-8"))
+            self.assertEqual(config["Host"], "0.0.0.0")
+            self.assertEqual(config["auth"]["username"], "listener")
+            self.assertEqual(
+                config["auth"]["password_hash_file"],
+                str((Path(tempdir) / "password.hash").resolve()),
+            )
+            password_hash_file = Path(tempdir) / "password.hash"
+            self.assertEqual(password_hash_file.stat().st_mode & 0o777, 0o600)
+            options = load_player_options(config_path)
+            assert options.auth is not None
+            self.assertTrue(verify_password(options.auth, "secret"))
+
+    def test_init_prompts_interactively_without_env_credentials(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            config_path = Path(tempdir) / "kukicha.toml"
+            args = build_parser().parse_args(["--config", str(config_path), "init"])
+            with (
+                patch.dict(os.environ, {}, clear=True),
+                patch("sys.stdin", TtyStringIO()),
+                patch("builtins.input", return_value="listener"),
+                patch("getpass.getpass", side_effect=["secret", "secret"]),
+                patch("sys.stdout", new=io.StringIO()),
+                patch("sys.stderr", new=io.StringIO()),
+            ):
+                exit_code = args.func(args)
+
+            self.assertEqual(exit_code, 0)
+            options = load_player_options(config_path)
+            assert options.auth is not None
+            self.assertEqual(options.auth.username, "listener")
+            self.assertTrue(verify_password(options.auth, "secret"))
+
+    def test_init_rejects_stdin_auth_section(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            config_path = Path(tempdir) / "kukicha.toml"
+            exit_code = self.run_init(config_path, stdin="[auth]\nusername = 'bad'\n")
+
+            self.assertEqual(exit_code, 1)
+            self.assertFalse(config_path.exists())
+
+    def test_init_adds_auth_to_existing_config_and_rejects_existing_auth(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            config_path = Path(tempdir) / "kukicha.toml"
+            config_path.write_text("LogLevel = 'INFO'\n", encoding="utf-8")
+
+            first_exit_code = self.run_init(config_path)
+            second_exit_code = self.run_init(config_path)
+
+            self.assertEqual(first_exit_code, 0)
+            self.assertEqual(second_exit_code, 1)
+            config = tomllib.loads(config_path.read_text(encoding="utf-8"))
+            self.assertEqual(config["LogLevel"], "INFO")
+            self.assertEqual(config["auth"]["username"], "listener")
+
+    def test_init_rejects_existing_config_with_stdin_config(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            config_path = Path(tempdir) / "kukicha.toml"
+            config_path.write_text("LogLevel = 'INFO'\n", encoding="utf-8")
+
+            exit_code = self.run_init(config_path, stdin="Host = '0.0.0.0'\n")
+
+            self.assertEqual(exit_code, 1)
+            self.assertNotIn("[auth]", config_path.read_text(encoding="utf-8"))
+
+    def test_auth_password_updates_hash_file_from_env_and_preserves_config(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            config_path = Path(tempdir) / "kukicha.toml"
+            self.run_init(config_path, password="old-secret")
+            before_config = config_path.read_text(encoding="utf-8")
+            options = load_player_options(config_path)
+            assert options.auth is not None
+            before_hash = options.auth.password_hash_file.read_text(encoding="utf-8")
+            args = build_parser().parse_args(["--config", str(config_path), "auth", "password"])
+
+            with (
+                patch.dict(os.environ, {"KUKICHA_PASSWORD": "new-secret"}, clear=False),
+                patch("sys.stdout", new=io.StringIO()) as stdout,
+                patch("sys.stderr", new=io.StringIO()),
+            ):
+                exit_code = args.func(args)
+
+            after_hash = options.auth.password_hash_file.read_text(encoding="utf-8")
+            self.assertEqual(exit_code, 0)
+            self.assertEqual(config_path.read_text(encoding="utf-8"), before_config)
+            self.assertNotEqual(after_hash, before_hash)
+            self.assertEqual(options.auth.password_hash_file.stat().st_mode & 0o777, 0o600)
+            self.assertIn("invalidated", stdout.getvalue())
+            self.assertFalse(verify_password(options.auth, "old-secret"))
+            self.assertTrue(verify_password(options.auth, "new-secret"))
+
+    def test_auth_password_prompts_interactively_without_env_password(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            config_path = Path(tempdir) / "kukicha.toml"
+            self.run_init(config_path, password="old-secret")
+            options = load_player_options(config_path)
+            assert options.auth is not None
+            args = build_parser().parse_args(["--config", str(config_path), "auth", "password"])
+
+            with (
+                patch.dict(os.environ, {}, clear=True),
+                patch("getpass.getpass", side_effect=["new-secret", "new-secret"]),
+                patch("sys.stdout", new=io.StringIO()),
+                patch("sys.stderr", new=io.StringIO()),
+            ):
+                exit_code = args.func(args)
+
+            self.assertEqual(exit_code, 0)
+            self.assertTrue(verify_password(options.auth, "new-secret"))
+
+    def test_auth_password_rejects_config_without_auth(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            config_path = Path(tempdir) / "kukicha.toml"
+            config_path.write_text("LogLevel = 'INFO'\n", encoding="utf-8")
+            args = build_parser().parse_args(["--config", str(config_path), "auth", "password"])
+
+            with (
+                patch.dict(os.environ, {"KUKICHA_PASSWORD": "new-secret"}, clear=False),
+                patch("sys.stdout", new=io.StringIO()),
+                patch("sys.stderr", new=io.StringIO()) as stderr,
+            ):
+                exit_code = args.func(args)
+
+            self.assertEqual(exit_code, 1)
+            self.assertIn("[auth] section is required", stderr.getvalue())
 
 
 class PlayerStartupTest(unittest.TestCase):
@@ -3300,11 +3590,55 @@ class PlayerAlbumDetailLinksTest(unittest.TestCase):
 
 
 class PlayerWebAdapterTest(unittest.TestCase):
+    def write_config(self, config_path: Path, text: str, *, password: str = "secret") -> None:
+        password_hash_file = config_path.parent / "password.hash"
+        password_hash_file.write_text(f"{hash_password(password)}\n", encoding="utf-8")
+        password_hash_file.chmod(0o600)
+        config_body = text.rstrip()
+        auth_section = "\n".join(
+            (
+                "[auth]",
+                "username = 'listener'",
+                "password_hash_file = 'password.hash'",
+            )
+        )
+        output = f"{config_body}\n\n{auth_section}\n" if config_body else f"{auth_section}\n"
+        config_path.write_text(output, encoding="utf-8")
+
+    def logged_in_client(self, app):
+        client = app.test_client()
+        response = client.post(
+            "/login",
+            data={"username": "listener", "password": "secret"},
+        )
+        self.assertEqual(response.status_code, 302)
+        return client
+
     def make_options(self, temp_path: Path) -> PlayerServerOptions:
         return PlayerServerOptions(
             config_path=temp_path / "kukicha.toml",
             database=temp_path / "kukicha.sqlite",
             ffmpeg_path=None,
+        )
+
+    def make_auth_options(
+        self,
+        temp_path: Path,
+        *,
+        cookie_max_age_seconds: int = 180 * 24 * 60 * 60,
+    ) -> PlayerServerOptions:
+        password_hash_file = temp_path / "password.hash"
+        password_hash_file.write_text(f"{hash_password('secret')}\n", encoding="utf-8")
+        password_hash_file.chmod(0o600)
+        return replace(
+            self.make_options(temp_path),
+            auth=PlayerAuthOptions(
+                username="listener",
+                password_hash_file=password_hash_file,
+                cookie_max_age="180d",
+                cookie_max_age_seconds=cookie_max_age_seconds,
+                cookie_name="kukicha_cookie",
+            ),
         )
 
     def make_runtime(self, database: Path) -> Mock:
@@ -3327,6 +3661,89 @@ class PlayerWebAdapterTest(unittest.TestCase):
             response = app.test_client().get("/healthz")
 
             self.assertEqual(response.status_code, 204)
+
+    def test_player_auth_redirects_pages_and_rejects_api_and_media(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            runtime = self.make_runtime(temp_path / "kukicha.sqlite")
+            with patch("kukicha.player_web_adapter.PlayerRuntime", return_value=runtime):
+                app = create_player_app(self.make_auth_options(temp_path))
+            client = app.test_client()
+
+            page_response = client.get("/help")
+            api_response = client.get("/api/jobs/events")
+            audio_response = client.get("/audio/1")
+            static_response = client.get("/static/player.css")
+            health_response = client.get("/healthz")
+
+            self.assertEqual(page_response.status_code, 302)
+            self.assertEqual(page_response.headers["Location"], "/login?next=%2Fhelp")
+            self.assertEqual(api_response.status_code, 401)
+            self.assertEqual(api_response.get_json(), {"error": "authentication required"})
+            self.assertEqual(audio_response.status_code, 401)
+            self.assertEqual(static_response.status_code, 200)
+            self.assertEqual(health_response.status_code, 204)
+
+    def test_player_login_sets_hardened_cookie_and_allows_access(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            runtime = self.make_runtime(temp_path / "kukicha.sqlite")
+            with patch("kukicha.player_web_adapter.PlayerRuntime", return_value=runtime):
+                app = create_player_app(self.make_auth_options(temp_path))
+            client = app.test_client()
+
+            login_response = client.post(
+                "/login?next=/help",
+                data={"username": "listener", "password": "secret"},
+            )
+            help_response = client.get("/help")
+
+            self.assertEqual(login_response.status_code, 302)
+            self.assertEqual(login_response.headers["Location"], "/help")
+            cookie = login_response.headers["Set-Cookie"]
+            self.assertIn("kukicha_cookie=", cookie)
+            self.assertIn("Max-Age=15552000", cookie)
+            self.assertIn("HttpOnly", cookie)
+            self.assertIn("SameSite=Strict", cookie)
+            self.assertNotIn("Secure", cookie)
+            self.assertEqual(help_response.status_code, 200)
+
+    def test_player_login_rejects_bad_credentials(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            runtime = self.make_runtime(temp_path / "kukicha.sqlite")
+            with patch("kukicha.player_web_adapter.PlayerRuntime", return_value=runtime):
+                app = create_player_app(self.make_auth_options(temp_path))
+
+            response = app.test_client().post(
+                "/login",
+                data={"username": "listener", "password": "wrong"},
+            )
+
+            self.assertEqual(response.status_code, 401)
+            self.assertNotIn("Set-Cookie", response.headers)
+            self.assertIn(b"Invalid username or password", response.data)
+
+    def test_player_auth_rejects_tampered_and_expired_cookies(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            runtime = self.make_runtime(temp_path / "kukicha.sqlite")
+            auth_options = self.make_auth_options(temp_path, cookie_max_age_seconds=-1)
+            assert auth_options.auth is not None
+            expired_cookie = signed_auth_cookie(auth_options.auth)
+            with patch("kukicha.player_web_adapter.PlayerRuntime", return_value=runtime):
+                app = create_player_app(auth_options)
+
+            tampered_client = app.test_client()
+            tampered_client.set_cookie("kukicha_cookie", "not-a-real-cookie")
+            expired_client = app.test_client()
+            expired_client.set_cookie("kukicha_cookie", expired_cookie)
+
+            tampered_response = tampered_client.get("/help")
+            expired_response = expired_client.get("/help")
+
+            self.assertEqual(tampered_response.status_code, 302)
+            self.assertEqual(expired_response.status_code, 302)
 
     def test_album_star_api_toggles_album_and_templates_render_state(self) -> None:
         with TemporaryDirectory() as tempdir:
@@ -4955,7 +5372,8 @@ class PlayerWebAdapterTest(unittest.TestCase):
         with TemporaryDirectory() as tempdir:
             temp_path = Path(tempdir)
             config_path = temp_path / "kukicha.toml"
-            config_path.write_text(
+            self.write_config(
+                config_path,
                 "\n".join(
                     (
                         "LogLevel = 'info'",
@@ -4967,12 +5385,12 @@ class PlayerWebAdapterTest(unittest.TestCase):
                         "AlbumArtistSplitPatterns = ['&', '/']",
                     )
                 ),
-                encoding="utf-8",
             )
             options = load_player_options(config_path)
             app = create_player_app(options)
+            client = self.logged_in_client(app)
 
-            response = app.test_client().get("/help")
+            response = client.get("/help")
 
             self.assertEqual(response.status_code, 200)
             self.assertIn(b"<h1>Help</h1>", response.data)
@@ -5001,6 +5419,8 @@ class PlayerWebAdapterTest(unittest.TestCase):
             self.assertIn(b"<code>AlbumArtistSplitPatterns</code>", response.data)
             self.assertIn(b"<code>&amp;</code>", response.data)
             self.assertIn(b"<code>/</code>", response.data)
+            self.assertIn(b"<code>auth.username</code>", response.data)
+            self.assertIn(b"<code>listener</code>", response.data)
             self.assertIn(b"color-scheme: dark;", response.data)
             self.assertIn(b"--bg: #1e293b;", response.data)
             self.assertIn(b"--surface: #475569;", response.data)
@@ -5022,10 +5442,11 @@ class PlayerWebAdapterTest(unittest.TestCase):
     def test_player_page_renders_dark_appearance_theme(self) -> None:
         with TemporaryDirectory() as tempdir:
             config_path = Path(tempdir) / "kukicha.toml"
-            config_path.write_text("Appearance = 'dark'\n", encoding="utf-8")
+            self.write_config(config_path, "Appearance = 'dark'\n")
             app = create_player_app(load_player_options(config_path))
+            client = self.logged_in_client(app)
 
-            response = app.test_client().get("/help")
+            response = client.get("/help")
 
             self.assertEqual(response.status_code, 200)
             self.assertIn(b"color-scheme: dark;", response.data)
@@ -5045,10 +5466,11 @@ class PlayerWebAdapterTest(unittest.TestCase):
     def test_player_page_renders_system_appearance_theme_media_query(self) -> None:
         with TemporaryDirectory() as tempdir:
             config_path = Path(tempdir) / "kukicha.toml"
-            config_path.write_text("Appearance = 'system'\n", encoding="utf-8")
+            self.write_config(config_path, "Appearance = 'system'\n")
             app = create_player_app(load_player_options(config_path))
+            client = self.logged_in_client(app)
 
-            response = app.test_client().get("/help")
+            response = client.get("/help")
 
             self.assertEqual(response.status_code, 200)
             self.assertIn(b"<code>system</code>", response.data)

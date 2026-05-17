@@ -6,6 +6,7 @@ import sys
 from textwrap import dedent
 from typing import Sequence
 
+from .commands.init import run_auth_password, run_init
 from .commands.opensubsonic import run_open_subsonic
 from .commands.player import run_player
 from .commands.tools import non_empty_string, run_bulk_tag_edit
@@ -17,6 +18,8 @@ PLAYER_HELP = dedent(
     """\
     Usage patterns:
       kukicha                             Serve the built-in local player playlist.
+      kukicha init                        Create or upgrade the player config with auth.
+      kukicha auth password               Update the configured auth password.
       kukicha opensubsonic               Serve a minimal OpenSubsonic API.
       kukicha tools bulk-tag-edit         Rewrite album tags below a folder.
       kukicha tools yt-download-audio     Download YouTube audio files.
@@ -59,6 +62,22 @@ def build_parser(argv: Sequence[str] | None = None) -> argparse.ArgumentParser:
     )
     parser.set_defaults(func=run_player)
     subparsers = parser.add_subparsers(dest="command", metavar="COMMAND")
+    init_parser = subparsers.add_parser(
+        "init",
+        help="Create or upgrade the player config with auth.",
+    )
+    init_parser.set_defaults(func=run_init)
+    auth_parser = subparsers.add_parser(
+        "auth",
+        help="Manage Kukicha authentication.",
+    )
+    auth_subparsers = auth_parser.add_subparsers(dest="auth_command", metavar="COMMAND")
+    auth_subparsers.required = True
+    auth_password_parser = auth_subparsers.add_parser(
+        "password",
+        help="Update the configured auth password.",
+    )
+    auth_password_parser.set_defaults(func=run_auth_password)
     open_subsonic_parser = subparsers.add_parser(
         "opensubsonic",
         help="Serve a minimal OpenSubsonic API.",

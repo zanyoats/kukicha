@@ -4,6 +4,7 @@ from dataclasses import dataclass
 import logging
 import os
 from pathlib import Path
+import re
 import sqlite3
 import sys
 import tomllib
@@ -47,6 +48,8 @@ SYSTEM_LIGHT_APPEARANCE = "light"
 SYSTEM_DARK_APPEARANCE = "dim"
 DEFAULT_APPEARANCE = SYSTEM_APPEARANCE
 DEFAULT_PREFER_MUSICBRAINZ_ENGLISH_ALIASES = True
+DEFAULT_AUTH_COOKIE_MAX_AGE = "180d"
+DEFAULT_AUTH_COOKIE_NAME = "kukicha_cookie"
 PLAYER_CONFIG_FILENAME = "kukicha.toml"
 PLAYER_DATABASE_FILENAME = "kukicha.sqlite"
 PLAYER_CONFIG_KEY_ORDER = (
@@ -68,7 +71,20 @@ PLAYER_CONFIG_KEY_ORDER = (
     "ToastTimeoutMs",
     "AlbumArtistSplitPatterns",
 )
-PLAYER_CONFIG_KEYS = frozenset(PLAYER_CONFIG_KEY_ORDER)
+AUTH_CONFIG_KEY_ORDER = (
+    "username",
+    "password_hash_file",
+    "cookie_max_age",
+    "cookie_name",
+)
+PLAYER_CONFIG_DISPLAY_KEY_ORDER = (
+    *PLAYER_CONFIG_KEY_ORDER,
+    *(f"auth.{key}" for key in AUTH_CONFIG_KEY_ORDER),
+)
+PLAYER_CONFIG_KEYS = frozenset((*PLAYER_CONFIG_KEY_ORDER, "auth"))
+AUTH_CONFIG_KEYS = frozenset(AUTH_CONFIG_KEY_ORDER)
+AUTH_COOKIE_NAME_RE = re.compile(r"^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$")
+AUTH_COOKIE_MAX_AGE_RE = re.compile(r"^(?P<days>[1-9][0-9]*)d$")
 LOGGER = logging.getLogger("kukicha.player")
 
 class _MaxLevelFilter(logging.Filter):
@@ -99,6 +115,16 @@ class PlayerServerOptions:
     album_artist_split_patterns: tuple[str, ...] = DEFAULT_ALBUM_ARTIST_SPLIT_PATTERNS
     youtube_download_path: Path | None = None
     prefer_musicbrainz_english_aliases: bool = DEFAULT_PREFER_MUSICBRAINZ_ENGLISH_ALIASES
+    auth: PlayerAuthOptions | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class PlayerAuthOptions:
+    username: str
+    password_hash_file: Path
+    cookie_max_age: str = DEFAULT_AUTH_COOKIE_MAX_AGE
+    cookie_max_age_seconds: int = 180 * 24 * 60 * 60
+    cookie_name: str = DEFAULT_AUTH_COOKIE_NAME
 
 
 @dataclass(frozen=True, slots=True)
@@ -114,7 +140,7 @@ class PlayerConfigSummary:
     path: Path
     status: str
     values: tuple[PlayerConfigValue, ...] = ()
-    supported_keys: tuple[str, ...] = PLAYER_CONFIG_KEY_ORDER
+    supported_keys: tuple[str, ...] = PLAYER_CONFIG_DISPLAY_KEY_ORDER
     error: str = ""
 
 
@@ -262,7 +288,11 @@ def default_player_config_dir() -> Path:
 def default_player_config_path() -> Path:
     return default_player_config_dir() / PLAYER_CONFIG_FILENAME
 
-def load_player_options(config_path: str | Path | None = None) -> PlayerServerOptions:
+def load_player_options(
+    config_path: str | Path | None = None,
+    *,
+    require_auth: bool = True,
+) -> PlayerServerOptions:
     resolved_config_path, config_required = resolve_player_config_path(config_path)
     config_dir = resolved_config_path.parent
     config = read_player_config(resolved_config_path, required=config_required)
@@ -324,6 +354,11 @@ def load_player_options(config_path: str | Path | None = None) -> PlayerServerOp
         ),
         key="PreferMusicBrainzEnglishAliases",
     )
+    auth = parse_player_auth_options(
+        config.get("auth"),
+        base_dir=config_dir,
+        require_auth=require_auth,
+    )
 
     return PlayerServerOptions(
         config_path=resolved_config_path,
@@ -344,6 +379,7 @@ def load_player_options(config_path: str | Path | None = None) -> PlayerServerOp
         toast_timeout_ms=toast_timeout_ms,
         album_artist_split_patterns=album_artist_split_patterns,
         prefer_musicbrainz_english_aliases=prefer_musicbrainz_english_aliases,
+        auth=auth,
     )
 
 def player_config_help_text(config_path: str | Path | None = None) -> str:
@@ -364,7 +400,7 @@ def player_config_help_text(config_path: str | Path | None = None) -> str:
                 "Current values:",
                 *(
                     f"  {key}: {values[key].value} ({values[key].source})"
-                    for key in PLAYER_CONFIG_KEY_ORDER
+                    for key in PLAYER_CONFIG_DISPLAY_KEY_ORDER
                 ),
             )
         )
@@ -420,6 +456,7 @@ def player_config_values(
     options: PlayerServerOptions,
     raw_config: dict[str, object],
 ) -> tuple[PlayerConfigValue, ...]:
+    auth = options.auth
     values = {
         "LogLevel": options.log_level,
         "DatabasePath": str(options.database),
@@ -446,6 +483,16 @@ def player_config_values(
         "AlbumArtistSplitPatterns": format_player_config_string_list(
             options.album_artist_split_patterns
         ),
+        "auth.username": auth.username if auth is not None else "<unset>",
+        "auth.password_hash_file": (
+            str(auth.password_hash_file) if auth is not None else "<unset>"
+        ),
+        "auth.cookie_max_age": (
+            auth.cookie_max_age if auth is not None else DEFAULT_AUTH_COOKIE_MAX_AGE
+        ),
+        "auth.cookie_name": (
+            auth.cookie_name if auth is not None else DEFAULT_AUTH_COOKIE_NAME
+        ),
     }
     value_items = {
         "Roots": tuple(str(root) for root in options.roots),
@@ -459,7 +506,7 @@ def player_config_values(
             source=player_config_value_source(raw_config, key),
             items=value_items.get(key, ()),
         )
-        for key in PLAYER_CONFIG_KEY_ORDER
+        for key in PLAYER_CONFIG_DISPLAY_KEY_ORDER
     )
 
 def player_config_status_label(path: Path, *, required: bool) -> str:
@@ -470,6 +517,12 @@ def player_config_status_label(path: Path, *, required: bool) -> str:
     return "missing (defaults in effect)"
 
 def player_config_value_source(config: dict[str, object], key: str) -> str:
+    if key.startswith("auth."):
+        auth = config.get("auth")
+        if not isinstance(auth, dict):
+            return "default"
+        auth_key = key.split(".", 1)[1]
+        return "configured" if auth_key in auth else "default"
     return "configured" if key in config else "default"
 
 def format_player_config_optional_path(path: Path | None) -> str:
@@ -516,7 +569,7 @@ def configure_player_logging(log_level: str) -> None:
 
 def resolve_player_config_path(config_path: str | Path | None) -> tuple[Path, bool]:
     if config_path is None:
-        return resolve_path(default_player_config_path()), False
+        return resolve_path(default_player_config_path()), True
     return resolve_path(Path(config_path).expanduser()), True
 
 def read_player_config(path: Path, *, required: bool) -> dict[str, object]:
@@ -537,6 +590,14 @@ def read_player_config(path: Path, *, required: bool) -> dict[str, object]:
     if unknown_keys:
         keys = ", ".join(unknown_keys)
         raise PlayerConfigError(f"unsupported config key(s) in {path}: {keys}")
+    auth_config = config.get("auth")
+    if auth_config is not None:
+        if not isinstance(auth_config, dict):
+            raise PlayerConfigError(f"auth must be a table in {path}")
+        unknown_auth_keys = sorted(set(auth_config) - AUTH_CONFIG_KEYS)
+        if unknown_auth_keys:
+            keys = ", ".join(unknown_auth_keys)
+            raise PlayerConfigError(f"unsupported auth key(s) in {path}: {keys}")
     return config
 
 def parse_player_log_level(value: object) -> str:
@@ -733,6 +794,97 @@ def parse_config_bool(value: object, *, key: str) -> bool:
         raise PlayerConfigError(f"{key} must be true or false")
     return value
 
+def parse_player_auth_options(
+    value: object,
+    *,
+    base_dir: Path,
+    require_auth: bool,
+) -> PlayerAuthOptions | None:
+    if value is None:
+        if require_auth:
+            raise PlayerConfigError("[auth] section is required; run `kukicha init`")
+        return None
+    if not isinstance(value, dict):
+        raise PlayerConfigError("auth must be a table")
+
+    missing_keys = [key for key in ("username", "password_hash_file") if key not in value]
+    if missing_keys:
+        raise PlayerConfigError(
+            "[auth] missing required key(s): " + ", ".join(missing_keys)
+        )
+
+    username = parse_config_non_empty_string(value["username"], key="auth.username")
+    password_hash_file = parse_config_path(
+        value["password_hash_file"],
+        key="auth.password_hash_file",
+        base_dir=base_dir,
+        default=base_dir / "password.hash",
+    )
+    validate_password_hash_file(password_hash_file)
+    cookie_max_age = parse_auth_cookie_max_age(
+        value.get("cookie_max_age", DEFAULT_AUTH_COOKIE_MAX_AGE)
+    )
+    cookie_name = parse_auth_cookie_name(
+        value.get("cookie_name", DEFAULT_AUTH_COOKIE_NAME)
+    )
+    return PlayerAuthOptions(
+        username=username,
+        password_hash_file=password_hash_file,
+        cookie_max_age=cookie_max_age,
+        cookie_max_age_seconds=auth_cookie_max_age_seconds(cookie_max_age),
+        cookie_name=cookie_name,
+    )
+
+def parse_auth_cookie_max_age(value: object) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise PlayerConfigError("auth.cookie_max_age must be a duration like 180d")
+    cleaned = value.strip().lower()
+    if AUTH_COOKIE_MAX_AGE_RE.fullmatch(cleaned) is None:
+        raise PlayerConfigError("auth.cookie_max_age must be a positive day duration like 180d")
+    return cleaned
+
+def auth_cookie_max_age_seconds(value: str) -> int:
+    match = AUTH_COOKIE_MAX_AGE_RE.fullmatch(value)
+    if match is None:
+        raise PlayerConfigError("auth.cookie_max_age must be a positive day duration like 180d")
+    return int(match.group("days")) * 24 * 60 * 60
+
+def parse_auth_cookie_name(value: object) -> str:
+    if not isinstance(value, str) or not value.strip():
+        raise PlayerConfigError("auth.cookie_name must be a non-empty string")
+    name = value.strip()
+    if AUTH_COOKIE_NAME_RE.fullmatch(name) is None:
+        raise PlayerConfigError("auth.cookie_name must be a valid HTTP cookie name")
+    return name
+
+def validate_password_hash_file(path: Path) -> None:
+    try:
+        stat_result = path.stat()
+    except FileNotFoundError as error:
+        raise PlayerConfigError(f"auth.password_hash_file does not exist: {path}") from error
+    except OSError as error:
+        raise PlayerConfigError(f"failed to inspect auth.password_hash_file {path}: {error}") from error
+
+    if not path.is_file():
+        raise PlayerConfigError(f"auth.password_hash_file is not a file: {path}")
+
+    if hasattr(os, "getuid") and stat_result.st_uid != os.getuid():
+        raise PlayerConfigError(f"auth.password_hash_file must be owned by the current user: {path}")
+
+    if os.name != "nt" and stat_result.st_mode & 0o077:
+        raise PlayerConfigError(f"auth.password_hash_file permissions must be 600: {path}")
+
+    try:
+        password_hash = path.read_text(encoding="utf-8").strip()
+    except OSError as error:
+        raise PlayerConfigError(f"failed to read auth.password_hash_file {path}: {error}") from error
+    if not password_hash:
+        raise PlayerConfigError(f"auth.password_hash_file is empty: {path}")
+    if not password_hash.startswith("$argon2id$"):
+        raise PlayerConfigError(
+            f"auth.password_hash_file must contain an Argon2id password hash: {path}"
+        )
+
 def parse_config_path(
     value: object,
     *,
@@ -900,6 +1052,8 @@ def resolve_path(path: Path, *, base_dir: Path | None = None) -> Path:
 
 def validate_player_startup(options: PlayerServerOptions) -> None:
     validate_config_path_list(options.roots, key="Roots")
+    if options.auth is not None:
+        validate_password_hash_file(options.auth.password_hash_file)
 
     try:
         prepare_player_database(options.database)

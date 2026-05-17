@@ -24,6 +24,13 @@ from kukicha.commands.youtube_audio import (
 from kukicha.player_config import PlayerServerOptions
 
 
+TEST_ARGON2ID_HASH = (
+    "$argon2id$v=19$m=65536,t=3,p=4$"
+    "c29tZXNhbHR2YWx1ZQ$"
+    "c29tZXBhc3N3b3JkaGFzaHZhbHVl"
+)
+
+
 class BulkTagEditCommandTest(unittest.TestCase):
     def test_cli_accepts_bulk_tag_edit_subcommand(self) -> None:
         parser = build_parser()
@@ -244,7 +251,20 @@ class YoutubeAudioDownloadCommandTest(unittest.TestCase):
     def test_run_youtube_audio_download_requires_configured_path(self) -> None:
         with TemporaryDirectory() as tempdir:
             config_path = Path(tempdir) / "kukicha.toml"
-            config_path.write_text("LogLevel = 'INFO'\n", encoding="utf-8")
+            password_hash_file = Path(tempdir) / "password.hash"
+            password_hash_file.write_text(f"{TEST_ARGON2ID_HASH}\n", encoding="utf-8")
+            password_hash_file.chmod(0o600)
+            config_path.write_text(
+                "\n".join(
+                    (
+                        "LogLevel = 'INFO'",
+                        "[auth]",
+                        "username = 'listener'",
+                        "password_hash_file = 'password.hash'",
+                    )
+                ),
+                encoding="utf-8",
+            )
             args = build_parser().parse_args(
                 [
                     "--config",

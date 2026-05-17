@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{{ app_title }}</title>
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml" sizes="any">
+  <link rel="stylesheet" href="/static/player.css">
+  <style>
+    :root {
+      color-scheme: {{ appearance_theme.color_scheme }};
+      --bg: {{ appearance_theme.bg }};
+      --surface: {{ appearance_theme.surface }};
+      --surface-alt: {{ appearance_theme.surface_alt }};
+      --surface-hover: {{ appearance_theme.surface_hover }};
+      --surface-overlay: {{ appearance_theme.surface_overlay }};
+      --surface-overlay-hover: {{ appearance_theme.surface_overlay_hover }};
+      --text: {{ appearance_theme.text }};
+      --muted: {{ appearance_theme.muted }};
+      --line: {{ appearance_theme.line }};
+      --track-row-highlight: {{ appearance_theme.track_row_highlight }};
+      --track-row-highlight-text: {{ appearance_theme.track_row_highlight_text }};
+      --accent: {{ accent_theme.accent }};
+      --accent-strong: {{ accent_theme.accent_strong }};
+      --accent-soft: {{ accent_theme.accent_soft }};
+      --accent-foreground: {{ accent_theme.accent_foreground }};
+      --control-accent: {{ control_accent }};
+    }
+    {% if system_appearance_theme %}
+    @media (prefers-color-scheme: dark) {
+      :root {
+        color-scheme: {{ system_appearance_theme.color_scheme }};
+        --bg: {{ system_appearance_theme.bg }};
+        --surface: {{ system_appearance_theme.surface }};
+        --surface-alt: {{ system_appearance_theme.surface_alt }};
+        --surface-hover: {{ system_appearance_theme.surface_hover }};
+        --surface-overlay: {{ system_appearance_theme.surface_overlay }};
+        --surface-overlay-hover: {{ system_appearance_theme.surface_overlay_hover }};
+        --text: {{ system_appearance_theme.text }};
+        --muted: {{ system_appearance_theme.muted }};
+        --line: {{ system_appearance_theme.line }};
+        --track-row-highlight: {{ system_appearance_theme.track_row_highlight }};
+        --track-row-highlight-text: {{ system_appearance_theme.track_row_highlight_text }};
+        --control-accent: {{ system_control_accent }};
+      }
+    }
+    {% endif %}
+  </style>
+</head>
+<body data-page="login">
+  <main class="login-shell">
+    <form class="login-panel" method="post" action="/login" novalidate>
+      <input type="hidden" name="next" value="{{ next_url }}">
+      <div class="login-header">
+        <h1>Kukicha</h1>
+      </div>
+      {% if error %}
+        <div class="settings-status error" role="alert">{{ error }}</div>
+      {% endif %}
+      <label class="login-field">
+        <span>Username</span>
+        <input name="username" type="text" autocomplete="username" autofocus required>
+      </label>
+      <label class="login-field">
+        <span>Password</span>
+        <input name="password" type="password" autocomplete="current-password" required>
+      </label>
+      <button class="primary login-submit" type="submit">Log In</button>
+    </form>
+  </main>
+</body>
+</html>

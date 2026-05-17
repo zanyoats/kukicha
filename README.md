@@ -55,23 +55,43 @@ For contributor setup with an editable install and test commands, see
 
 By default the player reads its config from
 `$XDG_CONFIG_HOME/kukicha/kukicha.toml` or `~/.config/kukicha/kukicha.toml`.
-If that file is missing, Kukicha uses built-in defaults and stores the default
-database at `kukicha.sqlite` in the same config directory.
+If that file is missing, startup fails. Run `kukicha init` once to create the
+config file and password hash file.
 
-Create the config directory and file:
+Interactive setup prompts for a username and password, stores an Argon2id
+password hash at `password.hash` beside the config file, and writes a required
+`[auth]` section:
 
 ```bash
-mkdir -p ~/.config/kukicha
-$EDITOR ~/.config/kukicha/kukicha.toml
+kukicha init
 ```
 
-Example config:
+Automation can provide credentials through environment variables and pipe extra
+TOML config on stdin. The stdin TOML must not include `[auth]`; `kukicha init`
+generates that section.
+
+```bash
+KUKICHA_USERNAME=listener KUKICHA_PASSWORD="$PASSWORD" kukicha init <<'TOML'
+LogLevel = "INFO"
+Roots = ["/Users/YOUR_USERNAME/Music"]
+Appearance = "dim"
+AccentColor = "dark-orange"
+TOML
+```
+
+Example config after initialization:
 
 ```toml
 LogLevel = "INFO"
 Roots = ["/Users/YOUR_USERNAME/Music"]
 YoutubeDownloadPath = "/Users/YOUR_USERNAME/Music/YouTube"
 PreferMusicBrainzEnglishAliases = true
+
+[auth]
+username = "listener"
+password_hash_file = "~/.config/kukicha/password.hash"
+cookie_max_age = "180d"
+cookie_name = "kukicha_cookie"
 ```
 
 Supported keys:
@@ -103,6 +123,14 @@ Supported keys:
   dark mode. Defaults to `system`.
 - `ToastTimeoutMs`: positive toast timeout in milliseconds.
 - `AlbumArtistSplitPatterns`: strings used when splitting album artist names.
+- `[auth].username`: browser login username.
+- `[auth].password_hash_file`: Argon2id password hash path. Relative paths are
+  resolved from the config file directory; the file must be owned by the current
+  user with `0600` permissions on POSIX systems.
+- `[auth].cookie_max_age`: persistent login cookie age as days, such as `30d`
+  or `180d`. Defaults to `180d`.
+- `[auth].cookie_name`: browser login cookie name. Defaults to
+  `kukicha_cookie`.
 
 Run `kukicha --help` to print the active config path, current values, supported
 keys, accent colors, and appearance names.
@@ -130,6 +158,18 @@ http://127.0.0.1:65042
 The player runs as a foreground HTTP service so launchd, systemd, and similar
 service managers can supervise it directly. Logs go to normal stdout/stderr (with
 timestamps).
+
+The browser UI requires login. Successful login stores an HTTP-only
+SameSite=Strict cookie for the configured age.
+
+To change the browser login password later, run:
+
+```bash
+kukicha --config /path/to/kukicha.toml auth password
+```
+
+This rewrites only the configured password hash file and invalidates existing
+browser login cookies for that config.
 
 The player provides album browsing, playback, full-text search, and filters for
 library roots, artists, genres, styles, and album properties. Search indexes
