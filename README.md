@@ -72,20 +72,20 @@ generates that section.
 
 ```bash
 KUKICHA_USERNAME=listener KUKICHA_PASSWORD="$PASSWORD" kukicha init <<'TOML'
-LogLevel = "INFO"
-Roots = ["/Users/YOUR_USERNAME/Music"]
-Appearance = "dim"
-AccentColor = "dark-orange"
+log_level = "INFO"
+roots = ["/Users/YOUR_USERNAME/Music"]
+appearance = "dim"
+accent_color = "dark-orange"
 TOML
 ```
 
 Example config after initialization:
 
 ```toml
-LogLevel = "INFO"
-Roots = ["/Users/YOUR_USERNAME/Music"]
-YoutubeDownloadPath = "/Users/YOUR_USERNAME/Music/YouTube"
-PreferMusicBrainzEnglishAliases = true
+log_level = "INFO"
+roots = ["/Users/YOUR_USERNAME/Music"]
+youtube_download_path = "/Users/YOUR_USERNAME/Music/YouTube"
+prefer_musicbrainz_english_aliases = true
 
 [auth]
 username = "listener"
@@ -96,33 +96,26 @@ cookie_name = "kukicha_cookie"
 
 Supported keys:
 
-- `LogLevel`: Python logging level name, such as `DEBUG`, `INFO`, or `WARNING`.
-- `DatabasePath`: SQLite database path. Relative paths are resolved from the
+- `log_level`: Python logging level name, such as `DEBUG`, `INFO`, or `WARNING`.
+- `database_path`: SQLite database path. Relative paths are resolved from the
   config file directory.
-- `Roots`: music library folders to scan. Relative paths are resolved from the
+- `roots`: music library folders to scan. Relative paths are resolved from the
   config file directory. Roots can also be managed from the Roots page.
-- `FFmpegPath`: optional path to an executable `ffmpeg`; leave empty to unset.
-- `YoutubeDownloadPath`: folder where YouTube chapter audio downloads are
+- `ffmpeg_path`: optional path to an executable `ffmpeg`; leave empty to unset.
+- `youtube_download_path`: folder where YouTube chapter audio downloads are
   written. Relative paths are resolved from the config file directory.
-- `PreferMusicBrainzEnglishAliases`: when writing MusicBrainz album tags, prefer
+- `prefer_musicbrainz_english_aliases`: when writing MusicBrainz album tags, prefer
   the first English artist alias from the MusicBrainz payload. Defaults to
   `true`.
-- `Host`: interface to bind, defaulting to `127.0.0.1`.
-- `Port`: TCP port from `1` to `65535`, defaulting to `65042`.
-- `OpenSubsonicUsername`: username for the OpenSubsonic API, defaulting to
-  `guest`.
-- `OpenSubsonicPassword`: password for the OpenSubsonic API, defaulting to
-  `guest`.
-- `OpenSubsonicHost`: interface for the OpenSubsonic API, defaulting to
-  `127.0.0.1`.
-- `OpenSubsonicPort`: TCP port for the OpenSubsonic API, defaulting to `4533`.
-- `AccentColor`: palette name or matching hex code. Run `kukicha --help` for the
+- `host`: interface to bind, defaulting to `127.0.0.1`.
+- `port`: TCP port from `1` to `65535`, defaulting to `4533`.
+- `accent_color`: palette name or matching hex code. Run `kukicha --help` for the
   full palette list.
-- `Appearance`: `light`, `dark`, `dim`, or `system`. `system` follows the
+- `appearance`: `light`, `dark`, `dim`, or `system`. `system` follows the
   browser's `prefers-color-scheme`, using `light` for light mode and `dim` for
   dark mode. Defaults to `system`.
-- `ToastTimeoutMs`: positive toast timeout in milliseconds.
-- `AlbumArtistSplitPatterns`: strings used when splitting album artist names.
+- `toast_timeout_ms`: positive toast timeout in milliseconds.
+- `album_artist_split_patterns`: strings used when splitting album artist names.
 - `[auth].username`: browser login username.
 - `[auth].password_hash_file`: Argon2id password hash path. Relative paths are
   resolved from the config file directory; the file must be owned by the current
@@ -131,6 +124,11 @@ Supported keys:
   or `180d`. Defaults to `180d`.
 - `[auth].cookie_name`: browser login cookie name. Defaults to
   `kukicha_cookie`.
+- `[opensubsonic].mount_prefix`: optional OpenSubsonic mount prefix. Use `/` for
+  `/rest/ping`, or `/sonic` for `/sonic/rest/ping`.
+- `[opensubsonic].secret_file`: plain shared OpenSubsonic password file. Relative
+  paths are resolved from the config file directory; the file must be owned by
+  the current user with `0600` permissions on POSIX systems.
 
 Run `kukicha --help` to print the active config path, current values, supported
 keys, accent colors, and appearance names.
@@ -152,7 +150,7 @@ kukicha -c /path/to/config/kukicha.toml
 The default player URL is:
 
 ```text
-http://127.0.0.1:65042
+http://127.0.0.1:4533
 ```
 
 The player runs as a foreground HTTP service so launchd, systemd, and similar
@@ -176,18 +174,38 @@ library roots, artists, genres, styles, and album properties. Search indexes
 album titles, album artists, and track titles. Quoted terms match exact token
 phrases, spaces mean AND, semicolons mean OR, and a leading `-` excludes a term.
 
-## Run The OpenSubsonic API
+## Mount The OpenSubsonic API
 
-Launch the minimal OpenSubsonic-compatible API:
+OpenSubsonic endpoints are served by the same Kukicha HTTP server as the browser
+player. By default they are not mounted and `/rest/...` returns 404.
+
+Initialize the optional `[opensubsonic]` config:
 
 ```bash
-kukicha opensubsonic
+kukicha opensubsonic init
 ```
 
-The default OpenSubsonic URL is:
+For scripts, provide the password and mount prefix through the environment:
 
-```text
-http://127.0.0.1:4533
+```bash
+OPENSUBSONIC_PASSWORD="$PASSWORD" OPENSUBSONIC_MOUNT="/" kukicha opensubsonic init
+```
+
+This appends a section like:
+
+```toml
+[opensubsonic]
+mount_prefix = "/"
+secret_file = "~/.config/kukicha/opensubsonic.secret"
+```
+
+With `mount_prefix = "/"`, the ping endpoint is `/rest/ping`. With
+`mount_prefix = "/sonic"`, it is `/sonic/rest/ping`.
+
+To change the OpenSubsonic password later, run:
+
+```bash
+kukicha --config /path/to/kukicha.toml opensubsonic password
 ```
 
 The API supports basic album and artist browsing, direct streaming, downloads,
@@ -239,7 +257,7 @@ Playlist URLs are downloaded as one audio file per playlist item. Chapters
 reported inside individual playlist items are ignored, and `--chapters-file`
 cannot be used with playlist URLs.
 
-Set `YoutubeDownloadPath` in `kukicha.toml` before running this command. The
+Set `youtube_download_path` in `kukicha.toml` before running this command. The
 tool checks that `ffmpeg`, `ffprobe`, and Deno 2.0.0 or newer are available.
 yt-dlp temporary and staged files are kept in the user's OS temp folder and are
 cleaned up when the command exits.

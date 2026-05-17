@@ -7,7 +7,10 @@ from textwrap import dedent
 from typing import Sequence
 
 from .commands.init import run_auth_password, run_init
-from .commands.opensubsonic import run_open_subsonic
+from .commands.opensubsonic import (
+    run_open_subsonic_init,
+    run_open_subsonic_password,
+)
 from .commands.player import run_player
 from .commands.tools import non_empty_string, run_bulk_tag_edit
 from .commands.youtube_audio import add_youtube_download_audio_parser
@@ -20,7 +23,8 @@ PLAYER_HELP = dedent(
       kukicha                             Serve the built-in local player playlist.
       kukicha init                        Create or upgrade the player config with auth.
       kukicha auth password               Update the configured auth password.
-      kukicha opensubsonic               Serve a minimal OpenSubsonic API.
+      kukicha opensubsonic init           Mount OpenSubsonic endpoints on the player server.
+      kukicha opensubsonic password       Update the OpenSubsonic password.
       kukicha tools bulk-tag-edit         Rewrite album tags below a folder.
       kukicha tools yt-download-audio     Download YouTube audio files.
     """
@@ -80,9 +84,23 @@ def build_parser(argv: Sequence[str] | None = None) -> argparse.ArgumentParser:
     auth_password_parser.set_defaults(func=run_auth_password)
     open_subsonic_parser = subparsers.add_parser(
         "opensubsonic",
-        help="Serve a minimal OpenSubsonic API.",
+        help="Manage OpenSubsonic integration.",
     )
-    open_subsonic_parser.set_defaults(func=run_open_subsonic)
+    open_subsonic_subparsers = open_subsonic_parser.add_subparsers(
+        dest="opensubsonic_command",
+        metavar="COMMAND",
+    )
+    open_subsonic_subparsers.required = True
+    open_subsonic_init_parser = open_subsonic_subparsers.add_parser(
+        "init",
+        help="Mount OpenSubsonic endpoints on the player server.",
+    )
+    open_subsonic_init_parser.set_defaults(func=run_open_subsonic_init)
+    open_subsonic_password_parser = open_subsonic_subparsers.add_parser(
+        "password",
+        help="Update the OpenSubsonic password.",
+    )
+    open_subsonic_password_parser.set_defaults(func=run_open_subsonic_password)
     tools_parser = subparsers.add_parser(
         "tools",
         help="Run library maintenance tools.",

@@ -7,8 +7,13 @@ from tempfile import TemporaryDirectory
 import unittest
 
 from kukicha.models import MusicLibrary, TrackArtwork, TrackRecord
-from kukicha.opensubsonic_web_adapter import create_open_subsonic_app
-from kukicha.player_config import PlayerServerOptions
+from kukicha.player_auth import hash_password
+from kukicha.player_config import (
+    OpenSubsonicOptions,
+    PlayerAuthOptions,
+    PlayerServerOptions,
+)
+from kukicha.player_web_adapter import create_player_app
 from kukicha.use_case import connect_database, save_library
 
 
@@ -23,13 +28,26 @@ class OpenSubsonicWebAdapterTest(unittest.TestCase):
         *,
         username: str = "guest",
         password: str = "guest",
+        mount_prefix: str = "/",
     ) -> PlayerServerOptions:
+        password_hash_file = temp_path / "password.hash"
+        password_hash_file.write_text(f"{hash_password('browser-secret')}\n", encoding="utf-8")
+        password_hash_file.chmod(0o600)
+        secret_file = temp_path / "opensubsonic.secret"
+        secret_file.write_text(f"{password}\n", encoding="utf-8")
+        secret_file.chmod(0o600)
         return PlayerServerOptions(
             config_path=temp_path / "kukicha.toml",
             database=temp_path / "kukicha.sqlite",
             ffmpeg_path=None,
-            open_subsonic_username=username,
-            open_subsonic_password=password,
+            auth=PlayerAuthOptions(
+                username=username,
+                password_hash_file=password_hash_file,
+            ),
+            opensubsonic=OpenSubsonicOptions(
+                mount_prefix=mount_prefix,
+                secret_file=secret_file,
+            ),
         )
 
     def auth_params(
@@ -233,7 +251,7 @@ class OpenSubsonicWebAdapterTest(unittest.TestCase):
         album_list_type: str,
         **params: str,
     ) -> list[str]:
-        app = create_open_subsonic_app(self.make_options(temp_path))
+        app = create_player_app(self.make_options(temp_path))
         response = app.test_client().get(
             "/rest/getAlbumList2",
             query_string={
@@ -262,7 +280,7 @@ class OpenSubsonicWebAdapterTest(unittest.TestCase):
     def test_get_open_subsonic_extensions_is_public_and_advertises_form_post(self) -> None:
         with TemporaryDirectory() as tempdir:
             temp_path = Path(tempdir)
-            app = create_open_subsonic_app(self.make_options(temp_path))
+            app = create_player_app(self.make_options(temp_path))
 
             response = app.test_client().get(
                 "/rest/getOpenSubsonicExtensions",
@@ -280,14 +298,15 @@ class OpenSubsonicWebAdapterTest(unittest.TestCase):
     def test_root_probe_routes_return_plain_success(self) -> None:
         with TemporaryDirectory() as tempdir:
             temp_path = Path(tempdir)
-            app = create_open_subsonic_app(self.make_options(temp_path))
+            app = create_player_app(self.make_options(temp_path))
             client = app.test_client()
 
             root_response = client.get("/")
             rest_response = client.get("/rest")
             rest_slash_response = client.get("/rest/")
 
-        for response in (root_response, rest_response, rest_slash_response):
+        self.assertEqual(root_response.status_code, 302)
+        for response in (rest_response, rest_slash_response):
             self.assertEqual(response.status_code, 200)
             self.assertEqual(response.content_type, "text/plain; charset=utf-8")
             self.assertEqual(response.data, b"kukicha OpenSubsonic\n")
@@ -295,7 +314,7 @@ class OpenSubsonicWebAdapterTest(unittest.TestCase):
     def test_ping_accepts_password_auth_get_and_form_post(self) -> None:
         with TemporaryDirectory() as tempdir:
             temp_path = Path(tempdir)
-            app = create_open_subsonic_app(self.make_options(temp_path))
+            app = create_player_app(self.make_options(temp_path))
             client = app.test_client()
             get_response = client.get("/rest/ping.view", query_string=self.auth_params())
             post_response = client.post("/rest/ping", data=self.auth_params())
@@ -303,10 +322,24 @@ class OpenSubsonicWebAdapterTest(unittest.TestCase):
         self.assertEqual(subsonic_payload(get_response)["status"], "ok")
         self.assertEqual(subsonic_payload(post_response)["status"], "ok")
 
+    def test_mount_prefix_offsets_rest_endpoints(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            app = create_player_app(
+                self.make_options(temp_path, mount_prefix="/sonic")
+            )
+
+            response = app.test_client().get(
+                "/sonic/rest/ping",
+                query_string=self.auth_params(),
+            )
+
+        self.assertEqual(subsonic_payload(response)["status"], "ok")
+
     def test_ping_defaults_to_subsonic_xml_when_format_is_omitted(self) -> None:
         with TemporaryDirectory() as tempdir:
             temp_path = Path(tempdir)
-            app = create_open_subsonic_app(self.make_options(temp_path))
+            app = create_player_app(self.make_options(temp_path))
             params = dict(self.auth_params())
             params.pop("f")
 
@@ -321,7 +354,7 @@ class OpenSubsonicWebAdapterTest(unittest.TestCase):
     def test_ping_accepts_token_auth(self) -> None:
         with TemporaryDirectory() as tempdir:
             temp_path = Path(tempdir)
-            app = create_open_subsonic_app(
+            app = create_player_app(
                 self.make_options(temp_path, username="listener", password="secret")
             )
             salt = "pepper"
@@ -344,7 +377,7 @@ class OpenSubsonicWebAdapterTest(unittest.TestCase):
     def test_auth_errors_use_subsonic_failed_payloads(self) -> None:
         with TemporaryDirectory() as tempdir:
             temp_path = Path(tempdir)
-            app = create_open_subsonic_app(self.make_options(temp_path))
+            app = create_player_app(self.make_options(temp_path))
             client = app.test_client()
             missing_response = client.get("/rest/ping", query_string={"f": "json"})
             wrong_response = client.get(
@@ -378,7 +411,7 @@ class OpenSubsonicWebAdapterTest(unittest.TestCase):
     def test_explicit_xml_format_returns_xml_success(self) -> None:
         with TemporaryDirectory() as tempdir:
             temp_path = Path(tempdir)
-            app = create_open_subsonic_app(self.make_options(temp_path))
+            app = create_player_app(self.make_options(temp_path))
 
             response = app.test_client().get(
                 "/rest/ping",
@@ -391,7 +424,7 @@ class OpenSubsonicWebAdapterTest(unittest.TestCase):
     def test_unsupported_format_and_endpoint_return_failed_payloads(self) -> None:
         with TemporaryDirectory() as tempdir:
             temp_path = Path(tempdir)
-            app = create_open_subsonic_app(self.make_options(temp_path))
+            app = create_player_app(self.make_options(temp_path))
             client = app.test_client()
             jsonp_response = client.get(
                 "/rest/ping",
@@ -412,7 +445,7 @@ class OpenSubsonicWebAdapterTest(unittest.TestCase):
         with TemporaryDirectory() as tempdir:
             temp_path = Path(tempdir)
             first, second = self.save_sample_library(temp_path)
-            app = create_open_subsonic_app(self.make_options(temp_path))
+            app = create_player_app(self.make_options(temp_path))
             client = app.test_client()
             folders_response = client.get(
                 "/rest/getMusicFolders",
@@ -466,7 +499,7 @@ class OpenSubsonicWebAdapterTest(unittest.TestCase):
         with TemporaryDirectory() as tempdir:
             temp_path = Path(tempdir)
             self.save_genre_library(temp_path)
-            app = create_open_subsonic_app(self.make_options(temp_path))
+            app = create_player_app(self.make_options(temp_path))
 
             response = app.test_client().get(
                 "/rest/getGenres",
@@ -496,7 +529,7 @@ class OpenSubsonicWebAdapterTest(unittest.TestCase):
                 ),
                 temp_path / "kukicha.sqlite",
             )
-            app = create_open_subsonic_app(self.make_options(temp_path))
+            app = create_player_app(self.make_options(temp_path))
 
             response = app.test_client().get(
                 "/rest/getGenres",
@@ -509,7 +542,7 @@ class OpenSubsonicWebAdapterTest(unittest.TestCase):
         with TemporaryDirectory() as tempdir:
             temp_path = Path(tempdir)
             self.save_genre_library(temp_path)
-            app = create_open_subsonic_app(self.make_options(temp_path))
+            app = create_player_app(self.make_options(temp_path))
 
             response = app.test_client().get(
                 "/rest/getGenres",
@@ -529,7 +562,7 @@ class OpenSubsonicWebAdapterTest(unittest.TestCase):
             temp_path = Path(tempdir)
             first, second = self.save_sample_library(temp_path)
             database = temp_path / "kukicha.sqlite"
-            app = create_open_subsonic_app(self.make_options(temp_path))
+            app = create_player_app(self.make_options(temp_path))
             client = app.test_client()
 
             now_response = client.get(
@@ -673,7 +706,7 @@ class OpenSubsonicWebAdapterTest(unittest.TestCase):
         with TemporaryDirectory() as tempdir:
             temp_path = Path(tempdir)
             self.save_sample_library(temp_path)
-            app = create_open_subsonic_app(self.make_options(temp_path))
+            app = create_player_app(self.make_options(temp_path))
             client = app.test_client()
 
             star_response = client.get(
@@ -718,7 +751,7 @@ class OpenSubsonicWebAdapterTest(unittest.TestCase):
         with TemporaryDirectory() as tempdir:
             temp_path = Path(tempdir)
             self.save_sample_library(temp_path)
-            app = create_open_subsonic_app(self.make_options(temp_path))
+            app = create_player_app(self.make_options(temp_path))
             client = app.test_client()
 
             id_response = client.get(
@@ -768,7 +801,7 @@ class OpenSubsonicWebAdapterTest(unittest.TestCase):
         with TemporaryDirectory() as tempdir:
             temp_path = Path(tempdir)
             self.save_sample_library(temp_path)
-            app = create_open_subsonic_app(self.make_options(temp_path))
+            app = create_player_app(self.make_options(temp_path))
 
             response = app.test_client().get(
                 "/rest/getAlbumList2",
@@ -800,7 +833,7 @@ class OpenSubsonicWebAdapterTest(unittest.TestCase):
         with TemporaryDirectory() as tempdir:
             temp_path = Path(tempdir)
             self.save_album_list_library(temp_path)
-            app = create_open_subsonic_app(self.make_options(temp_path))
+            app = create_player_app(self.make_options(temp_path))
 
             response = app.test_client().get(
                 "/rest/getAlbumList2",
@@ -881,7 +914,7 @@ class OpenSubsonicWebAdapterTest(unittest.TestCase):
                 album_list_type="byGenre",
                 genre="electronic",
             )
-            missing_genre_response = create_open_subsonic_app(
+            missing_genre_response = create_player_app(
                 self.make_options(temp_path)
             ).test_client().get(
                 "/rest/getAlbumList2",
@@ -980,7 +1013,7 @@ class OpenSubsonicWebAdapterTest(unittest.TestCase):
         with TemporaryDirectory() as tempdir:
             temp_path = Path(tempdir)
             self.save_artist_library(temp_path)
-            app = create_open_subsonic_app(self.make_options(temp_path))
+            app = create_player_app(self.make_options(temp_path))
 
             response = app.test_client().get(
                 "/rest/getArtists",
@@ -1019,7 +1052,7 @@ class OpenSubsonicWebAdapterTest(unittest.TestCase):
         with TemporaryDirectory() as tempdir:
             temp_path = Path(tempdir)
             self.save_artist_library(temp_path)
-            app = create_open_subsonic_app(self.make_options(temp_path))
+            app = create_player_app(self.make_options(temp_path))
 
             response = app.test_client().get(
                 "/rest/getArtists",
@@ -1039,7 +1072,7 @@ class OpenSubsonicWebAdapterTest(unittest.TestCase):
         with TemporaryDirectory() as tempdir:
             temp_path = Path(tempdir)
             self.save_artist_library(temp_path)
-            app = create_open_subsonic_app(self.make_options(temp_path))
+            app = create_player_app(self.make_options(temp_path))
             client = app.test_client()
             prefixed_response = client.get(
                 "/rest/getArtist",
@@ -1072,7 +1105,7 @@ class OpenSubsonicWebAdapterTest(unittest.TestCase):
         with TemporaryDirectory() as tempdir:
             temp_path = Path(tempdir)
             self.save_artist_library(temp_path)
-            app = create_open_subsonic_app(self.make_options(temp_path))
+            app = create_player_app(self.make_options(temp_path))
 
             response = app.test_client().get(
                 "/rest/getArtist",
@@ -1087,7 +1120,7 @@ class OpenSubsonicWebAdapterTest(unittest.TestCase):
         with TemporaryDirectory() as tempdir:
             temp_path = Path(tempdir)
             first, _second = self.save_sample_library(temp_path)
-            app = create_open_subsonic_app(self.make_options(temp_path))
+            app = create_player_app(self.make_options(temp_path))
             client = app.test_client()
 
             stream_response = client.get(
@@ -1120,7 +1153,7 @@ class OpenSubsonicWebAdapterTest(unittest.TestCase):
         with TemporaryDirectory() as tempdir:
             temp_path = Path(tempdir)
             first, _second = self.save_sample_library(temp_path)
-            app = create_open_subsonic_app(self.make_options(temp_path))
+            app = create_player_app(self.make_options(temp_path))
 
             response = app.test_client().get(
                 "/rest/download.view",

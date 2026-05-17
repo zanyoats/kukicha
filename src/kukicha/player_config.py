@@ -36,11 +36,9 @@ from .use_case import prepare_player_database
 
 DEFAULT_PLAYER_LOG_LEVEL = "DEBUG"
 DEFAULT_PLAYER_HOST = "127.0.0.1"
-DEFAULT_PLAYER_PORT = 65042
-DEFAULT_OPEN_SUBSONIC_USERNAME = "guest"
-DEFAULT_OPEN_SUBSONIC_PASSWORD = "guest"
-DEFAULT_OPEN_SUBSONIC_HOST = DEFAULT_PLAYER_HOST
-DEFAULT_OPEN_SUBSONIC_PORT = 4533
+DEFAULT_PLAYER_PORT = 4533
+DEFAULT_OPEN_SUBSONIC_MOUNT_PREFIX = "/"
+DEFAULT_OPEN_SUBSONIC_SECRET_FILENAME = "opensubsonic.secret"
 DEFAULT_TOAST_TIMEOUT_MS = 5000
 DEFAULT_ACCENT_COLOR = "warm-brown"
 SYSTEM_APPEARANCE = "system"
@@ -53,23 +51,19 @@ DEFAULT_AUTH_COOKIE_NAME = "kukicha_cookie"
 PLAYER_CONFIG_FILENAME = "kukicha.toml"
 PLAYER_DATABASE_FILENAME = "kukicha.sqlite"
 PLAYER_CONFIG_KEY_ORDER = (
-    "LogLevel",
-    "DatabasePath",
-    "Roots",
-    "RemoteRoots",
-    "FFmpegPath",
-    "YoutubeDownloadPath",
-    "PreferMusicBrainzEnglishAliases",
-    "Host",
-    "Port",
-    "OpenSubsonicUsername",
-    "OpenSubsonicPassword",
-    "OpenSubsonicHost",
-    "OpenSubsonicPort",
-    "Appearance",
-    "AccentColor",
-    "ToastTimeoutMs",
-    "AlbumArtistSplitPatterns",
+    "log_level",
+    "database_path",
+    "roots",
+    "remote_roots",
+    "ffmpeg_path",
+    "youtube_download_path",
+    "prefer_musicbrainz_english_aliases",
+    "host",
+    "port",
+    "appearance",
+    "accent_color",
+    "toast_timeout_ms",
+    "album_artist_split_patterns",
 )
 AUTH_CONFIG_KEY_ORDER = (
     "username",
@@ -77,12 +71,18 @@ AUTH_CONFIG_KEY_ORDER = (
     "cookie_max_age",
     "cookie_name",
 )
+OPEN_SUBSONIC_CONFIG_KEY_ORDER = (
+    "mount_prefix",
+    "secret_file",
+)
 PLAYER_CONFIG_DISPLAY_KEY_ORDER = (
     *PLAYER_CONFIG_KEY_ORDER,
     *(f"auth.{key}" for key in AUTH_CONFIG_KEY_ORDER),
+    *(f"opensubsonic.{key}" for key in OPEN_SUBSONIC_CONFIG_KEY_ORDER),
 )
-PLAYER_CONFIG_KEYS = frozenset((*PLAYER_CONFIG_KEY_ORDER, "auth"))
+PLAYER_CONFIG_KEYS = frozenset((*PLAYER_CONFIG_KEY_ORDER, "auth", "opensubsonic"))
 AUTH_CONFIG_KEYS = frozenset(AUTH_CONFIG_KEY_ORDER)
+OPEN_SUBSONIC_CONFIG_KEYS = frozenset(OPEN_SUBSONIC_CONFIG_KEY_ORDER)
 AUTH_COOKIE_NAME_RE = re.compile(r"^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$")
 AUTH_COOKIE_MAX_AGE_RE = re.compile(r"^(?P<days>[1-9][0-9]*)d$")
 LOGGER = logging.getLogger("kukicha.player")
@@ -96,26 +96,9 @@ class _MaxLevelFilter(logging.Filter):
         return record.levelno < self.max_level
 
 @dataclass(frozen=True, slots=True)
-class PlayerServerOptions:
-    config_path: Path
-    database: Path
-    ffmpeg_path: Path | None
-    roots: tuple[Path, ...] = ()
-    remote_roots: tuple[RemoteRootConfig, ...] = ()
-    host: str = DEFAULT_PLAYER_HOST
-    port: int = DEFAULT_PLAYER_PORT
-    open_subsonic_username: str = DEFAULT_OPEN_SUBSONIC_USERNAME
-    open_subsonic_password: str = DEFAULT_OPEN_SUBSONIC_PASSWORD
-    open_subsonic_host: str = DEFAULT_OPEN_SUBSONIC_HOST
-    open_subsonic_port: int = DEFAULT_OPEN_SUBSONIC_PORT
-    log_level: str = DEFAULT_PLAYER_LOG_LEVEL
-    accent_color: str = DEFAULT_ACCENT_COLOR
-    appearance: str = DEFAULT_APPEARANCE
-    toast_timeout_ms: int = DEFAULT_TOAST_TIMEOUT_MS
-    album_artist_split_patterns: tuple[str, ...] = DEFAULT_ALBUM_ARTIST_SPLIT_PATTERNS
-    youtube_download_path: Path | None = None
-    prefer_musicbrainz_english_aliases: bool = DEFAULT_PREFER_MUSICBRAINZ_ENGLISH_ALIASES
-    auth: PlayerAuthOptions | None = None
+class OpenSubsonicOptions:
+    mount_prefix: str
+    secret_file: Path
 
 
 @dataclass(frozen=True, slots=True)
@@ -125,6 +108,26 @@ class PlayerAuthOptions:
     cookie_max_age: str = DEFAULT_AUTH_COOKIE_MAX_AGE
     cookie_max_age_seconds: int = 180 * 24 * 60 * 60
     cookie_name: str = DEFAULT_AUTH_COOKIE_NAME
+
+
+@dataclass(frozen=True, slots=True)
+class PlayerServerOptions:
+    config_path: Path
+    database: Path
+    ffmpeg_path: Path | None
+    roots: tuple[Path, ...] = ()
+    remote_roots: tuple[RemoteRootConfig, ...] = ()
+    host: str = DEFAULT_PLAYER_HOST
+    port: int = DEFAULT_PLAYER_PORT
+    log_level: str = DEFAULT_PLAYER_LOG_LEVEL
+    accent_color: str = DEFAULT_ACCENT_COLOR
+    appearance: str = DEFAULT_APPEARANCE
+    toast_timeout_ms: int = DEFAULT_TOAST_TIMEOUT_MS
+    album_artist_split_patterns: tuple[str, ...] = DEFAULT_ALBUM_ARTIST_SPLIT_PATTERNS
+    youtube_download_path: Path | None = None
+    prefer_musicbrainz_english_aliases: bool = DEFAULT_PREFER_MUSICBRAINZ_ENGLISH_ALIASES
+    auth: PlayerAuthOptions | None = None
+    opensubsonic: OpenSubsonicOptions | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -297,68 +300,58 @@ def load_player_options(
     config_dir = resolved_config_path.parent
     config = read_player_config(resolved_config_path, required=config_required)
 
-    log_level = parse_player_log_level(config.get("LogLevel", DEFAULT_PLAYER_LOG_LEVEL))
+    log_level = parse_player_log_level(config.get("log_level", DEFAULT_PLAYER_LOG_LEVEL))
     database = parse_config_path(
-        config.get("DatabasePath"),
-        key="DatabasePath",
+        config.get("database_path"),
+        key="database_path",
         base_dir=config_dir,
         default=config_dir / PLAYER_DATABASE_FILENAME,
     )
     ffmpeg_path = parse_optional_config_path(
-        config.get("FFmpegPath", ""),
-        key="FFmpegPath",
+        config.get("ffmpeg_path", ""),
+        key="ffmpeg_path",
         base_dir=config_dir,
     )
     youtube_download_path = parse_optional_config_path(
-        config.get("YoutubeDownloadPath", ""),
-        key="YoutubeDownloadPath",
+        config.get("youtube_download_path", ""),
+        key="youtube_download_path",
         base_dir=config_dir,
     )
     roots = parse_config_path_list(
-        config.get("Roots", ()),
-        key="Roots",
+        config.get("roots", ()),
+        key="roots",
         base_dir=config_dir,
     )
-    remote_roots = parse_remote_roots(config.get("RemoteRoots", ()))
-    host = parse_player_host(config.get("Host", DEFAULT_PLAYER_HOST))
-    port = parse_player_port(config.get("Port", DEFAULT_PLAYER_PORT))
-    open_subsonic_username = parse_config_non_empty_string(
-        config.get("OpenSubsonicUsername", DEFAULT_OPEN_SUBSONIC_USERNAME),
-        key="OpenSubsonicUsername",
-    )
-    open_subsonic_password = parse_config_non_empty_string(
-        config.get("OpenSubsonicPassword", DEFAULT_OPEN_SUBSONIC_PASSWORD),
-        key="OpenSubsonicPassword",
-    )
-    open_subsonic_host = parse_config_non_empty_string(
-        config.get("OpenSubsonicHost", DEFAULT_OPEN_SUBSONIC_HOST),
-        key="OpenSubsonicHost",
-    )
-    open_subsonic_port = parse_config_tcp_port(
-        config.get("OpenSubsonicPort", DEFAULT_OPEN_SUBSONIC_PORT),
-        key="OpenSubsonicPort",
-    )
-    accent_color = parse_accent_color(config.get("AccentColor", DEFAULT_ACCENT_COLOR))
-    appearance = parse_appearance(config.get("Appearance", DEFAULT_APPEARANCE))
+    remote_roots = parse_remote_roots(config.get("remote_roots", ()))
+    host = parse_player_host(config.get("host", DEFAULT_PLAYER_HOST))
+    port = parse_player_port(config.get("port", DEFAULT_PLAYER_PORT))
+    accent_color = parse_accent_color(config.get("accent_color", DEFAULT_ACCENT_COLOR))
+    appearance = parse_appearance(config.get("appearance", DEFAULT_APPEARANCE))
     toast_timeout_ms = parse_positive_milliseconds(
-        config.get("ToastTimeoutMs", DEFAULT_TOAST_TIMEOUT_MS),
-        key="ToastTimeoutMs",
+        config.get("toast_timeout_ms", DEFAULT_TOAST_TIMEOUT_MS),
+        key="toast_timeout_ms",
     )
     album_artist_split_patterns = parse_album_artist_split_patterns(
-        config.get("AlbumArtistSplitPatterns", DEFAULT_ALBUM_ARTIST_SPLIT_PATTERNS)
+        config.get("album_artist_split_patterns", DEFAULT_ALBUM_ARTIST_SPLIT_PATTERNS)
     )
     prefer_musicbrainz_english_aliases = parse_config_bool(
         config.get(
-            "PreferMusicBrainzEnglishAliases",
+            "prefer_musicbrainz_english_aliases",
             DEFAULT_PREFER_MUSICBRAINZ_ENGLISH_ALIASES,
         ),
-        key="PreferMusicBrainzEnglishAliases",
+        key="prefer_musicbrainz_english_aliases",
     )
     auth = parse_player_auth_options(
         config.get("auth"),
         base_dir=config_dir,
         require_auth=require_auth,
     )
+    opensubsonic = parse_open_subsonic_options(
+        config.get("opensubsonic"),
+        base_dir=config_dir,
+    )
+    if opensubsonic is not None and auth is None:
+        raise PlayerConfigError("[opensubsonic] requires [auth]; run `kukicha init`")
 
     return PlayerServerOptions(
         config_path=resolved_config_path,
@@ -369,10 +362,6 @@ def load_player_options(
         youtube_download_path=youtube_download_path,
         host=host,
         port=port,
-        open_subsonic_username=open_subsonic_username,
-        open_subsonic_password=open_subsonic_password,
-        open_subsonic_host=open_subsonic_host,
-        open_subsonic_port=open_subsonic_port,
         log_level=log_level,
         accent_color=accent_color,
         appearance=appearance,
@@ -380,6 +369,7 @@ def load_player_options(
         album_artist_split_patterns=album_artist_split_patterns,
         prefer_musicbrainz_english_aliases=prefer_musicbrainz_english_aliases,
         auth=auth,
+        opensubsonic=opensubsonic,
     )
 
 def player_config_help_text(config_path: str | Path | None = None) -> str:
@@ -407,9 +397,9 @@ def player_config_help_text(config_path: str | Path | None = None) -> str:
 
     lines.extend(("", "Supported keys:"))
     lines.extend(f"  {key}" for key in summary.supported_keys)
-    lines.extend(("", "Appearance accepts these values:"))
+    lines.extend(("", "appearance accepts these values:"))
     lines.extend(f"  {name}" for name in APPEARANCE_NAMES)
-    lines.extend(("", "AccentColor accepts these palette names or matching hex codes:"))
+    lines.extend(("", "accent_color accepts these palette names or matching hex codes:"))
     lines.append(f"  {' '.join(ACCENT_COLOR_CODES)}")
     return "\n".join(lines)
 
@@ -457,30 +447,25 @@ def player_config_values(
     raw_config: dict[str, object],
 ) -> tuple[PlayerConfigValue, ...]:
     auth = options.auth
+    opensubsonic = options.opensubsonic
     values = {
-        "LogLevel": options.log_level,
-        "DatabasePath": str(options.database),
-        "Roots": format_player_config_path_list(options.roots),
-        "RemoteRoots": format_player_config_remote_roots(options.remote_roots),
-        "FFmpegPath": format_player_config_optional_path(options.ffmpeg_path),
-        "YoutubeDownloadPath": format_player_config_optional_path(
+        "log_level": options.log_level,
+        "database_path": str(options.database),
+        "roots": format_player_config_path_list(options.roots),
+        "remote_roots": format_player_config_remote_roots(options.remote_roots),
+        "ffmpeg_path": format_player_config_optional_path(options.ffmpeg_path),
+        "youtube_download_path": format_player_config_optional_path(
             options.youtube_download_path
         ),
-        "PreferMusicBrainzEnglishAliases": format_player_config_bool(
+        "prefer_musicbrainz_english_aliases": format_player_config_bool(
             options.prefer_musicbrainz_english_aliases
         ),
-        "Host": options.host,
-        "Port": str(options.port),
-        "OpenSubsonicUsername": options.open_subsonic_username,
-        "OpenSubsonicPassword": format_player_config_secret(
-            options.open_subsonic_password
-        ),
-        "OpenSubsonicHost": options.open_subsonic_host,
-        "OpenSubsonicPort": str(options.open_subsonic_port),
-        "AccentColor": options.accent_color,
-        "Appearance": options.appearance,
-        "ToastTimeoutMs": str(options.toast_timeout_ms),
-        "AlbumArtistSplitPatterns": format_player_config_string_list(
+        "host": options.host,
+        "port": str(options.port),
+        "accent_color": options.accent_color,
+        "appearance": options.appearance,
+        "toast_timeout_ms": str(options.toast_timeout_ms),
+        "album_artist_split_patterns": format_player_config_string_list(
             options.album_artist_split_patterns
         ),
         "auth.username": auth.username if auth is not None else "<unset>",
@@ -493,11 +478,17 @@ def player_config_values(
         "auth.cookie_name": (
             auth.cookie_name if auth is not None else DEFAULT_AUTH_COOKIE_NAME
         ),
+        "opensubsonic.mount_prefix": (
+            opensubsonic.mount_prefix if opensubsonic is not None else "<unset>"
+        ),
+        "opensubsonic.secret_file": (
+            str(opensubsonic.secret_file) if opensubsonic is not None else "<unset>"
+        ),
     }
     value_items = {
-        "Roots": tuple(str(root) for root in options.roots),
-        "RemoteRoots": tuple(remote_root_display_label(root) for root in options.remote_roots),
-        "AlbumArtistSplitPatterns": options.album_artist_split_patterns,
+        "roots": tuple(str(root) for root in options.roots),
+        "remote_roots": tuple(remote_root_display_label(root) for root in options.remote_roots),
+        "album_artist_split_patterns": options.album_artist_split_patterns,
     }
     return tuple(
         PlayerConfigValue(
@@ -523,13 +514,16 @@ def player_config_value_source(config: dict[str, object], key: str) -> str:
             return "default"
         auth_key = key.split(".", 1)[1]
         return "configured" if auth_key in auth else "default"
+    if key.startswith("opensubsonic."):
+        opensubsonic = config.get("opensubsonic")
+        if not isinstance(opensubsonic, dict):
+            return "default"
+        opensubsonic_key = key.split(".", 1)[1]
+        return "configured" if opensubsonic_key in opensubsonic else "default"
     return "configured" if key in config else "default"
 
 def format_player_config_optional_path(path: Path | None) -> str:
     return str(path) if path is not None else "<unset>"
-
-def format_player_config_secret(value: str) -> str:
-    return "<hidden>" if value else "<unset>"
 
 def format_player_config_string_list(values: tuple[str, ...]) -> str:
     return "[" + ", ".join(repr(value) for value in values) + "]"
@@ -598,22 +592,34 @@ def read_player_config(path: Path, *, required: bool) -> dict[str, object]:
         if unknown_auth_keys:
             keys = ", ".join(unknown_auth_keys)
             raise PlayerConfigError(f"unsupported auth key(s) in {path}: {keys}")
+    open_subsonic_config = config.get("opensubsonic")
+    if open_subsonic_config is not None:
+        if not isinstance(open_subsonic_config, dict):
+            raise PlayerConfigError(f"opensubsonic must be a table in {path}")
+        unknown_open_subsonic_keys = sorted(
+            set(open_subsonic_config) - OPEN_SUBSONIC_CONFIG_KEYS
+        )
+        if unknown_open_subsonic_keys:
+            keys = ", ".join(unknown_open_subsonic_keys)
+            raise PlayerConfigError(
+                f"unsupported opensubsonic key(s) in {path}: {keys}"
+            )
     return config
 
 def parse_player_log_level(value: object) -> str:
     if not isinstance(value, str) or not value.strip():
-        raise PlayerConfigError("LogLevel must be a non-empty string")
+        raise PlayerConfigError("log_level must be a non-empty string")
     level_name = value.strip().upper()
     levels = logging.getLevelNamesMapping()
     if level_name not in levels:
-        raise PlayerConfigError(f"unsupported LogLevel: {value}")
+        raise PlayerConfigError(f"unsupported log_level: {value}")
     return str(logging.getLevelName(levels[level_name]))
 
 def parse_player_host(value: object) -> str:
-    return parse_config_non_empty_string(value, key="Host")
+    return parse_config_non_empty_string(value, key="host")
 
 def parse_player_port(value: object) -> int:
-    return parse_config_tcp_port(value, key="Port")
+    return parse_config_tcp_port(value, key="port")
 
 def parse_config_tcp_port(value: object, *, key: str) -> int:
     if not isinstance(value, int):
@@ -629,18 +635,18 @@ def parse_config_non_empty_string(value: object, *, key: str) -> str:
 
 def parse_accent_color(value: object) -> str:
     if not isinstance(value, str) or not value.strip():
-        raise PlayerConfigError("AccentColor must be a non-empty string")
+        raise PlayerConfigError("accent_color must be a non-empty string")
     name = normalize_accent_color_name(value)
     if name not in ACCENT_COLOR_CODES:
-        raise PlayerConfigError(f"AccentColor must be a supported palette color: {value}")
+        raise PlayerConfigError(f"accent_color must be a supported palette color: {value}")
     return name
 
 def parse_appearance(value: object) -> str:
     if not isinstance(value, str) or not value.strip():
-        raise PlayerConfigError("Appearance must be a non-empty string")
+        raise PlayerConfigError("appearance must be a non-empty string")
     appearance = normalize_appearance_name(value)
     if appearance not in APPEARANCE_NAMES:
-        raise PlayerConfigError(f"Appearance must be one of: {', '.join(APPEARANCE_NAMES)}")
+        raise PlayerConfigError(f"appearance must be one of: {', '.join(APPEARANCE_NAMES)}")
     return appearance
 
 def normalize_appearance_name(value: str) -> str:
@@ -783,10 +789,10 @@ def parse_positive_milliseconds(value: object, *, key: str) -> int:
 
 def parse_album_artist_split_patterns(value: object) -> tuple[str, ...]:
     if not isinstance(value, (list, tuple)):
-        raise PlayerConfigError("AlbumArtistSplitPatterns must be an array of strings")
+        raise PlayerConfigError("album_artist_split_patterns must be an array of strings")
     for item in value:
         if not isinstance(item, str):
-            raise PlayerConfigError("AlbumArtistSplitPatterns must be an array of strings")
+            raise PlayerConfigError("album_artist_split_patterns must be an array of strings")
     return normalize_album_artist_split_patterns(value)
 
 def parse_config_bool(value: object, *, key: str) -> bool:
@@ -834,6 +840,83 @@ def parse_player_auth_options(
         cookie_max_age_seconds=auth_cookie_max_age_seconds(cookie_max_age),
         cookie_name=cookie_name,
     )
+
+def parse_open_subsonic_options(
+    value: object,
+    *,
+    base_dir: Path,
+) -> OpenSubsonicOptions | None:
+    if value is None:
+        return None
+    if not isinstance(value, dict):
+        raise PlayerConfigError("opensubsonic must be a table")
+
+    missing_keys = [
+        key for key in ("mount_prefix", "secret_file") if key not in value
+    ]
+    if missing_keys:
+        raise PlayerConfigError(
+            "[opensubsonic] missing required key(s): " + ", ".join(missing_keys)
+        )
+
+    mount_prefix = parse_open_subsonic_mount_prefix(value["mount_prefix"])
+    secret_file = parse_config_path(
+        value["secret_file"],
+        key="opensubsonic.secret_file",
+        base_dir=base_dir,
+        default=base_dir / DEFAULT_OPEN_SUBSONIC_SECRET_FILENAME,
+    )
+    validate_open_subsonic_secret_file(secret_file)
+    return OpenSubsonicOptions(
+        mount_prefix=mount_prefix,
+        secret_file=secret_file,
+    )
+
+def parse_open_subsonic_mount_prefix(value: object) -> str:
+    mount_prefix = parse_config_non_empty_string(
+        value,
+        key="opensubsonic.mount_prefix",
+    )
+    if not mount_prefix.startswith("/"):
+        raise PlayerConfigError("opensubsonic.mount_prefix must start with /")
+    normalized = "/" + mount_prefix.strip("/")
+    if normalized == "/" or mount_prefix == "/":
+        return "/"
+    return normalized
+
+def read_open_subsonic_secret(path: Path) -> str:
+    try:
+        secret = path.read_text(encoding="utf-8").strip()
+    except OSError as error:
+        raise PlayerConfigError(
+            f"failed to read opensubsonic.secret_file {path}: {error}"
+        ) from error
+    if not secret:
+        raise PlayerConfigError(f"opensubsonic.secret_file is empty: {path}")
+    return secret
+
+def validate_open_subsonic_secret_file(path: Path) -> None:
+    try:
+        stat_result = path.stat()
+    except FileNotFoundError as error:
+        raise PlayerConfigError(f"opensubsonic.secret_file does not exist: {path}") from error
+    except OSError as error:
+        raise PlayerConfigError(
+            f"failed to inspect opensubsonic.secret_file {path}: {error}"
+        ) from error
+
+    if not path.is_file():
+        raise PlayerConfigError(f"opensubsonic.secret_file is not a file: {path}")
+
+    if hasattr(os, "getuid") and stat_result.st_uid != os.getuid():
+        raise PlayerConfigError(
+            f"opensubsonic.secret_file must be owned by the current user: {path}"
+        )
+
+    if os.name != "nt" and stat_result.st_mode & 0o077:
+        raise PlayerConfigError(f"opensubsonic.secret_file permissions must be 600: {path}")
+
+    read_open_subsonic_secret(path)
 
 def parse_auth_cookie_max_age(value: object) -> str:
     if not isinstance(value, str) or not value.strip():
@@ -936,12 +1019,12 @@ def parse_config_path_list(
 
 def parse_remote_roots(value: object) -> tuple[RemoteRootConfig, ...]:
     if not isinstance(value, (list, tuple)):
-        raise PlayerConfigError("RemoteRoots must be an array of tables")
+        raise PlayerConfigError("remote_roots must be an array of tables")
 
     roots: list[RemoteRootConfig] = []
     for item in value:
         if not isinstance(item, dict):
-            raise PlayerConfigError("RemoteRoots must be an array of tables")
+            raise PlayerConfigError("remote_roots must be an array of tables")
         secret_keys = sorted(
             key
             for key in item
@@ -949,7 +1032,7 @@ def parse_remote_roots(value: object) -> tuple[RemoteRootConfig, ...]:
         )
         if secret_keys:
             raise PlayerConfigError(
-                "RemoteRoots must not contain inline credentials: "
+                "remote_roots must not contain inline credentials: "
                 + ", ".join(secret_keys)
             )
         supported_keys = {
@@ -964,12 +1047,12 @@ def parse_remote_roots(value: object) -> tuple[RemoteRootConfig, ...]:
         unknown_keys = sorted(set(item) - supported_keys)
         if unknown_keys:
             raise PlayerConfigError(
-                "unsupported RemoteRoots key(s): " + ", ".join(unknown_keys)
+                "unsupported remote_roots key(s): " + ", ".join(unknown_keys)
             )
         try:
             roots.append(normalize_remote_root_config(item))
         except ValueError as error:
-            raise PlayerConfigError(f"invalid RemoteRoots entry: {error}") from error
+            raise PlayerConfigError(f"invalid remote_roots entry: {error}") from error
 
     remote_roots = tuple(roots)
     try:
@@ -1051,7 +1134,7 @@ def resolve_path(path: Path, *, base_dir: Path | None = None) -> Path:
     return absolute_path(path, base_dir=base_dir).resolve(strict=False)
 
 def validate_player_startup(options: PlayerServerOptions) -> None:
-    validate_config_path_list(options.roots, key="Roots")
+    validate_config_path_list(options.roots, key="roots")
     if options.auth is not None:
         validate_password_hash_file(options.auth.password_hash_file)
 

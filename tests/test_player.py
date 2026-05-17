@@ -61,10 +61,8 @@ from kukicha.player_config import (
     DEFAULT_ACCENT_COLOR,
     DEFAULT_AUTH_COOKIE_MAX_AGE,
     DEFAULT_AUTH_COOKIE_NAME,
-    DEFAULT_OPEN_SUBSONIC_HOST,
-    DEFAULT_OPEN_SUBSONIC_PASSWORD,
-    DEFAULT_OPEN_SUBSONIC_PORT,
-    DEFAULT_OPEN_SUBSONIC_USERNAME,
+    DEFAULT_OPEN_SUBSONIC_MOUNT_PREFIX,
+    DEFAULT_OPEN_SUBSONIC_SECRET_FILENAME,
     DEFAULT_APPEARANCE,
     DEFAULT_PLAYER_HOST,
     DEFAULT_PLAYER_LOG_LEVEL,
@@ -73,6 +71,7 @@ from kukicha.player_config import (
     DEFAULT_TOAST_TIMEOUT_MS,
     APPEARANCE_THEMES,
     CONTROL_ACCENT_MINIMUM_CONTRAST,
+    OpenSubsonicOptions,
     PlayerAuthOptions,
     PlayerServerOptions,
     build_template_environment,
@@ -1716,6 +1715,16 @@ class PlayerConfigTest(unittest.TestCase):
         path.write_text(f"{text}\n", encoding="utf-8")
         path.chmod(mode)
 
+    def write_open_subsonic_secret(
+        self,
+        path: Path,
+        *,
+        mode: int = 0o600,
+        text: str = "os-pass",
+    ) -> None:
+        path.write_text(f"{text}\n", encoding="utf-8")
+        path.chmod(mode)
+
     def write_config(self, config_path: Path, text: str) -> Path:
         password_hash_file = config_path.parent / "password.hash"
         self.write_password_hash(password_hash_file)
@@ -1757,26 +1766,27 @@ class PlayerConfigTest(unittest.TestCase):
         with TemporaryDirectory() as tempdir:
             temp_path = Path(tempdir)
             config_path = temp_path / "kukicha.toml"
+            open_subsonic_secret = temp_path / "os.secret"
+            self.write_open_subsonic_secret(open_subsonic_secret)
             self.write_config(
                 config_path,
                 "\n".join(
                     (
-                        "LogLevel = 'info'",
-                        "DatabasePath = 'library.sqlite'",
-                        "Roots = ['music-a', 'music-b']",
-                        "FFmpegPath = 'bin/ffmpeg'",
-                        "YoutubeDownloadPath = 'youtube'",
-                        "PreferMusicBrainzEnglishAliases = false",
-                        "Host = '0.0.0.0'",
-                        "Port = 43210",
-                        "OpenSubsonicUsername = 'os-user'",
-                        "OpenSubsonicPassword = 'os-pass'",
-                        "OpenSubsonicHost = '0.0.0.0'",
-                        "OpenSubsonicPort = 4534",
-                        "AccentColor = 'Dark-Sky-Blue'",
-                        "Appearance = 'DaRk'",
-                        "ToastTimeoutMs = 12000",
-                        "AlbumArtistSplitPatterns = ['&', '/']",
+                        "log_level = 'info'",
+                        "database_path = 'library.sqlite'",
+                        "roots = ['music-a', 'music-b']",
+                        "ffmpeg_path = 'bin/ffmpeg'",
+                        "youtube_download_path = 'youtube'",
+                        "prefer_musicbrainz_english_aliases = false",
+                        "host = '0.0.0.0'",
+                        "port = 43210",
+                        "accent_color = 'Dark-Sky-Blue'",
+                        "appearance = 'DaRk'",
+                        "toast_timeout_ms = 12000",
+                        "album_artist_split_patterns = ['&', '/']",
+                        "[opensubsonic]",
+                        "mount_prefix = '/sonic/'",
+                        "secret_file = 'os.secret'",
                     )
                 ),
             )
@@ -1800,10 +1810,6 @@ class PlayerConfigTest(unittest.TestCase):
             self.assertFalse(options.prefer_musicbrainz_english_aliases)
             self.assertEqual(options.host, "0.0.0.0")
             self.assertEqual(options.port, 43210)
-            self.assertEqual(options.open_subsonic_username, "os-user")
-            self.assertEqual(options.open_subsonic_password, "os-pass")
-            self.assertEqual(options.open_subsonic_host, "0.0.0.0")
-            self.assertEqual(options.open_subsonic_port, 4534)
             self.assertEqual(options.log_level, "INFO")
             self.assertEqual(options.accent_color, "dark-sky-blue")
             self.assertEqual(options.appearance, "dark")
@@ -1815,6 +1821,10 @@ class PlayerConfigTest(unittest.TestCase):
             self.assertEqual(options.auth.password_hash_file, (temp_path / "password.hash").resolve())
             self.assertEqual(options.auth.cookie_max_age, DEFAULT_AUTH_COOKIE_MAX_AGE)
             self.assertEqual(options.auth.cookie_name, DEFAULT_AUTH_COOKIE_NAME)
+            self.assertIsNotNone(options.opensubsonic)
+            assert options.opensubsonic is not None
+            self.assertEqual(options.opensubsonic.mount_prefix, "/sonic")
+            self.assertEqual(options.opensubsonic.secret_file, open_subsonic_secret.resolve())
 
     def test_load_player_options_reads_auth_cookie_config(self) -> None:
         with TemporaryDirectory() as tempdir:
@@ -1849,7 +1859,7 @@ class PlayerConfigTest(unittest.TestCase):
     def test_load_player_options_rejects_missing_auth_section(self) -> None:
         with TemporaryDirectory() as tempdir:
             config_path = Path(tempdir) / "kukicha.toml"
-            config_path.write_text("LogLevel = 'INFO'\n", encoding="utf-8")
+            config_path.write_text("log_level = 'INFO'\n", encoding="utf-8")
 
             with self.assertRaisesRegex(PlayerConfigError, r"\[auth\] section is required"):
                 load_player_options(config_path)
@@ -1906,6 +1916,56 @@ class PlayerConfigTest(unittest.TestCase):
             with self.assertRaisesRegex(PlayerConfigError, "permissions must be 600"):
                 load_player_options(config_path)
 
+    def test_load_player_options_rejects_invalid_opensubsonic_config(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            config_path = temp_path / "kukicha.toml"
+            secret_file = temp_path / "opensubsonic.secret"
+            self.write_open_subsonic_secret(secret_file)
+            cases = (
+                (
+                    "opensubsonic = 'bad'\n",
+                    "opensubsonic must be a table",
+                ),
+                (
+                    "[opensubsonic]\nsecret_file = 'opensubsonic.secret'\n",
+                    "missing required key",
+                ),
+                (
+                    "[opensubsonic]\nmount_prefix = 'sonic'\nsecret_file = 'opensubsonic.secret'\n",
+                    "mount_prefix must start with /",
+                ),
+                (
+                    "[opensubsonic]\nmount_prefix = '/'\nsecret_file = 'missing.secret'\n",
+                    "does not exist",
+                ),
+                (
+                    "[opensubsonic]\nmount_prefix = '/'\nsecret_file = 'opensubsonic.secret'\nBogus = true\n",
+                    "unsupported opensubsonic key",
+                ),
+            )
+            for text, message in cases:
+                with self.subTest(message=message):
+                    self.write_config(config_path, text)
+                    with self.assertRaisesRegex(PlayerConfigError, message):
+                        load_player_options(config_path)
+
+    def test_load_player_options_rejects_unsafe_opensubsonic_secret_file(self) -> None:
+        if os.name == "nt":
+            self.skipTest("POSIX file mode checks do not apply on Windows")
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            config_path = temp_path / "kukicha.toml"
+            secret_file = temp_path / "opensubsonic.secret"
+            self.write_open_subsonic_secret(secret_file, mode=0o644)
+            self.write_config(
+                config_path,
+                "[opensubsonic]\nmount_prefix = '/'\nsecret_file = 'opensubsonic.secret'\n",
+            )
+
+            with self.assertRaisesRegex(PlayerConfigError, "permissions must be 600"):
+                load_player_options(config_path)
+
     def test_load_player_options_reads_remote_roots(self) -> None:
         with TemporaryDirectory() as tempdir:
             config_path = Path(tempdir) / "kukicha.toml"
@@ -1913,7 +1973,7 @@ class PlayerConfigTest(unittest.TestCase):
                 config_path,
                 "\n".join(
                     (
-                        "[[RemoteRoots]]",
+                        "[[remote_roots]]",
                         "name = 'wasabi-music'",
                         "endpoint_url = 'https://s3.us-east-1.wasabisys.com/'",
                         "bucket = 'com.cconroy.music'",
@@ -1942,11 +2002,11 @@ class PlayerConfigTest(unittest.TestCase):
             config_path = Path(tempdir) / "kukicha.toml"
             cases = (
                 (
-                    "[RemoteRoots]\nname = 'music'\n",
-                    "RemoteRoots must be an array of tables",
+                    "[remote_roots]\nname = 'music'\n",
+                    "remote_roots must be an array of tables",
                 ),
                 (
-                    "[[RemoteRoots]]\n"
+                    "[[remote_roots]]\n"
                     "name = 'music'\n"
                     "endpoint_url = 'https://s3.example.test'\n"
                     "bucket = 'bucket'\n"
@@ -1954,12 +2014,12 @@ class PlayerConfigTest(unittest.TestCase):
                     "must not contain inline credentials",
                 ),
                 (
-                    "[[RemoteRoots]]\n"
+                    "[[remote_roots]]\n"
                     "name = 'all'\n"
                     "endpoint_url = 'https://s3.example.test'\n"
                     "bucket = 'bucket'\n"
                     "prefix = 'music/'\n"
-                    "[[RemoteRoots]]\n"
+                    "[[remote_roots]]\n"
                     "name = 'nested'\n"
                     "endpoint_url = 'https://s3.example.test'\n"
                     "bucket = 'bucket'\n"
@@ -1967,7 +2027,7 @@ class PlayerConfigTest(unittest.TestCase):
                     "must not contain nested prefixes",
                 ),
                 (
-                    "[[RemoteRoots]]\n"
+                    "[[remote_roots]]\n"
                     "name = 'music'\n"
                     "endpoint_url = 'https://s3.example.test'\n"
                     "bucket = 'bucket'\n"
@@ -2008,10 +2068,7 @@ class PlayerConfigTest(unittest.TestCase):
             self.assertEqual(options.roots, ())
             self.assertEqual(options.host, DEFAULT_PLAYER_HOST)
             self.assertEqual(options.port, DEFAULT_PLAYER_PORT)
-            self.assertEqual(options.open_subsonic_username, DEFAULT_OPEN_SUBSONIC_USERNAME)
-            self.assertEqual(options.open_subsonic_password, DEFAULT_OPEN_SUBSONIC_PASSWORD)
-            self.assertEqual(options.open_subsonic_host, DEFAULT_OPEN_SUBSONIC_HOST)
-            self.assertEqual(options.open_subsonic_port, DEFAULT_OPEN_SUBSONIC_PORT)
+            self.assertIsNone(options.opensubsonic)
             self.assertEqual(options.log_level, DEFAULT_PLAYER_LOG_LEVEL)
             self.assertEqual(options.accent_color, DEFAULT_ACCENT_COLOR)
             self.assertEqual(options.appearance, "system")
@@ -2024,7 +2081,7 @@ class PlayerConfigTest(unittest.TestCase):
     def test_load_player_options_accepts_empty_album_artist_split_patterns(self) -> None:
         with TemporaryDirectory() as tempdir:
             config_path = Path(tempdir) / "kukicha.toml"
-            self.write_config(config_path, "AlbumArtistSplitPatterns = []\n")
+            self.write_config(config_path, "album_artist_split_patterns = []\n")
 
             options = load_player_options(config_path)
 
@@ -2033,11 +2090,11 @@ class PlayerConfigTest(unittest.TestCase):
     def test_load_player_options_rejects_non_string_album_artist_split_patterns(self) -> None:
         with TemporaryDirectory() as tempdir:
             config_path = Path(tempdir) / "kukicha.toml"
-            self.write_config(config_path, "AlbumArtistSplitPatterns = ['&', 1]\n")
+            self.write_config(config_path, "album_artist_split_patterns = ['&', 1]\n")
 
             with self.assertRaisesRegex(
                 PlayerConfigError,
-                "AlbumArtistSplitPatterns must be an array of strings",
+                "album_artist_split_patterns must be an array of strings",
             ):
                 load_player_options(config_path)
 
@@ -2045,12 +2102,12 @@ class PlayerConfigTest(unittest.TestCase):
         with TemporaryDirectory() as tempdir:
             config_path = Path(tempdir) / "kukicha.toml"
             for text, message in (
-                ("Roots = 'music'\n", "Roots must be an array of strings"),
-                ("Roots = ['music', 1]\n", "Roots must be an array of non-empty strings"),
-                ("Roots = ['music', '  ']\n", "Roots must be an array of non-empty strings"),
-                ("Roots = ['music', './music']\n", "Roots must not contain duplicate paths"),
-                ("Roots = ['music', 'music/live']\n", "Roots must not contain nested paths"),
-                ("Roots = ['music/live', 'music']\n", "Roots must not contain nested paths"),
+                ("roots = 'music'\n", "roots must be an array of strings"),
+                ("roots = ['music', 1]\n", "roots must be an array of non-empty strings"),
+                ("roots = ['music', '  ']\n", "roots must be an array of non-empty strings"),
+                ("roots = ['music', './music']\n", "roots must not contain duplicate paths"),
+                ("roots = ['music', 'music/live']\n", "roots must not contain nested paths"),
+                ("roots = ['music/live', 'music']\n", "roots must not contain nested paths"),
             ):
                 with self.subTest(text=text):
                     self.write_config(config_path, text)
@@ -2071,11 +2128,11 @@ class PlayerConfigTest(unittest.TestCase):
             except OSError as error:
                 self.skipTest(f"symlink unavailable: {error}")
             config_path = temp_path / "kukicha.toml"
-            self.write_config(config_path, "Roots = ['library', 'linked-album-alias']\n")
+            self.write_config(config_path, "roots = ['library', 'linked-album-alias']\n")
 
             with self.assertRaisesRegex(
                 PlayerConfigError,
-                "Roots must not contain nested paths",
+                "roots must not contain nested paths",
             ) as caught:
                 load_player_options(config_path)
 
@@ -2088,33 +2145,33 @@ class PlayerConfigTest(unittest.TestCase):
     def test_load_player_options_rejects_invalid_toast_timeouts(self) -> None:
         with TemporaryDirectory() as tempdir:
             config_path = Path(tempdir) / "kukicha.toml"
-            self.write_config(config_path, "ToastTimeoutMs = 0\n")
+            self.write_config(config_path, "toast_timeout_ms = 0\n")
 
-            with self.assertRaisesRegex(PlayerConfigError, "ToastTimeoutMs must be greater than 0"):
+            with self.assertRaisesRegex(PlayerConfigError, "toast_timeout_ms must be greater than 0"):
                 load_player_options(config_path)
 
     def test_load_player_options_rejects_invalid_musicbrainz_alias_preference(self) -> None:
         with TemporaryDirectory() as tempdir:
             config_path = Path(tempdir) / "kukicha.toml"
-            self.write_config(config_path, "PreferMusicBrainzEnglishAliases = 'yes'\n")
+            self.write_config(config_path, "prefer_musicbrainz_english_aliases = 'yes'\n")
 
             with self.assertRaisesRegex(
                 PlayerConfigError,
-                "PreferMusicBrainzEnglishAliases must be true or false",
+                "prefer_musicbrainz_english_aliases must be true or false",
             ):
                 load_player_options(config_path)
 
     def test_load_player_options_rejects_invalid_accent_color(self) -> None:
         with TemporaryDirectory() as tempdir:
             config_path = Path(tempdir) / "kukicha.toml"
-            self.write_config(config_path, "AccentColor = 'plaid'\n")
+            self.write_config(config_path, "accent_color = 'plaid'\n")
 
-            with self.assertRaisesRegex(PlayerConfigError, "AccentColor must be a supported palette color"):
+            with self.assertRaisesRegex(PlayerConfigError, "accent_color must be a supported palette color"):
                 load_player_options(config_path)
 
-            self.write_config(config_path, "AccentColor = 123\n")
+            self.write_config(config_path, "accent_color = 123\n")
 
-            with self.assertRaisesRegex(PlayerConfigError, "AccentColor must be a non-empty string"):
+            with self.assertRaisesRegex(PlayerConfigError, "accent_color must be a non-empty string"):
                 load_player_options(config_path)
 
     def test_load_player_options_rejects_neutral_accent_colors(self) -> None:
@@ -2130,31 +2187,31 @@ class PlayerConfigTest(unittest.TestCase):
                 "light-border",
             ):
                 with self.subTest(value=value):
-                    self.write_config(config_path, f"AccentColor = '{value}'\n")
+                    self.write_config(config_path, f"accent_color = '{value}'\n")
 
                     with self.assertRaisesRegex(
                         PlayerConfigError,
-                        "AccentColor must be a supported palette color",
+                        "accent_color must be a supported palette color",
                     ):
                         load_player_options(config_path)
 
     def test_load_player_options_rejects_invalid_appearance(self) -> None:
         with TemporaryDirectory() as tempdir:
             config_path = Path(tempdir) / "kukicha.toml"
-            self.write_config(config_path, "Appearance = 'sepia'\n")
+            self.write_config(config_path, "appearance = 'sepia'\n")
 
-            with self.assertRaisesRegex(PlayerConfigError, "Appearance must be one of"):
+            with self.assertRaisesRegex(PlayerConfigError, "appearance must be one of"):
                 load_player_options(config_path)
 
-            self.write_config(config_path, "Appearance = 123\n")
+            self.write_config(config_path, "appearance = 123\n")
 
-            with self.assertRaisesRegex(PlayerConfigError, "Appearance must be a non-empty string"):
+            with self.assertRaisesRegex(PlayerConfigError, "appearance must be a non-empty string"):
                 load_player_options(config_path)
 
     def test_load_player_options_accepts_system_appearance(self) -> None:
         with TemporaryDirectory() as tempdir:
             config_path = Path(tempdir) / "kukicha.toml"
-            self.write_config(config_path, "Appearance = 'SYSTEM'\n")
+            self.write_config(config_path, "appearance = 'SYSTEM'\n")
 
             options = load_player_options(config_path)
 
@@ -2163,7 +2220,7 @@ class PlayerConfigTest(unittest.TestCase):
     def test_load_player_options_accepts_palette_accent_color_code(self) -> None:
         with TemporaryDirectory() as tempdir:
             config_path = Path(tempdir) / "kukicha.toml"
-            self.write_config(config_path, "AccentColor = '#06B6D4'\n")
+            self.write_config(config_path, "accent_color = '#06B6D4'\n")
 
             options = load_player_options(config_path)
 
@@ -2185,7 +2242,15 @@ class PlayerConfigTest(unittest.TestCase):
     def test_load_player_options_rejects_unknown_config_keys(self) -> None:
         with TemporaryDirectory() as tempdir:
             config_path = Path(tempdir) / "kukicha.toml"
-            for text in ("Bogus = 'value'\n", "LinkedToastTimeoutMs = 25000\n"):
+            for text in (
+                "Bogus = 'value'\n",
+                "linked_toast_timeout_ms = 25000\n",
+                "LogLevel = 'INFO'\n",
+                "OpenSubsonicUsername = 'guest'\n",
+                "OpenSubsonicPassword = 'guest'\n",
+                "OpenSubsonicHost = '127.0.0.1'\n",
+                "OpenSubsonicPort = 4533\n",
+            ):
                 with self.subTest(text=text):
                     config_path.write_text(text, encoding="utf-8")
 
@@ -2203,27 +2268,27 @@ class PlayerConfigTest(unittest.TestCase):
             self.assertIn("error: config file does not exist", help_text)
             self.assertNotIn("Current values:", help_text)
             self.assertIn(
-                "Supported keys:\n  LogLevel\n  DatabasePath\n  Roots\n  RemoteRoots\n  FFmpegPath\n"
-                "  YoutubeDownloadPath\n  PreferMusicBrainzEnglishAliases\n  Host\n  Port\n"
-                "  OpenSubsonicUsername\n  OpenSubsonicPassword\n  OpenSubsonicHost\n"
-                "  OpenSubsonicPort\n  Appearance\n  AccentColor\n  ToastTimeoutMs\n"
-                "  AlbumArtistSplitPatterns\n  auth.username\n  auth.password_hash_file\n"
-                "  auth.cookie_max_age\n  auth.cookie_name",
+                "Supported keys:\n  log_level\n  database_path\n  roots\n  remote_roots\n  ffmpeg_path\n"
+                "  youtube_download_path\n  prefer_musicbrainz_english_aliases\n  host\n  port\n"
+                "  appearance\n  accent_color\n  toast_timeout_ms\n"
+                "  album_artist_split_patterns\n  auth.username\n  auth.password_hash_file\n"
+                "  auth.cookie_max_age\n  auth.cookie_name\n"
+                "  opensubsonic.mount_prefix\n  opensubsonic.secret_file",
                 help_text,
             )
-            self.assertNotIn("LinkedToastTimeoutMs", help_text)
+            self.assertNotIn("linked_toast_timeout_ms", help_text)
             self.assertIn(
-                "Appearance accepts these values:\n  light\n  dark\n  dim\n  system",
+                "appearance accepts these values:\n  light\n  dark\n  dim\n  system",
                 help_text,
             )
             self.assertIn(
-                "AccentColor accepts these palette names or matching hex codes:\n  "
+                "accent_color accepts these palette names or matching hex codes:\n  "
                 + " ".join(ACCENT_COLOR_CODES),
                 help_text,
             )
             self.assertLess(
-                help_text.index("Appearance accepts these values:"),
-                help_text.index("AccentColor accepts these palette names or matching hex codes:"),
+                help_text.index("appearance accepts these values:"),
+                help_text.index("accent_color accepts these palette names or matching hex codes:"),
             )
             self.assertNotIn(f"{DEFAULT_ACCENT_COLOR} ({ACCENT_COLOR_CODES[DEFAULT_ACCENT_COLOR]})", help_text)
 
@@ -2245,12 +2310,31 @@ class CliPlayerCommandTest(unittest.TestCase):
         ):
             parser.parse_args(["player", "-c", "/tmp/kukicha.toml"])
 
-    def test_opensubsonic_subcommand_is_available(self) -> None:
+    def test_opensubsonic_requires_management_subcommand(self) -> None:
         parser = build_parser()
 
-        args = parser.parse_args(["opensubsonic"])
+        with (
+            patch("sys.stderr", new=io.StringIO()),
+            self.assertRaises(SystemExit),
+        ):
+            parser.parse_args(["opensubsonic"])
+
+    def test_opensubsonic_init_subcommand_is_available(self) -> None:
+        parser = build_parser()
+
+        args = parser.parse_args(["opensubsonic", "init"])
 
         self.assertEqual(args.command, "opensubsonic")
+        self.assertEqual(args.opensubsonic_command, "init")
+        self.assertTrue(callable(args.func))
+
+    def test_opensubsonic_password_subcommand_is_available(self) -> None:
+        parser = build_parser()
+
+        args = parser.parse_args(["opensubsonic", "password"])
+
+        self.assertEqual(args.command, "opensubsonic")
+        self.assertEqual(args.opensubsonic_command, "password")
         self.assertTrue(callable(args.func))
 
     def test_auth_password_subcommand_is_available(self) -> None:
@@ -2299,10 +2383,10 @@ class CliPlayerCommandTest(unittest.TestCase):
             config_path.write_text(
                 "\n".join(
                     (
-                        "LogLevel = 'info'",
-                        "DatabasePath = 'custom.sqlite'",
-                        "Host = '0.0.0.0'",
-                        "Port = 43210",
+                        "log_level = 'info'",
+                        "database_path = 'custom.sqlite'",
+                        "host = '0.0.0.0'",
+                        "port = 43210",
                         "[auth]",
                         "username = 'listener'",
                         "password_hash_file = 'password.hash'",
@@ -2321,11 +2405,11 @@ class CliPlayerCommandTest(unittest.TestCase):
             help_text = stdout.getvalue()
             self.assertIn(f"path: {config_path.resolve()}", help_text)
             self.assertIn("status: found", help_text)
-            self.assertIn("LogLevel: INFO (configured)", help_text)
-            self.assertIn(f"DatabasePath: {(temp_path / 'custom.sqlite').resolve()} (configured)", help_text)
-            self.assertIn("Host: 0.0.0.0 (configured)", help_text)
-            self.assertIn("Port: 43210 (configured)", help_text)
-            self.assertIn("FFmpegPath: <unset> (default)", help_text)
+            self.assertIn("log_level: INFO (configured)", help_text)
+            self.assertIn(f"database_path: {(temp_path / 'custom.sqlite').resolve()} (configured)", help_text)
+            self.assertIn("host: 0.0.0.0 (configured)", help_text)
+            self.assertIn("port: 43210 (configured)", help_text)
+            self.assertIn("ffmpeg_path: <unset> (default)", help_text)
 
 
 class InitCommandTest(unittest.TestCase):
@@ -2350,6 +2434,41 @@ class InitCommandTest(unittest.TestCase):
         ):
             return args.func(args)
 
+    def run_open_subsonic_init(
+        self,
+        config_path: Path,
+        *,
+        password: str = "sonic-secret",
+        mount_prefix: str = "/",
+    ) -> int:
+        args = build_parser().parse_args(["--config", str(config_path), "opensubsonic", "init"])
+        env = {
+            "OPENSUBSONIC_PASSWORD": password,
+            "OPENSUBSONIC_MOUNT": mount_prefix,
+        }
+        with (
+            patch.dict(os.environ, env, clear=False),
+            patch("sys.stdout", new=io.StringIO()),
+            patch("sys.stderr", new=io.StringIO()),
+        ):
+            return args.func(args)
+
+    def run_open_subsonic_password(
+        self,
+        config_path: Path,
+        *,
+        password: str = "new-sonic-secret",
+    ) -> int:
+        args = build_parser().parse_args(
+            ["--config", str(config_path), "opensubsonic", "password"]
+        )
+        with (
+            patch.dict(os.environ, {"OPENSUBSONIC_PASSWORD": password}, clear=False),
+            patch("sys.stdout", new=io.StringIO()),
+            patch("sys.stderr", new=io.StringIO()),
+        ):
+            return args.func(args)
+
     def test_init_uses_env_credentials_and_stdin_config(self) -> None:
         with TemporaryDirectory() as tempdir:
             config_path = Path(tempdir) / "kukicha.toml"
@@ -2357,10 +2476,10 @@ class InitCommandTest(unittest.TestCase):
                 config_path,
                 stdin="\n".join(
                     (
-                        "Host = '0.0.0.0'",
-                        "Port = 4533",
-                        "Roots = ['/music']",
-                        "Appearance = 'dim'",
+                        "host = '0.0.0.0'",
+                        "port = 4533",
+                        "roots = ['/music']",
+                        "appearance = 'dim'",
                         "",
                     )
                 ),
@@ -2368,7 +2487,7 @@ class InitCommandTest(unittest.TestCase):
 
             self.assertEqual(exit_code, 0)
             config = tomllib.loads(config_path.read_text(encoding="utf-8"))
-            self.assertEqual(config["Host"], "0.0.0.0")
+            self.assertEqual(config["host"], "0.0.0.0")
             self.assertEqual(config["auth"]["username"], "listener")
             self.assertEqual(
                 config["auth"]["password_hash_file"],
@@ -2411,7 +2530,7 @@ class InitCommandTest(unittest.TestCase):
     def test_init_adds_auth_to_existing_config_and_rejects_existing_auth(self) -> None:
         with TemporaryDirectory() as tempdir:
             config_path = Path(tempdir) / "kukicha.toml"
-            config_path.write_text("LogLevel = 'INFO'\n", encoding="utf-8")
+            config_path.write_text("log_level = 'INFO'\n", encoding="utf-8")
 
             first_exit_code = self.run_init(config_path)
             second_exit_code = self.run_init(config_path)
@@ -2419,18 +2538,115 @@ class InitCommandTest(unittest.TestCase):
             self.assertEqual(first_exit_code, 0)
             self.assertEqual(second_exit_code, 1)
             config = tomllib.loads(config_path.read_text(encoding="utf-8"))
-            self.assertEqual(config["LogLevel"], "INFO")
+            self.assertEqual(config["log_level"], "INFO")
             self.assertEqual(config["auth"]["username"], "listener")
 
     def test_init_rejects_existing_config_with_stdin_config(self) -> None:
         with TemporaryDirectory() as tempdir:
             config_path = Path(tempdir) / "kukicha.toml"
-            config_path.write_text("LogLevel = 'INFO'\n", encoding="utf-8")
+            config_path.write_text("log_level = 'INFO'\n", encoding="utf-8")
 
-            exit_code = self.run_init(config_path, stdin="Host = '0.0.0.0'\n")
+            exit_code = self.run_init(config_path, stdin="host = '0.0.0.0'\n")
 
             self.assertEqual(exit_code, 1)
             self.assertNotIn("[auth]", config_path.read_text(encoding="utf-8"))
+
+    def test_opensubsonic_init_uses_env_and_rejects_existing_section(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            config_path = temp_path / "kukicha.toml"
+            self.run_init(config_path)
+
+            first_exit_code = self.run_open_subsonic_init(
+                config_path,
+                password="sonic-secret",
+                mount_prefix="/sonic/",
+            )
+            second_exit_code = self.run_open_subsonic_init(config_path)
+
+            self.assertEqual(first_exit_code, 0)
+            self.assertEqual(second_exit_code, 1)
+            config = tomllib.loads(config_path.read_text(encoding="utf-8"))
+            self.assertEqual(config["opensubsonic"]["mount_prefix"], "/sonic")
+            self.assertEqual(
+                config["opensubsonic"]["secret_file"],
+                str((temp_path / DEFAULT_OPEN_SUBSONIC_SECRET_FILENAME).resolve()),
+            )
+            secret_file = temp_path / DEFAULT_OPEN_SUBSONIC_SECRET_FILENAME
+            self.assertEqual(secret_file.read_text(encoding="utf-8"), "sonic-secret\n")
+            self.assertEqual(secret_file.stat().st_mode & 0o777, 0o600)
+            options = load_player_options(config_path)
+            self.assertIsNotNone(options.opensubsonic)
+            assert options.opensubsonic is not None
+            self.assertEqual(options.opensubsonic.mount_prefix, "/sonic")
+            self.assertEqual(options.opensubsonic.secret_file, secret_file.resolve())
+
+    def test_opensubsonic_init_prompts_interactively_without_env(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            config_path = Path(tempdir) / "kukicha.toml"
+            self.run_init(config_path)
+            args = build_parser().parse_args(
+                ["--config", str(config_path), "opensubsonic", "init"]
+            )
+            with (
+                patch.dict(os.environ, {}, clear=True),
+                patch("builtins.input", return_value="/sonic"),
+                patch("getpass.getpass", side_effect=["sonic-secret", "sonic-secret"]),
+                patch("sys.stdout", new=io.StringIO()),
+                patch("sys.stderr", new=io.StringIO()),
+            ):
+                exit_code = args.func(args)
+
+            self.assertEqual(exit_code, 0)
+            options = load_player_options(config_path)
+            self.assertIsNotNone(options.opensubsonic)
+            assert options.opensubsonic is not None
+            self.assertEqual(options.opensubsonic.mount_prefix, "/sonic")
+            self.assertEqual(
+                options.opensubsonic.secret_file.read_text(encoding="utf-8"),
+                "sonic-secret\n",
+            )
+
+    def test_opensubsonic_init_rejects_config_without_auth(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            config_path = Path(tempdir) / "kukicha.toml"
+            config_path.write_text("log_level = 'INFO'\n", encoding="utf-8")
+
+            exit_code = self.run_open_subsonic_init(config_path)
+
+            self.assertEqual(exit_code, 1)
+            self.assertNotIn("[opensubsonic]", config_path.read_text(encoding="utf-8"))
+
+    def test_opensubsonic_password_updates_secret_file_and_preserves_config(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            config_path = Path(tempdir) / "kukicha.toml"
+            self.run_init(config_path)
+            self.run_open_subsonic_init(config_path, password="old-secret")
+            before_config = config_path.read_text(encoding="utf-8")
+            options = load_player_options(config_path)
+            assert options.opensubsonic is not None
+
+            exit_code = self.run_open_subsonic_password(
+                config_path,
+                password="new-secret",
+            )
+
+            self.assertEqual(exit_code, 0)
+            self.assertEqual(config_path.read_text(encoding="utf-8"), before_config)
+            self.assertEqual(
+                options.opensubsonic.secret_file.read_text(encoding="utf-8"),
+                "new-secret\n",
+            )
+            self.assertEqual(options.opensubsonic.secret_file.stat().st_mode & 0o777, 0o600)
+
+    def test_opensubsonic_password_rejects_config_without_opensubsonic(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            config_path = Path(tempdir) / "kukicha.toml"
+            self.run_init(config_path)
+
+            exit_code = self.run_open_subsonic_password(config_path)
+
+            self.assertEqual(exit_code, 1)
 
     def test_auth_password_updates_hash_file_from_env_and_preserves_config(self) -> None:
         with TemporaryDirectory() as tempdir:
@@ -2480,7 +2696,7 @@ class InitCommandTest(unittest.TestCase):
     def test_auth_password_rejects_config_without_auth(self) -> None:
         with TemporaryDirectory() as tempdir:
             config_path = Path(tempdir) / "kukicha.toml"
-            config_path.write_text("LogLevel = 'INFO'\n", encoding="utf-8")
+            config_path.write_text("log_level = 'INFO'\n", encoding="utf-8")
             args = build_parser().parse_args(["--config", str(config_path), "auth", "password"])
 
             with (
@@ -2531,7 +2747,7 @@ class PlayerStartupTest(unittest.TestCase):
 
             with self.assertRaisesRegex(
                 PlayerConfigError,
-                "Roots must not contain nested paths",
+                "roots must not contain nested paths",
             ):
                 validate_player_startup(options)
 
@@ -3661,6 +3877,26 @@ class PlayerWebAdapterTest(unittest.TestCase):
             response = app.test_client().get("/healthz")
 
             self.assertEqual(response.status_code, 204)
+
+    def test_opensubsonic_routes_return_not_found_when_not_configured(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            runtime = self.make_runtime(temp_path / "kukicha.sqlite")
+            with patch("kukicha.player_web_adapter.PlayerRuntime", return_value=runtime):
+                app = create_player_app(self.make_auth_options(temp_path))
+
+            response = app.test_client().get(
+                "/rest/ping",
+                query_string={
+                    "u": "listener",
+                    "p": "sonic-secret",
+                    "v": "1.16.1",
+                    "c": "kukicha-test",
+                    "f": "json",
+                },
+            )
+
+            self.assertEqual(response.status_code, 404)
 
     def test_player_auth_redirects_pages_and_rejects_api_and_media(self) -> None:
         with TemporaryDirectory() as tempdir:
@@ -4848,6 +5084,49 @@ class PlayerWebAdapterTest(unittest.TestCase):
             logger.error.assert_called_once()
             self.assertFalse(database.exists())
 
+    def test_serve_player_logs_open_subsonic_mount(self) -> None:
+        for mount_prefix, expected_url in (
+            ("/", "http://127.0.0.1:4567/"),
+            ("/sonic", "http://127.0.0.1:4567/sonic"),
+        ):
+            with self.subTest(mount_prefix=mount_prefix):
+                with TemporaryDirectory() as tempdir:
+                    temp_path = Path(tempdir)
+                    secret_file = temp_path / "opensubsonic.secret"
+                    secret_file.write_text("sonic-secret\n", encoding="utf-8")
+                    secret_file.chmod(0o600)
+                    runtime = self.make_runtime(temp_path / "kukicha.sqlite")
+                    options = replace(
+                        self.make_auth_options(temp_path),
+                        opensubsonic=OpenSubsonicOptions(
+                            mount_prefix=mount_prefix,
+                            secret_file=secret_file,
+                        ),
+                    )
+                    server = Mock()
+                    server.server_port = 4567
+                    server.serve_forever.side_effect = KeyboardInterrupt
+
+                    with (
+                        patch("kukicha.player_web_adapter.PlayerRuntime", return_value=runtime),
+                        patch("kukicha.player_web_adapter.make_server", return_value=server),
+                        patch("kukicha.player_web_adapter.LOGGER") as logger,
+                        patch(
+                            "kukicha.player_web_adapter.register_player_signal_handlers",
+                            return_value={},
+                        ),
+                        patch("kukicha.player_web_adapter.restore_signal_handlers"),
+                    ):
+                        result = serve_player(options)
+
+                    self.assertEqual(result, 0)
+                    logger.info.assert_any_call(
+                        "OpenSubsonic server URL for clients: %s (mount prefix %s)",
+                        expected_url,
+                        mount_prefix,
+                    )
+                    server.server_close.assert_called_once()
+
     def test_removed_placeholder_routes_return_not_found(self) -> None:
         with TemporaryDirectory() as tempdir:
             temp_path = Path(tempdir)
@@ -5376,13 +5655,13 @@ class PlayerWebAdapterTest(unittest.TestCase):
                 config_path,
                 "\n".join(
                     (
-                        "LogLevel = 'info'",
-                        "Roots = ['music-a', 'music-b']",
-                        "Host = '0.0.0.0'",
-                        "Port = 43210",
-                        "AccentColor = 'cyan'",
-                        "Appearance = 'dim'",
-                        "AlbumArtistSplitPatterns = ['&', '/']",
+                        "log_level = 'info'",
+                        "roots = ['music-a', 'music-b']",
+                        "host = '0.0.0.0'",
+                        "port = 43210",
+                        "accent_color = 'cyan'",
+                        "appearance = 'dim'",
+                        "album_artist_split_patterns = ['&', '/']",
                     )
                 ),
             )
@@ -5402,21 +5681,21 @@ class PlayerWebAdapterTest(unittest.TestCase):
                 response.data.index(b"<h2>Config</h2>"),
             )
             self.assertIn(f"<code>{config_path.resolve()}</code>".encode(), response.data)
-            self.assertIn(b"<code>LogLevel</code>", response.data)
+            self.assertIn(b"<code>log_level</code>", response.data)
             self.assertIn(b"<code>INFO</code>", response.data)
-            self.assertIn(b"<code>Host</code>", response.data)
+            self.assertIn(b"<code>host</code>", response.data)
             self.assertIn(b"<code>0.0.0.0</code>", response.data)
-            self.assertIn(b"<code>Port</code>", response.data)
+            self.assertIn(b"<code>port</code>", response.data)
             self.assertIn(b"<code>43210</code>", response.data)
-            self.assertIn(b"<code>AccentColor</code>", response.data)
+            self.assertIn(b"<code>accent_color</code>", response.data)
             self.assertIn(b"<code>cyan</code>", response.data)
-            self.assertIn(b"<code>Appearance</code>", response.data)
+            self.assertIn(b"<code>appearance</code>", response.data)
             self.assertIn(b"<code>dim</code>", response.data)
-            self.assertIn(b"<code>Roots</code>", response.data)
+            self.assertIn(b"<code>roots</code>", response.data)
             self.assertIn(b'class="config-array-value"', response.data)
             self.assertIn(f"<code>{(temp_path / 'music-a').resolve()}</code>".encode(), response.data)
             self.assertIn(f"<code>{(temp_path / 'music-b').resolve()}</code>".encode(), response.data)
-            self.assertIn(b"<code>AlbumArtistSplitPatterns</code>", response.data)
+            self.assertIn(b"<code>album_artist_split_patterns</code>", response.data)
             self.assertIn(b"<code>&amp;</code>", response.data)
             self.assertIn(b"<code>/</code>", response.data)
             self.assertIn(b"<code>auth.username</code>", response.data)
@@ -5435,14 +5714,14 @@ class PlayerWebAdapterTest(unittest.TestCase):
             self.assertIn(b"--accent-foreground: #111827;", response.data)
             self.assertIn(b"--control-accent: #06b6d4;", response.data)
             self.assertIn(b'<span class="config-source configured">configured</span>', response.data)
-            self.assertIn(b"<code>FFmpegPath</code>", response.data)
+            self.assertIn(b"<code>ffmpeg_path</code>", response.data)
             self.assertIn(b"<code>&lt;unset&gt;</code>", response.data)
             self.assertIn(b'<span class="config-source default">default</span>', response.data)
 
     def test_player_page_renders_dark_appearance_theme(self) -> None:
         with TemporaryDirectory() as tempdir:
             config_path = Path(tempdir) / "kukicha.toml"
-            self.write_config(config_path, "Appearance = 'dark'\n")
+            self.write_config(config_path, "appearance = 'dark'\n")
             app = create_player_app(load_player_options(config_path))
             client = self.logged_in_client(app)
 
@@ -5466,7 +5745,7 @@ class PlayerWebAdapterTest(unittest.TestCase):
     def test_player_page_renders_system_appearance_theme_media_query(self) -> None:
         with TemporaryDirectory() as tempdir:
             config_path = Path(tempdir) / "kukicha.toml"
-            self.write_config(config_path, "Appearance = 'system'\n")
+            self.write_config(config_path, "appearance = 'system'\n")
             app = create_player_app(load_player_options(config_path))
             client = self.logged_in_client(app)
 

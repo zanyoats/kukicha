@@ -117,7 +117,7 @@ def validate_remote_roots(roots: tuple[RemoteRootConfig, ...]) -> None:
         previous = seen.get(identity)
         if previous is not None:
             raise ValueError(
-                f"RemoteRoots must not contain duplicate prefixes: "
+                f"remote_roots must not contain duplicate prefixes: "
                 f"{remote_root_display_label(root)} duplicates "
                 f"{remote_root_display_label(previous)}"
             )
@@ -129,7 +129,7 @@ def validate_remote_roots(roots: tuple[RemoteRootConfig, ...]) -> None:
                 continue
             if prefixes_are_nested(parent.prefix, child.prefix):
                 raise ValueError(
-                    "RemoteRoots must not contain nested prefixes: "
+                    "remote_roots must not contain nested prefixes: "
                     f"{remote_root_display_label(child)} conflicts with "
                     f"{remote_root_display_label(parent)}"
                 )

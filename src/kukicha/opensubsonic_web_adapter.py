@@ -13,15 +13,13 @@ from xml.sax.saxutils import escape, quoteattr
 
 from flask import Flask, Response, current_app, request, stream_with_context
 from werkzeug.datastructures import MultiDict
-from werkzeug.serving import make_server
 
 from .app_metadata import kukicha_version
 from .models import ALBUM_ARTWORK_HEIGHT, TRACK_ARTWORK_HEIGHT
-from .player_config import LOGGER, PlayerServerOptions, validate_player_startup
+from .player_config import PlayerServerOptions, read_open_subsonic_secret
 from .player_errors import PlayerConfigError, PlayerNotFoundError
 from .media_resources import AudioResource, local_audio_resource
 from .player_media import audio_mime_type, audio_resource_head, iter_audio_resource_bytes
-from .player_platform import register_player_signal_handlers, restore_signal_handlers
 from .player_runtime import PlayerRuntime
 from .use_case import (
     ALBUM_LIST_SORT_ALBUMS,
@@ -77,29 +75,35 @@ class OpenSubsonicApiError(Exception):
         self.message = message
 
 
-def create_open_subsonic_app(options: PlayerServerOptions) -> Flask:
-    app = Flask("kukicha-opensubsonic", static_folder=None)
-    runtime = PlayerRuntime(options)
+def open_subsonic_rest_prefix(mount_prefix: str) -> str:
+    if mount_prefix == "/":
+        return "/rest"
+    return f"{mount_prefix}/rest"
+
+
+def mount_open_subsonic(
+    app: Flask,
+    *,
+    options: PlayerServerOptions,
+    runtime: PlayerRuntime,
+    database: Path,
+) -> None:
+    if options.opensubsonic is None:
+        return
+
     app.extensions[OPEN_SUBSONIC_CONTEXT_KEY] = OpenSubsonicWebContext(
         options=options,
         runtime=runtime,
-        database=runtime.database,
+        database=database,
     )
+    rest_prefix = open_subsonic_rest_prefix(options.opensubsonic.mount_prefix)
 
-    @app.get("/healthz")
-    def healthz() -> Response:
-        return Response(status=204)
-
-    @app.get("/")
-    @app.get("/rest")
-    @app.get("/rest/")
     def service_root() -> Response:
         return Response(
             "kukicha OpenSubsonic\n",
             content_type="text/plain; charset=utf-8",
         )
 
-    @app.route("/rest/<path:endpoint>", methods=["GET", "POST"])
     def open_subsonic_endpoint(endpoint: str) -> Response:
         endpoint_name = normalized_endpoint_name(endpoint)
         params = request_parameters()
@@ -132,47 +136,25 @@ def create_open_subsonic_app(options: PlayerServerOptions) -> Flask:
             return result
         return subsonic_success_response(result)
 
-    return app
-
-
-def serve_open_subsonic(options: PlayerServerOptions) -> int:
-    try:
-        validate_player_startup(options)
-    except PlayerConfigError as error:
-        LOGGER.error("%s", error)
-        return 1
-
-    app = create_open_subsonic_app(options)
-    try:
-        server = make_server(
-            options.open_subsonic_host,
-            options.open_subsonic_port,
-            app,
-            threaded=True,
-        )
-    except OSError as error:
-        LOGGER.error(
-            "failed to bind OpenSubsonic server on %s:%s: %s",
-            options.open_subsonic_host,
-            options.open_subsonic_port,
-            error,
-        )
-        return 1
-
-    url = f"http://{options.open_subsonic_host}:{server.server_port}/"
-    LOGGER.info("using config file %s", options.config_path)
-    LOGGER.info("kukicha OpenSubsonic listening on %s", url)
-    stop_reason = {"value": "received interrupt"}
-    previous_handlers = register_player_signal_handlers(stop_reason)
-    try:
-        server.serve_forever()
-    except KeyboardInterrupt:
-        LOGGER.info("stopping OpenSubsonic server: %s", stop_reason["value"])
-    finally:
-        server.server_close()
-        restore_signal_handlers(previous_handlers)
-        LOGGER.info("OpenSubsonic server stopped")
-    return 0
+    endpoint_base = f"opensubsonic_{rest_prefix.strip('/').replace('/', '_') or 'root'}"
+    app.add_url_rule(
+        rest_prefix,
+        f"{endpoint_base}_service_root",
+        service_root,
+        methods=["GET"],
+    )
+    app.add_url_rule(
+        f"{rest_prefix}/",
+        f"{endpoint_base}_service_root_slash",
+        service_root,
+        methods=["GET"],
+    )
+    app.add_url_rule(
+        f"{rest_prefix}/<path:endpoint>",
+        f"{endpoint_base}_endpoint",
+        open_subsonic_endpoint,
+        methods=["GET", "POST"],
+    )
 
 
 def open_subsonic_handlers() -> dict[str, Any]:
@@ -279,14 +261,28 @@ def authentication_error(
             "Required authentication parameter is missing",
         )
 
-    if not hmac.compare_digest(str(username), options.open_subsonic_username):
+    if options.auth is None or options.opensubsonic is None:
+        return OpenSubsonicApiError(
+            ERROR_GENERIC,
+            "OpenSubsonic is not configured",
+        )
+
+    if not hmac.compare_digest(str(username), options.auth.username):
         return OpenSubsonicApiError(
             ERROR_WRONG_USERNAME_OR_PASSWORD,
             "Wrong username or password",
         )
 
+    try:
+        open_subsonic_secret = read_open_subsonic_secret(options.opensubsonic.secret_file)
+    except PlayerConfigError:
+        return OpenSubsonicApiError(
+            ERROR_GENERIC,
+            "OpenSubsonic secret is not available",
+        )
+
     if has_password_auth:
-        if password is None or not hmac.compare_digest(password, options.open_subsonic_password):
+        if password is None or not hmac.compare_digest(password, open_subsonic_secret):
             return OpenSubsonicApiError(
                 ERROR_WRONG_USERNAME_OR_PASSWORD,
                 "Wrong username or password",
@@ -299,7 +295,7 @@ def authentication_error(
             "Required authentication parameter is missing",
         )
     expected = hashlib.md5(
-        f"{options.open_subsonic_password}{salt}".encode("utf-8")
+        f"{open_subsonic_secret}{salt}".encode("utf-8")
     ).hexdigest()
     if not hmac.compare_digest(token.casefold(), expected):
         return OpenSubsonicApiError(

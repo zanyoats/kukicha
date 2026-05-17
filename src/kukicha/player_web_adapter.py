@@ -456,6 +456,16 @@ def create_player_app(options: PlayerServerOptions) -> Flask:
                 methods=["GET"],
             )
 
+    if options.opensubsonic is not None:
+        from .opensubsonic_web_adapter import mount_open_subsonic
+
+        mount_open_subsonic(
+            app,
+            options=options,
+            runtime=runtime,
+            database=runtime.database,
+        )
+
     return app
 
 
@@ -482,6 +492,15 @@ def serve_player(options: PlayerServerOptions) -> int:
     url = f"http://{options.host}:{server.server_port}/"
     LOGGER.info("using config file %s", options.config_path)
     LOGGER.info("kukicha listening on %s", url)
+    if options.opensubsonic is not None:
+        client_url = url
+        if options.opensubsonic.mount_prefix != "/":
+            client_url = f"{url.rstrip('/')}{options.opensubsonic.mount_prefix}"
+        LOGGER.info(
+            "OpenSubsonic server URL for clients: %s (mount prefix %s)",
+            client_url,
+            options.opensubsonic.mount_prefix,
+        )
     stop_reason = {"value": "received interrupt"}
     previous_handlers = register_player_signal_handlers(stop_reason)
     try:
@@ -511,7 +530,24 @@ def wants_json_error() -> bool:
 def is_public_path() -> bool:
     if request.path in {"/login", "/healthz", "/favicon.ico"}:
         return True
+    if (
+        player_context().options.opensubsonic is None
+        and (request.path == "/rest" or request.path.startswith("/rest/"))
+    ):
+        return True
+    if is_mounted_open_subsonic_path():
+        return True
     return request.path.startswith("/static/")
+
+
+def is_mounted_open_subsonic_path() -> bool:
+    options = player_context().options.opensubsonic
+    if options is None:
+        return False
+    from .opensubsonic_web_adapter import open_subsonic_rest_prefix
+
+    rest_prefix = open_subsonic_rest_prefix(options.mount_prefix)
+    return request.path == rest_prefix or request.path.startswith(f"{rest_prefix}/")
 
 
 def should_return_auth_unauthorized() -> bool:

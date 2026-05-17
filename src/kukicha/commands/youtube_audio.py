@@ -452,13 +452,13 @@ def parse_chapter_timestamp(value: str) -> float | int:
 
 def require_youtube_download_path(options: PlayerServerOptions) -> Path:
     if options.youtube_download_path is None:
-        raise PlayerConfigError("YoutubeDownloadPath must be set in the config file")
+        raise PlayerConfigError("youtube_download_path must be set in the config file")
     return options.youtube_download_path
 
 
 def prepare_youtube_download_path(path: Path) -> None:
     if path.exists() and not path.is_dir():
-        raise NotADirectoryError(f"YoutubeDownloadPath is not a directory: {path}")
+        raise NotADirectoryError(f"youtube_download_path is not a directory: {path}")
     path.mkdir(parents=True, exist_ok=True)
 
 

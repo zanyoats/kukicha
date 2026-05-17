@@ -257,7 +257,7 @@ class YoutubeAudioDownloadCommandTest(unittest.TestCase):
             config_path.write_text(
                 "\n".join(
                     (
-                        "LogLevel = 'INFO'",
+                        "log_level = 'INFO'",
                         "[auth]",
                         "username = 'listener'",
                         "password_hash_file = 'password.hash'",
@@ -280,7 +280,7 @@ class YoutubeAudioDownloadCommandTest(unittest.TestCase):
                 exit_code = args.func(args)
 
         self.assertEqual(exit_code, 1)
-        self.assertIn("YoutubeDownloadPath must be set", stderr.getvalue())
+        self.assertIn("youtube_download_path must be set", stderr.getvalue())
 
     def test_resolve_youtube_audio_tools_checks_required_programs(self) -> None:
         with TemporaryDirectory() as tempdir:
