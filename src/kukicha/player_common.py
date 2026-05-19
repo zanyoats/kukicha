@@ -9,6 +9,8 @@ COMPACT_COUNT_SUFFIXES = (
     (1_000_000_000_000, "T"),
 )
 MAX_COMPACT_COUNT = 999_000_000_000_000
+ARTWORK_CACHE_MAX_AGE_SECONDS = 7 * 24 * 60 * 60
+ARTWORK_CACHE_CONTROL = f"private, max-age={ARTWORK_CACHE_MAX_AGE_SECONDS}"
 
 
 def safe_ints(values: object) -> list[int]:

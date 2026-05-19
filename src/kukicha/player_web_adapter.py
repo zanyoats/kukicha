@@ -50,6 +50,7 @@ from .player_config import (
     validate_player_startup,
 )
 from .player_auth import signed_auth_cookie, verify_auth_cookie, verify_password
+from .player_common import ARTWORK_CACHE_CONTROL
 from .player_errors import PlayerConfigError, PlayerConflictError, PlayerNotFoundError
 from .media_resources import AudioResource, local_audio_resource
 from .player_media import audio_resource_head, iter_audio_resource_bytes
@@ -814,7 +815,7 @@ def artwork_response(height_px: int, track_id: int) -> Response:
     if artwork is None:
         abort(404)
     response = Response(artwork.data, content_type=artwork.mime_type)
-    response.headers["Cache-Control"] = "private, max-age=3600"
+    response.headers["Cache-Control"] = ARTWORK_CACHE_CONTROL
     return response
 
 

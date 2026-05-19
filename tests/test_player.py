@@ -6398,6 +6398,41 @@ class PlayerWebAdapterTest(unittest.TestCase):
             self.assertEqual(favicon_response.status_code, 200)
             self.assertEqual(favicon_response.content_type, "image/svg+xml")
 
+    def test_artwork_responses_are_cached_for_one_week(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            database = temp_path / "kukicha.sqlite"
+            save_library(
+                MusicLibrary(
+                    roots=[],
+                    tracks=[
+                        TrackRecord(
+                            path="/music/Artist/Album/01.flac",
+                            file_type="flac",
+                            artist="Artist",
+                            album_artist="Artist",
+                            album="Album",
+                            title="Track",
+                            artwork=TrackArtwork(
+                                mime_type="image/png",
+                                data=b"cover",
+                            ),
+                        )
+                    ],
+                    supported_extensions=[".flac"],
+                    generated_at="2026-05-01T00:00:00+00:00",
+                ),
+                database,
+            )
+            runtime = self.make_runtime(database)
+            with patch("kukicha.player_web_adapter.PlayerRuntime", return_value=runtime):
+                app = create_player_app(self.make_options(temp_path))
+                response = app.test_client().get("/art/1")
+
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.content_type, "image/png")
+            self.assertEqual(response.headers["Cache-Control"], "private, max-age=604800")
+
     def test_audio_file_supports_full_range_partial_range_and_head(self) -> None:
         with TemporaryDirectory() as tempdir:
             temp_path = Path(tempdir)

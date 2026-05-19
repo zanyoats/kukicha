@@ -1146,8 +1146,16 @@ class OpenSubsonicWebAdapterTest(unittest.TestCase):
         self.assertEqual(raw_cover_response.status_code, 200)
         self.assertEqual(raw_cover_response.content_type, "image/png")
         self.assertEqual(raw_cover_response.data, b"album-cover")
+        self.assertEqual(
+            raw_cover_response.headers["Cache-Control"],
+            "private, max-age=604800",
+        )
         self.assertEqual(album_cover_response.status_code, 200)
         self.assertEqual(album_cover_response.data, b"album-cover")
+        self.assertEqual(
+            album_cover_response.headers["Cache-Control"],
+            "private, max-age=604800",
+        )
 
     def test_download_returns_original_audio_as_attachment_with_range_support(self) -> None:
         with TemporaryDirectory() as tempdir:

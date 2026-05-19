@@ -16,6 +16,7 @@ from werkzeug.datastructures import MultiDict
 
 from .app_metadata import kukicha_version
 from .models import ALBUM_ARTWORK_HEIGHT, TRACK_ARTWORK_HEIGHT
+from .player_common import ARTWORK_CACHE_CONTROL
 from .player_config import PlayerServerOptions, read_open_subsonic_secret
 from .player_errors import PlayerConfigError, PlayerNotFoundError
 from .media_resources import AudioResource, local_audio_resource
@@ -423,7 +424,7 @@ def handle_get_cover_art(params: Mapping[str, list[str]]) -> Response:
             artwork = track_artwork(context.runtime, TRACK_ARTWORK_HEIGHT, track_id)
         if artwork is not None:
             response = Response(artwork.data, content_type=artwork.mime_type)
-            response.headers["Cache-Control"] = "private, max-age=3600"
+            response.headers["Cache-Control"] = ARTWORK_CACHE_CONTROL
             return response
     raise OpenSubsonicApiError(ERROR_NOT_FOUND, "The requested data was not found.")
 
