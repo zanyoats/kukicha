@@ -12,7 +12,7 @@ from .commands.opensubsonic import (
     run_open_subsonic_password,
 )
 from .commands.player import run_player
-from .commands.tools import non_empty_string, run_bulk_tag_edit
+from .commands.tools import non_empty_string, run_bulk_tag_edit, run_copy_to_remote
 from .commands.youtube_audio import add_youtube_download_audio_parser
 from .player_config import player_config_help_text
 
@@ -26,6 +26,7 @@ PLAYER_HELP = dedent(
       kukicha opensubsonic init           Mount OpenSubsonic endpoints on the player server.
       kukicha opensubsonic password       Update the OpenSubsonic password.
       kukicha tools bulk-tag-edit         Rewrite album tags below a folder.
+      kukicha tools copy-to-remote        Copy a folder to a configured remote root.
       kukicha tools yt-download-audio     Download YouTube audio files.
     """
 )
@@ -136,6 +137,38 @@ def build_parser(argv: Sequence[str] | None = None) -> argparse.ArgumentParser:
         help="Genre tag value to write.",
     )
     bulk_tag_edit_parser.set_defaults(func=run_bulk_tag_edit)
+    copy_to_remote_parser = tools_subparsers.add_parser(
+        "copy-to-remote",
+        help="Copy a folder to a configured remote root.",
+    )
+    copy_to_remote_parser.add_argument(
+        "--remote",
+        type=non_empty_string,
+        required=True,
+        help="Name of the configured remote root to upload to.",
+    )
+    copy_to_remote_parser.add_argument(
+        "--source",
+        type=Path,
+        required=True,
+        help="Folder to upload.",
+    )
+    copy_to_remote_parser.add_argument(
+        "--source-children",
+        action="store_true",
+        help="Upload each immediate child of --source under the remote prefix.",
+    )
+    copy_to_remote_parser.add_argument(
+        "--delete-source",
+        action="store_true",
+        help="Delete successfully uploaded source folders or children.",
+    )
+    copy_to_remote_parser.add_argument(
+        "--remote-workers",
+        type=positive_integer,
+        help="Number of parallel remote upload workers. Default: auto.",
+    )
+    copy_to_remote_parser.set_defaults(func=run_copy_to_remote)
     add_youtube_download_audio_parser(tools_subparsers)
 
     return parser
@@ -146,6 +179,16 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = build_parser(arguments)
     args = parser.parse_args(arguments)
     return args.func(args)
+
+
+def positive_integer(value: str) -> int:
+    try:
+        parsed = int(value)
+    except ValueError as error:
+        raise argparse.ArgumentTypeError("value must be an integer") from error
+    if parsed <= 0:
+        raise argparse.ArgumentTypeError("value must be greater than 0")
+    return parsed
 
 
 if __name__ == "__main__":

@@ -4,6 +4,7 @@ from datetime import UTC, datetime
 import io
 from pathlib import Path
 import tempfile
+from threading import Event, Lock
 from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
@@ -314,7 +315,57 @@ class ScannerProgressTest(unittest.TestCase):
         self.assertEqual(len(library.tracks), 501)
         self.assertEqual(progress_messages[0], f"scanning root 1/1: {root.resolve()}")
         self.assertIn("scanned 500 music files", progress_messages)
+        self.assertIn(
+            "root 1/1 progress: 500 music file(s) checked (500 read, 0 reused)",
+            progress_messages,
+        )
+        self.assertIn(
+            f"finished root 1/1: {root.resolve()} "
+            "(501 music file(s), 501 read, 0 reused, 0 playlist file(s))",
+            progress_messages,
+        )
         self.assertEqual(progress_messages[-1], "scanned 501 music files")
+
+    def test_build_library_can_report_new_paths_without_reused_paths(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            root = Path(tempdir)
+            keep_path = root / "Keep.flac"
+            new_path = root / "New.flac"
+            keep_path.write_bytes(b"keep")
+            new_path.write_bytes(b"new")
+            progress_messages: list[str] = []
+            existing = TrackRecord(
+                path=str(keep_path),
+                file_type="flac",
+                artist="Artist",
+                album_artist="Artist",
+                album="Album",
+                title="Keep",
+                file_modified_at_ns=keep_path.stat().st_mtime_ns,
+                file_size_bytes=keep_path.stat().st_size,
+            )
+
+            def fake_scan_track(path: Path) -> TrackRecord:
+                return TrackRecord(
+                    path=str(path),
+                    file_type="flac",
+                    artist="Artist",
+                    album_artist="Artist",
+                    album="Album",
+                    title=path.stem,
+                )
+
+            with patch("kukicha.scanner.scan_track", side_effect=fake_scan_track):
+                build_incremental_library_from_sources(
+                    [LibraryRootSource(position=0, path=str(root.resolve()))],
+                    existing_tracks_by_path={str(keep_path.resolve()): existing},
+                    progress=progress_messages.append,
+                    report_new_paths=True,
+                )
+
+        joined = "\n".join(progress_messages)
+        self.assertIn(f"reading new file: {new_path.resolve()}", joined)
+        self.assertNotIn(str(keep_path.resolve()), joined)
 
 
 class ScannerRemoteS3Test(unittest.TestCase):
@@ -334,7 +385,9 @@ class ScannerRemoteS3Test(unittest.TestCase):
             source_json=remote.source_json,
         )
 
-    def fake_client(self) -> object:
+    def fake_client(self, metadata: dict[str, str] | None = None) -> object:
+        audio_metadata = metadata or {}
+
         class FakeClient:
             def list_objects_v2(self, **_kwargs: object) -> dict[str, object]:
                 return {
@@ -362,7 +415,10 @@ class ScannerRemoteS3Test(unittest.TestCase):
             def get_object(self, **kwargs: object) -> dict[str, object]:
                 key = kwargs["Key"]
                 data = b"audio bytes" if key == "tracks/Album/01.flac" else b"cover"
-                return {"Body": io.BytesIO(data)}
+                response: dict[str, object] = {"Body": io.BytesIO(data)}
+                if key == "tracks/Album/01.flac":
+                    response["Metadata"] = audio_metadata
+                return response
 
         return FakeClient()
 
@@ -393,6 +449,7 @@ class ScannerRemoteS3Test(unittest.TestCase):
         track = result.library.tracks[0]
         self.assertEqual(track.path, canonical_s3_path(remote, "tracks/Album/01.flac"))
         self.assertEqual(result.scanned_paths, frozenset({track.path}))
+        self.assertEqual(track.file_created_at, "2026-05-16T12:00:00+00:00")
         self.assertEqual(track.file_size_bytes, 12)
         self.assertEqual(track.sidecar_artwork_path, canonical_s3_path(remote, "tracks/Album/cover.jpg"))
         self.assertIsNotNone(track.source)
@@ -401,9 +458,70 @@ class ScannerRemoteS3Test(unittest.TestCase):
         self.assertEqual(len(temp_dirs), 1)
         self.assertFalse(temp_dirs[0].exists())
 
+    def test_remote_scan_prefers_uploaded_local_created_at_metadata(self) -> None:
+        remote = self.remote()
+
+        def fake_scan_track(path: Path) -> TrackRecord:
+            return TrackRecord(
+                path=str(path),
+                file_type="flac",
+                artist="Artist",
+                album_artist="Artist",
+                album="Album",
+                title="Track",
+            )
+
+        with patch("kukicha.scanner.scan_track", side_effect=fake_scan_track):
+            result = build_incremental_library_from_sources(
+                [self.source(remote)],
+                existing_tracks_by_path={},
+                s3_client_factory=lambda _remote: self.fake_client(
+                    {
+                        "local-created-at": "2026-05-15T11:00:00+00:00",
+                        "local-ctime": "2026-05-14T11:00:00+00:00",
+                    }
+                ),
+            )
+
+        self.assertEqual(
+            result.library.tracks[0].file_created_at,
+            "2026-05-15T11:00:00+00:00",
+        )
+
+    def test_remote_scan_falls_back_to_uploaded_local_ctime_metadata(self) -> None:
+        remote = self.remote()
+
+        def fake_scan_track(path: Path) -> TrackRecord:
+            return TrackRecord(
+                path=str(path),
+                file_type="flac",
+                artist="Artist",
+                album_artist="Artist",
+                album="Album",
+                title="Track",
+            )
+
+        with patch("kukicha.scanner.scan_track", side_effect=fake_scan_track):
+            result = build_incremental_library_from_sources(
+                [self.source(remote)],
+                existing_tracks_by_path={},
+                s3_client_factory=lambda _remote: self.fake_client(
+                    {
+                        "local-created-at": "not a timestamp",
+                        "local-ctime": "2026-05-14T11:00:00+00:00",
+                    }
+                ),
+            )
+
+        self.assertEqual(
+            result.library.tracks[0].file_created_at,
+            "2026-05-14T11:00:00+00:00",
+        )
+
     def test_remote_scan_reuses_unchanged_source_metadata(self) -> None:
         remote = self.remote()
         track_path = canonical_s3_path(remote, "tracks/Album/01.flac")
+        progress_messages: list[str] = []
         existing = TrackRecord(
             path=track_path,
             file_type="flac",
@@ -430,12 +548,178 @@ class ScannerRemoteS3Test(unittest.TestCase):
             result = build_incremental_library_from_sources(
                 [self.source(remote)],
                 existing_tracks_by_path={track_path: existing},
+                progress=progress_messages.append,
+                report_new_paths=True,
                 s3_client_factory=lambda _remote: self.fake_client(),
             )
 
         self.assertEqual(result.scanned_paths, frozenset())
         self.assertEqual(result.reused_paths, frozenset({track_path}))
         self.assertEqual(result.library.tracks[0].title, "Stored")
+        self.assertNotIn("tracks/Album/01.flac", "\n".join(progress_messages))
+
+    def test_remote_scan_reports_listing_and_root_progress(self) -> None:
+        remote = self.remote()
+        progress_messages: list[str] = []
+
+        class FakeClient:
+            def list_objects_v2(self, **kwargs: object) -> dict[str, object]:
+                if kwargs.get("ContinuationToken") == "second":
+                    return {
+                        "Contents": [
+                            {
+                                "Key": "tracks/Album/02.flac",
+                                "Size": 13,
+                                "LastModified": datetime(2026, 5, 16, 13, tzinfo=UTC),
+                                "ETag": '"audio-2"',
+                            },
+                        ]
+                    }
+                return {
+                    "Contents": [
+                        {
+                            "Key": "tracks/Album/01.flac",
+                            "Size": 12,
+                            "LastModified": datetime(2026, 5, 16, 12, tzinfo=UTC),
+                            "ETag": '"audio-1"',
+                        },
+                        {
+                            "Key": "tracks/Album/cover.jpg",
+                            "Size": 5,
+                            "LastModified": datetime(2026, 5, 16, 14, tzinfo=UTC),
+                            "ETag": '"cover"',
+                        },
+                    ],
+                    "IsTruncated": True,
+                    "NextContinuationToken": "second",
+                }
+
+            def get_object(self, **kwargs: object) -> dict[str, object]:
+                key = str(kwargs["Key"])
+                data = b"cover" if key.endswith(".jpg") else b"audio"
+                return {"Body": io.BytesIO(data)}
+
+        def fake_scan_track(path: Path) -> TrackRecord:
+            return TrackRecord(
+                path=str(path),
+                file_type="flac",
+                artist="Artist",
+                album_artist="Artist",
+                album="Album",
+                title=path.stem,
+            )
+
+        with patch("kukicha.scanner.scan_track", side_effect=fake_scan_track):
+            result = build_incremental_library_from_sources(
+                [self.source(remote)],
+                existing_tracks_by_path={},
+                progress=progress_messages.append,
+                progress_every=1,
+                report_new_paths=True,
+                s3_client_factory=lambda _remote: FakeClient(),
+            )
+
+        self.assertEqual(len(result.library.tracks), 2)
+        self.assertIn(
+            "root 1/1 listing remote objects: starting list for s3://bucket/tracks/",
+            progress_messages,
+        )
+        self.assertIn(
+            "root 1/1 listing remote objects: listed 2 object(s) across 1 page(s)",
+            progress_messages,
+        )
+        self.assertIn(
+            "root 1/1 listing remote objects: listed 3 object(s) across 2 page(s)",
+            progress_messages,
+        )
+        self.assertIn(
+            "root 1/1 found 2 remote music file(s) and 1 sidecar artwork file(s)",
+            progress_messages,
+        )
+        self.assertIn(
+            "root 1/1 reading new remote file 1/2: tracks/Album/01.flac",
+            progress_messages,
+        )
+        self.assertIn(
+            "root 1/1 progress: 2 music file(s) checked (2 read, 0 reused)",
+            progress_messages,
+        )
+        self.assertIn(
+            "finished root 1/1: Remote "
+            "(2 music file(s), 2 read, 0 reused, 0 playlist file(s))",
+            progress_messages,
+        )
+
+    def test_remote_scan_downloads_changed_tracks_in_parallel_and_preserves_order(self) -> None:
+        remote = self.remote()
+
+        class ParallelClient:
+            def __init__(self) -> None:
+                self.lock = Lock()
+                self.started = 0
+                self.active = 0
+                self.max_active = 0
+                self.all_started = Event()
+
+            def list_objects_v2(self, **_kwargs: object) -> dict[str, object]:
+                return {
+                    "Contents": [
+                        {
+                            "Key": "tracks/Album/01.flac",
+                            "Size": 12,
+                            "LastModified": datetime(2026, 5, 16, 12, tzinfo=UTC),
+                            "ETag": '"audio-1"',
+                        },
+                        {
+                            "Key": "tracks/Album/02.flac",
+                            "Size": 13,
+                            "LastModified": datetime(2026, 5, 16, 13, tzinfo=UTC),
+                            "ETag": '"audio-2"',
+                        },
+                    ]
+                }
+
+            def get_object(self, **kwargs: object) -> dict[str, object]:
+                key = str(kwargs["Key"])
+                with self.lock:
+                    self.started += 1
+                    self.active += 1
+                    self.max_active = max(self.max_active, self.active)
+                    if self.started >= 2:
+                        self.all_started.set()
+                try:
+                    self.all_started.wait(timeout=2)
+                    return {"Body": io.BytesIO(key.encode("utf-8"))}
+                finally:
+                    with self.lock:
+                        self.active -= 1
+
+        client = ParallelClient()
+
+        def fake_scan_track(path: Path) -> TrackRecord:
+            return TrackRecord(
+                path=str(path),
+                file_type="flac",
+                artist="Artist",
+                album_artist="Artist",
+                album="Album",
+                title=path.stem,
+            )
+
+        with patch("kukicha.scanner.scan_track", side_effect=fake_scan_track):
+            result = build_incremental_library_from_sources(
+                [self.source(remote)],
+                existing_tracks_by_path={},
+                remote_workers=2,
+                s3_client_factory=lambda _remote: client,
+            )
+
+        self.assertGreaterEqual(client.max_active, 2)
+        self.assertEqual(
+            [track.source.object_key for track in result.library.tracks if track.source],
+            ["tracks/Album/01.flac", "tracks/Album/02.flac"],
+        )
+        self.assertEqual([track.title for track in result.library.tracks], ["01", "02"])
 
     def test_remote_scan_cleans_tempdir_after_scan_error(self) -> None:
         remote = self.remote()

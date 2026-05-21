@@ -697,6 +697,21 @@ def update_album_star(
         ).fetchone()
         if row is None:
             raise PlayerNotFoundError(f"album does not exist: {album_id}")
+        if starred_at is None:
+            connection.execute(
+                "DELETE FROM album_user_state WHERE album_id = ?",
+                (album_id,),
+            )
+        else:
+            connection.execute(
+                """
+                INSERT INTO album_user_state (album_id, starred_at)
+                VALUES (?, ?)
+                ON CONFLICT(album_id) DO UPDATE SET
+                    starred_at = excluded.starred_at
+                """,
+                (album_id, starred_at),
+            )
         connection.execute(
             """
             UPDATE library_albums

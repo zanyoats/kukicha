@@ -71,6 +71,12 @@ class ListeningNowPlaying:
 
 
 @dataclass(frozen=True, slots=True)
+class OpenSubsonicClient:
+    client_name: str
+    last_seen_at: str
+
+
+@dataclass(frozen=True, slots=True)
 class HomeDashboard:
     now_playing: ListeningNowPlaying | None
     recent_albums: tuple[ListeningAlbum, ...]
@@ -193,6 +199,79 @@ def update_now_playing(
             snapshot_json,
         ),
     )
+
+
+def record_opensubsonic_client(
+    database: Path,
+    client_name: str,
+    *,
+    seen_at: datetime | None = None,
+    throttle_seconds: int = 60,
+) -> None:
+    if not client_name:
+        return
+    timestamp = (seen_at or datetime.now(UTC)).astimezone(UTC)
+    timestamp_text = timestamp.isoformat()
+    with connect_database(database, create=False) as connection:
+        row = connection.execute(
+            """
+            SELECT last_seen_at
+            FROM opensubsonic_clients
+            WHERE client_name = ?
+            """,
+            (client_name,),
+        ).fetchone()
+        if row is None:
+            connection.execute(
+                """
+                INSERT INTO opensubsonic_clients (client_name, last_seen_at)
+                VALUES (?, ?)
+                """,
+                (client_name, timestamp_text),
+            )
+            return
+
+        last_seen_at = parsed_database_timestamp(str(row["last_seen_at"]))
+        if (
+            last_seen_at is not None
+            and timestamp - last_seen_at < timedelta(seconds=throttle_seconds)
+        ):
+            return
+        connection.execute(
+            """
+            UPDATE opensubsonic_clients
+            SET last_seen_at = ?
+            WHERE client_name = ?
+            """,
+            (timestamp_text, client_name),
+        )
+
+
+def opensubsonic_clients(database: Path) -> tuple[OpenSubsonicClient, ...]:
+    with connect_database(database, create=False) as connection:
+        return tuple(
+            OpenSubsonicClient(
+                client_name=str(row["client_name"]),
+                last_seen_at=str(row["last_seen_at"]),
+            )
+            for row in connection.execute(
+                """
+                SELECT client_name, last_seen_at
+                FROM opensubsonic_clients
+                ORDER BY last_seen_at DESC, client_name
+                """
+            )
+        )
+
+
+def parsed_database_timestamp(value: str) -> datetime | None:
+    try:
+        timestamp = datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    if timestamp.tzinfo is None:
+        timestamp = timestamp.replace(tzinfo=UTC)
+    return timestamp.astimezone(UTC)
 
 
 def snapshot_is_stream(snapshot: dict[str, object]) -> bool:

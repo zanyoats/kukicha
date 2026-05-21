@@ -322,6 +322,145 @@ class OpenSubsonicWebAdapterTest(unittest.TestCase):
         self.assertEqual(subsonic_payload(get_response)["status"], "ok")
         self.assertEqual(subsonic_payload(post_response)["status"], "ok")
 
+    def test_authenticated_requests_track_clients_with_throttle(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            database = temp_path / "kukicha.sqlite"
+            app = create_player_app(self.make_options(temp_path))
+            client = app.test_client()
+
+            first_response = client.get(
+                "/rest/ping",
+                query_string={**self.auth_params(), "c": "alpha-client"},
+            )
+            with connect_database(database, create=False) as connection:
+                first_seen = str(
+                    connection.execute(
+                        """
+                        SELECT last_seen_at
+                        FROM opensubsonic_clients
+                        WHERE client_name = ?
+                        """,
+                        ("alpha-client",),
+                    ).fetchone()["last_seen_at"]
+                )
+
+            second_response = client.get(
+                "/rest/getLicense",
+                query_string={**self.auth_params(), "c": "alpha-client"},
+            )
+            invalid_auth_response = client.get(
+                "/rest/ping",
+                query_string={
+                    **self.auth_params(password="wrong"),
+                    "c": "bad-client",
+                },
+            )
+            handler_error_response = client.get(
+                "/rest/getSong",
+                query_string={**self.auth_params(), "c": "error-client"},
+            )
+            extension_response = client.get(
+                "/rest/getOpenSubsonicExtensions",
+                query_string={
+                    "v": "1.16.1",
+                    "c": "extension-client",
+                    "f": "json",
+                },
+            )
+            authenticated_extension_response = client.get(
+                "/rest/getOpenSubsonicExtensions",
+                query_string={**self.auth_params(), "c": "authenticated-extension-client"},
+            )
+            with connect_database(database, create=False) as connection:
+                throttled_seen = str(
+                    connection.execute(
+                        """
+                        SELECT last_seen_at
+                        FROM opensubsonic_clients
+                        WHERE client_name = ?
+                        """,
+                        ("alpha-client",),
+                    ).fetchone()["last_seen_at"]
+                )
+                error_client_count = int(
+                    connection.execute(
+                        """
+                        SELECT COUNT(*) AS count
+                        FROM opensubsonic_clients
+                        WHERE client_name = ?
+                        """,
+                        ("error-client",),
+                    ).fetchone()["count"]
+                )
+                bad_client_count = int(
+                    connection.execute(
+                        """
+                        SELECT COUNT(*) AS count
+                        FROM opensubsonic_clients
+                        WHERE client_name = ?
+                        """,
+                        ("bad-client",),
+                    ).fetchone()["count"]
+                )
+                extension_client_count = int(
+                    connection.execute(
+                        """
+                        SELECT COUNT(*) AS count
+                        FROM opensubsonic_clients
+                        WHERE client_name = ?
+                        """,
+                        ("extension-client",),
+                    ).fetchone()["count"]
+                )
+                authenticated_extension_client_count = int(
+                    connection.execute(
+                        """
+                        SELECT COUNT(*) AS count
+                        FROM opensubsonic_clients
+                        WHERE client_name = ?
+                        """,
+                        ("authenticated-extension-client",),
+                    ).fetchone()["count"]
+                )
+                connection.execute(
+                    """
+                    UPDATE opensubsonic_clients
+                    SET last_seen_at = ?
+                    WHERE client_name = ?
+                    """,
+                    ("2000-01-01T00:00:00+00:00", "alpha-client"),
+                )
+
+            third_response = client.get(
+                "/rest/ping",
+                query_string={**self.auth_params(), "c": "alpha-client"},
+            )
+            with connect_database(database, create=False) as connection:
+                refreshed_seen = str(
+                    connection.execute(
+                        """
+                        SELECT last_seen_at
+                        FROM opensubsonic_clients
+                        WHERE client_name = ?
+                        """,
+                        ("alpha-client",),
+                    ).fetchone()["last_seen_at"]
+                )
+
+        self.assertEqual(subsonic_payload(first_response)["status"], "ok")
+        self.assertEqual(subsonic_payload(second_response)["status"], "ok")
+        self.assertEqual(subsonic_payload(invalid_auth_response)["status"], "failed")
+        self.assertEqual(subsonic_payload(handler_error_response)["status"], "failed")
+        self.assertEqual(subsonic_payload(extension_response)["status"], "ok")
+        self.assertEqual(subsonic_payload(authenticated_extension_response)["status"], "ok")
+        self.assertEqual(throttled_seen, first_seen)
+        self.assertEqual(error_client_count, 1)
+        self.assertEqual(bad_client_count, 0)
+        self.assertEqual(extension_client_count, 0)
+        self.assertEqual(authenticated_extension_client_count, 1)
+        self.assertNotEqual(refreshed_seen, "2000-01-01T00:00:00+00:00")
+
     def test_mount_prefix_offsets_rest_endpoints(self) -> None:
         with TemporaryDirectory() as tempdir:
             temp_path = Path(tempdir)

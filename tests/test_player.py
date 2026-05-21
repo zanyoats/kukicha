@@ -38,6 +38,7 @@ from kukicha.use_case import (
     PlaylistItem,
     PlaylistTrack,
     home_dashboard,
+    record_opensubsonic_client,
     record_playback,
 )
 from kukicha.cli import build_parser
@@ -1775,6 +1776,7 @@ class PlayerConfigTest(unittest.TestCase):
                         "log_level = 'info'",
                         "database_path = 'library.sqlite'",
                         "roots = ['music-a', 'music-b']",
+                        "remote_workers = 6",
                         "ffmpeg_path = 'bin/ffmpeg'",
                         "youtube_download_path = 'youtube'",
                         "prefer_musicbrainz_english_aliases = false",
@@ -1802,6 +1804,7 @@ class PlayerConfigTest(unittest.TestCase):
                     (temp_path / "music-b").resolve(),
                 ),
             )
+            self.assertEqual(options.remote_workers, 6)
             self.assertEqual(options.ffmpeg_path, (temp_path / "bin" / "ffmpeg").resolve())
             self.assertEqual(
                 options.youtube_download_path,
@@ -2034,6 +2037,14 @@ class PlayerConfigTest(unittest.TestCase):
                     "addressing_style = 'dns'\n",
                     "addressing_style must be one of",
                 ),
+                (
+                    "[[remote_roots]]\n"
+                    "name = 'music'\n"
+                    "endpoint_url = 'https://s3.example.test'\n"
+                    "bucket = 'bucket'\n"
+                    "archive_profile = 'writer'\n",
+                    "unsupported remote_roots key",
+                ),
             )
             for text, message in cases:
                 with self.subTest(message=message):
@@ -2149,6 +2160,19 @@ class PlayerConfigTest(unittest.TestCase):
 
             with self.assertRaisesRegex(PlayerConfigError, "toast_timeout_ms must be greater than 0"):
                 load_player_options(config_path)
+
+    def test_load_player_options_rejects_invalid_remote_workers(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            config_path = Path(tempdir) / "kukicha.toml"
+            for text, message in (
+                ("remote_workers = 0\n", "remote_workers must be greater than 0"),
+                ("remote_workers = 'auto'\n", "remote_workers must be an integer"),
+            ):
+                with self.subTest(text=text):
+                    self.write_config(config_path, text)
+
+                    with self.assertRaisesRegex(PlayerConfigError, message):
+                        load_player_options(config_path)
 
     def test_load_player_options_rejects_invalid_musicbrainz_alias_preference(self) -> None:
         with TemporaryDirectory() as tempdir:
@@ -2268,7 +2292,7 @@ class PlayerConfigTest(unittest.TestCase):
             self.assertIn("error: config file does not exist", help_text)
             self.assertNotIn("Current values:", help_text)
             self.assertIn(
-                "Supported keys:\n  log_level\n  database_path\n  roots\n  remote_roots\n  ffmpeg_path\n"
+                "Supported keys:\n  log_level\n  database_path\n  roots\n  remote_roots\n  remote_workers\n  ffmpeg_path\n"
                 "  youtube_download_path\n  prefer_musicbrainz_english_aliases\n  host\n  port\n"
                 "  appearance\n  accent_color\n  toast_timeout_ms\n"
                 "  album_artist_split_patterns\n  auth.username\n  auth.password_hash_file\n"
@@ -4014,10 +4038,28 @@ class PlayerWebAdapterTest(unittest.TestCase):
                 )
                 starred_grid_response = client.get("/albums")
                 starred_detail_response = client.get("/albums/artist::album")
+                with connect_database(database, create=False) as connection:
+                    starred_state = connection.execute(
+                        """
+                        SELECT starred_at
+                        FROM album_user_state
+                        WHERE album_id = ?
+                        """,
+                        ("artist::album",),
+                    ).fetchone()
                 unstar_response = client.post(
                     "/api/albums/artist::album/star",
                     json={"starred": False},
                 )
+                with connect_database(database, create=False) as connection:
+                    unstarred_state = connection.execute(
+                        """
+                        SELECT starred_at
+                        FROM album_user_state
+                        WHERE album_id = ?
+                        """,
+                        ("artist::album",),
+                    ).fetchone()
                 missing_response = client.post(
                     "/api/albums/missing::album/star",
                     json={"starred": True},
@@ -4028,9 +4070,12 @@ class PlayerWebAdapterTest(unittest.TestCase):
         starred_detail_html = starred_detail_response.data.decode()
         self.assertEqual(star_response.status_code, 200)
         self.assertTrue(star_response.json["starred"])
+        self.assertIsNotNone(starred_state)
+        self.assertEqual(starred_state["starred_at"], star_response.json["starred_at"])
         self.assertEqual(unstar_response.status_code, 200)
         self.assertFalse(unstar_response.json["starred"])
         self.assertIsNone(unstar_response.json["starred_at"])
+        self.assertIsNone(unstarred_state)
         self.assertEqual(missing_response.status_code, 404)
         self.assertIn('data-album-star-toggle data-album-id="artist::album"', initial_html)
         self.assertIn('aria-pressed="false"', initial_html)
@@ -5127,6 +5172,32 @@ class PlayerWebAdapterTest(unittest.TestCase):
                     )
                     server.server_close.assert_called_once()
 
+    def test_serve_player_logs_resolved_remote_workers(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            runtime = self.make_runtime(temp_path / "kukicha.sqlite")
+            options = replace(self.make_options(temp_path), remote_workers=None)
+            server = Mock()
+            server.server_port = 4567
+            server.serve_forever.side_effect = KeyboardInterrupt
+
+            with (
+                patch("kukicha.player_web_adapter.PlayerRuntime", return_value=runtime),
+                patch("kukicha.player_web_adapter.make_server", return_value=server),
+                patch("kukicha.player_web_adapter.LOGGER") as logger,
+                patch("kukicha.player_web_adapter.resolve_remote_worker_count", return_value=9),
+                patch(
+                    "kukicha.player_web_adapter.register_player_signal_handlers",
+                    return_value={},
+                ),
+                patch("kukicha.player_web_adapter.restore_signal_handlers"),
+            ):
+                result = serve_player(options)
+
+        self.assertEqual(result, 0)
+        logger.info.assert_any_call("remote workers: %s (%s)", 9, "auto")
+        server.server_close.assert_called_once()
+
     def test_removed_placeholder_routes_return_not_found(self) -> None:
         with TemporaryDirectory() as tempdir:
             temp_path = Path(tempdir)
@@ -5669,15 +5740,43 @@ class PlayerWebAdapterTest(unittest.TestCase):
             app = create_player_app(options)
             client = self.logged_in_client(app)
 
-            response = client.get("/help")
+            response = client.get(
+                "/help",
+                environ_base={"REMOTE_ADDR": "203.0.113.10"},
+                headers={
+                    "User-Agent": "KukichaTest/1.0",
+                    "X-Forwarded-For": "198.51.100.25",
+                },
+            )
 
             self.assertEqual(response.status_code, 200)
             self.assertIn(b"<h1>Help</h1>", response.data)
             self.assertIn(b"<h2>Version</h2>", response.data)
             self.assertIn(f"<code>{version('kukicha')}</code>".encode(), response.data)
+            self.assertIn(b"<h2>Browser Login</h2>", response.data)
+            self.assertIn(b"<dt>Status</dt>", response.data)
+            self.assertIn(b"<dd><code>Active</code></dd>", response.data)
+            self.assertIn(b"<dt>Signed in as</dt>", response.data)
+            self.assertIn(b"<dt>User Agent</dt>", response.data)
+            self.assertIn(b"<dd><code>KukichaTest/1.0</code></dd>", response.data)
+            self.assertIn(b"<dt>Client IP</dt>", response.data)
+            self.assertIn(b"<dd><code>203.0.113.10</code></dd>", response.data)
+            self.assertNotIn(b"198.51.100.25", response.data)
+            self.assertIn(b"<dt>Expires</dt>", response.data)
+            self.assertIn(b" left)", response.data)
+            self.assertIn(b"<h2>OpenSubsonic Clients</h2>", response.data)
+            self.assertIn(b"OpenSubsonic is not configured.", response.data)
             self.assertIn(b"<h2>Config</h2>", response.data)
             self.assertLess(
                 response.data.index(b"<h2>Version</h2>"),
+                response.data.index(b"<h2>Browser Login</h2>"),
+            )
+            self.assertLess(
+                response.data.index(b"<h2>Browser Login</h2>"),
+                response.data.index(b"<h2>OpenSubsonic Clients</h2>"),
+            )
+            self.assertLess(
+                response.data.index(b"<h2>OpenSubsonic Clients</h2>"),
                 response.data.index(b"<h2>Config</h2>"),
             )
             self.assertIn(f"<code>{config_path.resolve()}</code>".encode(), response.data)
@@ -5717,6 +5816,70 @@ class PlayerWebAdapterTest(unittest.TestCase):
             self.assertIn(b"<code>ffmpeg_path</code>", response.data)
             self.assertIn(b"<code>&lt;unset&gt;</code>", response.data)
             self.assertIn(b'<span class="config-source default">default</span>', response.data)
+
+    def test_help_page_renders_browser_login_without_auth(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            runtime = self.make_runtime(temp_path / "kukicha.sqlite")
+            with patch("kukicha.player_web_adapter.PlayerRuntime", return_value=runtime):
+                app = create_player_app(self.make_options(temp_path))
+
+            response = app.test_client().get("/help", headers={"User-Agent": "KukichaTest/1.0"})
+
+            self.assertEqual(response.status_code, 200)
+            self.assertIn(b"<h2>Browser Login</h2>", response.data)
+            self.assertIn(b"<dd><code>Not configured</code></dd>", response.data)
+            self.assertNotIn(b"<dt>Signed in as</dt>", response.data)
+
+    def test_help_page_renders_opensubsonic_clients(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            database = temp_path / "kukicha.sqlite"
+            secret_file = temp_path / "opensubsonic.secret"
+            secret_file.write_text("sonic-secret\n", encoding="utf-8")
+            secret_file.chmod(0o600)
+            runtime = self.make_runtime(database)
+            options = replace(
+                self.make_auth_options(temp_path),
+                opensubsonic=OpenSubsonicOptions(
+                    mount_prefix="/",
+                    secret_file=secret_file,
+                ),
+            )
+            with patch("kukicha.player_web_adapter.PlayerRuntime", return_value=runtime):
+                app = create_player_app(options)
+            client = app.test_client()
+            login_response = client.post(
+                "/login",
+                data={"username": "listener", "password": "secret"},
+            )
+            self.assertEqual(login_response.status_code, 302)
+
+            empty_response = client.get("/help")
+            record_opensubsonic_client(
+                database,
+                "first-client",
+                seen_at=datetime(2026, 5, 19, 12, 1, tzinfo=UTC),
+            )
+            record_opensubsonic_client(
+                database,
+                "second-client",
+                seen_at=datetime(2026, 5, 19, 12, 2, tzinfo=UTC),
+            )
+            response = client.get("/help")
+
+            self.assertEqual(empty_response.status_code, 200)
+            self.assertIn(b"No OpenSubsonic clients seen yet.", empty_response.data)
+            self.assertEqual(response.status_code, 200)
+            self.assertIn(b"<h2>OpenSubsonic Clients</h2>", response.data)
+            self.assertIn(b"<td><code>first-client</code></td>", response.data)
+            self.assertIn(b"<td><code>second-client</code></td>", response.data)
+            self.assertIn(b' datetime="2026-05-19T12:01:00+00:00"', response.data)
+            self.assertIn(b' datetime="2026-05-19T12:02:00+00:00"', response.data)
+            self.assertLess(
+                response.data.index(b"<td><code>second-client</code></td>"),
+                response.data.index(b"<td><code>first-client</code></td>"),
+            )
 
     def test_player_page_renders_dark_appearance_theme(self) -> None:
         with TemporaryDirectory() as tempdir:
@@ -7240,8 +7403,20 @@ class PlayerRootMutationTest(unittest.TestCase):
                 patch("kukicha.scanner.MutagenFile", side_effect=AssertionError("unexpected scan")),
                 patch("kukicha.use_case.commands.roots.resolve_library_genres", return_value=None),
                 patch("kukicha.use_case.commands.roots.resolve_library_cover_art", return_value=None),
+                patch("kukicha.use_case.commands.roots.LOGGER") as logger,
             ):
                 rescan_library(database)
+
+            progress_logs = [
+                str(args[1])
+                for args, _kwargs in logger.info.call_args_list
+                if len(args) >= 2
+            ]
+            self.assertIn(
+                f"rescan progress: pruning stale track: {stale_path}",
+                progress_logs,
+            )
+            self.assertNotIn(str(keep_path), "\n".join(progress_logs))
 
             connection = connect_database(database, create=False)
             try:

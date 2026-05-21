@@ -73,8 +73,11 @@ from .listening import (
     ListeningPlaylist,
     ListeningTrack,
     NATIVE_PLAYBACK_SOURCE,
+    OpenSubsonicClient,
     home_dashboard,
+    opensubsonic_clients,
     record_playback,
+    record_opensubsonic_client,
 )
 from .queries import (
     ALBUM_LIST_SORT_ALBUMS,

@@ -9,6 +9,7 @@ import re
 import struct
 import unicodedata
 from collections.abc import Iterable
+from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from functools import lru_cache
@@ -28,8 +29,10 @@ from .library_sources import (
     SOURCE_KIND_S3,
     canonical_s3_path,
     create_s3_client,
+    create_s3_client_for_workers,
     remote_root_display_label,
     remote_root_from_source_json,
+    resolve_remote_worker_count,
 )
 from .models import (
     ALBUM_ARTWORK_HEIGHT,
@@ -178,6 +181,7 @@ def build_library(
     *,
     progress: Callable[[str], None] | None = None,
     progress_every: int = DEFAULT_SCAN_PROGRESS_EVERY,
+    report_new_paths: bool = False,
     on_missing_required_tags: Callable[[TrackRecord, list[str]], None] | None = None,
 ) -> MusicLibrary:
     return build_incremental_library(
@@ -185,6 +189,7 @@ def build_library(
         existing_tracks_by_path={},
         progress=progress,
         progress_every=progress_every,
+        report_new_paths=report_new_paths,
         on_missing_required_tags=on_missing_required_tags,
     ).library
 
@@ -195,6 +200,7 @@ def build_incremental_library(
     existing_tracks_by_path: dict[str, TrackRecord],
     progress: Callable[[str], None] | None = None,
     progress_every: int = DEFAULT_SCAN_PROGRESS_EVERY,
+    report_new_paths: bool = False,
     on_missing_required_tags: Callable[[TrackRecord, list[str]], None] | None = None,
 ) -> IncrementalLibraryBuild:
     clear_external_artwork_caches()
@@ -208,20 +214,33 @@ def build_incremental_library(
     for root_position, root in enumerate(resolved_roots):
         if progress:
             progress(f"scanning root {root_position + 1}/{len(resolved_roots)}: {root}")
+        root_count = 0
+        root_scanned = 0
+        root_reused = 0
+        root_playlists = 0
         for path in iter_library_files([root]):
             if path.suffix.casefold() in PLAYLIST_EXTENSIONS:
                 playlist_paths.append((root_position, path))
+                root_playlists += 1
                 continue
             count += 1
+            root_count += 1
             path_text = str(path)
             existing_track = existing_tracks_by_path.get(path_text)
             if existing_track is not None and track_file_snapshot_matches(existing_track, path):
                 track = reused_track_record(existing_track, root_position=root_position)
                 reused_paths.add(path_text)
+                root_reused += 1
             else:
+                if progress and report_new_paths and existing_track is None:
+                    progress(
+                        f"root {root_position + 1}/{len(resolved_roots)} "
+                        f"reading new file: {path_text}"
+                    )
                 track = scan_track(path)
                 track.root_position = root_position
                 scanned_paths.add(path_text)
+                root_scanned += 1
             missing_fields = missing_required_tags(track)
             if missing_fields:
                 if on_missing_required_tags is not None:
@@ -230,6 +249,28 @@ def build_incremental_library(
                 tracks.append(track)
             if progress and count % progress_step == 0:
                 progress(f"scanned {count} music files")
+            if progress and root_count % progress_step == 0:
+                progress(
+                    root_scan_progress_message(
+                        root_position,
+                        len(resolved_roots),
+                        root_count,
+                        read_count=root_scanned,
+                        reused_count=root_reused,
+                    )
+                )
+        if progress:
+            progress(
+                root_scan_complete_message(
+                    root_position,
+                    len(resolved_roots),
+                    root,
+                    root_count,
+                    read_count=root_scanned,
+                    reused_count=root_reused,
+                    playlist_count=root_playlists,
+                )
+            )
     if progress and count % progress_step:
         progress(f"scanned {count} music files")
     playlists = parse_playlists(playlist_paths, tracks)
@@ -251,14 +292,18 @@ def build_library_from_sources(
     *,
     progress: Callable[[str], None] | None = None,
     progress_every: int = DEFAULT_SCAN_PROGRESS_EVERY,
+    report_new_paths: bool = False,
     on_missing_required_tags: Callable[[TrackRecord, list[str]], None] | None = None,
+    remote_workers: int | None = None,
 ) -> MusicLibrary:
     return build_incremental_library_from_sources(
         sources,
         existing_tracks_by_path={},
         progress=progress,
         progress_every=progress_every,
+        report_new_paths=report_new_paths,
         on_missing_required_tags=on_missing_required_tags,
+        remote_workers=remote_workers,
     ).library
 
 
@@ -268,8 +313,10 @@ def build_incremental_library_from_sources(
     existing_tracks_by_path: dict[str, TrackRecord],
     progress: Callable[[str], None] | None = None,
     progress_every: int = DEFAULT_SCAN_PROGRESS_EVERY,
+    report_new_paths: bool = False,
     on_missing_required_tags: Callable[[TrackRecord, list[str]], None] | None = None,
-    s3_client_factory: Callable[[RemoteRootConfig], object] = create_s3_client,
+    s3_client_factory: Callable[..., object] = create_s3_client,
+    remote_workers: int | None = None,
 ) -> IncrementalLibraryBuild:
     source_list = list(sources)
     if all(source.kind == SOURCE_KIND_LOCAL for source in source_list):
@@ -278,6 +325,7 @@ def build_incremental_library_from_sources(
             existing_tracks_by_path=existing_tracks_by_path,
             progress=progress,
             progress_every=progress_every,
+            report_new_paths=report_new_paths,
             on_missing_required_tags=on_missing_required_tags,
         )
 
@@ -290,25 +338,47 @@ def build_incremental_library_from_sources(
     progress_step = max(1, int(progress_every))
 
     for root_position, source in enumerate(source_list):
+        root_label = source_progress_label(source)
         if progress:
             progress(
                 f"scanning root {root_position + 1}/{len(source_list)}: "
-                f"{source_progress_label(source)}"
+                f"{root_label}"
             )
+        root_count = 0
+        root_scanned = 0
+        root_reused = 0
+        root_playlists = 0
         if source.kind == SOURCE_KIND_S3:
             remote = remote_root_from_source_json(source.source_json)
-            client = s3_client_factory(remote)
+            worker_count = resolve_remote_worker_count(remote_workers)
+            client = create_s3_client_for_workers(
+                remote,
+                s3_client_factory,
+                remote_workers=worker_count,
+            )
+            root_progress = root_progress_callback(
+                progress,
+                root_position=root_position,
+                root_total=len(source_list),
+            )
             for track, was_scanned in iter_s3_tracks(
                 remote,
                 client,
                 root_position=root_position,
                 existing_tracks_by_path=existing_tracks_by_path,
+                progress=root_progress,
+                progress_every=progress_step,
+                report_new_paths=report_new_paths,
+                remote_workers=worker_count,
             ):
                 count += 1
+                root_count += 1
                 if was_scanned:
                     scanned_paths.add(track.path)
+                    root_scanned += 1
                 else:
                     reused_paths.add(track.path)
+                    root_reused += 1
                 missing_fields = missing_required_tags(track)
                 if missing_fields:
                     if on_missing_required_tags is not None:
@@ -317,23 +387,53 @@ def build_incremental_library_from_sources(
                     tracks.append(track)
                 if progress and count % progress_step == 0:
                     progress(f"scanned {count} music files")
+                if progress and root_count % progress_step == 0:
+                    progress(
+                        root_scan_progress_message(
+                            root_position,
+                            len(source_list),
+                            root_count,
+                            read_count=root_scanned,
+                            reused_count=root_reused,
+                        )
+                    )
+            if progress:
+                progress(
+                    root_scan_complete_message(
+                        root_position,
+                        len(source_list),
+                        root_label,
+                        root_count,
+                        read_count=root_scanned,
+                        reused_count=root_reused,
+                    )
+                )
             continue
 
         root = Path(source.path).expanduser().resolve()
         for path in iter_library_files([root]):
             if path.suffix.casefold() in PLAYLIST_EXTENSIONS:
                 playlist_paths.append((root_position, path))
+                root_playlists += 1
                 continue
             count += 1
+            root_count += 1
             path_text = str(path)
             existing_track = existing_tracks_by_path.get(path_text)
             if existing_track is not None and track_file_snapshot_matches(existing_track, path):
                 track = reused_track_record(existing_track, root_position=root_position)
                 reused_paths.add(path_text)
+                root_reused += 1
             else:
+                if progress and report_new_paths and existing_track is None:
+                    progress(
+                        f"root {root_position + 1}/{len(source_list)} "
+                        f"reading new file: {path_text}"
+                    )
                 track = scan_track(path)
                 track.root_position = root_position
                 scanned_paths.add(path_text)
+                root_scanned += 1
             missing_fields = missing_required_tags(track)
             if missing_fields:
                 if on_missing_required_tags is not None:
@@ -342,6 +442,28 @@ def build_incremental_library_from_sources(
                 tracks.append(track)
             if progress and count % progress_step == 0:
                 progress(f"scanned {count} music files")
+            if progress and root_count % progress_step == 0:
+                progress(
+                    root_scan_progress_message(
+                        root_position,
+                        len(source_list),
+                        root_count,
+                        read_count=root_scanned,
+                        reused_count=root_reused,
+                    )
+                )
+        if progress:
+            progress(
+                root_scan_complete_message(
+                    root_position,
+                    len(source_list),
+                    root,
+                    root_count,
+                    read_count=root_scanned,
+                    reused_count=root_reused,
+                    playlist_count=root_playlists,
+                )
+            )
 
     if progress and count % progress_step:
         progress(f"scanned {count} music files")
@@ -377,35 +499,181 @@ def source_progress_label(source: LibraryRootSource) -> str:
     return source.path
 
 
+def root_progress_callback(
+    progress: Callable[[str], None] | None,
+    *,
+    root_position: int,
+    root_total: int,
+) -> Callable[[str], None] | None:
+    if progress is None:
+        return None
+
+    def emit(message: str) -> None:
+        progress(f"root {root_position + 1}/{root_total} {message}")
+
+    return emit
+
+
+def root_scan_progress_message(
+    root_position: int,
+    root_total: int,
+    music_count: int,
+    *,
+    read_count: int,
+    reused_count: int,
+) -> str:
+    return (
+        f"root {root_position + 1}/{root_total} progress: "
+        f"{music_count} music file(s) checked "
+        f"({read_count} read, {reused_count} reused)"
+    )
+
+
+def root_scan_complete_message(
+    root_position: int,
+    root_total: int,
+    label: object,
+    music_count: int,
+    *,
+    read_count: int,
+    reused_count: int,
+    playlist_count: int = 0,
+) -> str:
+    return (
+        f"finished root {root_position + 1}/{root_total}: {label} "
+        f"({music_count} music file(s), {read_count} read, "
+        f"{reused_count} reused, {playlist_count} playlist file(s))"
+    )
+
+
 def iter_s3_tracks(
     remote: RemoteRootConfig,
     client: object,
     *,
     root_position: int,
     existing_tracks_by_path: dict[str, TrackRecord],
+    progress: Callable[[str], None] | None = None,
+    progress_every: int = DEFAULT_SCAN_PROGRESS_EVERY,
+    report_new_paths: bool = False,
+    remote_workers: int | None = None,
 ) -> Iterable[tuple[TrackRecord, bool]]:
-    objects = list(iter_s3_objects(client, bucket=remote.bucket, prefix=remote.prefix))
-    sidecars_by_directory = s3_sidecars_by_directory(objects)
-    for snapshot in objects:
-        if Path(snapshot.key).suffix.casefold() not in SUPPORTED_EXTENSIONS:
-            continue
-        canonical_path = canonical_s3_path(remote, snapshot.key)
-        sidecar = selected_s3_sidecar(snapshot.key, sidecars_by_directory)
-        existing_track = existing_tracks_by_path.get(canonical_path)
-        if existing_track is not None and s3_track_snapshot_matches(
-            existing_track,
-            snapshot,
-            sidecar,
-        ):
-            yield reused_track_record(existing_track, root_position=root_position), False
-            continue
-        yield scan_s3_track(
-            remote,
+    objects = list(
+        iter_s3_objects(
             client,
-            snapshot,
-            sidecar=sidecar,
-            root_position=root_position,
-        ), True
+            bucket=remote.bucket,
+            prefix=remote.prefix,
+            progress=(
+                (lambda message: progress(f"listing remote objects: {message}"))
+                if progress
+                else None
+            ),
+        )
+    )
+    sidecars_by_directory = s3_sidecars_by_directory(objects)
+    audio_objects = tuple(
+        snapshot
+        for snapshot in objects
+        if Path(snapshot.key).suffix.casefold() in SUPPORTED_EXTENSIONS
+    )
+    sidecar_count = sum(
+        1
+        for snapshot in objects
+        if Path(snapshot.key).suffix.casefold() in ARTWORK_IMAGE_EXTENSIONS
+    )
+    if progress:
+        progress(
+            f"found {len(audio_objects)} remote music file(s) "
+            f"and {sidecar_count} sidecar artwork file(s)"
+        )
+    worker_count = resolve_remote_worker_count(remote_workers)
+    if worker_count == 1:
+        for index, snapshot in enumerate(audio_objects, start=1):
+            canonical_path = canonical_s3_path(remote, snapshot.key)
+            sidecar = selected_s3_sidecar(snapshot.key, sidecars_by_directory)
+            existing_track = existing_tracks_by_path.get(canonical_path)
+            if existing_track is not None and s3_track_snapshot_matches(
+                existing_track,
+                snapshot,
+                sidecar,
+            ):
+                yield reused_track_record(existing_track, root_position=root_position), False
+                continue
+            if progress and report_new_paths and existing_track is None:
+                progress(
+                    f"reading new remote file {index}/{len(audio_objects)}: "
+                    f"{snapshot.key}"
+                )
+            yield scan_s3_track(
+                remote,
+                client,
+                snapshot,
+                sidecar=sidecar,
+                root_position=root_position,
+            ), True
+        return
+
+    executor: ThreadPoolExecutor | None = None
+    scan_entries: list[tuple[TrackRecord | Future[TrackRecord], bool]] = []
+    try:
+        for index, snapshot in enumerate(audio_objects, start=1):
+            canonical_path = canonical_s3_path(remote, snapshot.key)
+            sidecar = selected_s3_sidecar(snapshot.key, sidecars_by_directory)
+            existing_track = existing_tracks_by_path.get(canonical_path)
+            if existing_track is not None and s3_track_snapshot_matches(
+                existing_track,
+                snapshot,
+                sidecar,
+            ):
+                scan_entries.append(
+                    (
+                        reused_track_record(
+                            existing_track,
+                            root_position=root_position,
+                        ),
+                        False,
+                    )
+                )
+                continue
+            if progress and report_new_paths and existing_track is None:
+                progress(
+                    f"reading new remote file {index}/{len(audio_objects)}: "
+                    f"{snapshot.key}"
+                )
+            if executor is None:
+                executor = ThreadPoolExecutor(max_workers=worker_count)
+            scan_entries.append(
+                (
+                    executor.submit(
+                        scan_s3_track,
+                        remote,
+                        client,
+                        snapshot,
+                        sidecar=sidecar,
+                        root_position=root_position,
+                    ),
+                    True,
+                )
+            )
+        for result, was_scanned in scan_entries:
+            if isinstance(result, Future):
+                try:
+                    yield result.result(), True
+                except Exception:
+                    cancel_pending_s3_track_scans(scan_entries)
+                    raise
+                continue
+            yield result, was_scanned
+    finally:
+        if executor is not None:
+            executor.shutdown(cancel_futures=True)
+
+
+def cancel_pending_s3_track_scans(
+    scan_entries: Iterable[tuple[TrackRecord | Future[TrackRecord], bool]],
+) -> None:
+    for result, _was_scanned in scan_entries:
+        if isinstance(result, Future):
+            result.cancel()
 
 
 def iter_s3_objects(
@@ -413,13 +681,19 @@ def iter_s3_objects(
     *,
     bucket: str,
     prefix: str,
+    progress: Callable[[str], None] | None = None,
 ) -> Iterable[S3ObjectSnapshot]:
     continuation_token: str | None = None
+    page_count = 0
+    object_count = 0
     while True:
         kwargs: dict[str, object] = {"Bucket": bucket, "Prefix": prefix}
         if continuation_token:
             kwargs["ContinuationToken"] = continuation_token
+        if progress and page_count == 0:
+            progress(f"starting list for s3://{bucket}/{prefix}")
         response = client.list_objects_v2(**kwargs)
+        page_count += 1
         if not isinstance(response, dict):
             return
         for item in response.get("Contents", ()) or ():
@@ -428,7 +702,12 @@ def iter_s3_objects(
             key = item.get("Key")
             if not isinstance(key, str) or not key or key.endswith("/"):
                 continue
+            object_count += 1
             yield s3_object_snapshot_from_item(item)
+        if progress:
+            progress(
+                f"listed {object_count} object(s) across {page_count} page(s)"
+            )
         continuation_token = response.get("NextContinuationToken")
         if not response.get("IsTruncated") or not continuation_token:
             break
@@ -523,7 +802,12 @@ def scan_s3_track(
         temp_path = Path(tempdir)
         audio_path = temp_path / temp_download_name(snapshot.key, fallback="audio")
         try:
-            download_s3_object(client, remote.bucket, snapshot.key, audio_path)
+            object_metadata = download_s3_object(
+                client,
+                remote.bucket,
+                snapshot.key,
+                audio_path,
+            )
             if sidecar is not None:
                 download_s3_object(
                     client,
@@ -541,6 +825,7 @@ def scan_s3_track(
         sidecar=sidecar,
         root_position=root_position,
         canonical_path=canonical_path,
+        object_metadata=object_metadata,
     )
     return track
 
@@ -550,11 +835,17 @@ def temp_download_name(key: str, *, fallback: str) -> str:
     return name or fallback
 
 
-def download_s3_object(client: object, bucket: str, key: str, destination: Path) -> None:
+def download_s3_object(
+    client: object,
+    bucket: str,
+    key: str,
+    destination: Path,
+) -> dict[str, str]:
     response = client.get_object(Bucket=bucket, Key=key)
     body = response.get("Body") if isinstance(response, dict) else None
     if body is None or not hasattr(body, "read"):
         raise OSError(f"failed to download S3 object: {key}")
+    metadata = s3_user_metadata(response)
     try:
         with destination.open("wb") as handle:
             while True:
@@ -566,6 +857,7 @@ def download_s3_object(client: object, bucket: str, key: str, destination: Path)
         close = getattr(body, "close", None)
         if callable(close):
             close()
+    return metadata
 
 
 def apply_s3_track_snapshot(
@@ -576,10 +868,14 @@ def apply_s3_track_snapshot(
     sidecar: S3ObjectSnapshot | None,
     root_position: int,
     canonical_path: str,
+    object_metadata: dict[str, str] | None = None,
 ) -> None:
     track.path = canonical_path
     track.root_position = root_position
-    track.file_created_at = snapshot.last_modified
+    track.file_created_at = s3_file_created_at(
+        object_metadata or {},
+        snapshot.last_modified,
+    )
     track.file_modified_at_ns = snapshot.last_modified_ns
     track.file_size_bytes = snapshot.size_bytes
     if sidecar is None:
@@ -607,6 +903,40 @@ def apply_s3_track_snapshot(
         sidecar_content_type=sidecar.content_type if sidecar else None,
         sidecar_size_bytes=sidecar.size_bytes if sidecar else None,
     )
+
+
+def s3_user_metadata(response: dict[str, object]) -> dict[str, str]:
+    metadata = response.get("Metadata")
+    if not isinstance(metadata, dict):
+        return {}
+    normalized: dict[str, str] = {}
+    for key, value in metadata.items():
+        key_text = str(key).strip().casefold()
+        value_text = optional_text_value(value)
+        if key_text and value_text:
+            normalized[key_text] = value_text
+    return normalized
+
+
+def s3_file_created_at(metadata: dict[str, str], fallback: str | None) -> str | None:
+    for key in ("local-created-at", "local-ctime"):
+        candidate = normalized_metadata_datetime_text(metadata.get(key))
+        if candidate is not None:
+            return candidate
+    return fallback
+
+
+def normalized_metadata_datetime_text(value: object) -> str | None:
+    text = optional_text_value(value)
+    if text is None:
+        return None
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=UTC)
+    return parsed.astimezone(UTC).isoformat()
 
 
 def normalized_datetime_text(value: object) -> str | None:

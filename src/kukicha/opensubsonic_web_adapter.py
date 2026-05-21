@@ -39,6 +39,7 @@ from .use_case import (
     LibraryGenre,
     LibraryQueries,
     TrackNotFoundError,
+    record_opensubsonic_client,
     record_playback,
     track_artwork,
     track_audio_path,
@@ -112,11 +113,17 @@ def mount_open_subsonic(
         if format_error is not None:
             return subsonic_error_response(format_error.code, format_error.message)
 
-        handler = open_subsonic_handlers().get(endpoint_name.casefold())
-        if endpoint_name.casefold() != "getopensubsonicextensions":
+        endpoint_key = endpoint_name.casefold()
+        handler = open_subsonic_handlers().get(endpoint_key)
+        if endpoint_key != "getopensubsonicextensions":
             auth_error = authentication_error(open_subsonic_context().options, params)
             if auth_error is not None:
                 return subsonic_error_response(auth_error.code, auth_error.message)
+            record_authenticated_opensubsonic_client(params)
+        elif has_opensubsonic_auth_params(params):
+            auth_error = authentication_error(open_subsonic_context().options, params)
+            if auth_error is None:
+                record_authenticated_opensubsonic_client(params)
 
         if handler is None:
             return subsonic_error_response(ERROR_GENERIC, "Endpoint not implemented")
@@ -202,6 +209,19 @@ def first_param(params: Mapping[str, list[str]], key: str) -> str | None:
     if not values:
         return None
     return values[0]
+
+
+def has_opensubsonic_auth_params(params: Mapping[str, list[str]]) -> bool:
+    return first_param(params, "u") is not None and any(
+        first_param(params, key) is not None for key in ("p", "t", "s")
+    )
+
+
+def record_authenticated_opensubsonic_client(params: Mapping[str, list[str]]) -> None:
+    record_opensubsonic_client(
+        open_subsonic_context().database,
+        first_param(params, "c") or "",
+    )
 
 
 def require_param(params: Mapping[str, list[str]], key: str) -> str:

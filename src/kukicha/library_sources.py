@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import os
+from collections.abc import Callable
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
@@ -11,6 +13,8 @@ from urllib.parse import quote, urlsplit
 SOURCE_KIND_LOCAL = "local"
 SOURCE_KIND_S3 = "s3"
 REMOTE_ROOT_ADDRESSING_STYLES = frozenset(("auto", "path", "virtual"))
+DEFAULT_REMOTE_WORKERS_MAX = 32
+DEFAULT_REMOTE_WORKERS_EXTRA = 4
 
 
 @dataclass(frozen=True, slots=True)
@@ -187,8 +191,25 @@ def path_is_in_source(path: str, root_path: str, kind: str = SOURCE_KIND_LOCAL) 
         return False
 
 
-@lru_cache(maxsize=32)
-def create_s3_client(remote: RemoteRootConfig) -> object:
+def default_remote_worker_count() -> int:
+    return min(
+        DEFAULT_REMOTE_WORKERS_MAX,
+        (os.cpu_count() or 1) + DEFAULT_REMOTE_WORKERS_EXTRA,
+    )
+
+
+def resolve_remote_worker_count(value: int | None = None) -> int:
+    if value is None:
+        return default_remote_worker_count()
+    return max(1, value)
+
+
+@lru_cache(maxsize=64)
+def create_s3_client(
+    remote: RemoteRootConfig,
+    *,
+    max_pool_connections: int | None = None,
+) -> object:
     try:
         from botocore.config import Config
         from botocore.session import Session
@@ -198,16 +219,37 @@ def create_s3_client(remote: RemoteRootConfig) -> object:
         ) from error
 
     session = Session(profile=remote.profile) if remote.profile else Session()
+    config_options: dict[str, object] = {
+        "s3": {"addressing_style": remote.addressing_style},
+    }
+    if max_pool_connections is not None:
+        config_options["max_pool_connections"] = resolve_remote_worker_count(
+            max_pool_connections
+        )
     return session.create_client(
         "s3",
         endpoint_url=remote.endpoint_url,
         region_name=remote.region,
-        config=Config(s3={"addressing_style": remote.addressing_style}),
+        config=Config(**config_options),
     )
 
 
 def clear_s3_client_cache() -> None:
     create_s3_client.cache_clear()
+
+
+def create_s3_client_for_workers(
+    remote: RemoteRootConfig,
+    s3_client_factory: Callable[..., object] = create_s3_client,
+    *,
+    remote_workers: int | None = None,
+) -> object:
+    if s3_client_factory is create_s3_client:
+        return create_s3_client(
+            remote,
+            max_pool_connections=resolve_remote_worker_count(remote_workers),
+        )
+    return s3_client_factory(remote)
 
 
 MappingLike = dict[str, Any]

@@ -19,6 +19,75 @@
 
   <section class="settings-panel">
     <div class="settings-panel-header">
+      <h2>Browser Login</h2>
+      <div class="settings-panel-meta">Current authenticated browser request.</div>
+    </div>
+
+    <dl class="config-file-summary">
+      <div>
+        <dt>Status</dt>
+        <dd><code>{{ browser_login.status }}</code></dd>
+      </div>
+      {% if browser_login.active %}
+        <div>
+          <dt>Signed in as</dt>
+          <dd><code>{{ browser_login.username }}</code></dd>
+        </div>
+        <div>
+          <dt>User Agent</dt>
+          <dd><code>{{ browser_login.user_agent }}</code></dd>
+        </div>
+        <div>
+          <dt>Client IP</dt>
+          <dd><code>{{ browser_login.client_ip }}</code></dd>
+        </div>
+        <div>
+          <dt>Expires</dt>
+          <dd>
+            <code>
+              <time data-local-date-time datetime="{{ browser_login.expires_at }}">{{ browser_login.expires_at }}</time>
+              ({{ browser_login.expires_in }} left)
+            </code>
+          </dd>
+        </div>
+      {% endif %}
+    </dl>
+  </section>
+
+  <section class="settings-panel">
+    <div class="settings-panel-header">
+      <h2>OpenSubsonic Clients</h2>
+      <div class="settings-panel-meta">Last successfully authenticated requests by client name.</div>
+    </div>
+
+    {% if not opensubsonic_configured %}
+      <div class="settings-status">OpenSubsonic is not configured.</div>
+    {% elif not opensubsonic_clients %}
+      <div class="settings-status">No OpenSubsonic clients seen yet.</div>
+    {% else %}
+      <div class="config-table-wrap">
+        <table class="config-table">
+          <thead>
+            <tr>
+              <th scope="col">Client</th>
+              <th scope="col">Last Seen</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for client in opensubsonic_clients %}
+              <tr>
+                <td><code>{{ client.client_name }}</code></td>
+                <td><code><time data-local-date-time datetime="{{ client.last_seen_at }}">{{ client.last_seen_at }}</time></code></td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% endif %}
+  </section>
+
+  <section class="settings-panel">
+    <div class="settings-panel-header">
       <h2>Config</h2>
       <div class="settings-panel-meta">Current values for this player session.</div>
     </div>

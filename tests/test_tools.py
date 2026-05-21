@@ -3,15 +3,22 @@ from __future__ import annotations
 import io
 from pathlib import Path
 from tempfile import TemporaryDirectory, gettempdir
+from threading import Event, Lock
 import unittest
 from unittest.mock import call, patch
 
 from kukicha.cli import build_parser
 from kukicha.commands.tools import (
+    CopyToRemoteResult,
     bulk_tag_edit,
+    copy_to_remote,
+    format_copy_to_remote_summary,
     format_bulk_tag_edit_summary,
+    remote_worker_source,
     run_bulk_tag_edit,
+    run_copy_to_remote,
 )
+from kukicha.library_sources import RemoteRootConfig
 from kukicha.commands.youtube_audio import (
     YoutubeAudioTools,
     download_and_split_chapters,
@@ -160,6 +167,443 @@ class BulkTagEditCommandTest(unittest.TestCase):
                 ]
             ),
         )
+
+
+class CopyToRemoteCommandTest(unittest.TestCase):
+    def test_cli_accepts_copy_to_remote_subcommand(self) -> None:
+        parser = build_parser()
+
+        args = parser.parse_args(
+            [
+                "tools",
+                "copy-to-remote",
+                "--remote",
+                "archive",
+                "--source",
+                "/tmp/Album",
+                "--source-children",
+                "--delete-source",
+                "--remote-workers",
+                "3",
+            ]
+        )
+
+        self.assertEqual(args.remote, "archive")
+        self.assertEqual(args.source, Path("/tmp/Album"))
+        self.assertTrue(args.source_children)
+        self.assertTrue(args.delete_source)
+        self.assertEqual(args.remote_workers, 3)
+        self.assertIs(args.func, run_copy_to_remote)
+
+    def test_copy_to_remote_uploads_source_folder_under_remote_prefix(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            album = temp_path / "Album"
+            album.mkdir()
+            audio = album / "01.flac"
+            notes = album / "notes.bin"
+            audio.write_bytes(b"audio")
+            notes.write_bytes(b"notes")
+            client = FakeS3Client()
+
+            with patch(
+                "kukicha.commands.tools.file_created_at",
+                return_value="2026-05-16T10:00:00+00:00",
+            ):
+                result = copy_to_remote(
+                    album,
+                    remote_name="archive",
+                    options=self.make_options(temp_path),
+                    s3_client_factory=lambda _remote: client,
+                )
+
+        self.assertEqual(result.files_found, 2)
+        self.assertEqual(result.files_uploaded, 2)
+        self.assertEqual(result.files_failed, 0)
+        puts_by_key = {str(item["Key"]): item for item in client.puts}
+        self.assertEqual(
+            sorted(puts_by_key),
+            sorted(["tracks/Album/01.flac", "tracks/Album/notes.bin"]),
+        )
+        self.assertEqual(puts_by_key["tracks/Album/01.flac"]["Body"], b"audio")
+        self.assertEqual(
+            puts_by_key["tracks/Album/01.flac"]["Metadata"]["local-created-at"],
+            "2026-05-16T10:00:00+00:00",
+        )
+        self.assertIn("local-ctime", puts_by_key["tracks/Album/01.flac"]["Metadata"])
+        self.assertEqual(
+            puts_by_key["tracks/Album/notes.bin"]["ContentType"],
+            "application/octet-stream",
+        )
+
+    def test_copy_to_remote_emits_progress_messages(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            album = temp_path / "Album"
+            album.mkdir()
+            (album / "01.flac").write_bytes(b"audio")
+            client = FakeS3Client()
+            messages: list[str] = []
+
+            copy_to_remote(
+                album,
+                remote_name="archive",
+                options=self.make_options(temp_path),
+                s3_client_factory=lambda _remote: client,
+                status=messages.append,
+            )
+
+        self.assertEqual(
+            messages[0],
+            "found 1 file(s) in 1 source item(s); uploading to archive",
+        )
+        self.assertRegex(messages[1], r"^remote workers: \d+ \(auto\)$")
+        self.assertEqual(
+            messages[2:],
+            [
+                "uploading 1/1: Album/01.flac",
+                "uploaded 1/1: tracks/Album/01.flac",
+            ],
+        )
+
+    def test_copy_to_remote_reports_configured_remote_workers(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            album = temp_path / "Album"
+            album.mkdir()
+            (album / "01.flac").write_bytes(b"audio")
+            messages: list[str] = []
+
+            copy_to_remote(
+                album,
+                remote_name="archive",
+                options=self.make_options(temp_path, remote_workers=3),
+                s3_client_factory=lambda _remote: FakeS3Client(),
+                status=messages.append,
+            )
+
+        self.assertIn("remote workers: 3 (configured)", messages)
+
+    def test_run_copy_to_remote_writes_progress_messages_to_stderr(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            source = temp_path / "Album"
+            source.mkdir()
+            options = self.make_options(temp_path)
+            args = build_parser().parse_args(
+                [
+                    "tools",
+                    "copy-to-remote",
+                    "--remote",
+                    "archive",
+                    "--source",
+                    str(source),
+                    "--remote-workers",
+                    "4",
+                ]
+            )
+
+            def fake_copy_to_remote(
+                source: Path,
+                *,
+                remote_name: str,
+                options: PlayerServerOptions,
+                source_children: bool = False,
+                delete_source: bool = False,
+                remote_workers: int | None = None,
+                status: object = None,
+            ) -> CopyToRemoteResult:
+                self.assertEqual(remote_name, "archive")
+                self.assertEqual(remote_workers, 4)
+                if not callable(status):
+                    raise AssertionError("status callback was not passed")
+                status("uploading 1/1: Album/01.flac")
+                return CopyToRemoteResult(
+                    source=source.resolve(),
+                    remote=options.remote_roots[0],
+                    source_children=source_children,
+                    delete_source=delete_source,
+                    files_found=1,
+                    files_uploaded=1,
+                    upload_errors=(),
+                    deleted_sources=(),
+                    delete_errors=(),
+                )
+
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+            with (
+                patch("kukicha.commands.tools.load_player_options", return_value=options),
+                patch(
+                    "kukicha.commands.tools.copy_to_remote",
+                    side_effect=fake_copy_to_remote,
+                ),
+                patch("sys.stdout", stdout),
+                patch("sys.stderr", stderr),
+            ):
+                exit_code = args.func(args)
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn("files uploaded: 1", stdout.getvalue())
+        self.assertIn(
+            "[copy-to-remote] uploading 1/1: Album/01.flac",
+            stderr.getvalue(),
+        )
+
+    def test_copy_to_remote_source_children_uploads_each_child_under_prefix(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            (temp_path / "Album1").mkdir()
+            (temp_path / "Album1" / "01.flac").write_bytes(b"one")
+            (temp_path / "Album2").mkdir()
+            (temp_path / "Album2" / "02.flac").write_bytes(b"two")
+            (temp_path / "loose.txt").write_text("loose", encoding="utf-8")
+            client = FakeS3Client()
+
+            result = copy_to_remote(
+                temp_path,
+                remote_name="archive",
+                options=self.make_options(temp_path),
+                source_children=True,
+                s3_client_factory=lambda _remote: client,
+            )
+
+        self.assertEqual(result.files_found, 3)
+        self.assertEqual(
+            sorted(item["Key"] for item in client.puts),
+            [
+                "tracks/Album1/01.flac",
+                "tracks/Album2/02.flac",
+                "tracks/loose.txt",
+            ],
+        )
+
+    def test_copy_to_remote_requires_directory_source(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            source = temp_path / "track.flac"
+            source.write_bytes(b"audio")
+
+            with self.assertRaisesRegex(NotADirectoryError, "source is not a folder"):
+                copy_to_remote(
+                    source,
+                    remote_name="archive",
+                    options=self.make_options(temp_path),
+                    s3_client_factory=lambda _remote: FakeS3Client(),
+                )
+
+    def test_copy_to_remote_rejects_missing_and_duplicate_remote_names(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            source = temp_path / "Album"
+            source.mkdir()
+
+            with self.assertRaisesRegex(ValueError, "remote root not found"):
+                copy_to_remote(
+                    source,
+                    remote_name="missing",
+                    options=self.make_options(temp_path),
+                    s3_client_factory=lambda _remote: FakeS3Client(),
+                )
+
+            options = self.make_options(
+                temp_path,
+                remote_roots=(
+                    self.remote("archive", bucket="one", prefix="one/"),
+                    self.remote("archive", bucket="two", prefix="two/"),
+                ),
+            )
+            with self.assertRaisesRegex(ValueError, "remote root name is ambiguous"):
+                copy_to_remote(
+                    source,
+                    remote_name="archive",
+                    options=options,
+                    s3_client_factory=lambda _remote: FakeS3Client(),
+                )
+
+    def test_copy_to_remote_uses_configured_profile_for_write_client(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            album = temp_path / "Album"
+            album.mkdir()
+            (album / "01.flac").write_bytes(b"audio")
+            captured: dict[str, RemoteRootConfig] = {}
+
+            def fake_factory(remote: RemoteRootConfig) -> FakeS3Client:
+                captured["remote"] = remote
+                return FakeS3Client()
+
+            copy_to_remote(
+                album,
+                remote_name="archive",
+                options=self.make_options(
+                    temp_path,
+                    remote_roots=(
+                        self.remote("archive", profile="music-profile"),
+                    ),
+                ),
+                s3_client_factory=fake_factory,
+            )
+
+        self.assertEqual(captured["remote"].profile, "music-profile")
+
+    def test_copy_to_remote_delete_source_removes_only_successful_children(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            good = temp_path / "Good"
+            bad = temp_path / "Bad"
+            good.mkdir()
+            bad.mkdir()
+            (good / "01.flac").write_bytes(b"good")
+            (bad / "02.flac").write_bytes(b"bad")
+            client = FakeS3Client(fail_keys={"tracks/Bad/02.flac"})
+
+            result = copy_to_remote(
+                temp_path,
+                remote_name="archive",
+                options=self.make_options(temp_path),
+                source_children=True,
+                delete_source=True,
+                s3_client_factory=lambda _remote: client,
+            )
+
+            self.assertTrue(temp_path.exists())
+            self.assertFalse(good.exists())
+            self.assertTrue(bad.exists())
+
+        self.assertEqual(result.files_found, 2)
+        self.assertEqual(result.files_uploaded, 1)
+        self.assertEqual(result.files_failed, 1)
+        self.assertEqual(result.deleted_sources, (good.resolve(),))
+
+    def test_copy_to_remote_uploads_files_in_parallel_with_override(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            album = temp_path / "Album"
+            album.mkdir()
+            (album / "01.flac").write_bytes(b"one")
+            (album / "02.flac").write_bytes(b"two")
+            client = BlockingS3Client(expected_starts=2)
+
+            result = copy_to_remote(
+                album,
+                remote_name="archive",
+                options=self.make_options(temp_path, remote_workers=1),
+                remote_workers=2,
+                s3_client_factory=lambda _remote: client,
+            )
+
+        self.assertEqual(result.files_uploaded, 2)
+        self.assertGreaterEqual(client.max_active, 2)
+        self.assertEqual(
+            sorted(item["Key"] for item in client.puts),
+            ["tracks/Album/01.flac", "tracks/Album/02.flac"],
+        )
+
+    def test_remote_worker_source_labels_overrides_config_and_auto(self) -> None:
+        self.assertEqual(remote_worker_source(4, 2), "override")
+        self.assertEqual(remote_worker_source(None, 2), "configured")
+        self.assertEqual(remote_worker_source(None, None), "auto")
+
+    def test_format_copy_to_remote_summary_includes_delete_counts(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            album = temp_path / "Album"
+            album.mkdir()
+            (album / "01.flac").write_bytes(b"audio")
+            result = copy_to_remote(
+                album,
+                remote_name="archive",
+                options=self.make_options(temp_path),
+                delete_source=True,
+                s3_client_factory=lambda _remote: FakeS3Client(),
+            )
+
+        summary = format_copy_to_remote_summary(result)
+
+        self.assertIn("files found: 1", summary)
+        self.assertIn("files uploaded: 1", summary)
+        self.assertIn("sources deleted: 1", summary)
+
+    def make_options(
+        self,
+        temp_path: Path,
+        *,
+        remote_roots: tuple[RemoteRootConfig, ...] | None = None,
+        remote_workers: int | None = None,
+    ) -> PlayerServerOptions:
+        return PlayerServerOptions(
+            config_path=temp_path / "kukicha.toml",
+            database=temp_path / "kukicha.sqlite",
+            ffmpeg_path=None,
+            remote_roots=remote_roots or (self.remote("archive"),),
+            remote_workers=remote_workers,
+        )
+
+    def remote(
+        self,
+        name: str,
+        *,
+        bucket: str = "bucket",
+        prefix: str = "tracks/",
+        profile: str | None = None,
+    ) -> RemoteRootConfig:
+        return RemoteRootConfig(
+            name=name,
+            endpoint_url="https://s3.example.test",
+            bucket=bucket,
+            prefix=prefix,
+            profile=profile,
+        )
+
+
+class FakeS3Client:
+    def __init__(self, *, fail_keys: set[str] | None = None) -> None:
+        self.fail_keys = fail_keys or set()
+        self.puts: list[dict[str, object]] = []
+
+    def put_object(self, **kwargs: object) -> dict[str, object]:
+        key = str(kwargs["Key"])
+        if key in self.fail_keys:
+            raise OSError("upload failed")
+        body = kwargs["Body"]
+        if not hasattr(body, "read"):
+            raise AssertionError("Body must be readable")
+        self.puts.append(
+            {
+                "Bucket": kwargs["Bucket"],
+                "Key": key,
+                "Body": body.read(),
+                "ContentType": kwargs["ContentType"],
+                "Metadata": kwargs["Metadata"],
+            }
+        )
+        return {}
+
+
+class BlockingS3Client(FakeS3Client):
+    def __init__(self, *, expected_starts: int) -> None:
+        super().__init__()
+        self.expected_starts = expected_starts
+        self.started = 0
+        self.active = 0
+        self.max_active = 0
+        self.lock = Lock()
+        self.all_started = Event()
+
+    def put_object(self, **kwargs: object) -> dict[str, object]:
+        with self.lock:
+            self.started += 1
+            self.active += 1
+            self.max_active = max(self.max_active, self.active)
+            if self.started >= self.expected_starts:
+                self.all_started.set()
+        try:
+            self.all_started.wait(timeout=2)
+            return super().put_object(**kwargs)
+        finally:
+            with self.lock:
+                self.active -= 1
 
 
 class YoutubeAudioDownloadCommandTest(unittest.TestCase):

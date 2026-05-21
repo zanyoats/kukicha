@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 
 from argon2 import PasswordHasher
@@ -8,6 +10,14 @@ from argon2.low_level import Type
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 
 from .player_config import PlayerAuthOptions
+
+
+@dataclass(frozen=True, slots=True)
+class AuthCookieDetails:
+    username: str
+    issued_at: datetime
+    expires_at: datetime
+    seconds_remaining: int
 
 
 def password_hasher() -> PasswordHasher:
@@ -41,18 +51,40 @@ def signed_auth_cookie(auth: PlayerAuthOptions) -> str:
 
 
 def verify_auth_cookie(auth: PlayerAuthOptions, value: str | None) -> bool:
+    return auth_cookie_details(auth, value) is not None
+
+
+def auth_cookie_details(
+    auth: PlayerAuthOptions,
+    value: str | None,
+    *,
+    now: datetime | None = None,
+) -> AuthCookieDetails | None:
     if not value:
-        return False
+        return None
     try:
-        payload = auth_cookie_serializer(auth).loads(
+        payload, issued_at = auth_cookie_serializer(auth).loads(
             value,
             max_age=auth.cookie_max_age_seconds,
+            return_timestamp=True,
         )
     except (BadSignature, SignatureExpired, OSError):
-        return False
+        return None
     if not isinstance(payload, dict):
-        return False
-    return payload.get("username") == auth.username
+        return None
+    username = payload.get("username")
+    if username != auth.username:
+        return None
+    issued_at = issued_at.astimezone(UTC)
+    expires_at = issued_at + timedelta(seconds=auth.cookie_max_age_seconds)
+    now_utc = (now or datetime.now(UTC)).astimezone(UTC)
+    seconds_remaining = max(0, int((expires_at - now_utc).total_seconds()))
+    return AuthCookieDetails(
+        username=str(username),
+        issued_at=issued_at,
+        expires_at=expires_at,
+        seconds_remaining=seconds_remaining,
+    )
 
 
 def auth_cookie_serializer(auth: PlayerAuthOptions) -> URLSafeTimedSerializer:

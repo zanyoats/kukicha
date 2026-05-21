@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, quote
@@ -269,19 +270,107 @@ def home_recently_added_heading(since: str) -> str:
     return "Added in the Last Month"
 
 
-def build_help_page_context(runtime: PlayerRuntime, options: Any) -> dict[str, Any]:
+def build_help_page_context(
+    runtime: PlayerRuntime,
+    options: Any,
+    *,
+    browser_cookie: str | None = None,
+    user_agent: str = "",
+    client_ip: str = "",
+) -> dict[str, Any]:
     from .app_metadata import kukicha_version
     from .player_config import player_config_summary
     from .player_navigation import player_page_context
+    from .use_case import opensubsonic_clients
 
+    opensubsonic_configured = getattr(options, "opensubsonic", None) is not None
     context = base_player_context(
         runtime,
         view_template="player/help.html",
         app_version=kukicha_version(),
+        browser_login=browser_login_help_context(
+            options,
+            browser_cookie=browser_cookie,
+            user_agent=user_agent,
+            client_ip=client_ip,
+        ),
+        opensubsonic_configured=opensubsonic_configured,
+        opensubsonic_clients=(
+            opensubsonic_clients(runtime.database) if opensubsonic_configured else ()
+        ),
         config_summary=player_config_summary(options=options),
     )
     context.update(player_page_context("help"))
     return context
+
+
+def browser_login_help_context(
+    options: Any,
+    *,
+    browser_cookie: str | None,
+    user_agent: str,
+    client_ip: str,
+) -> dict[str, object]:
+    from .player_auth import auth_cookie_details
+
+    auth = getattr(options, "auth", None)
+    if auth is None:
+        return {
+            "configured": False,
+            "active": False,
+            "status": "Not configured",
+        }
+
+    details = auth_cookie_details(auth, browser_cookie)
+    if details is None:
+        return {
+            "configured": True,
+            "active": False,
+            "status": "Inactive",
+            "user_agent": display_user_agent(user_agent),
+            "client_ip": display_client_ip(client_ip),
+        }
+    return {
+        "configured": True,
+        "active": True,
+        "status": "Active",
+        "username": details.username,
+        "user_agent": display_user_agent(user_agent),
+        "client_ip": display_client_ip(client_ip),
+        "expires_at": help_timestamp(details.expires_at),
+        "expires_in": format_time_remaining(details.seconds_remaining),
+    }
+
+
+def display_user_agent(value: str) -> str:
+    return value.strip() or "<unset>"
+
+
+def display_client_ip(value: str) -> str:
+    return value.strip() or "<unknown>"
+
+
+def help_timestamp(value: datetime) -> str:
+    return value.astimezone(UTC).replace(microsecond=0).isoformat()
+
+
+def format_time_remaining(seconds: int) -> str:
+    if seconds <= 0:
+        return "expired"
+    if seconds >= 24 * 60 * 60:
+        days = rounded_up(seconds, 24 * 60 * 60)
+        return format_count_label(days, "day", "days")
+    if seconds >= 60 * 60:
+        hours = rounded_up(seconds, 60 * 60)
+        return format_count_label(hours, "hour", "hours")
+    if seconds >= 60:
+        minutes = rounded_up(seconds, 60)
+        return format_count_label(minutes, "minute", "minutes")
+    return "less than 1 minute"
+
+
+def rounded_up(value: int, divisor: int) -> int:
+    return (value + divisor - 1) // divisor
 
 
 def build_artists_page_context(runtime: PlayerRuntime) -> dict[str, Any]:

@@ -2886,6 +2886,13 @@ function localizeDateLabels() {
     const timestamp = element.getAttribute("datetime") || "";
     element.textContent = formatBrowserDateLong(timestamp, element.textContent || timestamp);
   });
+  view.querySelectorAll("[data-local-date-time]").forEach((element) => {
+    if (!(element instanceof HTMLElement)) {
+      return;
+    }
+    const timestamp = element.getAttribute("datetime") || "";
+    element.textContent = formatBrowserDateTime(timestamp, element.textContent || timestamp);
+  });
 }
 
 function localizeJobTimes() {

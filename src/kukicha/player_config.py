@@ -55,6 +55,7 @@ PLAYER_CONFIG_KEY_ORDER = (
     "database_path",
     "roots",
     "remote_roots",
+    "remote_workers",
     "ffmpeg_path",
     "youtube_download_path",
     "prefer_musicbrainz_english_aliases",
@@ -128,6 +129,7 @@ class PlayerServerOptions:
     prefer_musicbrainz_english_aliases: bool = DEFAULT_PREFER_MUSICBRAINZ_ENGLISH_ALIASES
     auth: PlayerAuthOptions | None = None
     opensubsonic: OpenSubsonicOptions | None = None
+    remote_workers: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -323,6 +325,10 @@ def load_player_options(
         base_dir=config_dir,
     )
     remote_roots = parse_remote_roots(config.get("remote_roots", ()))
+    remote_workers = parse_optional_positive_int(
+        config.get("remote_workers"),
+        key="remote_workers",
+    )
     host = parse_player_host(config.get("host", DEFAULT_PLAYER_HOST))
     port = parse_player_port(config.get("port", DEFAULT_PLAYER_PORT))
     accent_color = parse_accent_color(config.get("accent_color", DEFAULT_ACCENT_COLOR))
@@ -358,6 +364,7 @@ def load_player_options(
         database=database,
         roots=roots,
         remote_roots=remote_roots,
+        remote_workers=remote_workers,
         ffmpeg_path=ffmpeg_path,
         youtube_download_path=youtube_download_path,
         host=host,
@@ -453,6 +460,7 @@ def player_config_values(
         "database_path": str(options.database),
         "roots": format_player_config_path_list(options.roots),
         "remote_roots": format_player_config_remote_roots(options.remote_roots),
+        "remote_workers": format_player_config_optional_int(options.remote_workers),
         "ffmpeg_path": format_player_config_optional_path(options.ffmpeg_path),
         "youtube_download_path": format_player_config_optional_path(
             options.youtube_download_path
@@ -524,6 +532,9 @@ def player_config_value_source(config: dict[str, object], key: str) -> str:
 
 def format_player_config_optional_path(path: Path | None) -> str:
     return str(path) if path is not None else "<unset>"
+
+def format_player_config_optional_int(value: int | None) -> str:
+    return str(value) if value is not None else "<auto>"
 
 def format_player_config_string_list(values: tuple[str, ...]) -> str:
     return "[" + ", ".join(repr(value) for value in values) + "]"
@@ -781,6 +792,15 @@ def linearized_rgb_channel(value: int) -> float:
     return ((normalized + 0.055) / 1.055) ** 2.4
 
 def parse_positive_milliseconds(value: object, *, key: str) -> int:
+    if type(value) is not int:
+        raise PlayerConfigError(f"{key} must be an integer")
+    if value <= 0:
+        raise PlayerConfigError(f"{key} must be greater than 0")
+    return value
+
+def parse_optional_positive_int(value: object, *, key: str) -> int | None:
+    if value is None:
+        return None
     if type(value) is not int:
         raise PlayerConfigError(f"{key} must be an integer")
     if value <= 0:

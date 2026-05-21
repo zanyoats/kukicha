@@ -175,6 +175,13 @@ CREATE TABLE IF NOT EXISTS play_now_playing (
     snapshot_json TEXT NOT NULL DEFAULT '{}'
 );
 
+CREATE TABLE IF NOT EXISTS opensubsonic_clients (
+    client_name TEXT PRIMARY KEY,
+    last_seen_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_opensubsonic_clients_last_seen
+    ON opensubsonic_clients (last_seen_at DESC, client_name);
+
 CREATE TABLE IF NOT EXISTS play_track_stats (
     track_key TEXT PRIMARY KEY,
     play_count INTEGER NOT NULL DEFAULT 0,
@@ -236,6 +243,14 @@ CREATE TABLE IF NOT EXISTS play_genre_stats (
 );
 CREATE INDEX IF NOT EXISTS idx_play_genre_stats_recent
     ON play_genre_stats (last_played_at DESC, play_count DESC, genre_key);
+
+CREATE TABLE IF NOT EXISTS album_user_state (
+    album_id TEXT PRIMARY KEY,
+    starred_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_album_user_state_starred
+    ON album_user_state (starred_at DESC, album_id)
+    WHERE starred_at IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS library_albums (
     album_id TEXT PRIMARY KEY,
@@ -556,6 +571,7 @@ def connect_database(
         migrate_player_jobs_schema(connection)
         migrate_listening_schema(connection)
         migrate_library_schema(connection)
+        migrate_album_user_state_schema(connection)
         migrate_album_musicbrainz_link_key_schema(connection)
         migrate_album_musicbrainz_schema(connection)
         migrate_album_search_schema(connection)
@@ -859,6 +875,32 @@ def migrate_library_schema(connection: sqlite3.Connection) -> None:
     migrate_library_album_artist_column(connection)
     canonicalize_library_album_artists(connection)
     connection.execute("DROP TABLE IF EXISTS library_album_paths")
+
+
+def migrate_album_user_state_schema(connection: sqlite3.Connection) -> None:
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS album_user_state (
+            album_id TEXT PRIMARY KEY,
+            starred_at TEXT
+        )
+        """
+    )
+    connection.execute(
+        """
+        INSERT OR IGNORE INTO album_user_state (album_id, starred_at)
+        SELECT album_id, starred_at
+        FROM library_albums
+        WHERE starred_at IS NOT NULL
+        """
+    )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_album_user_state_starred
+            ON album_user_state (starred_at DESC, album_id)
+            WHERE starred_at IS NOT NULL
+        """
+    )
 
 
 def ensure_library_album_artists_artist_index(connection: sqlite3.Connection) -> None:

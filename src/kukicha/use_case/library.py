@@ -707,7 +707,7 @@ def playlist_ids_by_path(connection: sqlite3.Connection) -> dict[str, int]:
 
 
 def album_starred_at_by_album_id(connection: sqlite3.Connection) -> dict[str, str]:
-    return {
+    starred_at_by_album_id = {
         str(row["album_id"]): str(row["starred_at"])
         for row in connection.execute(
             """
@@ -717,6 +717,19 @@ def album_starred_at_by_album_id(connection: sqlite3.Connection) -> dict[str, st
             """
         )
     }
+    starred_at_by_album_id.update(
+        {
+            str(row["album_id"]): str(row["starred_at"])
+            for row in connection.execute(
+                """
+                SELECT album_id, starred_at
+                FROM album_user_state
+                WHERE starred_at IS NOT NULL
+                """
+            )
+        }
+    )
+    return starred_at_by_album_id
 
 
 def album_added_at_by_album_id(connection: sqlite3.Connection) -> dict[str, str]:

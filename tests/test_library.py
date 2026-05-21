@@ -34,6 +34,7 @@ from kukicha.use_case import (
 )
 from kukicha.use_case.library import load_library
 from kukicha.use_case.library import save_library_with_options
+from kukicha.use_case.database import clear_library
 from kukicha.library_sources import RemoteRootConfig, canonical_s3_path, remote_root_source
 from kukicha.use_case.coverartarchive import (
     CoverArtArchiveClient,
@@ -586,6 +587,55 @@ class LibraryAlbumPathQueryTest(unittest.TestCase):
 
         self.assertIsNotNone(row)
         self.assertEqual(str(row["added_at"]), "2026-05-15T12:00:00+00:00")
+
+    def test_migrates_existing_album_stars_to_album_user_state(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            database = Path(tempdir) / "kukicha.sqlite"
+            legacy_connection = sqlite3.connect(database)
+            try:
+                legacy_connection.execute(
+                    """
+                    CREATE TABLE library_albums (
+                        album_id TEXT PRIMARY KEY,
+                        album TEXT NOT NULL,
+                        year INTEGER,
+                        track_count INTEGER NOT NULL,
+                        starred_at TEXT
+                    )
+                    """
+                )
+                legacy_connection.execute(
+                    """
+                    INSERT INTO library_albums (
+                        album_id,
+                        album,
+                        year,
+                        track_count,
+                        starred_at
+                    ) VALUES (
+                        'artist::album',
+                        'Album',
+                        2026,
+                        1,
+                        '2026-05-01T12:00:00+00:00'
+                    )
+                    """
+                )
+                legacy_connection.commit()
+            finally:
+                legacy_connection.close()
+
+            with connect_database(database) as connection:
+                row = connection.execute(
+                    """
+                    SELECT starred_at
+                    FROM album_user_state
+                    WHERE album_id = 'artist::album'
+                    """
+                ).fetchone()
+
+        self.assertIsNotNone(row)
+        self.assertEqual(str(row["starred_at"]), "2026-05-01T12:00:00+00:00")
 
     def test_album_details_paths_come_from_tracks_in_case_insensitive_path_order(self) -> None:
         with TemporaryDirectory() as tempdir:
@@ -3418,6 +3468,58 @@ class LibraryPlaylistPersistenceTest(unittest.TestCase):
                 )
 
             save_library(library, database)
+            album = LibraryQueries(database).list_album_page(
+                AlbumListQuery(sort=ALBUM_LIST_SORT_STARRED)
+            ).items[0]
+
+        self.assertEqual(album.album, "Album")
+        self.assertEqual(album.starred_at, "2026-05-01T12:00:00Z")
+
+    def test_save_library_reattaches_album_star_after_library_clear(self) -> None:
+        first_library = MusicLibrary(
+            roots=[],
+            tracks=[
+                TrackRecord(
+                    path="/music/Artist/Album/01.flac",
+                    file_type="flac",
+                    artist="Artist",
+                    album_artist="Artist",
+                    album="Album",
+                    title="First Track",
+                )
+            ],
+            supported_extensions=[".flac"],
+            generated_at="2026-04-25T00:00:00+00:00",
+        )
+        rescanned_library = MusicLibrary(
+            roots=[],
+            tracks=[
+                TrackRecord(
+                    path="/archive/Artist/Album/01.flac",
+                    file_type="flac",
+                    artist="Artist",
+                    album_artist="Artist",
+                    album="Album",
+                    title="First Track",
+                )
+            ],
+            supported_extensions=[".flac"],
+            generated_at="2026-04-26T00:00:00+00:00",
+        )
+        with TemporaryDirectory() as tempdir:
+            database = Path(tempdir) / "kukicha.sqlite"
+            save_library(first_library, database)
+            with connect_database(database) as connection:
+                connection.execute(
+                    """
+                    INSERT INTO album_user_state (album_id, starred_at)
+                    VALUES (?, ?)
+                    """,
+                    ("artist::album", "2026-05-01T12:00:00Z"),
+                )
+                clear_library(connection)
+
+            save_library(rescanned_library, database)
             album = LibraryQueries(database).list_album_page(
                 AlbumListQuery(sort=ALBUM_LIST_SORT_STARRED)
             ).items[0]

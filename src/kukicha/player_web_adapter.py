@@ -52,6 +52,7 @@ from .player_config import (
 from .player_auth import signed_auth_cookie, verify_auth_cookie, verify_password
 from .player_common import ARTWORK_CACHE_CONTROL
 from .player_errors import PlayerConfigError, PlayerConflictError, PlayerNotFoundError
+from .library_sources import resolve_remote_worker_count
 from .media_resources import AudioResource, local_audio_resource
 from .player_media import audio_resource_head, iter_audio_resource_bytes
 from .player_navigation import PLAYER_PAGE_ROUTE_KEYS
@@ -492,6 +493,11 @@ def serve_player(options: PlayerServerOptions) -> int:
     start_player_sync(app)
     url = f"http://{options.host}:{server.server_port}/"
     LOGGER.info("using config file %s", options.config_path)
+    LOGGER.info(
+        "remote workers: %s (%s)",
+        resolve_remote_worker_count(options.remote_workers),
+        "configured" if options.remote_workers is not None else "auto",
+    )
     LOGGER.info("kukicha listening on %s", url)
     if options.opensubsonic is not None:
         client_url = url
@@ -683,7 +689,16 @@ def render_jobs_page() -> Response:
 def render_help_page() -> Response:
     reset_playback_for_document_load()
     context = player_context()
-    return rendered_response(build_help_page_context(context.runtime, context.options))
+    auth = context.options.auth
+    return rendered_response(
+        build_help_page_context(
+            context.runtime,
+            context.options,
+            browser_cookie=request.cookies.get(auth.cookie_name) if auth else None,
+            user_agent=request.headers.get("User-Agent", ""),
+            client_ip=request.remote_addr or "",
+        )
+    )
 
 
 def render_simple_page(page_key: str) -> Response:

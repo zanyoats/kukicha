@@ -84,6 +84,12 @@ def all_sources_are_local(sources: Iterable[LibraryRootSource]) -> bool:
     return all(source.kind == "local" for source in sources)
 
 
+def runtime_remote_workers(runtime: PlayerRuntime) -> int | None:
+    options = getattr(runtime, "options", None)
+    value = getattr(options, "remote_workers", None)
+    return value if type(value) is int else None
+
+
 def library_job_summary_text(
     job_label: str,
     root_path: str,
@@ -208,6 +214,7 @@ def rescan_library(
     *,
     album_artist_split_patterns: Iterable[str | None] = DEFAULT_ALBUM_ARTIST_SPLIT_PATTERNS,
     cancel_check: Callable[[], None] | None = None,
+    remote_workers: int | None = None,
 ) -> LibraryRescanResult:
     root_sources = query_roots_as_sources(database)
     if not root_sources:
@@ -233,6 +240,7 @@ def rescan_library(
             existing_tracks_by_path=existing_tracks_by_path,
             progress=scan_progress,
             progress_every=500,
+            report_new_paths=True,
         )
     else:
         incremental_build = build_incremental_library_from_sources(
@@ -240,9 +248,15 @@ def rescan_library(
             existing_tracks_by_path=existing_tracks_by_path,
             progress=scan_progress,
             progress_every=500,
+            report_new_paths=True,
+            remote_workers=remote_workers,
         )
     library = incremental_build.library
     stale_paths = set(existing_tracks_by_path) - {track.path for track in library.tracks}
+    if stale_paths:
+        scan_progress(f"found {len(stale_paths)} stale track path(s) to prune")
+        for path in sorted(stale_paths):
+            scan_progress(f"pruning stale track: {path}")
     track_library_changed = bool(incremental_build.scanned_paths or stale_paths)
     metadata_resolution_skipped = not track_library_changed
     if cancel_check is not None:
@@ -314,6 +328,7 @@ def run_rescan_library_job(
         runtime.database,
         album_artist_split_patterns=runtime.album_artist_split_patterns,
         cancel_check=cancel_token.raise_if_canceled,
+        remote_workers=runtime_remote_workers(runtime),
     )
     duration_seconds = perf_counter() - started_at
     LOGGER.info(
@@ -363,6 +378,7 @@ def sync_library_roots(
     remote_roots: Iterable[RemoteRootConfig] = (),
     album_artist_split_patterns: Iterable[str | None] = DEFAULT_ALBUM_ARTIST_SPLIT_PATTERNS,
     cancel_check: Callable[[], None] | None = None,
+    remote_workers: int | None = None,
 ) -> LibrarySyncResult:
     desired_local_roots = tuple(normalized_configured_roots(configured_roots))
     validate_sync_roots(desired_local_roots)
@@ -402,6 +418,7 @@ def sync_library_roots(
                 sync_plan.root_rows,
                 progress=scan_progress,
                 progress_every=500,
+                remote_workers=remote_workers,
             )
     else:
         library = MusicLibrary(
@@ -566,6 +583,7 @@ def run_sync_job(
         remote_roots=remote_roots,
         album_artist_split_patterns=runtime.album_artist_split_patterns,
         cancel_check=cancel_token.raise_if_canceled,
+        remote_workers=runtime_remote_workers(runtime),
     )
     duration_seconds = perf_counter() - started_at
     if not result.changed:
