@@ -20,6 +20,7 @@ from kukicha.commands.tools import (
 )
 from kukicha.library_sources import RemoteRootConfig
 from kukicha.commands.youtube_audio import (
+    YoutubeAudioDownloadResult,
     YoutubeAudioTools,
     download_and_split_chapters,
     download_playlist_audio_items,
@@ -29,13 +30,6 @@ from kukicha.commands.youtube_audio import (
     run_youtube_download_audio,
 )
 from kukicha.player_config import PlayerServerOptions
-
-
-TEST_ARGON2ID_HASH = (
-    "$argon2id$v=19$m=65536,t=3,p=4$"
-    "c29tZXNhbHR2YWx1ZQ$"
-    "c29tZXBhc3N3b3JkaGFzaHZhbHVl"
-)
 
 
 class BulkTagEditCommandTest(unittest.TestCase):
@@ -236,6 +230,52 @@ class CopyToRemoteCommandTest(unittest.TestCase):
             "application/octet-stream",
         )
 
+    def test_copy_to_remote_skips_linux_and_macos_filesystem_junk(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            album = temp_path / "Album"
+            album.mkdir()
+            (album / "01.flac").write_bytes(b"audio")
+            for filename in (
+                ".DS_Store",
+                "._01.flac",
+                ".localized",
+                "Icon\r",
+                ".directory",
+                ".nfs0000000000000001",
+                ".fuse_hidden00000001",
+            ):
+                (album / filename).write_bytes(b"junk")
+            for dirname in (
+                ".Trashes",
+                ".Spotlight-V100",
+                ".fseventsd",
+                ".TemporaryItems",
+                ".AppleDouble",
+                "__MACOSX",
+                "lost+found",
+                ".Trash",
+                ".Trash-1000",
+            ):
+                junk_dir = album / dirname
+                junk_dir.mkdir()
+                (junk_dir / "02.flac").write_bytes(b"junk")
+            client = FakeS3Client()
+
+            result = copy_to_remote(
+                album,
+                remote_name="archive",
+                options=self.make_options(temp_path),
+                s3_client_factory=lambda _remote: client,
+            )
+
+        self.assertEqual(result.files_found, 1)
+        self.assertEqual(result.files_uploaded, 1)
+        self.assertEqual(
+            [item["Key"] for item in client.puts],
+            ["tracks/Album/01.flac"],
+        )
+
     def test_copy_to_remote_emits_progress_messages(self) -> None:
         with TemporaryDirectory() as tempdir:
             temp_path = Path(tempdir)
@@ -349,6 +389,78 @@ class CopyToRemoteCommandTest(unittest.TestCase):
             "[copy-to-remote] uploading 1/1: Album/01.flac",
             stderr.getvalue(),
         )
+
+    def test_run_copy_to_remote_loads_config_without_auth(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            source = temp_path / "Album"
+            source.mkdir()
+            config_path = temp_path / "kukicha.toml"
+            config_path.write_text(
+                "\n".join(
+                    (
+                        "[[remote_roots]]",
+                        "name = 'archive'",
+                        "endpoint_url = 'https://s3.example.test'",
+                        "bucket = 'music-bucket'",
+                        "prefix = 'tracks/'",
+                    )
+                ),
+                encoding="utf-8",
+            )
+            args = build_parser().parse_args(
+                [
+                    "--config",
+                    str(config_path),
+                    "tools",
+                    "copy-to-remote",
+                    "--remote",
+                    "archive",
+                    "--source",
+                    str(source),
+                ]
+            )
+
+            def fake_copy_to_remote(
+                source: Path,
+                *,
+                remote_name: str,
+                options: PlayerServerOptions,
+                source_children: bool = False,
+                delete_source: bool = False,
+                remote_workers: int | None = None,
+                status: object = None,
+            ) -> CopyToRemoteResult:
+                self.assertEqual(remote_name, "archive")
+                self.assertIsNone(options.auth)
+                self.assertEqual(options.remote_roots[0].name, "archive")
+                return CopyToRemoteResult(
+                    source=source.resolve(),
+                    remote=options.remote_roots[0],
+                    source_children=source_children,
+                    delete_source=delete_source,
+                    files_found=0,
+                    files_uploaded=0,
+                    upload_errors=(),
+                    deleted_sources=(),
+                    delete_errors=(),
+                )
+
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+            with (
+                patch(
+                    "kukicha.commands.tools.copy_to_remote",
+                    side_effect=fake_copy_to_remote,
+                ),
+                patch("sys.stdout", stdout),
+                patch("sys.stderr", stderr),
+            ):
+                exit_code = args.func(args)
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn("files uploaded: 0", stdout.getvalue())
+        self.assertNotIn("[auth] section is required", stderr.getvalue())
 
     def test_copy_to_remote_source_children_uploads_each_child_under_prefix(self) -> None:
         with TemporaryDirectory() as tempdir:
@@ -695,20 +807,7 @@ class YoutubeAudioDownloadCommandTest(unittest.TestCase):
     def test_run_youtube_audio_download_requires_configured_path(self) -> None:
         with TemporaryDirectory() as tempdir:
             config_path = Path(tempdir) / "kukicha.toml"
-            password_hash_file = Path(tempdir) / "password.hash"
-            password_hash_file.write_text(f"{TEST_ARGON2ID_HASH}\n", encoding="utf-8")
-            password_hash_file.chmod(0o600)
-            config_path.write_text(
-                "\n".join(
-                    (
-                        "log_level = 'INFO'",
-                        "[auth]",
-                        "username = 'listener'",
-                        "password_hash_file = 'password.hash'",
-                    )
-                ),
-                encoding="utf-8",
-            )
+            config_path.write_text("log_level = 'INFO'\n", encoding="utf-8")
             args = build_parser().parse_args(
                 [
                     "--config",
@@ -725,6 +824,67 @@ class YoutubeAudioDownloadCommandTest(unittest.TestCase):
 
         self.assertEqual(exit_code, 1)
         self.assertIn("youtube_download_path must be set", stderr.getvalue())
+
+    def test_run_youtube_audio_download_loads_config_without_auth(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            config_path = temp_path / "kukicha.toml"
+            config_path.write_text(
+                "youtube_download_path = 'youtube'\n",
+                encoding="utf-8",
+            )
+            args = build_parser().parse_args(
+                [
+                    "--config",
+                    str(config_path),
+                    "tools",
+                    "yt-download-audio",
+                    "--chapters-file",
+                    str(temp_path / "chapters.txt"),
+                    "https://www.youtube.com/watch?v=abc123",
+                ]
+            )
+
+            def fake_download_youtube_audio(
+                url: str,
+                *,
+                options: PlayerServerOptions,
+                verbose: bool = False,
+                chapters_file: Path | None = None,
+                status: object = None,
+            ) -> YoutubeAudioDownloadResult:
+                self.assertEqual(url, "https://www.youtube.com/watch?v=abc123")
+                self.assertFalse(verbose)
+                self.assertEqual(chapters_file, temp_path / "chapters.txt")
+                self.assertIsNone(options.auth)
+                self.assertEqual(
+                    options.youtube_download_path,
+                    (temp_path / "youtube").resolve(),
+                )
+                return YoutubeAudioDownloadResult(
+                    output_dir=temp_path / "youtube" / "Album [abc123]",
+                    files_written=0,
+                    media_id="abc123",
+                    title="Album",
+                    mode="video",
+                    chapters_reported=0,
+                )
+
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+            with (
+                patch(
+                    "kukicha.commands.youtube_audio.download_youtube_audio",
+                    side_effect=fake_download_youtube_audio,
+                ),
+                patch("sys.stdout", stdout),
+                patch("sys.stderr", stderr),
+            ):
+                exit_code = args.func(args)
+
+        self.assertEqual(exit_code, 0)
+        self.assertIn("Done. Final audio files written to:", stdout.getvalue())
+        self.assertEqual(stderr.getvalue(), "")
 
     def test_resolve_youtube_audio_tools_checks_required_programs(self) -> None:
         with TemporaryDirectory() as tempdir:

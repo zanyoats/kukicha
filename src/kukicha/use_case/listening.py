@@ -4,11 +4,12 @@ import hashlib
 import json
 from collections.abc import Iterable
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 from sqlite3 import Connection, Row
 from typing import Any
 
+from .._compat import UTC
 from ..album_artists import normalized_album_artist_values
 from ..models import normalize_genre_values
 from ..playlist_art import playlist_cover_svg

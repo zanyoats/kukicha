@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime
 import io
 from pathlib import Path
 import tempfile
@@ -9,6 +9,7 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
+from kukicha._compat import UTC
 from kukicha.discogs import group_library_albums
 from kukicha.models import MusicLibrary, TrackRecord, UNKNOWN_METADATA_TAG
 from kukicha.library_sources import LibraryRootSource, RemoteRootConfig, canonical_s3_path
@@ -63,27 +64,58 @@ class ScannerTagNormalizationTest(unittest.TestCase):
 
     def test_scan_track_captures_itunes_store_identifiers_from_mp4_tags(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
-            path = Path(tempdir) / "01 Test.m4a"
-            path.write_bytes(b"not real audio; mutagen is mocked")
+            for extension in (".m4a", ".m4b", ".m4p", ".m4r"):
+                with self.subTest(extension=extension):
+                    path = Path(tempdir) / f"01 Test{extension}"
+                    path.write_bytes(b"not real audio; mutagen is mocked")
+
+                    audio = SimpleNamespace(
+                        tags={
+                            "\xa9ART": ["Test Artist"],
+                            "aART": ["Test Album Artist"],
+                            "\xa9alb": ["Test Album"],
+                            "\xa9nam": ["Test Title"],
+                            "cnID": [440769234],
+                            "plID": [440769149],
+                        },
+                        info=SimpleNamespace(length=123.456, bitrate=256000),
+                    )
+
+                    with patch("kukicha.scanner.MutagenFile", return_value=audio):
+                        track = scan_track(path)
+
+                    self.assertEqual(track.file_type, extension.removeprefix("."))
+                    self.assertEqual(track.itunes_store_track_id, "440769234")
+                    self.assertEqual(track.itunes_store_album_id, "440769149")
+
+    def test_additional_browser_safe_audio_extensions_are_scanned(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            root = Path(tempdir)
+            for extension in (".m4b", ".m4r", ".oga"):
+                (root / f"01 Test{extension}").write_bytes(
+                    b"not real audio; mutagen is mocked"
+                )
 
             audio = SimpleNamespace(
                 tags={
-                    "\xa9ART": ["Test Artist"],
-                    "aART": ["Test Album Artist"],
-                    "\xa9alb": ["Test Album"],
-                    "\xa9nam": ["Test Title"],
-                    "cnID": [440769234],
-                    "plID": [440769149],
+                    "ARTIST": ["Test Artist"],
+                    "ALBUMARTIST": ["Test Album Artist"],
+                    "ALBUM": ["Test Album"],
+                    "TITLE": ["Test Title"],
                 },
-                info=SimpleNamespace(length=123.456, bitrate=256000),
+                info=SimpleNamespace(length=123.456, bitrate=128000),
             )
 
             with patch("kukicha.scanner.MutagenFile", return_value=audio):
-                track = scan_track(path)
+                library = build_library([root])
 
-        self.assertEqual(track.file_type, "m4a")
-        self.assertEqual(track.itunes_store_track_id, "440769234")
-        self.assertEqual(track.itunes_store_album_id, "440769149")
+        self.assertTrue({".m4b", ".m4r", ".oga"}.issubset(library.supported_extensions))
+        self.assertNotIn(".wav", library.supported_extensions)
+        self.assertNotIn(".wave", library.supported_extensions)
+        self.assertEqual(
+            {track.file_type for track in library.tracks},
+            {"m4b", "m4r", "oga"},
+        )
 
     def test_opus_files_are_scanned_with_vorbis_comment_tags(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:

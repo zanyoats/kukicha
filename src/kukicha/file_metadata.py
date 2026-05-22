@@ -1,8 +1,10 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime
 from pathlib import Path
 import sys
+
+from ._compat import UTC
 
 
 def file_created_at(path: Path) -> str | None:

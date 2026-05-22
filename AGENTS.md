@@ -2,8 +2,8 @@
 
 ## Python Environment
 
-There is a `.venv` folder where `pyproject.toml` dependencies are installed.
-Use `.venv/bin/python` for local commands so imports and installed package
+Use `uv sync` to create the project `.venv` from `pyproject.toml` and
+`uv.lock`. Run Python commands through `uv run` so imports and installed package
 dependencies match the project environment.
 
 ## Project Layout
@@ -13,8 +13,8 @@ do not run `src/kukicha/cli.py` directly. To exercise the CLI, use the installed
 script or module form:
 
 ```bash
-.venv/bin/kukicha --help
-.venv/bin/python -m kukicha --help
+uv run kukicha --help
+uv run python -m kukicha --help
 ```
 
 ## Tests
@@ -25,25 +25,25 @@ and the existing tests are `unittest.TestCase` based.
 Run all tests from the repo root with:
 
 ```bash
-.venv/bin/python -m unittest discover -s tests
+uv run python -m unittest discover -s tests
 ```
 
 Run tests with warnings visible before finishing warning-cleanup work:
 
 ```bash
-.venv/bin/python -W default -m unittest discover -s tests
+uv run python -W default -m unittest discover -s tests
 ```
 
 For resource-warning debugging, use tracemalloc:
 
 ```bash
-.venv/bin/python -X tracemalloc=10 -W default -m unittest discover -s tests
+uv run python -X tracemalloc=10 -W default -m unittest discover -s tests
 ```
 
 Run a specific test module with:
 
 ```bash
-.venv/bin/python -m unittest tests.test_search
+uv run python -m unittest tests.test_search
 ```
 
 ## SQLite Connections

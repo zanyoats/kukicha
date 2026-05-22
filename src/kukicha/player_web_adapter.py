@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime
 from importlib.resources import files
 import json
 from pathlib import Path
@@ -13,8 +13,10 @@ from urllib.parse import quote
 
 from flask import Flask, Response, abort, current_app, redirect, request, stream_with_context
 from werkzeug.exceptions import NotFound
+from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.serving import make_server
 
+from ._compat import UTC
 from .use_case import (
     NATIVE_PLAYBACK_SOURCE,
     append_queue as append_queue_command,
@@ -130,6 +132,8 @@ def parse_byte_range(header: str | None, file_size: int) -> tuple[int, int] | No
 
 def create_player_app(options: PlayerServerOptions) -> Flask:
     app = Flask("kukicha", static_folder=None)
+    if options.trusted_proxy_headers:
+        app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
     template_environment = build_template_environment()
     app.jinja_env.filters.update(template_environment.filters)
     runtime = PlayerRuntime(options)

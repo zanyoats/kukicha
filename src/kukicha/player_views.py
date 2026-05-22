@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from datetime import UTC, datetime
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, quote
 
+from ._compat import UTC
 from .use_case import ALBUM_LIST_SORT_RECENTLY_ADDED, AlbumListQuery, LibraryQueries
 from .use_case import album_list_query_from_params, album_musicbrainz_link
 from .player_common import format_compact_count, format_count_label

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime
 import hashlib
 import hmac
 import json
@@ -14,6 +14,7 @@ from xml.sax.saxutils import escape, quoteattr
 from flask import Flask, Response, current_app, request, stream_with_context
 from werkzeug.datastructures import MultiDict
 
+from ._compat import UTC
 from .app_metadata import kukicha_version
 from .models import ALBUM_ARTWORK_HEIGHT, TRACK_ARTWORK_HEIGHT
 from .player_common import ARTWORK_CACHE_CONTROL

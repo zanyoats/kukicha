@@ -65,7 +65,7 @@ def initialize_open_subsonic_config(config_path: Path) -> None:
 
 
 def reset_open_subsonic_password(config_path: Path) -> None:
-    options = load_player_options(config_path)
+    options = load_player_options(config_path, validate_credential_files=False)
     if options.opensubsonic is None:
         raise PlayerConfigError(f"config does not contain [opensubsonic]: {config_path}")
     write_open_subsonic_secret(options.opensubsonic.secret_file, new_open_subsonic_password())

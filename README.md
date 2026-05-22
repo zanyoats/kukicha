@@ -1,5 +1,7 @@
 # kukicha
 
+[![Tests](https://github.com/zanyoats/kukicha/actions/workflows/tests.yml/badge.svg?branch=main)](https://github.com/zanyoats/kukicha/actions/workflows/tests.yml)
+
 `kukicha` focuses on managing and streaming your audio library using a http server backed by single sqlite database file. It comes with a simple and fast builtin web UI.
 
 Some noteworthy features:
@@ -23,29 +25,28 @@ Roadmap
 - Support subset of Opensonic API to support different clients
 - Live stream a playlist
 
-## Install With pipx
+## Install With uv
 
-Kukicha is not published to PyPI yet. Install it from a checked-out project root with `pipx`:
+Kukicha is not published to PyPI yet. Install it from a checked-out project root
+with `uv`:
 
 ```bash
 # from the project root
-pipx ensurepath
-pipx install .
+uv tool install .
 ```
 
 Verify the install:
 
 ```bash
 which kukicha
-pipx list
+uv tool list
 kukicha --help
 ```
 
 Updates can be installed using force flag:
 
 ```bash
-# when we move to versions use `pipx upgrade kukicha`
-pipx install --force .
+uv tool install --force .
 ```
 
 For contributor setup with an editable install and test commands, see
@@ -109,6 +110,10 @@ Supported keys:
   `true`.
 - `host`: interface to bind, defaulting to `127.0.0.1`.
 - `port`: TCP port from `1` to `65535`, defaulting to `4533`.
+- `trusted_proxy_headers`: trust `X-Forwarded-For`, `X-Forwarded-Proto`, and
+  `X-Forwarded-Host` from one reverse proxy hop. Defaults to `false`; only
+  enable when direct access to Kukicha is blocked, such as when bound to
+  `127.0.0.1` behind a local reverse proxy.
 - `accent_color`: palette name or matching hex code. Run `kukicha --help` for the
   full palette list.
 - `appearance`: `light`, `dark`, `dim`, or `system`. `system` follows the
@@ -166,8 +171,10 @@ To change the browser login password later, run:
 kukicha --config /path/to/kukicha.toml auth password
 ```
 
-This rewrites only the configured password hash file and invalidates existing
-browser login cookies for that config.
+This creates or rewrites only the configured password hash file and invalidates
+existing browser login cookies for that config. If you wrote `[auth]` into the
+config before creating `password_hash_file`, use this command to bootstrap that
+file.
 
 The player provides album browsing, playback, full-text search, and filters for
 library roots, artists, genres, styles, and album properties. Search indexes
@@ -207,6 +214,9 @@ To change the OpenSubsonic password later, run:
 ```bash
 kukicha --config /path/to/kukicha.toml opensubsonic password
 ```
+
+This creates or rewrites the configured `secret_file`, so it also supports
+declarative configs where `[opensubsonic]` exists before the secret file does.
 
 The API supports basic album and artist browsing, direct streaming, downloads,
 cover art, password auth, salted token auth, JSON responses, and GET or form

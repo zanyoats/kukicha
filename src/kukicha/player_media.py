@@ -23,9 +23,9 @@ def audio_mime_type(path: Path) -> str:
 
 def audio_mime_type_for_name(name: str) -> str:
     path = Path(name)
-    if path.suffix.casefold() in {".m4a", ".m4p"}:
+    if path.suffix.casefold() in {".m4a", ".m4b", ".m4p", ".m4r"}:
         return "audio/mp4"
-    if path.suffix.casefold() == ".opus":
+    if path.suffix.casefold() in {".oga", ".opus"}:
         return "audio/ogg"
     return mimetypes.guess_type(path.name)[0] or "application/octet-stream"
 
@@ -117,7 +117,7 @@ def audio_unsupported_reason_for_path(path: Path) -> str:
     return ""
 
 def mpeg4_audio_codec_for_path(path: Path) -> str:
-    if path.suffix.casefold() not in {".m4a", ".m4p"}:
+    if path.suffix.casefold() not in {".m4a", ".m4b", ".m4p", ".m4r"}:
         return ""
 
     try:

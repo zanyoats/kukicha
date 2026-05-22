@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import hashlib
-from datetime import UTC, datetime
+from datetime import datetime
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
 
+from kukicha._compat import UTC
 from kukicha.models import MusicLibrary, TrackArtwork, TrackRecord
 from kukicha.player_auth import hash_password
 from kukicha.player_config import (

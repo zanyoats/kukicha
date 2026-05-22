@@ -2,9 +2,8 @@ from __future__ import annotations
 
 import io
 import os
-import tomllib
 from dataclasses import replace
-from datetime import UTC, datetime
+from datetime import datetime
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from queue import Queue
@@ -14,6 +13,7 @@ import unittest
 from unittest.mock import Mock, call, patch
 from urllib.parse import parse_qs
 
+from kukicha._compat import UTC, tomllib
 from kukicha.album_artists import DEFAULT_ALBUM_ARTIST_SPLIT_PATTERNS
 from kukicha.app_metadata import kukicha_version
 from kukicha.use_case import (
@@ -70,6 +70,7 @@ from kukicha.player_config import (
     DEFAULT_PLAYER_PORT,
     DEFAULT_PREFER_MUSICBRAINZ_ENGLISH_ALIASES,
     DEFAULT_TOAST_TIMEOUT_MS,
+    DEFAULT_TRUSTED_PROXY_HEADERS,
     APPEARANCE_THEMES,
     CONTROL_ACCENT_MINIMUM_CONTRAST,
     OpenSubsonicOptions,
@@ -114,7 +115,7 @@ from kukicha.use_case import (
 )
 from kukicha.player_errors import PlayerConfigError, PlayerConflictError
 from kukicha.player_common import format_compact_count, format_count_label
-from kukicha.player_media import audio_mime_type
+from kukicha.player_media import audio_mime_type, mpeg4_audio_codec_for_path
 from kukicha.player_navigation import (
     album_artist_links,
     album_artist_url,
@@ -900,8 +901,31 @@ class PlayerRuntimeTest(unittest.TestCase):
 
 
 class PlayerAudioMimeTypeTest(unittest.TestCase):
+    def test_mpeg4_audio_extensions_use_mp4_audio_mime_type(self) -> None:
+        for name in ("track.m4a", "track.m4b", "track.m4p", "track.m4r"):
+            with self.subTest(name=name):
+                self.assertEqual(audio_mime_type(Path(name)), "audio/mp4")
+
+    def test_oga_uses_ogg_audio_mime_type(self) -> None:
+        self.assertEqual(audio_mime_type(Path("track.oga")), "audio/ogg")
+
     def test_opus_uses_ogg_audio_mime_type(self) -> None:
         self.assertEqual(audio_mime_type(Path("track.opus")), "audio/ogg")
+
+    def test_mpeg4_audio_extensions_use_mp4_codec_detection(self) -> None:
+        audio = SimpleNamespace(info=SimpleNamespace(codec="mp4a.40.2"))
+        for name in ("track.m4a", "track.m4b", "track.m4p", "track.m4r"):
+            with (
+                self.subTest(name=name),
+                patch("mutagen.File", return_value=audio) as mutagen_file,
+            ):
+                self.assertEqual(mpeg4_audio_codec_for_path(Path(name)), "mp4a.40.2")
+                mutagen_file.assert_called_once_with(Path(name))
+
+    def test_non_mpeg4_audio_extension_skips_mp4_codec_detection(self) -> None:
+        with patch("mutagen.File") as mutagen_file:
+            self.assertEqual(mpeg4_audio_codec_for_path(Path("track.oga")), "")
+            mutagen_file.assert_not_called()
 
 
 class PlayerTrackDurationTest(unittest.TestCase):
@@ -1782,6 +1806,7 @@ class PlayerConfigTest(unittest.TestCase):
                         "prefer_musicbrainz_english_aliases = false",
                         "host = '0.0.0.0'",
                         "port = 43210",
+                        "trusted_proxy_headers = true",
                         "accent_color = 'Dark-Sky-Blue'",
                         "appearance = 'DaRk'",
                         "toast_timeout_ms = 12000",
@@ -1813,6 +1838,7 @@ class PlayerConfigTest(unittest.TestCase):
             self.assertFalse(options.prefer_musicbrainz_english_aliases)
             self.assertEqual(options.host, "0.0.0.0")
             self.assertEqual(options.port, 43210)
+            self.assertTrue(options.trusted_proxy_headers)
             self.assertEqual(options.log_level, "INFO")
             self.assertEqual(options.accent_color, "dark-sky-blue")
             self.assertEqual(options.appearance, "dark")
@@ -2079,6 +2105,7 @@ class PlayerConfigTest(unittest.TestCase):
             self.assertEqual(options.roots, ())
             self.assertEqual(options.host, DEFAULT_PLAYER_HOST)
             self.assertEqual(options.port, DEFAULT_PLAYER_PORT)
+            self.assertEqual(options.trusted_proxy_headers, DEFAULT_TRUSTED_PROXY_HEADERS)
             self.assertIsNone(options.opensubsonic)
             self.assertEqual(options.log_level, DEFAULT_PLAYER_LOG_LEVEL)
             self.assertEqual(options.accent_color, DEFAULT_ACCENT_COLOR)
@@ -2182,6 +2209,17 @@ class PlayerConfigTest(unittest.TestCase):
             with self.assertRaisesRegex(
                 PlayerConfigError,
                 "prefer_musicbrainz_english_aliases must be true or false",
+            ):
+                load_player_options(config_path)
+
+    def test_load_player_options_rejects_invalid_trusted_proxy_headers(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            config_path = Path(tempdir) / "kukicha.toml"
+            self.write_config(config_path, "trusted_proxy_headers = 'yes'\n")
+
+            with self.assertRaisesRegex(
+                PlayerConfigError,
+                "trusted_proxy_headers must be true or false",
             ):
                 load_player_options(config_path)
 
@@ -2294,7 +2332,7 @@ class PlayerConfigTest(unittest.TestCase):
             self.assertIn(
                 "Supported keys:\n  log_level\n  database_path\n  roots\n  remote_roots\n  remote_workers\n  ffmpeg_path\n"
                 "  youtube_download_path\n  prefer_musicbrainz_english_aliases\n  host\n  port\n"
-                "  appearance\n  accent_color\n  toast_timeout_ms\n"
+                "  trusted_proxy_headers\n  appearance\n  accent_color\n  toast_timeout_ms\n"
                 "  album_artist_split_patterns\n  auth.username\n  auth.password_hash_file\n"
                 "  auth.cookie_max_age\n  auth.cookie_name\n"
                 "  opensubsonic.mount_prefix\n  opensubsonic.secret_file",
@@ -2493,6 +2531,20 @@ class InitCommandTest(unittest.TestCase):
         ):
             return args.func(args)
 
+    def run_auth_password(
+        self,
+        config_path: Path,
+        *,
+        password: str = "new-secret",
+    ) -> int:
+        args = build_parser().parse_args(["--config", str(config_path), "auth", "password"])
+        with (
+            patch.dict(os.environ, {"KUKICHA_PASSWORD": password}, clear=False),
+            patch("sys.stdout", new=io.StringIO()),
+            patch("sys.stderr", new=io.StringIO()),
+        ):
+            return args.func(args)
+
     def test_init_uses_env_credentials_and_stdin_config(self) -> None:
         with TemporaryDirectory() as tempdir:
             config_path = Path(tempdir) / "kukicha.toml"
@@ -2662,6 +2714,49 @@ class InitCommandTest(unittest.TestCase):
                 "new-secret\n",
             )
             self.assertEqual(options.opensubsonic.secret_file.stat().st_mode & 0o777, 0o600)
+
+    def test_password_commands_create_missing_files_from_declared_config(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            config_path = temp_path / "kukicha.toml"
+            config_path.write_text(
+                "\n".join(
+                    (
+                        "log_level = 'INFO'",
+                        "",
+                        "[auth]",
+                        "username = 'listener'",
+                        "password_hash_file = 'secrets/password.hash'",
+                        "cookie_max_age = '180d'",
+                        "cookie_name = 'kukicha_cookie'",
+                        "",
+                        "[opensubsonic]",
+                        "mount_prefix = '/'",
+                        "secret_file = 'secrets/opensubsonic.secret'",
+                        "",
+                    )
+                ),
+                encoding="utf-8",
+            )
+            before_config = config_path.read_text(encoding="utf-8")
+            password_hash_file = temp_path / "secrets" / "password.hash"
+            secret_file = temp_path / "secrets" / "opensubsonic.secret"
+
+            auth_exit_code = self.run_auth_password(config_path, password="browser-secret")
+            open_subsonic_exit_code = self.run_open_subsonic_password(
+                config_path,
+                password="sonic-secret",
+            )
+
+            self.assertEqual(auth_exit_code, 0)
+            self.assertEqual(open_subsonic_exit_code, 0)
+            self.assertEqual(config_path.read_text(encoding="utf-8"), before_config)
+            self.assertEqual(password_hash_file.stat().st_mode & 0o777, 0o600)
+            self.assertEqual(secret_file.stat().st_mode & 0o777, 0o600)
+            self.assertEqual(secret_file.read_text(encoding="utf-8"), "sonic-secret\n")
+            options = load_player_options(config_path)
+            assert options.auth is not None
+            self.assertTrue(verify_password(options.auth, "browser-secret"))
 
     def test_opensubsonic_password_rejects_config_without_opensubsonic(self) -> None:
         with TemporaryDirectory() as tempdir:
@@ -3943,6 +4038,29 @@ class PlayerWebAdapterTest(unittest.TestCase):
             self.assertEqual(audio_response.status_code, 401)
             self.assertEqual(static_response.status_code, 200)
             self.assertEqual(health_response.status_code, 204)
+
+    def test_trusted_proxy_headers_use_forwarded_client_ip(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            runtime = self.make_runtime(temp_path / "kukicha.sqlite")
+            options = replace(
+                self.make_auth_options(temp_path),
+                trusted_proxy_headers=True,
+            )
+            with patch("kukicha.player_web_adapter.PlayerRuntime", return_value=runtime):
+                app = create_player_app(options)
+            client = self.logged_in_client(app)
+
+            response = client.get(
+                "/help",
+                environ_base={"REMOTE_ADDR": "127.0.0.1"},
+                headers={"X-Forwarded-For": "198.51.100.25"},
+            )
+
+            self.assertEqual(response.status_code, 200)
+            self.assertIn(b"<dt>Client IP</dt>", response.data)
+            self.assertIn(b"<dd><code>198.51.100.25</code></dd>", response.data)
+            self.assertNotIn(b"<dd><code>127.0.0.1</code></dd>", response.data)
 
     def test_player_login_sets_hardened_cookie_and_allows_access(self) -> None:
         with TemporaryDirectory() as tempdir:

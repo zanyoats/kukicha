@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta
 from hashlib import sha256
 
 from argon2 import PasswordHasher
@@ -9,6 +9,7 @@ from argon2.exceptions import InvalidHashError, VerificationError, VerifyMismatc
 from argon2.low_level import Type
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 
+from ._compat import UTC
 from .player_config import PlayerAuthOptions
 
 

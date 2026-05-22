@@ -2,12 +2,13 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime
 import logging
 from pathlib import Path
 import sqlite3
 from time import perf_counter
 
+from ..._compat import UTC
 from ..queries import LibraryQueries
 from ..database import (
     canonicalize_library_album_artists,

@@ -11,7 +11,7 @@ import unicodedata
 from collections.abc import Iterable
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, replace
-from datetime import UTC, datetime
+from datetime import datetime
 from functools import lru_cache
 from io import BytesIO
 from pathlib import Path
@@ -21,6 +21,7 @@ from urllib.parse import urlsplit
 
 from mutagen import File as MutagenFile
 
+from ._compat import UTC
 from .file_metadata import file_created_at
 from .library_sources import (
     LibraryRootSource,
@@ -48,7 +49,17 @@ from .models import (
 )
 from .playlist_art import playlist_cover_svg
 
-SUPPORTED_EXTENSIONS = {".flac", ".m4a", ".m4p", ".mp3", ".ogg", ".opus"}
+SUPPORTED_EXTENSIONS = {
+    ".flac",
+    ".m4a",
+    ".m4b",
+    ".m4p",
+    ".m4r",
+    ".mp3",
+    ".oga",
+    ".ogg",
+    ".opus",
+}
 PLAYLIST_EXTENSIONS = {".m3u", ".m3u8", ".pls"}
 ARTWORK_THUMBNAIL_HEIGHT = TRACK_ARTWORK_HEIGHT
 ALBUM_ARTWORK_THUMBNAIL_HEIGHT = ALBUM_ARTWORK_HEIGHT
@@ -137,7 +148,7 @@ IGNORED_RAW_TAG_PREFIXES = {
     "priv",
     "ufid",
 }
-ITUNES_STORE_FILE_TYPES = {"m4a", "m4p"}
+ITUNES_STORE_FILE_TYPES = {"m4a", "m4b", "m4p", "m4r"}
 PLAYLIST_NAME_PREFIX = "#PLAYLIST:"
 EXTINF_PREFIX = "#EXTINF:"
 EXTGENRE_PREFIX = "#EXTGENRE:"

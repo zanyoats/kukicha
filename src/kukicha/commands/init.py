@@ -6,8 +6,8 @@ import json
 import os
 from pathlib import Path
 import sys
-import tomllib
 
+from .._compat import tomllib
 from ..player_auth import hash_password
 from ..player_config import (
     DEFAULT_AUTH_COOKIE_MAX_AGE,
@@ -76,7 +76,7 @@ def initialize_player_config(config_path: Path) -> None:
 def reset_auth_password(config_path: Path) -> None:
     from ..player_config import load_player_options
 
-    options = load_player_options(config_path)
+    options = load_player_options(config_path, validate_credential_files=False)
     if options.auth is None:
         raise PlayerConfigError(f"config does not contain [auth]: {config_path}")
     password = new_password()

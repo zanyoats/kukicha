@@ -66,7 +66,7 @@ class ManualChaptersPP(PostProcessor):
 
 def run_youtube_download_audio(args: argparse.Namespace) -> int:
     try:
-        options = load_player_options(args.config)
+        options = load_player_options(args.config, require_auth=False)
         result = download_youtube_audio(
             args.url,
             options=options,

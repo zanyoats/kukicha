@@ -2,14 +2,16 @@ from __future__ import annotations
 
 import argparse
 import mimetypes
+import os
 import shutil
 import sys
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime
 from pathlib import Path
 
+from .._compat import UTC
 from ..file_metadata import file_created_at
 from ..library_sources import (
     RemoteRootConfig,
@@ -21,6 +23,30 @@ from ..library_sources import (
 from ..player_config import PlayerServerOptions, load_player_options
 from ..player_errors import PlayerConfigError
 from ..scanner import iter_music_files, write_album_audio_tags
+
+
+REMOTE_UPLOAD_IGNORED_DIRECTORY_NAMES = frozenset(
+    {
+        ".AppleDouble",
+        ".Spotlight-V100",
+        ".TemporaryItems",
+        ".Trash",
+        ".Trashes",
+        ".fseventsd",
+        "__MACOSX",
+        "lost+found",
+    }
+)
+REMOTE_UPLOAD_IGNORED_DIRECTORY_PREFIXES = (".Trash-",)
+REMOTE_UPLOAD_IGNORED_FILE_NAMES = frozenset(
+    {
+        ".DS_Store",
+        ".directory",
+        ".localized",
+        "Icon\r",
+    }
+)
+REMOTE_UPLOAD_IGNORED_FILE_PREFIXES = ("._", ".fuse_hidden", ".nfs")
 
 
 @dataclass(frozen=True)
@@ -112,7 +138,7 @@ def run_copy_to_remote(args: argparse.Namespace) -> int:
         print(f"[copy-to-remote] {message}", file=sys.stderr, flush=True)
 
     try:
-        options = load_player_options(args.config)
+        options = load_player_options(args.config, require_auth=False)
         result = copy_to_remote(
             args.source,
             remote_name=args.remote,
@@ -355,6 +381,8 @@ def copy_to_remote_units(
 
     units: list[CopyToRemoteUnit] = []
     for child in sorted(source.iterdir(), key=lambda path: str(path)):
+        if remote_upload_ignored_filesystem_path(child):
+            continue
         if not child.is_dir() and not child.is_file():
             continue
         units.append(CopyToRemoteUnit(path=child, files=regular_files_under(child)))
@@ -363,9 +391,44 @@ def copy_to_remote_units(
 
 def regular_files_under(path: Path) -> tuple[Path, ...]:
     if path.is_file():
-        return (path,)
-    return tuple(
-        sorted((child for child in path.rglob("*") if child.is_file()), key=str)
+        return () if remote_upload_ignored_filesystem_path(path) else (path,)
+    if remote_upload_ignored_filesystem_path(path):
+        return ()
+    files: list[Path] = []
+    for directory, dirnames, filenames in os.walk(path):
+        dirnames[:] = [
+            dirname
+            for dirname in dirnames
+            if not remote_upload_ignored_filesystem_directory_name(dirname)
+        ]
+        directory_path = Path(directory)
+        for filename in filenames:
+            child = directory_path / filename
+            if child.is_file() and not remote_upload_ignored_filesystem_path(child):
+                files.append(child)
+    return tuple(sorted(files, key=str))
+
+
+def remote_upload_ignored_filesystem_path(path: Path) -> bool:
+    if remote_upload_ignored_filesystem_file_name(path.name):
+        return True
+
+    directory_components = path.parts if path.is_dir() else path.parts[:-1]
+    for component in directory_components:
+        if remote_upload_ignored_filesystem_directory_name(component):
+            return True
+    return False
+
+
+def remote_upload_ignored_filesystem_directory_name(name: str) -> bool:
+    return name in REMOTE_UPLOAD_IGNORED_DIRECTORY_NAMES or name.startswith(
+        REMOTE_UPLOAD_IGNORED_DIRECTORY_PREFIXES
+    )
+
+
+def remote_upload_ignored_filesystem_file_name(name: str) -> bool:
+    return name in REMOTE_UPLOAD_IGNORED_FILE_NAMES or name.startswith(
+        REMOTE_UPLOAD_IGNORED_FILE_PREFIXES
     )
 
 

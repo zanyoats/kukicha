@@ -7,11 +7,11 @@ from pathlib import Path
 import re
 import sqlite3
 import sys
-import tomllib
 from typing import Any
 
 from jinja2 import Environment, PackageLoader, select_autoescape
 
+from ._compat import logging_level_names_mapping, tomllib
 from .album_artists import (
     DEFAULT_ALBUM_ARTIST_SPLIT_PATTERNS,
     normalize_album_artist_split_patterns,
@@ -37,6 +37,7 @@ from .use_case import prepare_player_database
 DEFAULT_PLAYER_LOG_LEVEL = "DEBUG"
 DEFAULT_PLAYER_HOST = "127.0.0.1"
 DEFAULT_PLAYER_PORT = 4533
+DEFAULT_TRUSTED_PROXY_HEADERS = False
 DEFAULT_OPEN_SUBSONIC_MOUNT_PREFIX = "/"
 DEFAULT_OPEN_SUBSONIC_SECRET_FILENAME = "opensubsonic.secret"
 DEFAULT_TOAST_TIMEOUT_MS = 5000
@@ -61,6 +62,7 @@ PLAYER_CONFIG_KEY_ORDER = (
     "prefer_musicbrainz_english_aliases",
     "host",
     "port",
+    "trusted_proxy_headers",
     "appearance",
     "accent_color",
     "toast_timeout_ms",
@@ -120,6 +122,7 @@ class PlayerServerOptions:
     remote_roots: tuple[RemoteRootConfig, ...] = ()
     host: str = DEFAULT_PLAYER_HOST
     port: int = DEFAULT_PLAYER_PORT
+    trusted_proxy_headers: bool = DEFAULT_TRUSTED_PROXY_HEADERS
     log_level: str = DEFAULT_PLAYER_LOG_LEVEL
     accent_color: str = DEFAULT_ACCENT_COLOR
     appearance: str = DEFAULT_APPEARANCE
@@ -297,6 +300,7 @@ def load_player_options(
     config_path: str | Path | None = None,
     *,
     require_auth: bool = True,
+    validate_credential_files: bool = True,
 ) -> PlayerServerOptions:
     resolved_config_path, config_required = resolve_player_config_path(config_path)
     config_dir = resolved_config_path.parent
@@ -331,6 +335,10 @@ def load_player_options(
     )
     host = parse_player_host(config.get("host", DEFAULT_PLAYER_HOST))
     port = parse_player_port(config.get("port", DEFAULT_PLAYER_PORT))
+    trusted_proxy_headers = parse_config_bool(
+        config.get("trusted_proxy_headers", DEFAULT_TRUSTED_PROXY_HEADERS),
+        key="trusted_proxy_headers",
+    )
     accent_color = parse_accent_color(config.get("accent_color", DEFAULT_ACCENT_COLOR))
     appearance = parse_appearance(config.get("appearance", DEFAULT_APPEARANCE))
     toast_timeout_ms = parse_positive_milliseconds(
@@ -351,10 +359,12 @@ def load_player_options(
         config.get("auth"),
         base_dir=config_dir,
         require_auth=require_auth,
+        validate_hash_file=validate_credential_files,
     )
     opensubsonic = parse_open_subsonic_options(
         config.get("opensubsonic"),
         base_dir=config_dir,
+        validate_secret_file=validate_credential_files,
     )
     if opensubsonic is not None and auth is None:
         raise PlayerConfigError("[opensubsonic] requires [auth]; run `kukicha init`")
@@ -369,6 +379,7 @@ def load_player_options(
         youtube_download_path=youtube_download_path,
         host=host,
         port=port,
+        trusted_proxy_headers=trusted_proxy_headers,
         log_level=log_level,
         accent_color=accent_color,
         appearance=appearance,
@@ -470,6 +481,9 @@ def player_config_values(
         ),
         "host": options.host,
         "port": str(options.port),
+        "trusted_proxy_headers": format_player_config_bool(
+            options.trusted_proxy_headers
+        ),
         "accent_color": options.accent_color,
         "appearance": options.appearance,
         "toast_timeout_ms": str(options.toast_timeout_ms),
@@ -550,7 +564,7 @@ def format_player_config_remote_roots(values: tuple[RemoteRootConfig, ...]) -> s
 
 def configure_player_logging(log_level: str) -> None:
     level_name = parse_player_log_level(log_level)
-    level = logging.getLevelNamesMapping()[level_name]
+    level = logging_level_names_mapping()[level_name]
 
     formatter = logging.Formatter(
         fmt="%(asctime)s %(levelname)s %(name)s: %(message)s",
@@ -621,7 +635,7 @@ def parse_player_log_level(value: object) -> str:
     if not isinstance(value, str) or not value.strip():
         raise PlayerConfigError("log_level must be a non-empty string")
     level_name = value.strip().upper()
-    levels = logging.getLevelNamesMapping()
+    levels = logging_level_names_mapping()
     if level_name not in levels:
         raise PlayerConfigError(f"unsupported log_level: {value}")
     return str(logging.getLevelName(levels[level_name]))
@@ -825,6 +839,7 @@ def parse_player_auth_options(
     *,
     base_dir: Path,
     require_auth: bool,
+    validate_hash_file: bool = True,
 ) -> PlayerAuthOptions | None:
     if value is None:
         if require_auth:
@@ -846,7 +861,8 @@ def parse_player_auth_options(
         base_dir=base_dir,
         default=base_dir / "password.hash",
     )
-    validate_password_hash_file(password_hash_file)
+    if validate_hash_file:
+        validate_password_hash_file(password_hash_file)
     cookie_max_age = parse_auth_cookie_max_age(
         value.get("cookie_max_age", DEFAULT_AUTH_COOKIE_MAX_AGE)
     )
@@ -865,6 +881,7 @@ def parse_open_subsonic_options(
     value: object,
     *,
     base_dir: Path,
+    validate_secret_file: bool = True,
 ) -> OpenSubsonicOptions | None:
     if value is None:
         return None
@@ -886,7 +903,8 @@ def parse_open_subsonic_options(
         base_dir=base_dir,
         default=base_dir / DEFAULT_OPEN_SUBSONIC_SECRET_FILENAME,
     )
-    validate_open_subsonic_secret_file(secret_file)
+    if validate_secret_file:
+        validate_open_subsonic_secret_file(secret_file)
     return OpenSubsonicOptions(
         mount_prefix=mount_prefix,
         secret_file=secret_file,

@@ -2,12 +2,13 @@ from __future__ import annotations
 
 import hashlib
 import sqlite3
-from datetime import UTC, datetime
+from datetime import datetime
 from importlib.resources import files
 from pathlib import Path
 from types import TracebackType
 from typing import Iterable
 
+from .._compat import UTC
 from ..file_metadata import file_created_at
 from ..library_sources import SOURCE_KIND_LOCAL, path_is_in_source
 from ..models import ALBUM_ARTWORK_HEIGHT, UNKNOWN_METADATA_TAG
