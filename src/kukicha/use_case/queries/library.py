@@ -841,7 +841,7 @@ class LibraryQueries:
                                     FROM library_albums AS candidate
                                     WHERE candidate.album_id = links.file_album_id
                                         OR candidate.album_id LIKE links.file_album_id || '::___'
-                                    ORDER BY candidate.album_id = links.file_album_id DESC,
+                                    ORDER BY LENGTH(candidate.album_id),
                                         candidate.album_id
                                     LIMIT 1
                                 ),
