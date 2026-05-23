@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from .album_artists import (
     album_artist_id_text,
     display_album_artists,
+    track_album_artist_source,
     track_album_artist_values,
 )
 from .models import MusicLibrary, TrackRecord
@@ -45,8 +46,7 @@ def group_library_albums(library: MusicLibrary) -> list[LocalAlbum]:
     for track in library.tracks:
         if track.scan_error:
             continue
-        artists = track_album_artist_values(track)
-        artist = album_artist_id_text(artists)
+        artist = track_raw_album_artist_id_text(track)
         album = track.album
         if not artist or not album:
             continue
@@ -60,7 +60,9 @@ def group_library_albums(library: MusicLibrary) -> list[LocalAlbum]:
     for tracks in grouped_tracks.values():
         artists = most_common_artist_values(track_album_artist_values(track) for track in tracks)
         artist = display_album_artists(artists) or "<unknown artist>"
-        artist_id = album_artist_id_text(artists) or artist
+        artist_id = most_common_value(
+            track_raw_album_artist_id_text(track) for track in tracks
+        ) or artist
         album = most_common_value(track.album for track in tracks) or "<unknown album>"
         year = most_common_year(parse_year(track.date) for track in tracks)
         release_variant = most_common_value(
@@ -94,6 +96,10 @@ def group_library_albums(library: MusicLibrary) -> list[LocalAlbum]:
             )
         )
     return sorted(albums, key=lambda album: (album.artist_key, album.album_key))
+
+
+def track_raw_album_artist_id_text(track: TrackRecord) -> str:
+    return album_artist_id_text((track_album_artist_source(track),))
 
 
 def local_album_id(

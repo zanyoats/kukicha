@@ -34,6 +34,7 @@ from kukicha.use_case import (
 )
 from kukicha.use_case.library import load_library
 from kukicha.use_case.library import save_library_with_options
+from kukicha.use_case.library import save_rescanned_library_incremental
 from kukicha.use_case.database import clear_library
 from kukicha.library_sources import RemoteRootConfig, canonical_s3_path, remote_root_source
 from kukicha.use_case.coverartarchive import (
@@ -1309,6 +1310,7 @@ class LibraryAlbumArtistMappingTest(unittest.TestCase):
     def test_save_library_maps_split_album_artists_for_queries(self) -> None:
         with TemporaryDirectory() as tempdir:
             database = Path(tempdir) / "kukicha.sqlite"
+            album_id = "berlin-philharmonic-bell-and-karajan::foo"
             save_library(
                 MusicLibrary(
                     roots=["/music"],
@@ -1348,7 +1350,7 @@ class LibraryAlbumArtistMappingTest(unittest.TestCase):
                         WHERE album_id = ?
                         ORDER BY position
                         """,
-                        ("berlin-philharmonic-bell-karajan::foo",),
+                        (album_id,),
                     )
                 ]
             finally:
@@ -1359,7 +1361,7 @@ class LibraryAlbumArtistMappingTest(unittest.TestCase):
             search_page = api.list_album_page(AlbumListQuery(search="Karajan"))
             stats = api.library_stats()
             root_stats = api.library_root_stats()
-            album = api.get_album("berlin-philharmonic-bell-karajan::foo")
+            album = api.get_album(album_id)
 
         self.assertIsNotNone(mapping_row)
         self.assertEqual(
@@ -1380,6 +1382,107 @@ class LibraryAlbumArtistMappingTest(unittest.TestCase):
         )
         self.assertIn(
             "Karajan",
+            {artist.album_artist for artist in root_stats[0].album_artists},
+        )
+
+    def test_rescan_reapplies_edited_mapping_without_changing_raw_album_id(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            database = Path(tempdir) / "kukicha.sqlite"
+            raw_artist = "Bill Evans And Jim Hall"
+            raw_album_id = "bill-evans-and-jim-hall::undercurrent"
+            with connect_database(database) as connection:
+                connection.execute(
+                    """
+                    INSERT INTO album_artist_split_mappings (
+                        album_artist,
+                        mapped_artists
+                    ) VALUES (?, ?)
+                    """,
+                    (raw_artist, "Bill Evans\nJim Hall"),
+                )
+
+            save_library(
+                MusicLibrary(
+                    roots=["/music"],
+                    tracks=[
+                        TrackRecord(
+                            path="/music/Bill Evans/Undercurrent/01.flac",
+                            root_position=0,
+                            file_type="flac",
+                            artist=raw_artist,
+                            album_artist=raw_artist,
+                            album="Undercurrent",
+                            title="My Funny Valentine",
+                        )
+                    ],
+                    supported_extensions=[".flac"],
+                    generated_at="2026-04-22T00:00:00+00:00",
+                ),
+                database,
+            )
+
+            with connect_database(database) as connection:
+                self.assertEqual(
+                    [
+                        str(row["album_id"])
+                        for row in connection.execute(
+                            "SELECT album_id FROM library_albums"
+                        )
+                    ],
+                    [raw_album_id],
+                )
+                connection.execute(
+                    """
+                    UPDATE album_artist_split_mappings
+                    SET mapped_artists = ?
+                    WHERE album_artist = ?
+                    """,
+                    (raw_artist, raw_artist),
+                )
+
+            rescanned_library = load_library(database)
+            save_rescanned_library_incremental(
+                rescanned_library,
+                database,
+                root_rows=[(0, "/music")],
+                scanned_paths=[],
+            )
+
+            with connect_database(database, create=False) as connection:
+                album_ids = [
+                    str(row["album_id"])
+                    for row in connection.execute(
+                        "SELECT album_id FROM library_albums"
+                    )
+                ]
+                album_artists = [
+                    str(row["artist"])
+                    for row in connection.execute(
+                        """
+                        SELECT artist
+                        FROM library_album_artists
+                        WHERE album_id = ?
+                        ORDER BY position
+                        """,
+                        (raw_album_id,),
+                    )
+                ]
+
+            api = LibraryQueries(database)
+            filtered_page = api.list_album_page(AlbumListQuery(artists=(raw_artist,)))
+            search_page = api.list_album_page(AlbumListQuery(search="Jim Hall"))
+            stats = api.library_stats()
+            root_stats = api.library_root_stats()
+            album = api.get_album(raw_album_id)
+
+        self.assertEqual(album_ids, [raw_album_id])
+        self.assertEqual(album_artists, [raw_artist])
+        self.assertEqual(album.album_artists, (raw_artist,))
+        self.assertEqual([item.album for item in filtered_page.items], ["Undercurrent"])
+        self.assertEqual([item.album for item in search_page.items], ["Undercurrent"])
+        self.assertIn(raw_artist, {artist.album_artist for artist in stats.album_artists})
+        self.assertIn(
+            raw_artist,
             {artist.album_artist for artist in root_stats[0].album_artists},
         )
 
@@ -1437,7 +1540,7 @@ class LibraryAlbumArtistMappingTest(unittest.TestCase):
                 connection.close()
 
             album = LibraryQueries(database).get_album(
-                "robert-fripp-brian-eno::no-pussyfooting"
+                "brian-eno-and-robert-fripp::no-pussyfooting"
             )
 
         self.assertEqual(mapping_text, "Robert Fripp\nBrian Eno")
@@ -1561,6 +1664,171 @@ class LibraryMusicBrainzPersistenceTest(unittest.TestCase):
                 self.assertEqual(str(row["release_group_mbid"]), "group-1")
             finally:
                 connection.close()
+
+    def test_save_library_migrates_legacy_split_album_state_and_musicbrainz_links(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            database = Path(tempdir) / "kukicha.sqlite"
+            old_album_id = "bill-evans-jim-hall::undercurrent"
+            new_album_id = "bill-evans-and-jim-hall::undercurrent"
+            track_path = "/music/Bill Evans/Undercurrent/01.flac"
+            connection = connect_database(database)
+            try:
+                connection.execute(
+                    """
+                    INSERT INTO library_albums (
+                        album_id,
+                        album,
+                        year,
+                        track_count,
+                        added_at,
+                        starred_at
+                    ) VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        old_album_id,
+                        "Undercurrent",
+                        1962,
+                        1,
+                        "2026-05-01T12:00:00+00:00",
+                        "2026-05-02T12:00:00+00:00",
+                    ),
+                )
+                connection.executemany(
+                    """
+                    INSERT INTO library_album_artists (album_id, position, artist)
+                    VALUES (?, ?, ?)
+                    """,
+                    (
+                        (old_album_id, 0, "Bill Evans"),
+                        (old_album_id, 1, "Jim Hall"),
+                    ),
+                )
+                connection.execute(
+                    """
+                    INSERT INTO library_tracks (
+                        album_id,
+                        path,
+                        album_artist,
+                        artist,
+                        album,
+                        title
+                    ) VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        old_album_id,
+                        track_path,
+                        "Bill Evans And Jim Hall",
+                        "Bill Evans And Jim Hall",
+                        "Undercurrent",
+                        "My Funny Valentine",
+                    ),
+                )
+                connection.execute(
+                    """
+                    INSERT INTO album_user_state (album_id, starred_at)
+                    VALUES (?, ?)
+                    """,
+                    (old_album_id, "2026-05-02T12:00:00+00:00"),
+                )
+                connection.execute(
+                    """
+                    INSERT INTO album_musicbrainz_links (
+                        file_album_id,
+                        release_mbid,
+                        release_group_mbid
+                    ) VALUES (?, ?, ?)
+                    """,
+                    (old_album_id, None, "group-1"),
+                )
+                connection.execute(
+                    """
+                    INSERT INTO album_musicbrainz_track_links (
+                        path,
+                        file_album_id,
+                        release_mbid,
+                        release_group_mbid
+                    ) VALUES (?, ?, ?, ?)
+                    """,
+                    (track_path, old_album_id, None, "group-1"),
+                )
+                connection.commit()
+            finally:
+                connection.close()
+
+            save_library(
+                MusicLibrary(
+                    roots=["/music"],
+                    tracks=[
+                        TrackRecord(
+                            path=track_path,
+                            root_position=0,
+                            file_type="flac",
+                            artist="Bill Evans And Jim Hall",
+                            album_artist="Bill Evans And Jim Hall",
+                            album="Undercurrent",
+                            title="My Funny Valentine",
+                        )
+                    ],
+                    supported_extensions=[".flac"],
+                    generated_at="2026-05-03T00:00:00+00:00",
+                ),
+                database,
+                album_artist_split_patterns=[],
+            )
+
+            connection = connect_database(database, create=False)
+            try:
+                album_row = connection.execute(
+                    """
+                    SELECT added_at, starred_at
+                    FROM library_albums
+                    WHERE album_id = ?
+                    """,
+                    (new_album_id,),
+                ).fetchone()
+                self.assertIsNotNone(album_row)
+                self.assertEqual(
+                    str(album_row["added_at"]),
+                    "2026-05-01T12:00:00+00:00",
+                )
+                self.assertEqual(
+                    str(album_row["starred_at"]),
+                    "2026-05-02T12:00:00+00:00",
+                )
+                self.assertIsNotNone(
+                    connection.execute(
+                        """
+                        SELECT 1
+                        FROM album_user_state
+                        WHERE album_id = ?
+                            AND starred_at = ?
+                        """,
+                        (new_album_id, "2026-05-02T12:00:00+00:00"),
+                    ).fetchone()
+                )
+                self.assertIsNone(
+                    connection.execute(
+                        "SELECT 1 FROM album_user_state WHERE album_id = ?",
+                        (old_album_id,),
+                    ).fetchone()
+                )
+                track_link = connection.execute(
+                    """
+                    SELECT file_album_id, release_group_mbid
+                    FROM album_musicbrainz_track_links
+                    WHERE path = ?
+                    """,
+                    (track_path,),
+                ).fetchone()
+                self.assertIsNotNone(track_link)
+                self.assertEqual(str(track_link["file_album_id"]), new_album_id)
+                self.assertEqual(str(track_link["release_group_mbid"]), "group-1")
+            finally:
+                connection.close()
+
+            link = album_musicbrainz_link(database, new_album_id)
+            self.assertIsNotNone(link)
+            self.assertEqual(link.release_group_mbid, "group-1")
 
     def test_save_library_uses_musicbrainz_release_fingerprints_for_album_ids(self) -> None:
         with TemporaryDirectory() as tempdir:
@@ -4736,11 +5004,11 @@ class LibraryCoverArtResolutionTest(unittest.TestCase):
             connection = connect_database(database)
             try:
                 old_album_id = (
-                    "academy-of-st-martin-in-the-fields-and-sir-neville-marriner"
+                    "academy-of-st-martin-in-the-fields-sir-neville-marriner"
                     "::handel-music-for-the-royal-fireworks-and-water-music"
                 )
                 new_album_id = (
-                    "academy-of-st-martin-in-the-fields-sir-neville-marriner"
+                    "academy-of-st-martin-in-the-fields-and-sir-neville-marriner"
                     "::handel-music-for-the-royal-fireworks-and-water-music"
                 )
                 connection.execute(

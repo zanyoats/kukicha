@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import sqlite3
 from collections.abc import Callable, Iterable
@@ -35,9 +36,11 @@ from ..discogs import (
     group_library_albums,
     local_album_id,
     normalize_release_variant,
+    track_raw_album_artist_id_text,
 )
 from ..album_artists import (
     DEFAULT_ALBUM_ARTIST_SPLIT_PATTERNS,
+    album_artist_id_text,
     album_artist_has_mapping_pattern,
     default_album_artist_mapping,
     mapped_album_artist_text,
@@ -99,6 +102,7 @@ DIRECT_TERM_ALIASES = {
 }
 FUZZY_MATCH_THRESHOLD = 0.84
 FUZZY_MATCH_MARGIN = 0.05
+ALBUM_ARTIST_MAPPING_FINGERPRINT_METADATA_KEY = "album_artist_mapping_fingerprint"
 
 
 @dataclass(slots=True)
@@ -153,6 +157,13 @@ class TaxonomyTermCandidate:
     expanded: str
     compact: str
     tokens: frozenset[str]
+
+
+@dataclass(slots=True)
+class AlbumPersistenceState:
+    starred_at_by_album_id: dict[str, str]
+    added_at_by_album_id: dict[str, str]
+    migrated_starred_album_ids: set[str]
 
 
 @dataclass(slots=True)
@@ -296,6 +307,65 @@ def apply_album_artist_mappings(
         track.album_artists = resolver.resolve(track_album_artist_source(track))
 
 
+def album_ids_by_lookup_key(albums: Iterable[LocalAlbum]) -> dict[tuple[str, str, str], str]:
+    return {
+        album_lookup_key(
+            album.artist_id_text,
+            album.album,
+            album.release_variant,
+        ): album.album_id
+        for album in albums
+    }
+
+
+def album_artist_mapping_fingerprint(
+    connection: sqlite3.Connection,
+    split_patterns: Iterable[str | None] = DEFAULT_ALBUM_ARTIST_SPLIT_PATTERNS,
+) -> str:
+    rows = [
+        (
+            str(row["album_artist"]),
+            mapped_album_artist_text(
+                mapped_album_artists_from_text(row["mapped_artists"])
+            ),
+        )
+        for row in connection.execute(
+            """
+            SELECT album_artist, mapped_artists
+            FROM album_artist_split_mappings
+            ORDER BY album_artist COLLATE NOCASE
+            """
+        )
+    ]
+    payload = {
+        "patterns": normalize_album_artist_split_patterns(split_patterns),
+        "mappings": rows,
+    }
+    return hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+
+
+def set_album_artist_mapping_fingerprint_metadata(
+    connection: sqlite3.Connection,
+    split_patterns: Iterable[str | None] = DEFAULT_ALBUM_ARTIST_SPLIT_PATTERNS,
+) -> None:
+    set_metadata(
+        connection,
+        ALBUM_ARTIST_MAPPING_FINGERPRINT_METADATA_KEY,
+        album_artist_mapping_fingerprint(connection, split_patterns),
+    )
+
+
+def album_artist_mapping_fingerprint_changed(
+    connection: sqlite3.Connection,
+    split_patterns: Iterable[str | None] = DEFAULT_ALBUM_ARTIST_SPLIT_PATTERNS,
+) -> bool:
+    return get_metadata(connection, ALBUM_ARTIST_MAPPING_FINGERPRINT_METADATA_KEY) != (
+        album_artist_mapping_fingerprint(connection, split_patterns)
+    )
+
+
 def save_library(
     library: MusicLibrary,
     destination: Path,
@@ -365,19 +435,24 @@ def save_library_with_options(
         copy_track_musicbrainz_links_from_existing_album_ids(connection)
         apply_musicbrainz_release_variants(connection, library.tracks)
         albums = group_library_albums(library)
-        copy_album_musicbrainz_links_from_legacy_album_ids(connection, albums)
+        album_ids_by_key = album_ids_by_lookup_key(albums)
+        path_legacy_album_ids = legacy_album_ids_by_current_album_id_from_track_paths(
+            connection,
+            library.tracks,
+            album_ids_by_key,
+        )
+        copy_album_musicbrainz_links_from_legacy_album_ids(
+            connection,
+            albums,
+            legacy_album_ids_by_album_id=path_legacy_album_ids,
+        )
         store_scanned_album_musicbrainz_links(connection, albums)
-        starred_at_by_album_id = album_starred_at_by_album_id(connection)
-        added_at_by_album_id = album_added_at_by_album_id(connection)
+        persistence_state = album_persistence_state(
+            connection,
+            albums,
+            legacy_album_ids_by_album_id=path_legacy_album_ids,
+        )
         new_album_added_at = utc_now_iso()
-        album_ids_by_key = {
-            album_lookup_key(
-                album.artist_id_text,
-                album.album,
-                album.release_variant,
-            ): album.album_id
-            for album in albums
-        }
         existing_track_ids_by_path = {
             str(row["path"]): int(row["track_id"])
             for row in connection.execute(
@@ -424,8 +499,11 @@ def save_library_with_options(
                     album.year,
                     album.track_count,
                     album.file_created_at or "",
-                    added_at_by_album_id.get(album.album_id, new_album_added_at),
-                    starred_at_by_album_id.get(album.album_id),
+                    persistence_state.added_at_by_album_id.get(
+                        album.album_id,
+                        new_album_added_at,
+                    ),
+                    persistence_state.starred_at_by_album_id.get(album.album_id),
                 ),
             )
             for position, artist in enumerate(album.artists):
@@ -436,6 +514,11 @@ def save_library_with_options(
                     """,
                     (album.album_id, position, artist),
                 )
+        persist_album_user_state_migrations(
+            connection,
+            persistence_state,
+            (album.album_id for album in albums),
+        )
         canonicalize_library_album_artists(connection)
 
         track_ids_by_path: dict[str, int] = {}
@@ -687,6 +770,10 @@ def save_library_with_options(
         rebuild_album_rollups(connection)
         rebuild_root_scan_stats(connection)
         rebuild_album_search_index(connection)
+        set_album_artist_mapping_fingerprint_metadata(
+            connection,
+            album_artist_split_patterns,
+        )
         if owns_connection:
             connection.commit()
     finally:
@@ -746,6 +833,117 @@ def album_added_at_by_album_id(connection: sqlite3.Connection) -> dict[str, str]
     }
 
 
+def album_persistence_state(
+    connection: sqlite3.Connection,
+    albums: Iterable[LocalAlbum],
+    *,
+    legacy_album_ids_by_album_id: dict[str, tuple[str, ...]] | None = None,
+) -> AlbumPersistenceState:
+    starred_at_by_album_id = album_starred_at_by_album_id(connection)
+    added_at_by_album_id = album_added_at_by_album_id(connection)
+    migrated_starred_album_ids: set[str] = set()
+    legacy_album_ids_by_album_id = legacy_album_ids_by_album_id or {}
+
+    for album in albums:
+        for legacy_album_id in album_legacy_state_album_ids(
+            album,
+            extra_album_ids=legacy_album_ids_by_album_id.get(album.album_id, ()),
+        ):
+            if (
+                album.album_id not in starred_at_by_album_id
+                and legacy_album_id in starred_at_by_album_id
+            ):
+                starred_at_by_album_id[album.album_id] = starred_at_by_album_id[
+                    legacy_album_id
+                ]
+                migrated_starred_album_ids.add(legacy_album_id)
+            if (
+                album.album_id not in added_at_by_album_id
+                and legacy_album_id in added_at_by_album_id
+            ):
+                added_at_by_album_id[album.album_id] = added_at_by_album_id[
+                    legacy_album_id
+                ]
+
+    return AlbumPersistenceState(
+        starred_at_by_album_id=starred_at_by_album_id,
+        added_at_by_album_id=added_at_by_album_id,
+        migrated_starred_album_ids=migrated_starred_album_ids,
+    )
+
+
+def persist_album_user_state_migrations(
+    connection: sqlite3.Connection,
+    persistence_state: AlbumPersistenceState,
+    album_ids: Iterable[str],
+) -> None:
+    current_album_ids = tuple(
+        dict.fromkeys(album_id for album_id in album_ids if album_id)
+    )
+    if not current_album_ids and not persistence_state.migrated_starred_album_ids:
+        return
+    for legacy_album_id in sorted(persistence_state.migrated_starred_album_ids):
+        connection.execute(
+            "DELETE FROM album_user_state WHERE album_id = ?",
+            (legacy_album_id,),
+        )
+    for album_id in current_album_ids:
+        starred_at = persistence_state.starred_at_by_album_id.get(album_id)
+        if not starred_at:
+            continue
+        connection.execute(
+            """
+            INSERT INTO album_user_state (album_id, starred_at)
+            VALUES (?, ?)
+            ON CONFLICT(album_id) DO UPDATE SET
+                starred_at = excluded.starred_at
+            """,
+            (album_id, starred_at),
+        )
+
+
+def legacy_album_ids_by_current_album_id_from_track_paths(
+    connection: sqlite3.Connection,
+    tracks: Iterable[TrackRecord],
+    album_ids_by_key: dict[tuple[str, str, str], str],
+) -> dict[str, tuple[str, ...]]:
+    rows_by_path = library_track_rows_by_path(connection)
+    legacy_ids: dict[str, list[str]] = {}
+    for track in tracks:
+        current_album_id = track_album_id(track, album_ids_by_key)
+        if not current_album_id:
+            continue
+        row = rows_by_path.get(track.path)
+        if row is None:
+            continue
+        legacy_album_id = nullable_text(row["album_id"])
+        if (
+            not legacy_album_id
+            or legacy_album_id == current_album_id
+            or not track_raw_album_identity_matches_row(track, row)
+        ):
+            continue
+        legacy_ids.setdefault(current_album_id, []).append(legacy_album_id)
+    return {
+        album_id: tuple(dict.fromkeys(values))
+        for album_id, values in legacy_ids.items()
+    }
+
+
+def track_raw_album_identity_matches_row(
+    track: TrackRecord,
+    row: sqlite3.Row,
+) -> bool:
+    row_artist = str(row["album_artist"] or row["artist"] or "").strip()
+    row_album = str(row["album"] or "").strip()
+    track_album = str(track.album or "").strip()
+    return (
+        bool(row_artist and row_album and track_album)
+        and normalize_text(row_artist) == normalize_text(track_album_artist_source(track))
+        and normalize_text(row_album) == normalize_text(track_album)
+    )
+
+
 def playlist_item_ids_by_playlist_path(
     connection: sqlite3.Connection,
 ) -> dict[tuple[str, str, int], int]:
@@ -801,7 +999,11 @@ def save_rescanned_library_incremental(
             for path, row in existing_tracks_by_path.items()
             if path not in stale_paths
         }
-        if not scanned_path_set and not stale_paths:
+        mapping_fingerprint_changed = album_artist_mapping_fingerprint_changed(
+            connection,
+            album_artist_split_patterns,
+        )
+        if not scanned_path_set and not stale_paths and not mapping_fingerprint_changed:
             save_library_playlists_incremental(
                 connection,
                 library,
@@ -829,19 +1031,28 @@ def save_rescanned_library_incremental(
         copy_track_musicbrainz_links_from_existing_album_ids(connection)
         apply_musicbrainz_release_variants(connection, library.tracks)
         albums = group_library_albums(library)
-        copy_album_musicbrainz_links_from_legacy_album_ids(connection, albums)
+        album_ids_by_key = album_ids_by_lookup_key(albums)
+        path_legacy_album_ids = legacy_album_ids_by_current_album_id_from_track_paths(
+            connection,
+            library.tracks,
+            album_ids_by_key,
+        )
+        copy_album_musicbrainz_links_from_legacy_album_ids(
+            connection,
+            albums,
+            legacy_album_ids_by_album_id=path_legacy_album_ids,
+        )
         store_scanned_album_musicbrainz_links(connection, albums)
-        album_ids_by_key = {
-            album_lookup_key(
-                album.artist_id_text,
-                album.album,
-                album.release_variant,
-            ): album.album_id
-            for album in albums
-        }
+        persistence_state = album_persistence_state(
+            connection,
+            albums,
+            legacy_album_ids_by_album_id=path_legacy_album_ids,
+        )
         current_albums_by_id = {album.album_id: album for album in albums}
 
         affected_album_ids: set[str] = set()
+        if mapping_fingerprint_changed:
+            affected_album_ids.update(current_albums_by_id)
         for path in stale_paths:
             album_id = existing_tracks_by_path[path]["album_id"]
             if album_id:
@@ -877,6 +1088,16 @@ def save_rescanned_library_incremental(
             connection,
             (
                 current_albums_by_id[album_id]
+                for album_id in affected_album_ids
+                if album_id in current_albums_by_id
+            ),
+            persistence_state=persistence_state,
+        )
+        persist_album_user_state_migrations(
+            connection,
+            persistence_state,
+            (
+                album_id
                 for album_id in affected_album_ids
                 if album_id in current_albums_by_id
             ),
@@ -920,6 +1141,10 @@ def save_rescanned_library_incremental(
             json.dumps(library.supported_extensions),
         )
         rebuild_root_scan_stats(connection)
+        set_album_artist_mapping_fingerprint_metadata(
+            connection,
+            album_artist_split_patterns,
+        )
         if owns_connection:
             connection.commit()
     finally:
@@ -939,6 +1164,9 @@ def library_track_rows_by_path(
                 album_id,
                 root_position,
                 path,
+                artist,
+                album_artist,
+                album,
                 file_modified_at_ns,
                 file_size_bytes,
                 sidecar_artwork_path,
@@ -994,9 +1222,15 @@ def resolved_library_item_root_position(
 def upsert_library_album_rows(
     connection: sqlite3.Connection,
     albums: Iterable[LocalAlbum],
+    *,
+    persistence_state: AlbumPersistenceState | None = None,
 ) -> None:
-    added_at_by_album_id = album_added_at_by_album_id(connection)
-    starred_at_by_album_id = album_starred_at_by_album_id(connection)
+    if persistence_state is None:
+        added_at_by_album_id = album_added_at_by_album_id(connection)
+        starred_at_by_album_id = album_starred_at_by_album_id(connection)
+    else:
+        added_at_by_album_id = persistence_state.added_at_by_album_id
+        starred_at_by_album_id = persistence_state.starred_at_by_album_id
     new_album_added_at = utc_now_iso()
     for album in albums:
         connection.execute(
@@ -1468,9 +1702,15 @@ def existing_playlist_item_rows(
 def copy_album_musicbrainz_links_from_legacy_album_ids(
     connection: sqlite3.Connection,
     albums: Iterable[LocalAlbum],
+    *,
+    legacy_album_ids_by_album_id: dict[str, tuple[str, ...]] | None = None,
 ) -> None:
+    legacy_album_ids_by_album_id = legacy_album_ids_by_album_id or {}
     for album in albums:
-        for legacy_album_id in legacy_album_musicbrainz_album_ids(album):
+        for legacy_album_id in album_legacy_musicbrainz_album_ids(
+            album,
+            extra_album_ids=legacy_album_ids_by_album_id.get(album.album_id, ()),
+        ):
             row = connection.execute(
                 """
                 SELECT release_mbid, release_group_mbid
@@ -1534,7 +1774,36 @@ def copy_track_musicbrainz_links_from_existing_album_ids(
         )
 
 
-def legacy_album_musicbrainz_album_ids(album: LocalAlbum) -> tuple[str, ...]:
+def album_legacy_musicbrainz_album_ids(
+    album: LocalAlbum,
+    *,
+    extra_album_ids: Iterable[str] = (),
+) -> tuple[str, ...]:
+    return album_legacy_album_ids(
+        album,
+        extra_album_ids=extra_album_ids,
+        include_current_release_id=True,
+    )
+
+
+def album_legacy_state_album_ids(
+    album: LocalAlbum,
+    *,
+    extra_album_ids: Iterable[str] = (),
+) -> tuple[str, ...]:
+    return album_legacy_album_ids(
+        album,
+        extra_album_ids=extra_album_ids,
+        include_current_release_id=False,
+    )
+
+
+def album_legacy_album_ids(
+    album: LocalAlbum,
+    *,
+    extra_album_ids: Iterable[str] = (),
+    include_current_release_id: bool,
+) -> tuple[str, ...]:
     artists = tuple(artist for artist in album.artists if artist)
     album_slug = normalize_slug_text(album.album)
     if not album_slug:
@@ -1542,27 +1811,47 @@ def legacy_album_musicbrainz_album_ids(album: LocalAlbum) -> tuple[str, ...]:
 
     legacy_ids: list[str] = []
     seen: set[str] = set()
-    if album.release_variant:
+    for album_id in extra_album_ids:
+        normalized_album_id = str(album_id or "").strip()
+        if not normalized_album_id or normalized_album_id == album.album_id:
+            continue
+        if normalized_album_id in seen:
+            continue
+        seen.add(normalized_album_id)
+        legacy_ids.append(normalized_album_id)
+
+    if include_current_release_id and album.release_variant:
         seen.add(album.album_id)
         legacy_ids.append(album.album_id)
-
-    if len(artists) < 2:
-        return tuple(legacy_ids)
 
     for artist_text in legacy_album_artist_id_texts(artists):
         album_id = local_album_id(artist_text, album.album)
         if not album_id.split("::", 1)[0]:
             continue
-        if album_id == album.album_id or album_id in seen:
-            continue
-        seen.add(album_id)
-        legacy_ids.append(album_id)
+        for candidate in (
+            album_id,
+            local_album_id(
+                artist_text,
+                album.album,
+                release_variant=album.release_variant,
+            ),
+        ):
+            if candidate == album.album_id or candidate in seen:
+                continue
+            seen.add(candidate)
+            legacy_ids.append(candidate)
     return tuple(legacy_ids)
 
 
 def legacy_album_artist_id_texts(artists: tuple[str, ...]) -> tuple[str, ...]:
-    joined = (" and ".join(artists), " with ".join(artists))
-    return tuple(dict.fromkeys(joined))
+    if not artists:
+        return ()
+    joined = (
+        album_artist_id_text(artists),
+        " and ".join(artists),
+        " with ".join(artists),
+    )
+    return tuple(value for value in dict.fromkeys(joined) if value)
 
 
 def apply_musicbrainz_release_variants(
@@ -1638,7 +1927,7 @@ def apply_musicbrainz_track_links_to_tracks(
         if link is None:
             continue
         base_album_id = track_base_album_id(track)
-        if base_album_id != link.file_album_id:
+        if not base_album_id:
             continue
 
         if not track.musicbrainz_release_mbid and link.release_mbid:
@@ -1649,6 +1938,14 @@ def apply_musicbrainz_track_links_to_tracks(
             release_tracks = tracks_by_release[track.musicbrainz_release_mbid]
             if not any(existing is track for existing in release_tracks):
                 release_tracks.append(track)
+        if link.file_album_id != base_album_id:
+            store_album_musicbrainz_track_link(
+                connection,
+                track.path,
+                base_album_id,
+                release_mbid=link.release_mbid,
+                release_group_mbid=link.release_group_mbid,
+            )
 
 
 def apply_musicbrainz_link_variants_to_tracks(
@@ -1657,12 +1954,20 @@ def apply_musicbrainz_link_variants_to_tracks(
     tracks_by_release: dict[str, list[TrackRecord]],
 ) -> None:
     tracks_by_base_album_id: dict[str, list[TrackRecord]] = defaultdict(list)
+    candidate_ids_by_base_album_id: dict[str, set[str]] = defaultdict(set)
+    existing_rows_by_path = library_track_rows_by_path(connection)
     for track in tracks:
         if normalize_release_variant(track.musicbrainz_release_variant):
             continue
         base_album_id = track_base_album_id(track)
         if base_album_id:
             tracks_by_base_album_id[base_album_id].append(track)
+            candidate_ids_by_base_album_id[base_album_id].update(
+                track_base_album_id_candidates(
+                    track,
+                    existing_row=existing_rows_by_path.get(track.path),
+                )
+            )
 
     if not tracks_by_base_album_id:
         return
@@ -1670,13 +1975,17 @@ def apply_musicbrainz_link_variants_to_tracks(
     musicbrainz_links = load_album_musicbrainz_links(connection)
     for base_album_id, album_tracks in tracks_by_base_album_id.items():
         candidates: dict[tuple[str | None, str | None], tuple[str | None, str | None, str | None]] = {}
+        candidate_album_ids = candidate_ids_by_base_album_id.get(
+            base_album_id,
+            {base_album_id},
+        )
         for link_group in musicbrainz_links.values():
             for link in link_group:
-                release_variant = release_variant_from_link_album_id(
+                release_variant = release_variant_for_link_album_id_candidates(
                     link.file_album_id,
-                    base_album_id,
+                    candidate_album_ids,
                 )
-                if link.file_album_id != base_album_id and release_variant is None:
+                if link.file_album_id not in candidate_album_ids and release_variant is None:
                     continue
                 if release_variant is not None and not link.release_mbid:
                     continue
@@ -1719,14 +2028,55 @@ def release_variant_from_link_album_id(
     return normalize_release_variant(release_variant)
 
 
+def release_variant_for_link_album_id_candidates(
+    link_album_id: str,
+    album_id_candidates: Iterable[str],
+) -> str | None:
+    for candidate in album_id_candidates:
+        release_variant = release_variant_from_link_album_id(link_album_id, candidate)
+        if release_variant is not None:
+            return release_variant
+    return None
+
+
 def track_base_album_id(track: TrackRecord) -> str | None:
-    artist = "\n".join(track_album_artist_values(track))
+    artist = track_raw_album_artist_id_text(track)
     album = track.album
     if not artist or not album:
         return None
     if not normalize_text(artist) or not normalize_text(album):
         return None
     return local_album_id(artist, album)
+
+
+def track_base_album_id_candidates(
+    track: TrackRecord,
+    *,
+    existing_row: sqlite3.Row | None = None,
+) -> tuple[str, ...]:
+    album = track.album
+    if not album:
+        return ()
+
+    candidates: list[str] = []
+    raw_album_id = track_base_album_id(track)
+    if raw_album_id:
+        candidates.append(raw_album_id)
+
+    mapped_artist = album_artist_id_text(track_album_artist_values(track))
+    if mapped_artist and normalize_text(mapped_artist) and normalize_text(album):
+        candidates.append(local_album_id(mapped_artist, album))
+
+    if (
+        existing_row is not None
+        and existing_row["album_id"]
+        and track_raw_album_identity_matches_row(track, existing_row)
+    ):
+        existing_album_id = str(existing_row["album_id"])
+        candidates.append(file_album_id_from_album_id(existing_album_id))
+        candidates.append(existing_album_id)
+
+    return tuple(dict.fromkeys(candidate for candidate in candidates if candidate))
 
 
 def normalized_track_musicbrainz_mbid(
@@ -1768,14 +2118,39 @@ def musicbrainz_link_for_track(
     musicbrainz_links: dict[str, tuple[MusicBrainzAlbumLink, ...]],
     track: TrackRecord,
 ) -> MusicBrainzAlbumLink | None:
-    base_album_id = track_base_album_id(track)
-    if not base_album_id:
+    base_album_ids = track_base_album_id_candidates(track)
+    if not base_album_ids:
         return None
 
-    candidates = list(musicbrainz_links.get(base_album_id, ()))
+    candidates: list[MusicBrainzAlbumLink] = []
+    seen_candidates: set[tuple[str, str | None, str | None]] = set()
+    for base_album_id in base_album_ids:
+        for candidate in musicbrainz_links.get(base_album_id, ()):
+            key = (
+                candidate.file_album_id,
+                candidate.release_mbid,
+                candidate.release_group_mbid,
+            )
+            if key in seen_candidates:
+                continue
+            seen_candidates.add(key)
+            candidates.append(candidate)
     release_variant = normalize_release_variant(track.musicbrainz_release_variant)
     if release_variant:
-        candidates.extend(musicbrainz_links.get(f"{base_album_id}::{release_variant}", ()))
+        for base_album_id in base_album_ids:
+            for candidate in musicbrainz_links.get(
+                f"{base_album_id}::{release_variant}",
+                (),
+            ):
+                key = (
+                    candidate.file_album_id,
+                    candidate.release_mbid,
+                    candidate.release_group_mbid,
+                )
+                if key in seen_candidates:
+                    continue
+                seen_candidates.add(key)
+                candidates.append(candidate)
 
     release_mbid = clean_mbid(track.musicbrainz_release_mbid)
     if release_mbid:
@@ -1823,9 +2198,16 @@ def resolve_library_genres(
             log=log,
         )
         albums = group_library_albums(library)
+        album_ids_by_key = album_ids_by_lookup_key(albums)
+        path_legacy_album_ids = legacy_album_ids_by_current_album_id_from_track_paths(
+            connection,
+            library.tracks,
+            album_ids_by_key,
+        )
         copy_album_musicbrainz_links_from_legacy_album_ids(
             connection,
             albums,
+            legacy_album_ids_by_album_id=path_legacy_album_ids,
         )
         store_scanned_album_musicbrainz_links(
             connection,
@@ -2082,9 +2464,16 @@ def resolve_library_cover_art(
         )
         apply_musicbrainz_release_variants(connection, library.tracks, log=log)
         albums = group_library_albums(library)
+        album_ids_by_key = album_ids_by_lookup_key(albums)
+        path_legacy_album_ids = legacy_album_ids_by_current_album_id_from_track_paths(
+            connection,
+            library.tracks,
+            album_ids_by_key,
+        )
         copy_album_musicbrainz_links_from_legacy_album_ids(
             connection,
             albums,
+            legacy_album_ids_by_album_id=path_legacy_album_ids,
         )
         store_scanned_album_musicbrainz_links(
             connection,
@@ -2574,7 +2963,7 @@ def track_album_id(
     track: TrackRecord,
     album_ids_by_key: dict[tuple[str, str, str], str] | None = None,
 ) -> str | None:
-    artist = "\n".join(track_album_artist_values(track))
+    artist = track_raw_album_artist_id_text(track)
     album = track.album
     if not artist or not album:
         return None
