@@ -1663,6 +1663,12 @@ document.addEventListener("click", (event) => {
     void clearCache(clearCacheButton);
     return;
   }
+  const resetListeningDataButton = event.target.closest("[data-reset-listening-data]");
+  if (resetListeningDataButton) {
+    event.preventDefault();
+    void resetListeningData(resetListeningDataButton);
+    return;
+  }
   const deleteMusicBrainzOverrideButton = event.target.closest("[data-delete-musicbrainz-override]");
   if (deleteMusicBrainzOverrideButton) {
     event.preventDefault();
@@ -3347,6 +3353,49 @@ async function clearCache(button) {
     await navigate(window.location.href, {replace: true, scroll: false});
   } catch {
     showToast("Unable to clear cache.", {error: true});
+  } finally {
+    if (button.isConnected) {
+      button.disabled = false;
+      button.removeAttribute("aria-busy");
+    }
+  }
+}
+
+async function resetListeningData(button) {
+  if (!(button instanceof HTMLButtonElement) || button.disabled) {
+    return;
+  }
+  const resetUrl = button.dataset.resetUrl || "/api/listening-data/reset";
+
+  const confirmed = await confirmAction({
+    title: "Reset Listening Data",
+    message: "Reset listening data?",
+    confirmLabel: "Reset",
+    returnFocus: button,
+  });
+  if (!confirmed) {
+    return;
+  }
+
+  button.disabled = true;
+  button.setAttribute("aria-busy", "true");
+  try {
+    const response = await fetch(resetUrl, {method: "POST"});
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const message = payload && typeof payload.error === "string" && payload.error.trim()
+        ? payload.error
+        : "Unable to reset listening data.";
+      showToast(message, {error: true});
+      return;
+    }
+    const message = payload && typeof payload.message === "string" && payload.message.trim()
+      ? payload.message
+      : "Listening data reset.";
+    showToast(message);
+    await navigate(window.location.href, {replace: true, scroll: false});
+  } catch {
+    showToast("Unable to reset listening data.", {error: true});
   } finally {
     if (button.isConnected) {
       button.disabled = false;

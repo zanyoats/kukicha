@@ -27,6 +27,7 @@ from .use_case import (
     playlist_audio_path,
     record_playback,
     remove_queue_item as remove_queue_item_command,
+    reset_listening_data,
     save_album_artist_split_mapping,
     start_album_edit,
     start_rescan_library,
@@ -75,6 +76,7 @@ from .player_views import (
     build_home_context,
     build_index_context,
     build_jobs_page_context,
+    build_listening_data_page_context,
     build_musicbrainz_overrides_page_context,
     build_not_found_context,
     build_playlist_context,
@@ -320,6 +322,10 @@ def create_player_app(options: PlayerServerOptions) -> Flask:
     def clear_cache(cache_key: str) -> Response:
         return json_response(clear_cache_tables(player_context().runtime, cache_key))
 
+    @app.post("/api/listening-data/reset")
+    def reset_player_listening_data() -> Response:
+        return json_response(reset_listening_data(player_context().database))
+
     @app.post("/api/albums/<path:album_id>/edit")
     def edit_album(album_id: str) -> Response:
         payload = read_json_body()
@@ -422,6 +428,13 @@ def create_player_app(options: PlayerServerOptions) -> Flask:
                 route,
                 endpoint,
                 lambda page_key=page_key: render_cache_page(),
+                methods=["GET"],
+            )
+        elif page_key == "listening-data":
+            app.add_url_rule(
+                route,
+                endpoint,
+                lambda page_key=page_key: render_listening_data_page(),
                 methods=["GET"],
             )
         elif page_key == "musicbrainz-overrides":
@@ -669,6 +682,11 @@ def render_artist_split_rules_page() -> Response:
 def render_cache_page() -> Response:
     reset_playback_for_document_load()
     return rendered_response(build_cache_page_context(player_context().runtime))
+
+
+def render_listening_data_page() -> Response:
+    reset_playback_for_document_load()
+    return rendered_response(build_listening_data_page_context(player_context().runtime))
 
 
 def render_musicbrainz_overrides_page() -> Response:

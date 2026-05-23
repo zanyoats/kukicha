@@ -69,6 +69,7 @@ from .library import (
 from .listening import (
     HomeDashboard,
     ListeningAlbum,
+    ListeningDataStat,
     ListeningNamedStat,
     ListeningNowPlaying,
     ListeningPlaylist,
@@ -76,9 +77,11 @@ from .listening import (
     NATIVE_PLAYBACK_SOURCE,
     OpenSubsonicClient,
     home_dashboard,
+    listening_data_stats,
     opensubsonic_clients,
     record_playback,
     record_opensubsonic_client,
+    reset_listening_data,
 )
 from .queries import (
     ALBUM_LIST_SORT_ALBUMS,
@@ -192,6 +195,8 @@ __all__ = [
     "library_job_summary_text",
     "library_scan_progress_text",
     "ListeningAlbum",
+    "ListeningDataStat",
+    "listening_data_stats",
     "ListeningNamedStat",
     "ListeningNowPlaying",
     "ListeningPlaylist",
@@ -215,6 +220,7 @@ __all__ = [
     "request_cancel_player_job",
     "record_playback",
     "remove_queue_item",
+    "reset_listening_data",
     "resolve_library_cover_art",
     "resolve_library_genres",
     "rescan_library",

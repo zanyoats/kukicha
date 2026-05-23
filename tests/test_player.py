@@ -2901,6 +2901,7 @@ class PlayerPageMenuTest(unittest.TestCase):
                 ("link", "Roots", "/roots"),
                 ("link", "Artists Split Rules", "/artist-split-rules"),
                 ("link", "MusicBrainz Overrides", "/musicbrainz-overrides"),
+                ("link", "Listening Data", "/listening-data"),
                 ("link", "Cache", "/cache"),
                 ("divider", "", ""),
                 ("link", "Jobs", "/jobs"),
@@ -2933,7 +2934,8 @@ class PlayerPageMenuTest(unittest.TestCase):
         self.assertLess(html.index("SETTINGS"), html.index("Roots"))
         self.assertLess(html.index("Roots"), html.index("Artists Split Rules"))
         self.assertLess(html.index("Artists Split Rules"), html.index("MusicBrainz Overrides"))
-        self.assertLess(html.index("MusicBrainz Overrides"), html.index("Cache"))
+        self.assertLess(html.index("MusicBrainz Overrides"), html.index("Listening Data"))
+        self.assertLess(html.index("Listening Data"), html.index("Cache"))
         self.assertIn("data-open-keyboard-shortcuts", html)
         self.assertLess(html.index("Jobs"), html.index("Keyboard Shortcuts"))
         self.assertLess(html.index("Keyboard Shortcuts"), html.index("Help"))
@@ -4795,7 +4797,7 @@ class PlayerWebAdapterTest(unittest.TestCase):
         self.assertEqual(int(newer_row["playback_id"]), second.track_id)
         self.assertEqual(newer_row["updated_at"], newer_time.isoformat())
 
-    def test_home_shows_twelve_recent_items_with_cover_art(
+    def test_home_shows_twelve_recent_items(
         self,
     ) -> None:
         with TemporaryDirectory() as tempdir:
@@ -4883,7 +4885,7 @@ class PlayerWebAdapterTest(unittest.TestCase):
         self.assertEqual(len(dashboard.recent_artists), 14)
         self.assertEqual(len(dashboard.recent_genres), 6)
         self.assertEqual(len(dashboard.recent_tracks), 12)
-        self.assertEqual(dashboard.recent_tracks[0].art_track_id, tracks[-1].track_id)
+        self.assertIsNone(dashboard.recent_tracks[0].art_track_id)
         self.assertIn('href="/albums?sort=recent" data-nav>Recent</a>', html)
         self.assertNotIn(">All albums</a>", html)
         self.assertLess(html.index("Recent Artists"), html.index("Recent Tracks"))
@@ -4905,8 +4907,8 @@ class PlayerWebAdapterTest(unittest.TestCase):
             track_section,
         )
         self.assertNotIn("play - 2026-05-11", track_section)
-        self.assertIn('class="home-track-cover"', html)
-        self.assertIn(f'src="/art/250/{tracks[-1].track_id}"', html)
+        self.assertIn('class="home-track-cover album-cover-placeholder"', track_section)
+        self.assertNotIn(f'src="/art/250/{tracks[-1].track_id}"', track_section)
 
     def test_playlist_play_history_survives_rescans_and_reattaches_tracks(self) -> None:
         with TemporaryDirectory() as tempdir:
@@ -6067,7 +6069,7 @@ class PlayerWebAdapterTest(unittest.TestCase):
             )
             self.assertIn(f"--control-accent: {dim_control_accent};".encode(), dark_media)
 
-    def test_settings_pages_render_roots_artist_split_rules_musicbrainz_and_cache(self) -> None:
+    def test_settings_pages_render_roots_artist_split_rules_musicbrainz_listening_data_and_cache(self) -> None:
         with TemporaryDirectory() as tempdir:
             temp_path = Path(tempdir)
             database = temp_path / "kukicha.sqlite"
@@ -6188,6 +6190,7 @@ class PlayerWebAdapterTest(unittest.TestCase):
                 roots_response = client.get("/roots")
                 split_rules_response = client.get("/artist-split-rules")
                 musicbrainz_response = client.get("/musicbrainz-overrides")
+                listening_data_response = client.get("/listening-data")
                 cache_response = client.get("/cache")
 
             self.assertEqual(roots_response.status_code, 200)
@@ -6256,6 +6259,26 @@ class PlayerWebAdapterTest(unittest.TestCase):
             self.assertIn(b'class="delete-icon-button"', musicbrainz_response.data)
             self.assertIn(b">Edit</a>", musicbrainz_response.data)
             self.assertNotIn(b"<h2>Add Root</h2>", musicbrainz_response.data)
+
+            self.assertEqual(listening_data_response.status_code, 200)
+            self.assertIn(b"<h1>Listening Data</h1>", listening_data_response.data)
+            self.assertIn(b"<h2>Reset Listening Data</h2>", listening_data_response.data)
+            self.assertIn(b"data-reset-listening-data", listening_data_response.data)
+            self.assertIn(
+                b'data-reset-url="/api/listening-data/reset"',
+                listening_data_response.data,
+            )
+            self.assertIn(b"<h2>History</h2>", listening_data_response.data)
+            self.assertIn(b"<h2>Stats</h2>", listening_data_response.data)
+            self.assertIn(b">Play Events</div>", listening_data_response.data)
+            self.assertIn(b">Now Playing</div>", listening_data_response.data)
+            self.assertIn(b">Albums</div>", listening_data_response.data)
+            self.assertIn(b">Tracks</div>", listening_data_response.data)
+            self.assertIn(b">Playlists</div>", listening_data_response.data)
+            self.assertIn(b">Artists</div>", listening_data_response.data)
+            self.assertIn(b">Genres</div>", listening_data_response.data)
+            self.assertNotIn(b"<h2>Add Root</h2>", listening_data_response.data)
+            self.assertNotIn(b"data-edit-album-artist-mapping", listening_data_response.data)
 
             self.assertEqual(cache_response.status_code, 200)
             self.assertIn(b"<h1>Cache</h1>", cache_response.data)
@@ -6424,6 +6447,207 @@ class PlayerWebAdapterTest(unittest.TestCase):
                     )
             finally:
                 connection.close()
+
+    def test_listening_data_reset_clears_history_without_removing_library_data(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            database = temp_path / "kukicha.sqlite"
+            save_library(
+                MusicLibrary(
+                    roots=["/music"],
+                    tracks=[
+                        TrackRecord(
+                            path="/music/Artist/Album/01.flac",
+                            root_position=0,
+                            file_created_at="2026-05-20T00:00:00+00:00",
+                            file_type="flac",
+                            artist="Artist",
+                            album_artist="Artist",
+                            album="Album",
+                            title="Track",
+                            genres=["Jazz"],
+                        )
+                    ],
+                    playlists=[
+                        PlaylistRecord(
+                            path="/music/mix.m3u8",
+                            root_position=0,
+                            name="Mix",
+                            items=[PlaylistItemRecord(path="/music/Artist/Album/01.flac")],
+                        ),
+                    ],
+                    supported_extensions=[".flac"],
+                    generated_at="2026-05-20T00:00:00+00:00",
+                ),
+                database,
+            )
+            connection = connect_database(database, create=False)
+            try:
+                album_id = str(
+                    connection.execute(
+                        "SELECT album_id FROM library_albums WHERE album = ?",
+                        ("Album",),
+                    ).fetchone()["album_id"]
+                )
+                playlist_item_id = int(
+                    connection.execute(
+                        "SELECT playlist_item_id FROM library_playlist_items"
+                    ).fetchone()["playlist_item_id"]
+                )
+                connection.execute(
+                    """
+                    INSERT INTO album_user_state (album_id, starred_at)
+                    VALUES (?, ?)
+                    """,
+                    (album_id, "2026-05-21T00:00:00+00:00"),
+                )
+                connection.execute(
+                    """
+                    INSERT INTO player_queue_state (state_id, position, paused, updated_at)
+                    VALUES (1, 0, 0, ?)
+                    """,
+                    ("2026-05-21T00:00:00+00:00",),
+                )
+                connection.execute(
+                    """
+                    INSERT INTO player_queue_items (position, playback_id, snapshot_json)
+                    VALUES (0, 1, ?)
+                    """,
+                    ("{}",),
+                )
+                connection.execute(
+                    """
+                    INSERT INTO opensubsonic_clients (client_name, last_seen_at)
+                    VALUES (?, ?)
+                    """,
+                    ("ampache", "2026-05-21T00:00:00+00:00"),
+                )
+                connection.execute(
+                    """
+                    INSERT INTO musicbrainz_entity_cache (
+                        entity_type,
+                        mbid,
+                        fetched_at,
+                        endpoint_url,
+                        response_json
+                    ) VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (
+                        "release",
+                        "11111111-1111-1111-1111-111111111111",
+                        "2026-05-21T00:00:00+00:00",
+                        "https://musicbrainz.example/release/1",
+                        "{}",
+                    ),
+                )
+                connection.commit()
+            finally:
+                connection.close()
+
+            record_playback(
+                database,
+                1,
+                submission=True,
+                played_at=datetime(2026, 5, 21, 12, 0, tzinfo=UTC),
+                source=NATIVE_PLAYBACK_SOURCE,
+            )
+            record_playback(
+                database,
+                -playlist_item_id,
+                submission=True,
+                played_at=datetime(2026, 5, 21, 12, 5, tzinfo=UTC),
+                source=NATIVE_PLAYBACK_SOURCE,
+            )
+            record_playback(
+                database,
+                1,
+                submission=False,
+                played_at=datetime(2026, 5, 21, 12, 10, tzinfo=UTC),
+                source=NATIVE_PLAYBACK_SOURCE,
+            )
+
+            runtime = self.make_runtime(database)
+            runtime.queue_state_copy.return_value = PlayerQueueState(
+                track_ids=[1],
+                position=0,
+                loaded_track_id=1,
+                paused=False,
+            )
+            with patch("kukicha.player_web_adapter.PlayerRuntime", return_value=runtime):
+                app = create_player_app(self.make_options(temp_path))
+                client = app.test_client()
+                home_before_response = client.get("/")
+                reset_response = client.post("/api/listening-data/reset")
+                home_after_response = client.get("/")
+
+            self.assertEqual(home_before_response.status_code, 200)
+            self.assertIn(b"Continue Listening", home_before_response.data)
+            self.assertIn(b"Recently Listened Albums", home_before_response.data)
+            self.assertIn(b"Added in the Last Month", home_before_response.data)
+
+            self.assertEqual(reset_response.status_code, 200)
+            self.assertEqual(
+                reset_response.get_json(),
+                {
+                    "cleared_entries": 8,
+                    "message": "Reset listening data.",
+                },
+            )
+
+            self.assertEqual(home_after_response.status_code, 200)
+            self.assertNotIn(b"Continue Listening", home_after_response.data)
+            self.assertNotIn(b"Recently Listened Albums", home_after_response.data)
+            self.assertIn(b"Added in the Last Month", home_after_response.data)
+
+            connection = connect_database(database, create=False)
+            try:
+                for table_name in (
+                    "play_events",
+                    "play_now_playing",
+                    "play_track_stats",
+                    "play_album_stats",
+                    "play_artist_stats",
+                    "play_playlist_stats",
+                    "play_genre_stats",
+                ):
+                    self.assertEqual(
+                        int(
+                            connection.execute(
+                                f"SELECT COUNT(*) AS count FROM {table_name}"
+                            ).fetchone()["count"]
+                        ),
+                        0,
+                    )
+                preserved_counts = {
+                    table_name: int(
+                        connection.execute(
+                            f"SELECT COUNT(*) AS count FROM {table_name}"
+                        ).fetchone()["count"]
+                    )
+                    for table_name in (
+                        "library_tracks",
+                        "library_albums",
+                        "album_user_state",
+                        "player_queue_state",
+                        "player_queue_items",
+                        "opensubsonic_clients",
+                        "musicbrainz_entity_cache",
+                    )
+                }
+            finally:
+                connection.close()
+            self.assertEqual(
+                preserved_counts,
+                {
+                    "library_tracks": 1,
+                    "library_albums": 1,
+                    "album_user_state": 1,
+                    "player_queue_state": 1,
+                    "player_queue_items": 1,
+                    "opensubsonic_clients": 1,
+                    "musicbrainz_entity_cache": 1,
+                },
+            )
 
     def test_album_artist_mapping_route_updates_mapping_without_starting_job(self) -> None:
         with TemporaryDirectory() as tempdir:

@@ -23,6 +23,15 @@ from .queries.models import (
 )
 
 NATIVE_PLAYBACK_SOURCE = "__native"
+LISTENING_DATA_TABLES = (
+    ("History", "Play Events", "play_events"),
+    ("History", "Now Playing", "play_now_playing"),
+    ("Stats", "Albums", "play_album_stats"),
+    ("Stats", "Tracks", "play_track_stats"),
+    ("Stats", "Playlists", "play_playlist_stats"),
+    ("Stats", "Artists", "play_artist_stats"),
+    ("Stats", "Genres", "play_genre_stats"),
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -75,6 +84,13 @@ class ListeningNowPlaying:
 class OpenSubsonicClient:
     client_name: str
     last_seen_at: str
+
+
+@dataclass(frozen=True, slots=True)
+class ListeningDataStat:
+    section: str
+    label: str
+    count: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -263,6 +279,38 @@ def opensubsonic_clients(database: Path) -> tuple[OpenSubsonicClient, ...]:
                 """
             )
         )
+
+
+def listening_data_stats(database: Path) -> tuple[ListeningDataStat, ...]:
+    with connect_database(database, create=False) as connection:
+        return tuple(
+            ListeningDataStat(
+                section=section,
+                label=label,
+                count=listening_table_count(connection, table_name),
+            )
+            for section, label, table_name in LISTENING_DATA_TABLES
+        )
+
+
+def reset_listening_data(database: Path) -> dict[str, object]:
+    cleared_entries = 0
+    with connect_database(database, create=False) as connection:
+        for _section, _label, table_name in LISTENING_DATA_TABLES:
+            cleared_entries += listening_table_count(connection, table_name)
+        for _section, _label, table_name in LISTENING_DATA_TABLES:
+            connection.execute(f"DELETE FROM {table_name}")
+    return {
+        "cleared_entries": cleared_entries,
+        "message": "Reset listening data.",
+    }
+
+
+def listening_table_count(connection: Connection, table_name: str) -> int:
+    row = connection.execute(
+        f"SELECT COUNT(*) AS count FROM {table_name}"
+    ).fetchone()
+    return int(row["count"])
 
 
 def parsed_database_timestamp(value: str) -> datetime | None:
@@ -947,6 +995,11 @@ def recent_listening_tracks(
     tracks: list[ListeningTrack] = []
     for row in rows:
         current = current_track_for_key(connection, str(row["track_key"]))
+        album_id = (
+            str(current["album_id"])
+            if current is not None and current["album_id"] is not None
+            else str(row["album_id"] or "")
+        )
         tracks.append(
             ListeningTrack(
                 track_key=str(row["track_key"]),
@@ -957,18 +1010,8 @@ def recent_listening_tracks(
                     if row["track_id"] is not None
                     else None
                 ),
-                art_track_id=(
-                    int(current["track_id"])
-                    if current is not None and current["track_id"] is not None
-                    else int(row["track_id"])
-                    if row["track_id"] is not None
-                    else None
-                ),
-                album_id=(
-                    str(current["album_id"])
-                    if current is not None and current["album_id"] is not None
-                    else str(row["album_id"] or "")
-                ),
+                art_track_id=album_art_track_id(connection, album_id) if album_id else None,
+                album_id=album_id,
                 title=(
                     str(current["title"])
                     if current is not None and current["title"] is not None

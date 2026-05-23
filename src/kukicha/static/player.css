@@ -1278,11 +1278,25 @@ button:disabled,
   gap: 10px;
 }
 
+.listening-data-stat-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(160px, 100%), 1fr));
+  gap: 10px;
+}
+
 .cache-action-card {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: 12px;
+  border: 1px solid var(--line);
+  background: var(--bg);
+  padding: 14px;
+}
+
+.listening-data-stat-card {
+  display: grid;
+  gap: 4px;
   border: 1px solid var(--line);
   background: var(--bg);
   padding: 14px;

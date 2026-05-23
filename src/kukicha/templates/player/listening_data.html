@@ -1,0 +1,39 @@
+<div class="view-page settings-page" data-page="{{ page_key }}">
+  <header class="view-header">
+    {% include "player/_page_title.html" %}
+  </header>
+
+  <section class="settings-panel">
+    <div class="settings-panel-header">
+      <h2>Reset Listening Data</h2>
+      <div class="settings-panel-meta">
+        Clears playback history, now-playing state, and listening-derived stats. Recently added albums,
+        favorites, queue state, clients, and caches are kept.
+      </div>
+    </div>
+    <div class="settings-actions">
+      <button
+        type="button"
+        class="danger"
+        data-reset-listening-data
+        data-reset-url="{{ reset_url }}"
+      >Reset Listening Data</button>
+    </div>
+  </section>
+
+  {% for section in listening_data_sections %}
+    <section class="settings-panel">
+      <div class="settings-panel-header">
+        <h2>{{ section.label }}</h2>
+      </div>
+      <div class="listening-data-stat-list">
+        {% for stat in section.stats %}
+          <article class="listening-data-stat-card">
+            <div class="cache-stat-count">{{ stat.count|compact_count }}</div>
+            <div class="cache-stat-label">{{ stat.label }}</div>
+          </article>
+        {% endfor %}
+      </div>
+    </section>
+  {% endfor %}
+</div>

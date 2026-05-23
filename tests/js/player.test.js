@@ -979,6 +979,40 @@ test("cache clear uses non-blocking confirmation dialog", async () => {
   assert.equal(harness.fetchCalls[0].request.method, "POST");
 });
 
+test("listening data reset uses non-blocking confirmation dialog", async () => {
+  const harness = createHarness({
+    track_ids: [],
+    position: 0,
+    loaded_track_id: null,
+    paused: true,
+    errored_track_ids: [],
+    unavailable_track_ids: [],
+  });
+  const button = new TestElement("button");
+  const confirmButton = harness.document.querySelector("[data-confirmation-confirm]");
+  const dialog = harness.document.getElementById("confirmation-dialog");
+  const message = harness.document.querySelector("[data-confirmation-message]");
+  button.dataset.resetUrl = "/api/listening-data/reset";
+
+  const resetPromise = harness.context.resetListeningData(button);
+  await Promise.resolve();
+
+  assert.equal(dialog.hidden, false);
+  assert.equal(message.textContent, "Reset listening data?");
+  assert.equal(harness.fetchCalls.length, 0);
+
+  harness.document.listeners.get("click")[0]({
+    target: confirmButton,
+    preventDefault() {},
+  });
+  await resetPromise;
+  await harness.flush();
+
+  assert.equal(dialog.hidden, true);
+  assert.equal(harness.fetchCalls[0].url, "/api/listening-data/reset");
+  assert.equal(harness.fetchCalls[0].request.method, "POST");
+});
+
 test("player control links ignore current album page params", () => {
   const harness = createHarness({
     track_ids: [],

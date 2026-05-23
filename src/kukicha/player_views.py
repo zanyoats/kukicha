@@ -476,6 +476,23 @@ def build_cache_page_context(runtime: PlayerRuntime) -> dict[str, Any]:
     return context
 
 
+def build_listening_data_page_context(runtime: PlayerRuntime) -> dict[str, Any]:
+    from .player_navigation import player_page_context
+    from .use_case import listening_data_stats
+
+    stats = listening_data_stats(runtime.database)
+    total_entries = sum(stat.count for stat in stats)
+    context = base_player_context(
+        runtime,
+        view_template="player/listening_data.html",
+        listening_data_sections=listening_data_sections_context(stats),
+        reset_url="/api/listening-data/reset",
+        count_text=format_count_label(total_entries, "entry", "entries"),
+    )
+    context.update(player_page_context("listening-data"))
+    return context
+
+
 def cache_sections_context(cache_stats: tuple[Any, ...]) -> tuple[dict[str, Any], ...]:
     sections: list[dict[str, Any]] = []
     for stat in cache_stats:
@@ -487,6 +504,26 @@ def cache_sections_context(cache_stats: tuple[Any, ...]) -> tuple[dict[str, Any]
                 "label": stat.label,
                 "count": stat.count,
                 "clear_url": f"/api/cache/{quote(stat.key, safe='')}/clear",
+            }
+        )
+    return tuple(
+        {
+            "label": section["label"],
+            "stats": tuple(section["stats"]),
+        }
+        for section in sections
+    )
+
+
+def listening_data_sections_context(stats: tuple[Any, ...]) -> tuple[dict[str, Any], ...]:
+    sections: list[dict[str, Any]] = []
+    for stat in stats:
+        if not sections or sections[-1]["label"] != stat.section:
+            sections.append({"label": stat.section, "stats": []})
+        sections[-1]["stats"].append(
+            {
+                "label": stat.label,
+                "count": stat.count,
             }
         )
     return tuple(
