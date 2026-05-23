@@ -3,8 +3,10 @@ from __future__ import annotations
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, fields
 import logging
+import mimetypes
 from pathlib import Path
 import sqlite3
+from tempfile import TemporaryDirectory
 from time import perf_counter
 from typing import Any
 import urllib.parse
@@ -21,7 +23,13 @@ from ...album_artists import (
 )
 from ...display import display_album_title
 from ...discogs import file_album_id_from_album_id, local_album_id
-from ...library_sources import SOURCE_KIND_S3, is_remote_path
+from ...library_sources import (
+    SOURCE_KIND_LOCAL,
+    SOURCE_KIND_S3,
+    create_s3_client,
+    is_remote_path,
+    remote_root_from_source_json,
+)
 from ..library import (
     CoverArtResolutionStats,
     GenreResolutionStats,
@@ -49,7 +57,12 @@ from ..musicbrainz import (
 )
 from ...player_common import optional_int, placeholders_for
 from ...player_runtime import PlayerJobCancelToken, PlayerJobResult, PlayerRuntime
-from ...scanner import write_album_audio_tags, write_track_audio_tags
+from ...scanner import (
+    DOWNLOAD_CHUNK_SIZE,
+    s3_user_metadata,
+    write_album_audio_tags,
+    write_track_audio_tags,
+)
 from ...text import normalize_slug_text
 
 LOGGER = logging.getLogger("kukicha.player")
@@ -137,6 +150,10 @@ class AlbumEditSnapshot:
     album_id: str
     root_position: int | None
     path: str
+    source_kind: str
+    source_json: str
+    object_key: str | None
+    content_type: str | None
     album: str
     title: str
     genres: tuple[str, ...]
@@ -391,7 +408,10 @@ def prepare_album_musicbrainz_edit_job(
                         tracks.path,
                         tracks.album,
                         tracks.title,
-                        COALESCE(sources.source_kind, roots.kind, 'local') AS source_kind
+                        COALESCE(sources.source_kind, roots.kind, 'local') AS source_kind,
+                        COALESCE(roots.source_json, '{}') AS source_json,
+                        sources.object_key,
+                        sources.content_type
                     FROM library_tracks AS tracks
                     LEFT JOIN library_track_sources AS sources
                         ON sources.track_id = tracks.track_id
@@ -428,7 +448,10 @@ def prepare_album_musicbrainz_edit_job(
                         tracks.path,
                         tracks.album,
                         tracks.title,
-                        COALESCE(sources.source_kind, roots.kind, 'local') AS source_kind
+                        COALESCE(sources.source_kind, roots.kind, 'local') AS source_kind,
+                        COALESCE(roots.source_json, '{{}}') AS source_json,
+                        sources.object_key,
+                        sources.content_type
                     FROM library_tracks AS tracks
                     LEFT JOIN library_track_sources AS sources
                         ON sources.track_id = tracks.track_id
@@ -463,8 +486,6 @@ def prepare_album_musicbrainz_edit_job(
                 row_album_id = str(row["album_id"]) if row["album_id"] else ""
                 if row_album_id != album_id:
                     raise ValueError(f"track does not belong to album: {track_id}")
-                if row_is_remote_track(row):
-                    raise ValueError("audio tag edits are not supported for remote tracks")
                 snapshots.append(album_edit_snapshot_from_row(row, row_album_id=row_album_id))
             groups.append(
                 AlbumMusicBrainzEditGroupJob(
@@ -491,6 +512,10 @@ def album_edit_snapshot_from_row(
         album_id=row_album_id,
         root_position=int(row["root_position"]) if row["root_position"] is not None else None,
         path=str(row["path"]),
+        source_kind=row_text(row, "source_kind", default=SOURCE_KIND_LOCAL),
+        source_json=row_text(row, "source_json", default="{}"),
+        object_key=row_optional_text(row, "object_key"),
+        content_type=row_optional_text(row, "content_type"),
         album=str(row["album"]) if row["album"] else "",
         title=str(row["title"]) if row["title"] else "",
         genres=(),
@@ -500,12 +525,17 @@ def album_edit_snapshot_from_row(
     )
 
 
-def row_is_remote_track(row: sqlite3.Row) -> bool:
+def row_text(row: sqlite3.Row, name: str, *, default: str = "") -> str:
     try:
-        source_kind = str(row["source_kind"] or "")
+        value = row[name]
     except (IndexError, KeyError):
-        source_kind = ""
-    return source_kind == SOURCE_KIND_S3 or is_remote_path(str(row["path"]))
+        return default
+    return str(value) if value is not None else default
+
+
+def row_optional_text(row: sqlite3.Row, name: str) -> str | None:
+    value = row_text(row, name)
+    return value if value else None
 
 
 def parse_album_tag_edit_request(
@@ -587,7 +617,10 @@ def prepare_album_tag_edit_job(
                     tracks.path,
                     tracks.album,
                     tracks.title,
-                    COALESCE(sources.source_kind, roots.kind, 'local') AS source_kind
+                    COALESCE(sources.source_kind, roots.kind, 'local') AS source_kind,
+                    COALESCE(roots.source_json, '{{}}') AS source_json,
+                    sources.object_key,
+                    sources.content_type
                 FROM library_tracks AS tracks
                 LEFT JOIN library_track_sources AS sources
                     ON sources.track_id = tracks.track_id
@@ -655,8 +688,6 @@ def prepare_album_tag_edit_job(
             row_album_id = str(row["album_id"]) if row["album_id"] else ""
             if row_album_id != album_id:
                 raise ValueError(f"track does not belong to album: {track_edit.track_id}")
-            if row_is_remote_track(row):
-                raise ValueError("audio tag edits are not supported for remote tracks")
             track_artworks = artwork_rows.get(track_edit.track_id, {})
             snapshots.append(
                 AlbumEditSnapshot(
@@ -668,6 +699,10 @@ def prepare_album_tag_edit_job(
                         else None
                     ),
                     path=str(row["path"]),
+                    source_kind=row_text(row, "source_kind", default=SOURCE_KIND_LOCAL),
+                    source_json=row_text(row, "source_json", default="{}"),
+                    object_key=row_optional_text(row, "object_key"),
+                    content_type=row_optional_text(row, "content_type"),
                     album=str(row["album"]) if row["album"] else "",
                     title=str(row["title"]) if row["title"] else "",
                     genres=tuple(genre_rows.get(track_edit.track_id, ())),
@@ -720,6 +755,131 @@ def album_artist_display_text(
         if row["artist"]
     ]
     return display_album_artists(artists) or None
+
+
+def snapshot_is_remote_track(snapshot: AlbumEditSnapshot) -> bool:
+    return snapshot.source_kind == SOURCE_KIND_S3 or is_remote_path(snapshot.path)
+
+
+def write_album_edit_track_tags(
+    snapshot: AlbumEditSnapshot,
+    *,
+    artist: str | None,
+    album_artist: str | None,
+    album: str | None,
+    track_number: str | None,
+    title: str | None,
+    genre: str | None,
+) -> None:
+    def write(path: Path) -> None:
+        write_track_audio_tags(
+            path,
+            artist=artist,
+            album_artist=album_artist,
+            album=album,
+            track_number=track_number,
+            title=title,
+            genre=genre,
+        )
+
+    write_album_edit_audio(snapshot, write)
+
+
+def write_album_edit_album_tags(
+    snapshot: AlbumEditSnapshot,
+    *,
+    album_artist: str,
+    album: str,
+    genre: str,
+) -> None:
+    def write(path: Path) -> None:
+        write_album_audio_tags(
+            path,
+            album_artist=album_artist,
+            album=album,
+            genre=genre,
+        )
+
+    write_album_edit_audio(snapshot, write)
+
+
+def write_album_edit_audio(
+    snapshot: AlbumEditSnapshot,
+    write: Callable[[Path], None],
+) -> None:
+    if not snapshot_is_remote_track(snapshot):
+        write(Path(snapshot.path))
+        return
+
+    remote, object_key = remote_album_edit_target(snapshot)
+    client = create_s3_client(remote)
+    with TemporaryDirectory(prefix="kukicha-remote-tag-edit-") as tempdir:
+        temp_path = Path(tempdir) / remote_album_edit_temp_name(snapshot, object_key)
+        response = client.get_object(Bucket=remote.bucket, Key=object_key)
+        if not isinstance(response, dict):
+            raise OSError(f"failed to download S3 object: {object_key}")
+        metadata = s3_user_metadata(response)
+        content_type = str(
+            response.get("ContentType")
+            or snapshot.content_type
+            or remote_album_edit_content_type(snapshot, object_key)
+        )
+        body = response.get("Body")
+        if body is None or not hasattr(body, "read"):
+            raise OSError(f"failed to download S3 object: {object_key}")
+        try:
+            with temp_path.open("wb") as handle:
+                while True:
+                    chunk = body.read(DOWNLOAD_CHUNK_SIZE)
+                    if not chunk:
+                        break
+                    handle.write(chunk)
+        finally:
+            close = getattr(body, "close", None)
+            if callable(close):
+                close()
+
+        write(temp_path)
+        with temp_path.open("rb") as body_handle:
+            client.put_object(
+                Bucket=remote.bucket,
+                Key=object_key,
+                Body=body_handle,
+                ContentType=content_type,
+                Metadata=metadata,
+            )
+
+
+def remote_album_edit_target(snapshot: AlbumEditSnapshot) -> tuple[Any, str]:
+    object_key = snapshot.object_key.strip() if snapshot.object_key else ""
+    if not object_key:
+        raise ValueError("remote audio edit requires S3 object key metadata")
+    try:
+        remote = remote_root_from_source_json(snapshot.source_json)
+    except Exception as error:
+        raise ValueError("remote audio edit requires valid S3 root metadata") from error
+    return remote, object_key
+
+
+def remote_album_edit_temp_name(
+    snapshot: AlbumEditSnapshot,
+    object_key: str,
+) -> str:
+    name = Path(object_key).name or Path(snapshot.path).name
+    return name or "audio"
+
+
+def remote_album_edit_content_type(
+    snapshot: AlbumEditSnapshot,
+    object_key: str,
+) -> str:
+    name = Path(object_key).name or Path(snapshot.path).name
+    suffix = Path(name).suffix.casefold()
+    if suffix in {".m4a", ".m4b", ".m4p", ".m4r"}:
+        return "audio/mp4"
+    if suffix in {".oga", ".opus"}:
+        return "audio/ogg"
+    return mimetypes.guess_type(name)[0] or "application/octet-stream"
 
 
 def edit_library_album_musicbrainz(
@@ -796,10 +956,8 @@ def edit_library_album_musicbrainz(
                 for snapshot in group.tracks:
                     if cancel_check is not None:
                         cancel_check()
-                    if is_remote_path(snapshot.path):
-                        raise ValueError("audio tag edits are not supported for remote tracks")
-                    write_album_audio_tags(
-                        Path(snapshot.path),
+                    write_album_edit_album_tags(
+                        snapshot,
                         album_artist=tag_values.album_artist,
                         album=tag_values.album,
                         genre=genre_text,
@@ -1176,10 +1334,8 @@ def edit_library_album_tags(
         if cancel_check is not None:
             cancel_check()
         snapshot = snapshots_by_track_id[track_edit.track_id]
-        if is_remote_path(snapshot.path):
-            raise ValueError("audio tag edits are not supported for remote tracks")
-        write_track_audio_tags(
-            Path(snapshot.path),
+        write_album_edit_track_tags(
+            snapshot,
             artist=track_edit.artist,
             album_artist=job.request.album_artist,
             album=job.request.album,

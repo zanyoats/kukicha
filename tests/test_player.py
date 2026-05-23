@@ -233,6 +233,44 @@ def insert_library_track(
     )
 
 
+class FakeRemoteEditS3Client:
+    def __init__(
+        self,
+        data: bytes = b"audio bytes",
+        *,
+        metadata: dict[str, str] | None = None,
+        content_type: str = "audio/flac",
+    ) -> None:
+        self.data = data
+        self.metadata = metadata or {"local-created-at": "2026-05-16T12:00:00+00:00"}
+        self.content_type = content_type
+        self.gets: list[dict[str, object]] = []
+        self.puts: list[dict[str, object]] = []
+
+    def get_object(self, **kwargs: object) -> dict[str, object]:
+        self.gets.append(kwargs)
+        return {
+            "Body": io.BytesIO(self.data),
+            "Metadata": self.metadata,
+            "ContentType": self.content_type,
+        }
+
+    def put_object(self, **kwargs: object) -> dict[str, object]:
+        body = kwargs["Body"]
+        if not hasattr(body, "read"):
+            raise AssertionError("Body must be readable")
+        self.puts.append(
+            {
+                "Bucket": kwargs["Bucket"],
+                "Key": kwargs["Key"],
+                "Body": body.read(),
+                "ContentType": kwargs["ContentType"],
+                "Metadata": kwargs["Metadata"],
+            }
+        )
+        return {}
+
+
 class PlayerQueueStateTest(unittest.TestCase):
     def test_reset_queue_state_clears_queue_and_unloads_track(self) -> None:
         state = PlayerQueueState(
@@ -3564,7 +3602,7 @@ class PlayerAlbumDetailLinksTest(unittest.TestCase):
         self.assertEqual(html.count("data-album-edit-status"), 1)
         self.assertNotIn("data-album-musicbrainz-status", html)
         self.assertIn(
-            "These actions queue jobs that edit the metadata stored in the audio files on disk",
+            "These actions queue jobs that edit the metadata stored in the audio files",
             html,
         )
         self.assertIn("On rescan", html)
@@ -8751,94 +8789,318 @@ class PlayerAlbumTagEditTest(unittest.TestCase):
         finally:
             connection.close()
 
-    def test_prepare_album_tag_edit_job_rejects_remote_tracks(self) -> None:
-        with TemporaryDirectory() as tempdir:
-            database = Path(tempdir) / "kukicha.sqlite"
-            remote = RemoteRootConfig(
-                name="Remote",
-                endpoint_url="https://s3.example.test",
-                bucket="bucket",
-                prefix="tracks/",
+    def seed_remote_album(
+        self,
+        database: Path,
+        *,
+        source_json: str | None = None,
+        object_key: str | None = "tracks/Album/01.flac",
+        content_type: str | None = "audio/flac",
+    ) -> tuple[RemoteRootConfig, str]:
+        remote = RemoteRootConfig(
+            name="Remote",
+            endpoint_url="https://s3.example.test",
+            bucket="bucket",
+            prefix="tracks/",
+        )
+        track_key = object_key or "tracks/Album/01.flac"
+        track_path = canonical_s3_path(remote, track_key)
+        root_source_json = remote.source_json if source_json is None else source_json
+        connection = connect_database(database)
+        try:
+            connection.execute(
+                """
+                INSERT INTO library_roots (
+                    position, root_path, kind, source_json
+                ) VALUES (?, ?, ?, ?)
+                """,
+                (0, remote.root_path, "s3", root_source_json),
             )
-            track_path = canonical_s3_path(remote, "tracks/Album/01.flac")
-            connection = connect_database(database)
-            try:
-                connection.execute(
-                    """
-                    INSERT INTO library_roots (
-                        position, root_path, kind, source_json
-                    ) VALUES (?, ?, ?, ?)
-                    """,
-                    (0, remote.root_path, "s3", remote.source_json),
-                )
-                insert_library_album(
-                    connection,
+            insert_library_album(
+                connection,
+                "old-artist::album",
+                "Old Artist",
+                "Album",
+                1980,
+                1,
+            )
+            connection.execute(
+                """
+                INSERT INTO library_tracks (
+                    track_id,
+                    album_id,
+                    root_position,
+                    path,
+                    file_type,
+                    artist,
+                    album_artist,
+                    album,
+                    title,
+                    track_number
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    1,
                     "old-artist::album",
+                    0,
+                    track_path,
+                    "flac",
+                    "Artist",
                     "Old Artist",
                     "Album",
-                    1980,
-                    1,
-                )
-                connection.execute(
-                    """
-                    INSERT INTO library_tracks (
-                        track_id,
-                        album_id,
-                        root_position,
-                        path,
-                        file_type,
-                        artist,
-                        album_artist,
-                        album,
-                        title
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    (
-                        1,
-                        "old-artist::album",
-                        0,
-                        track_path,
-                        "flac",
-                        "Artist",
-                        "Old Artist",
-                        "Album",
-                        "Track",
+                    "Track",
+                    "1",
+                ),
+            )
+            connection.execute(
+                """
+                INSERT INTO library_track_sources (
+                    track_id,
+                    source_kind,
+                    root_position,
+                    canonical_path,
+                    object_key,
+                    content_type
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (1, "s3", 0, track_path, object_key, content_type),
+            )
+            connection.commit()
+        finally:
+            connection.close()
+        return remote, track_path
+
+    def test_prepare_album_tag_edit_job_accepts_remote_tracks(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            database = Path(tempdir) / "kukicha.sqlite"
+            remote, track_path = self.seed_remote_album(database)
+
+            job = prepare_album_tag_edit_job(
+                database,
+                "old-artist::album",
+                {
+                    "album": "Album",
+                    "album_artist": "Old Artist",
+                    "genre": "Electronic",
+                    "tracks": [
+                        {
+                            "track_id": 1,
+                            "artist": "Artist",
+                            "track_number": "1",
+                            "title": "Track",
+                        }
+                    ],
+                },
+            )
+
+            self.assertEqual(job.tracks[0].path, track_path)
+            self.assertEqual(job.tracks[0].source_kind, "s3")
+            self.assertEqual(job.tracks[0].source_json, remote.source_json)
+            self.assertEqual(job.tracks[0].object_key, "tracks/Album/01.flac")
+            self.assertEqual(job.tracks[0].content_type, "audio/flac")
+
+    def test_edit_library_album_tags_rewrites_remote_audio_object(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            database = Path(tempdir) / "kukicha.sqlite"
+            self.seed_remote_album(database)
+            job = prepare_album_tag_edit_job(
+                database,
+                "old-artist::album",
+                {
+                    "album": "New Album",
+                    "album_artist": "Various Artists",
+                    "genre": "Electronic; Score",
+                    "tracks": [
+                        {
+                            "track_id": 1,
+                            "artist": "Wendy Carlos",
+                            "track_number": "7",
+                            "title": "Main Title",
+                        }
+                    ],
+                },
+            )
+            client = FakeRemoteEditS3Client(
+                b"remote audio",
+                metadata={"Local-Created-At": "2026-05-16T12:00:00+00:00"},
+            )
+            write_calls: list[tuple[Path, dict[str, object]]] = []
+
+            def fake_write(path: Path, **kwargs: object) -> None:
+                self.assertEqual(path.read_bytes(), b"remote audio")
+                path.write_bytes(b"edited remote audio")
+                write_calls.append((path, kwargs))
+
+            with (
+                patch("kukicha.use_case.commands.album_edits.create_s3_client", return_value=client),
+                patch(
+                    "kukicha.use_case.commands.album_edits.write_track_audio_tags",
+                    side_effect=fake_write,
+                ),
+            ):
+                result = edit_library_album_tags(database, job)
+
+            self.assertEqual(result.tracks_updated, 1)
+            self.assertEqual(len(write_calls), 1)
+            self.assertEqual(write_calls[0][1]["artist"], "Wendy Carlos")
+            self.assertEqual(write_calls[0][1]["album_artist"], "Various Artists")
+            self.assertEqual(write_calls[0][1]["album"], "New Album")
+            self.assertEqual(write_calls[0][1]["track_number"], "7")
+            self.assertEqual(write_calls[0][1]["title"], "Main Title")
+            self.assertEqual(write_calls[0][1]["genre"], "Electronic; Score")
+            self.assertEqual(
+                client.gets,
+                [{"Bucket": "bucket", "Key": "tracks/Album/01.flac"}],
+            )
+            self.assertEqual(
+                client.puts,
+                [
+                    {
+                        "Bucket": "bucket",
+                        "Key": "tracks/Album/01.flac",
+                        "Body": b"edited remote audio",
+                        "ContentType": "audio/flac",
+                        "Metadata": {
+                            "local-created-at": "2026-05-16T12:00:00+00:00",
+                        },
+                    }
+                ],
+            )
+
+    def test_edit_library_album_tags_requires_remote_object_key_metadata(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            database = Path(tempdir) / "kukicha.sqlite"
+            self.seed_remote_album(database, object_key=None)
+            job = prepare_album_tag_edit_job(
+                database,
+                "old-artist::album",
+                {
+                    "album": "Album",
+                    "album_artist": "Old Artist",
+                    "genre": "Electronic",
+                    "tracks": [
+                        {
+                            "track_id": 1,
+                            "artist": "Artist",
+                            "track_number": "1",
+                            "title": "Track",
+                        }
+                    ],
+                },
+            )
+
+            with self.assertRaisesRegex(ValueError, "S3 object key metadata"):
+                edit_library_album_tags(database, job)
+
+    def test_edit_library_album_musicbrainz_rewrites_remote_audio_and_stores_links(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            database = Path(tempdir) / "kukicha.sqlite"
+            self.seed_remote_album(database)
+            job = prepare_album_musicbrainz_edit_job(
+                database,
+                "old-artist::album",
+                {
+                    "musicbrainz_release_mbid": (
+                        "11111111-1111-1111-1111-111111111111"
                     ),
-                )
-                connection.execute(
+                },
+            )
+            release_payload = {
+                "title": "Remote Album",
+                "artist-credit": [{"name": "Remote Artist"}],
+                "genres": [{"name": "electronic", "count": 3}],
+                "release-group": {"id": "22222222-2222-2222-2222-222222222222"},
+            }
+            release_group_payload = {
+                "title": "Remote Album",
+                "artist-credit": [{"name": "Ignored Artist"}],
+                "genres": [{"name": "ambient", "count": 2}],
+            }
+
+            def fake_get_musicbrainz_entity(
+                _connection: object,
+                _client: object,
+                *,
+                entity_type: str,
+                mbid: str,
+            ) -> dict[str, object]:
+                if entity_type == "release":
+                    self.assertEqual(mbid, "11111111-1111-1111-1111-111111111111")
+                    return release_payload
+                self.assertEqual(entity_type, "release-group")
+                self.assertEqual(mbid, "22222222-2222-2222-2222-222222222222")
+                return release_group_payload
+
+            client = FakeRemoteEditS3Client(b"remote musicbrainz audio")
+            write_calls: list[tuple[Path, dict[str, object]]] = []
+
+            def fake_write(path: Path, **kwargs: object) -> None:
+                self.assertEqual(path.read_bytes(), b"remote musicbrainz audio")
+                path.write_bytes(b"edited musicbrainz audio")
+                write_calls.append((path, kwargs))
+
+            with (
+                patch(
+                    "kukicha.use_case.commands.album_edits.get_musicbrainz_entity",
+                    side_effect=fake_get_musicbrainz_entity,
+                ),
+                patch("kukicha.use_case.commands.album_edits.create_s3_client", return_value=client),
+                patch(
+                    "kukicha.use_case.commands.album_edits.write_album_audio_tags",
+                    side_effect=fake_write,
+                ),
+            ):
+                result = edit_library_album_musicbrainz(database, job)
+
+            self.assertEqual(result.album, "Remote Album")
+            self.assertEqual(result.album_artist, "Remote Artist")
+            self.assertEqual(result.genre, "Electronic; Ambient")
+            self.assertEqual(result.tracks_updated, 1)
+            self.assertEqual(write_calls[0][1]["album_artist"], "Remote Artist")
+            self.assertEqual(write_calls[0][1]["album"], "Remote Album")
+            self.assertEqual(write_calls[0][1]["genre"], "Electronic; Ambient")
+            self.assertEqual(client.puts[0]["Body"], b"edited musicbrainz audio")
+
+            connection = connect_database(database, create=False)
+            try:
+                link_row = connection.execute(
                     """
-                    INSERT INTO library_track_sources (
-                        track_id,
-                        source_kind,
-                        root_position,
-                        canonical_path,
-                        object_key
-                    ) VALUES (?, ?, ?, ?, ?)
+                    SELECT release_mbid, release_group_mbid
+                    FROM album_musicbrainz_links
+                    WHERE file_album_id = ?
                     """,
-                    (1, "s3", 0, track_path, "tracks/Album/01.flac"),
-                )
-                connection.commit()
+                    ("remote-artist::remote-album",),
+                ).fetchone()
+                track_link_row = connection.execute(
+                    """
+                    SELECT file_album_id, release_mbid, release_group_mbid
+                    FROM album_musicbrainz_track_links
+                    WHERE path = ?
+                    """,
+                    (job.tracks[0].path,),
+                ).fetchone()
             finally:
                 connection.close()
 
-            with self.assertRaisesRegex(ValueError, "remote tracks"):
-                prepare_album_tag_edit_job(
-                    database,
-                    "old-artist::album",
-                    {
-                        "album": "Album",
-                        "album_artist": "Old Artist",
-                        "genre": "Electronic",
-                        "tracks": [
-                            {
-                                "track_id": 1,
-                                "artist": "Artist",
-                                "track_number": "1",
-                                "title": "Track",
-                            }
-                        ],
-                    },
-                )
+            self.assertIsNotNone(link_row)
+            self.assertEqual(
+                str(link_row["release_mbid"]),
+                "11111111-1111-1111-1111-111111111111",
+            )
+            self.assertEqual(
+                str(link_row["release_group_mbid"]),
+                "22222222-2222-2222-2222-222222222222",
+            )
+            self.assertIsNotNone(track_link_row)
+            self.assertEqual(str(track_link_row["file_album_id"]), "remote-artist::remote-album")
+            self.assertEqual(
+                str(track_link_row["release_mbid"]),
+                "11111111-1111-1111-1111-111111111111",
+            )
+            self.assertEqual(
+                str(track_link_row["release_group_mbid"]),
+                "22222222-2222-2222-2222-222222222222",
+            )
 
     def test_prepare_album_musicbrainz_edit_job_scopes_to_requested_tracks(self) -> None:
         with TemporaryDirectory() as tempdir:
