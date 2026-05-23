@@ -20,6 +20,7 @@ from .album_edits import (
 )
 from .player import (
     append_queue,
+    clear_cache_tables,
     clear_queue_database,
     delete_album_musicbrainz_override,
     load_queue_state_database,
@@ -56,6 +57,7 @@ from .startup import prepare_player_database
 
 __all__ = [
     "append_queue",
+    "clear_cache_tables",
     "clear_queue_database",
     "delete_album_musicbrainz_override",
     "edit_library_album_edit",

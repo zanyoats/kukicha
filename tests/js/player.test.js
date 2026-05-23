@@ -208,6 +208,10 @@ class TestElement {
 
   focus() {}
 
+  get isConnected() {
+    return true;
+  }
+
   closest() {
     return null;
   }
@@ -576,14 +580,31 @@ function createHarness(initialQueueState, options = {}) {
     "volume-icon": new TestElement("svg"),
     toast: new TestElement("div"),
     "job-toasts": new TestElement("div"),
+    "confirmation-dialog": new TestElement("div"),
     "keyboard-shortcuts-dialog": new TestElement("dialog"),
     "queue-state": new TestElement("script"),
   };
+  elements["confirmation-dialog"].hidden = true;
+  elements["keyboard-shortcuts-dialog"].hidden = true;
   elements.audio.deferPlay = Boolean(options.deferAudioPlay);
   elements["queue-state"].textContent = JSON.stringify(initialQueueState);
 
   const document = new TestDocument(elements);
   document.body.dataset.page = options.page || "";
+  const confirmationTitle = new TestElement("h2");
+  const confirmationMessage = new TestElement("p");
+  const confirmationCancel = new TestElement("button");
+  const confirmationConfirm = new TestElement("button");
+  confirmationCancel.closest = (selector) => (
+    selector === "[data-confirmation-cancel]" ? confirmationCancel : null
+  );
+  confirmationConfirm.closest = (selector) => (
+    selector === "[data-confirmation-confirm]" ? confirmationConfirm : null
+  );
+  document.setQueryResult("[data-confirmation-title]", confirmationTitle);
+  document.setQueryResult("[data-confirmation-message]", confirmationMessage);
+  document.setQueryResult("[data-confirmation-cancel]", confirmationCancel);
+  document.setQueryResult("[data-confirmation-confirm]", confirmationConfirm);
   document.setQueryResult("[data-play-icon]", new TestElement("svg"));
   document.setQueryResult("[data-pause-icon]", new TestElement("svg"));
 
@@ -921,6 +942,41 @@ test("compact count formatting matches count label rules", () => {
       "infinity",
     ],
   );
+});
+
+test("cache clear uses non-blocking confirmation dialog", async () => {
+  const harness = createHarness({
+    track_ids: [],
+    position: 0,
+    loaded_track_id: null,
+    paused: true,
+    errored_track_ids: [],
+    unavailable_track_ids: [],
+  });
+  const button = new TestElement("button");
+  const confirmButton = harness.document.querySelector("[data-confirmation-confirm]");
+  const dialog = harness.document.getElementById("confirmation-dialog");
+  const message = harness.document.querySelector("[data-confirmation-message]");
+  button.dataset.clearUrl = "/api/cache/itunes-cover-artwork/clear";
+  button.dataset.cacheLabel = "iTunes Cover Artwork";
+
+  const clearPromise = harness.context.clearCache(button);
+  await Promise.resolve();
+
+  assert.equal(dialog.hidden, false);
+  assert.equal(message.textContent, "Clear iTunes Cover Artwork cache?");
+  assert.equal(harness.fetchCalls.length, 0);
+
+  harness.document.listeners.get("click")[0]({
+    target: confirmButton,
+    preventDefault() {},
+  });
+  await clearPromise;
+  await harness.flush();
+
+  assert.equal(dialog.hidden, true);
+  assert.equal(harness.fetchCalls[0].url, "/api/cache/itunes-cover-artwork/clear");
+  assert.equal(harness.fetchCalls[0].request.method, "POST");
 });
 
 test("player control links ignore current album page params", () => {

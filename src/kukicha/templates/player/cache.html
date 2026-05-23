@@ -3,17 +3,28 @@
     {% include "player/_page_title.html" %}
   </header>
 
-  <section class="settings-panel">
-    <div class="settings-panel-header">
-      <h2>Cache</h2>
-    </div>
-    <div class="cache-stat-grid">
-      {% for stat in cache_stats %}
-        <article class="cache-stat-card">
-          <div class="cache-stat-count">{{ stat.count|compact_count }}</div>
-          <div class="cache-stat-label">{{ stat.label }}</div>
-        </article>
-      {% endfor %}
-    </div>
-  </section>
+  {% for section in cache_sections %}
+    <section class="settings-panel">
+      <div class="settings-panel-header">
+        <h2>{{ section.label }}</h2>
+      </div>
+      <div class="cache-action-list">
+        {% for stat in section.stats %}
+          <article class="cache-action-card">
+            <div class="cache-stat-copy">
+              <div class="cache-stat-count">{{ stat.count|compact_count }}</div>
+              <div class="cache-stat-label">{{ stat.label }}</div>
+            </div>
+            <button
+              type="button"
+              class="danger cache-clear-button"
+              data-clear-cache
+              data-cache-label="{{ section.label }} {{ stat.label }}"
+              data-clear-url="{{ stat.clear_url }}"
+            >Clear</button>
+          </article>
+        {% endfor %}
+      </div>
+    </section>
+  {% endfor %}
 </div>

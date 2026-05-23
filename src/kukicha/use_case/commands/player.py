@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any
 from urllib.parse import urlsplit
 
 from ...discogs import file_album_id_from_album_id
+from ..cache import CACHE_TABLE_GROUP_BY_KEY
 from ..database import connect_database
 from ..queries import LibraryQueries
 from ..queries.sql import placeholders_for
@@ -669,6 +670,36 @@ def delete_album_musicbrainz_override(
     return {
         "album_id": album_id,
         "message": f"Deleted MusicBrainz override for {album_id}.",
+    }
+
+
+def clear_cache_tables(
+    runtime: PlayerRuntime,
+    cache_key: str,
+) -> dict[str, object]:
+    from ...player_errors import PlayerNotFoundError
+
+    cache_key = str(cache_key or "").strip()
+    if not cache_key:
+        raise ValueError("cache key is required")
+    group = CACHE_TABLE_GROUP_BY_KEY.get(cache_key)
+    if group is None:
+        raise PlayerNotFoundError(f"cache target does not exist: {cache_key}")
+
+    cleared_entries = 0
+    with connect_database(runtime.database) as connection:
+        for table_name in group.table_names:
+            row = connection.execute(
+                f"SELECT COUNT(*) AS count FROM {table_name}"
+            ).fetchone()
+            cleared_entries += int(row["count"])
+        for table_name in group.table_names:
+            connection.execute(f"DELETE FROM {table_name}")
+
+    return {
+        "cache_key": group.key,
+        "cleared_entries": cleared_entries,
+        "message": f"Cleared {group.display_label} cache.",
     }
 
 

@@ -131,6 +131,20 @@
       data-toast-timeout-ms="{{ toast_timeout_ms }}"></div>
     <div id="job-toasts" class="job-toasts" aria-live="polite"></div>
   </div>
+  <div id="confirmation-dialog" class="confirmation-dialog" role="dialog"
+    aria-modal="true" aria-labelledby="confirmation-title" aria-describedby="confirmation-message"
+    hidden data-confirmation-dialog>
+    <section class="confirmation-panel">
+      <div class="confirmation-header">
+        <h2 id="confirmation-title" data-confirmation-title>Confirm Action</h2>
+      </div>
+      <p id="confirmation-message" class="confirmation-message" data-confirmation-message></p>
+      <div class="confirmation-actions">
+        <button type="button" data-confirmation-cancel>Cancel</button>
+        <button type="button" class="danger" data-confirmation-confirm>Confirm</button>
+      </div>
+    </section>
+  </div>
   <div id="keyboard-shortcuts-dialog" class="keyboard-shortcuts-dialog" role="dialog"
     aria-modal="true" aria-labelledby="keyboard-shortcuts-title" hidden
     data-keyboard-shortcuts-dialog>

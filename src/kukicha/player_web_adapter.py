@@ -20,6 +20,7 @@ from ._compat import UTC
 from .use_case import (
     NATIVE_PLAYBACK_SOURCE,
     append_queue as append_queue_command,
+    clear_cache_tables,
     delete_album_musicbrainz_override,
     mark_stale_player_jobs_canceled,
     pause_queue_for_document_load,
@@ -314,6 +315,10 @@ def create_player_app(options: PlayerServerOptions) -> Flask:
         return json_response(
             delete_album_musicbrainz_override(player_context().runtime, album_id)
         )
+
+    @app.post("/api/cache/<cache_key>/clear")
+    def clear_cache(cache_key: str) -> Response:
+        return json_response(clear_cache_tables(player_context().runtime, cache_key))
 
     @app.post("/api/albums/<path:album_id>/edit")
     def edit_album(album_id: str) -> Response:

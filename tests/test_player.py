@@ -5542,6 +5542,10 @@ class PlayerWebAdapterTest(unittest.TestCase):
             self.assertIn(b'class="toast-region"', full_response.data)
             self.assertIn(b'data-toast-timeout-ms="12000"', full_response.data)
             self.assertNotIn(b"data-linked-toast-timeout-ms", full_response.data)
+            self.assertIn('id="confirmation-dialog"', full_html)
+            self.assertIn('<h2 id="confirmation-title" data-confirmation-title>Confirm Action</h2>', full_html)
+            self.assertIn('data-confirmation-cancel>Cancel</button>', full_html)
+            self.assertIn('data-confirmation-confirm>Confirm</button>', full_html)
             self.assertIn('id="keyboard-shortcuts-dialog"', full_html)
             self.assertIn('<h2 id="keyboard-shortcuts-title">Keyboard Shortcuts</h2>', full_html)
             self.assertIn('class="keyboard-shortcuts-actions"', full_html)
@@ -5577,6 +5581,7 @@ class PlayerWebAdapterTest(unittest.TestCase):
             self.assertNotIn('id="next"', buttons_html)
             self.assertEqual(fragment_response.status_code, 200)
             self.assertNotIn(b"<!doctype html>", fragment_response.data)
+            self.assertNotIn(b'id="confirmation-dialog"', fragment_response.data)
             self.assertNotIn(b'id="keyboard-shortcuts-dialog"', fragment_response.data)
             self.assertIn(b"<h1>Albums</h1>", fragment_response.data)
 
@@ -6254,11 +6259,171 @@ class PlayerWebAdapterTest(unittest.TestCase):
 
             self.assertEqual(cache_response.status_code, 200)
             self.assertIn(b"<h1>Cache</h1>", cache_response.data)
-            self.assertIn(b"<h2>Cache</h2>", cache_response.data)
-            self.assertIn(b"MusicBrainz", cache_response.data)
-            self.assertIn(b"iTunes Artwork", cache_response.data)
+            self.assertIn(b"<h2>MusicBrainz</h2>", cache_response.data)
+            self.assertIn(b"<h2>iTunes</h2>", cache_response.data)
+            self.assertIn(b">Entities</div>", cache_response.data)
+            self.assertIn(b">Cover Artwork + Metadata</div>", cache_response.data)
+            self.assertIn(b">Cover Artwork</div>", cache_response.data)
+            self.assertIn(b"data-clear-cache", cache_response.data)
+            self.assertIn(
+                b'data-clear-url="/api/cache/musicbrainz-entities/clear"',
+                cache_response.data,
+            )
+            self.assertIn(
+                b'data-clear-url="/api/cache/musicbrainz-cover-artwork-metadata/clear"',
+                cache_response.data,
+            )
+            self.assertIn(
+                b'data-clear-url="/api/cache/itunes-cover-artwork/clear"',
+                cache_response.data,
+            )
+            self.assertLess(
+                cache_response.data.index(b"<h2>MusicBrainz</h2>"),
+                cache_response.data.index(b"<h2>iTunes</h2>"),
+            )
             self.assertNotIn(b"<h2>Add Root</h2>", cache_response.data)
             self.assertNotIn(b"data-edit-album-artist-mapping", cache_response.data)
+
+    def test_cache_clear_routes_truncate_configured_cache_tables(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            database = temp_path / "kukicha.sqlite"
+            connection = connect_database(database)
+            try:
+                connection.execute(
+                    """
+                    INSERT INTO musicbrainz_entity_cache (
+                        entity_type,
+                        mbid,
+                        fetched_at,
+                        endpoint_url,
+                        response_json
+                    ) VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (
+                        "release",
+                        "11111111-1111-1111-1111-111111111111",
+                        "2026-05-23T12:00:00+00:00",
+                        "https://musicbrainz.example/release/1",
+                        "{}",
+                    ),
+                )
+                connection.execute(
+                    """
+                    INSERT INTO cover_art_archive_entity_cache (
+                        entity_type,
+                        mbid,
+                        fetched_at,
+                        endpoint_url,
+                        response_json
+                    ) VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (
+                        "release",
+                        "22222222-2222-2222-2222-222222222222",
+                        "2026-05-23T12:00:00+00:00",
+                        "https://coverartarchive.example/release/2",
+                        "{}",
+                    ),
+                )
+                connection.execute(
+                    """
+                    INSERT INTO cover_art_archive_image_cache (
+                        image_url,
+                        fetched_at,
+                        mime_type,
+                        data
+                    ) VALUES (?, ?, ?, ?)
+                    """,
+                    (
+                        "https://coverartarchive.example/image/2.jpg",
+                        "2026-05-23T12:00:00+00:00",
+                        "image/jpeg",
+                        b"caa-image",
+                    ),
+                )
+                connection.execute(
+                    """
+                    INSERT INTO itunes_lookup_image_cache (
+                        cache_key,
+                        lookup_kind,
+                        lookup_id,
+                        result_kind,
+                        fetched_at,
+                        lookup_url,
+                        artwork_url,
+                        mime_type,
+                        data
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        "album:440769149",
+                        "album",
+                        "440769149",
+                        "hit",
+                        "2026-05-23T12:00:00+00:00",
+                        "https://itunes.apple.com/lookup?id=440769149&media=music",
+                        "https://is1-ssl.mzstatic.com/image/thumb/art.jpg",
+                        "image/jpeg",
+                        b"itunes-image",
+                    ),
+                )
+                connection.commit()
+            finally:
+                connection.close()
+
+            runtime = self.make_runtime(database)
+            with patch("kukicha.player_web_adapter.PlayerRuntime", return_value=runtime):
+                app = create_player_app(self.make_options(temp_path))
+                client = app.test_client()
+
+                cover_response = client.post(
+                    "/api/cache/musicbrainz-cover-artwork-metadata/clear"
+                )
+                entities_response = client.post("/api/cache/musicbrainz-entities/clear")
+                itunes_response = client.post("/api/cache/itunes-cover-artwork/clear")
+                missing_response = client.post("/api/cache/not-real/clear")
+
+            self.assertEqual(cover_response.status_code, 200)
+            self.assertEqual(
+                cover_response.get_json(),
+                {
+                    "cache_key": "musicbrainz-cover-artwork-metadata",
+                    "cleared_entries": 2,
+                    "message": "Cleared MusicBrainz Cover Artwork + Metadata cache.",
+                },
+            )
+            self.assertEqual(entities_response.status_code, 200)
+            self.assertEqual(entities_response.get_json()["cleared_entries"], 1)
+            self.assertEqual(itunes_response.status_code, 200)
+            self.assertEqual(
+                itunes_response.get_json()["message"],
+                "Cleared iTunes Cover Artwork cache.",
+            )
+            self.assertEqual(missing_response.status_code, 404)
+            self.assertEqual(
+                missing_response.get_json(),
+                {"error": "cache target does not exist: not-real"},
+            )
+
+            connection = connect_database(database, create=False)
+            try:
+                for table_name in (
+                    "musicbrainz_entity_cache",
+                    "cover_art_archive_entity_cache",
+                    "cover_art_archive_image_cache",
+                    "itunes_lookup_image_cache",
+                ):
+                    self.assertEqual(
+                        int(
+                            connection.execute(
+                                f"SELECT COUNT(*) AS count FROM {table_name}"
+                            ).fetchone()["count"]
+                        ),
+                        0,
+                    )
+            finally:
+                connection.close()
 
     def test_album_artist_mapping_route_updates_mapping_without_starting_job(self) -> None:
         with TemporaryDirectory() as tempdir:

@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from sqlite3 import Connection, Row
 
+from ..cache import CACHE_TABLE_GROUPS
 from ..database import connect_database
 from ..library import split_genres_and_styles
 from ...library_sources import SOURCE_KIND_LOCAL, SOURCE_KIND_S3, root_source_label
@@ -63,19 +64,18 @@ from .sql import (
 )
 
 
-CACHE_STAT_TABLES = (
-    ("MusicBrainz", "musicbrainz_entity_cache"),
-    ("Cover Art Metadata", "cover_art_archive_entity_cache"),
-    ("Cover Art Images", "cover_art_archive_image_cache"),
-    ("iTunes Artwork", "itunes_lookup_image_cache"),
-)
-
-
 @dataclass(frozen=True, slots=True)
 class AlbumSortColumn:
     expression: str
     alias: str
     direction: str = "ASC"
+
+
+def cache_table_count(connection: Connection, table_name: str) -> int:
+    row = connection.execute(
+        f"SELECT COUNT(*) AS count FROM {table_name}"
+    ).fetchone()
+    return int(row["count"])
 
 
 class LibraryQueries:
@@ -918,14 +918,15 @@ class LibraryQueries:
         with connect_database(self.database, create=False) as connection:
             return tuple(
                 CacheStat(
-                    label=label,
-                    count=int(
-                        connection.execute(
-                            f"SELECT COUNT(*) AS count FROM {table_name}"
-                        ).fetchone()["count"]
+                    key=group.key,
+                    section=group.section,
+                    label=group.label,
+                    count=sum(
+                        cache_table_count(connection, table_name)
+                        for table_name in group.table_names
                     ),
                 )
-                for label, table_name in CACHE_STAT_TABLES
+                for group in CACHE_TABLE_GROUPS
             )
 
     def library_stats(self) -> LibraryStats:

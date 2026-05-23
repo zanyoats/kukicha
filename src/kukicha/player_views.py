@@ -469,11 +469,33 @@ def build_cache_page_context(runtime: PlayerRuntime) -> dict[str, Any]:
     context = base_player_context(
         runtime,
         view_template="player/cache.html",
-        cache_stats=cache_stats,
+        cache_sections=cache_sections_context(cache_stats),
         count_text=format_count_label(total_entries, "entry", "entries"),
     )
     context.update(player_page_context("cache"))
     return context
+
+
+def cache_sections_context(cache_stats: tuple[Any, ...]) -> tuple[dict[str, Any], ...]:
+    sections: list[dict[str, Any]] = []
+    for stat in cache_stats:
+        if not sections or sections[-1]["label"] != stat.section:
+            sections.append({"label": stat.section, "stats": []})
+        sections[-1]["stats"].append(
+            {
+                "key": stat.key,
+                "label": stat.label,
+                "count": stat.count,
+                "clear_url": f"/api/cache/{quote(stat.key, safe='')}/clear",
+            }
+        )
+    return tuple(
+        {
+            "label": section["label"],
+            "stats": tuple(section["stats"]),
+        }
+        for section in sections
+    )
 
 
 def build_jobs_page_context(runtime: PlayerRuntime) -> dict[str, Any]:

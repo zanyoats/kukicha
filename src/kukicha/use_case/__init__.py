@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from .commands import (
     append_queue,
+    clear_cache_tables,
     clear_queue_database,
     create_player_job,
     get_player_job,
@@ -146,6 +147,7 @@ __all__ = [
     "AlbumSummary",
     "ArtistNotFoundError",
     "CacheStat",
+    "clear_cache_tables",
     "clear_queue_database",
     "delete_album_musicbrainz_override",
     "edit_library_album_edit",

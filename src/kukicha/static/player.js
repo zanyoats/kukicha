@@ -13,6 +13,11 @@ const volumeToggle = document.getElementById("volume-toggle");
 const volumeIcon = document.getElementById("volume-icon");
 const toast = document.getElementById("toast");
 const jobToasts = document.getElementById("job-toasts");
+const confirmationDialog = document.getElementById("confirmation-dialog");
+const confirmationTitle = document.querySelector("[data-confirmation-title]");
+const confirmationMessage = document.querySelector("[data-confirmation-message]");
+const confirmationCancel = document.querySelector("[data-confirmation-cancel]");
+const confirmationConfirm = document.querySelector("[data-confirmation-confirm]");
 const keyboardShortcutsDialog = document.getElementById("keyboard-shortcuts-dialog");
 const keyboardShortcutsClose = document.querySelector("[data-close-keyboard-shortcuts]");
 const trackCache = new Map();
@@ -54,6 +59,8 @@ let activePlaylistOptions = null;
 let activePlaylistSourceOptions = null;
 let pageIsUnloading = false;
 let keyboardShortcutsReturnFocus = null;
+let confirmationReturnFocus = null;
+let confirmationResolve = null;
 let rescanLibraryPending = false;
 const submittedIndeterminatePlayKeys = new Set();
 let activePlaybackEngine = null;
@@ -1581,6 +1588,23 @@ document.addEventListener("click", (event) => {
   if (!(event.target instanceof Element)) {
     return;
   }
+  const confirmationCancelButton = event.target.closest("[data-confirmation-cancel]");
+  if (confirmationCancelButton) {
+    event.preventDefault();
+    closeConfirmationDialog(false);
+    return;
+  }
+  const confirmationConfirmButton = event.target.closest("[data-confirmation-confirm]");
+  if (confirmationConfirmButton) {
+    event.preventDefault();
+    closeConfirmationDialog(true);
+    return;
+  }
+  if (event.target.matches("[data-confirmation-dialog]")) {
+    event.preventDefault();
+    closeConfirmationDialog(false);
+    return;
+  }
   const closeKeyboardShortcutsButton = event.target.closest("[data-close-keyboard-shortcuts]");
   if (closeKeyboardShortcutsButton) {
     event.preventDefault();
@@ -1631,6 +1655,12 @@ document.addEventListener("click", (event) => {
   if (rescanLibraryButton) {
     event.preventDefault();
     void rescanLibrary(rescanLibraryButton);
+    return;
+  }
+  const clearCacheButton = event.target.closest("[data-clear-cache]");
+  if (clearCacheButton) {
+    event.preventDefault();
+    void clearCache(clearCacheButton);
     return;
   }
   const deleteMusicBrainzOverrideButton = event.target.closest("[data-delete-musicbrainz-override]");
@@ -3241,7 +3271,13 @@ async function deleteMusicBrainzOverride(button) {
     return;
   }
 
-  if (!window.confirm(`Delete MusicBrainz override for ${albumId}?`)) {
+  const confirmed = await confirmAction({
+    title: "Delete MusicBrainz Override",
+    message: `Delete MusicBrainz override for ${albumId}?`,
+    confirmLabel: "Delete",
+    returnFocus: button,
+  });
+  if (!confirmed) {
     return;
   }
 
@@ -3264,6 +3300,53 @@ async function deleteMusicBrainzOverride(button) {
     await navigate(window.location.href, {replace: true, scroll: false});
   } catch {
     showToast("Unable to delete MusicBrainz override.", {error: true});
+  } finally {
+    if (button.isConnected) {
+      button.disabled = false;
+      button.removeAttribute("aria-busy");
+    }
+  }
+}
+
+async function clearCache(button) {
+  if (!(button instanceof HTMLButtonElement) || button.disabled) {
+    return;
+  }
+  const clearUrl = button.dataset.clearUrl;
+  const label = button.dataset.cacheLabel || "this";
+  if (!clearUrl) {
+    return;
+  }
+
+  const confirmed = await confirmAction({
+    title: "Clear Cache",
+    message: `Clear ${label} cache?`,
+    confirmLabel: "Clear",
+    returnFocus: button,
+  });
+  if (!confirmed) {
+    return;
+  }
+
+  button.disabled = true;
+  button.setAttribute("aria-busy", "true");
+  try {
+    const response = await fetch(clearUrl, {method: "POST"});
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const message = payload && typeof payload.error === "string" && payload.error.trim()
+        ? payload.error
+        : "Unable to clear cache.";
+      showToast(message, {error: true});
+      return;
+    }
+    const message = payload && typeof payload.message === "string" && payload.message.trim()
+      ? payload.message
+      : "Cache cleared.";
+    showToast(message);
+    await navigate(window.location.href, {replace: true, scroll: false});
+  } catch {
+    showToast("Unable to clear cache.", {error: true});
   } finally {
     if (button.isConnected) {
       button.disabled = false;
@@ -3936,7 +4019,7 @@ function handleKeyboardShortcut(event) {
     handleEscapeShortcut(event);
     return;
   }
-  if (keyboardShortcutsDialogIsOpen()) {
+  if (confirmationDialogIsOpen() || keyboardShortcutsDialogIsOpen()) {
     return;
   }
   if (
@@ -4004,6 +4087,10 @@ function handleKeyboardShortcut(event) {
 }
 
 function handleEscapeShortcut(event) {
+  if (closeConfirmationDialog(false)) {
+    event.preventDefault();
+    return;
+  }
   if (closeKeyboardShortcutsDialog()) {
     event.preventDefault();
     return;
@@ -4057,6 +4144,81 @@ function blurShortcutInput(target) {
     return false;
   }
   editableTarget.blur();
+  return true;
+}
+
+function confirmAction({
+  title = "Confirm Action",
+  message = "",
+  confirmLabel = "Confirm",
+  returnFocus = null,
+} = {}) {
+  if (
+    !(confirmationDialog instanceof HTMLElement)
+    || !(confirmationTitle instanceof HTMLElement)
+    || !(confirmationMessage instanceof HTMLElement)
+    || !(confirmationCancel instanceof HTMLButtonElement)
+    || !(confirmationConfirm instanceof HTMLButtonElement)
+    || typeof message !== "string"
+    || !message.trim()
+  ) {
+    return Promise.resolve(false);
+  }
+
+  closeKeyboardShortcutsDialog({restoreFocus: false});
+  closeOpenDropdownMenus();
+  closeConfirmationDialog(false, {restoreFocus: false});
+
+  confirmationTitle.textContent = title;
+  confirmationMessage.textContent = message;
+  confirmationConfirm.textContent = confirmLabel;
+  confirmationReturnFocus = returnFocus instanceof HTMLElement
+    ? returnFocus
+    : document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null;
+  confirmationDialog.hidden = false;
+  try {
+    confirmationCancel.focus({preventScroll: true});
+  } catch {
+    confirmationCancel.focus();
+  }
+
+  return new Promise((resolve) => {
+    confirmationResolve = resolve;
+  });
+}
+
+function confirmationDialogIsOpen() {
+  return confirmationDialog instanceof HTMLElement && !confirmationDialog.hidden;
+}
+
+function closeConfirmationDialog(confirmed = false, options = {}) {
+  if (
+    !(confirmationDialog instanceof HTMLElement)
+    || confirmationDialog.hidden
+  ) {
+    return false;
+  }
+  confirmationDialog.hidden = true;
+  const resolve = confirmationResolve;
+  confirmationResolve = null;
+  const restoreFocus = options.restoreFocus !== false;
+  if (
+    restoreFocus
+    && confirmationReturnFocus instanceof HTMLElement
+    && confirmationReturnFocus.isConnected
+  ) {
+    try {
+      confirmationReturnFocus.focus({preventScroll: true});
+    } catch {
+      confirmationReturnFocus.focus();
+    }
+  }
+  confirmationReturnFocus = null;
+  if (resolve) {
+    resolve(Boolean(confirmed));
+  }
   return true;
 }
 

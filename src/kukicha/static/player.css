@@ -625,6 +625,7 @@ button:disabled,
   justify-content: flex-start;
 }
 
+.confirmation-dialog,
 .keyboard-shortcuts-dialog {
   position: fixed;
   inset: 0;
@@ -635,10 +636,12 @@ button:disabled,
   background: rgba(0, 0, 0, 0.34);
 }
 
+.confirmation-dialog[hidden],
 .keyboard-shortcuts-dialog[hidden] {
   display: none;
 }
 
+.confirmation-panel,
 .keyboard-shortcuts-panel {
   display: grid;
   gap: 14px;
@@ -653,12 +656,22 @@ button:disabled,
   padding: 16px;
 }
 
+.confirmation-header,
 .keyboard-shortcuts-header {
   display: block;
 }
 
+.confirmation-message {
+  margin: 0;
+  color: var(--text);
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.confirmation-actions,
 .keyboard-shortcuts-actions {
   display: flex;
+  gap: 8px;
   justify-content: flex-end;
 }
 
@@ -1260,18 +1273,25 @@ button:disabled,
   gap: 10px;
 }
 
-.cache-stat-grid {
+.cache-action-list {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(160px, 100%), 1fr));
   gap: 10px;
 }
 
-.cache-stat-card {
+.cache-action-card {
   display: grid;
-  gap: 4px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
   border: 1px solid var(--line);
   background: var(--bg);
   padding: 14px;
+}
+
+.cache-stat-copy {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
 }
 
 .cache-stat-count {
@@ -1284,6 +1304,10 @@ button:disabled,
   color: var(--muted);
   font-size: 0.9rem;
   line-height: 1.25;
+}
+
+.cache-clear-button {
+  white-space: nowrap;
 }
 
 .settings-link {

@@ -272,6 +272,8 @@ class AlbumMusicBrainzOverride:
 
 @dataclass(frozen=True, slots=True)
 class CacheStat:
+    key: str
+    section: str
     label: str
     count: int
 
