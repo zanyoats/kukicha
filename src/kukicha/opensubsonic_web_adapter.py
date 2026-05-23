@@ -877,7 +877,7 @@ def song_payload(track: Any) -> dict[str, object]:
             "created": None,
             "duration": int(track.duration_seconds) if track.duration_seconds else None,
             "bitRate": bit_rate_kbps(track.bitrate),
-            "size": file_size(path),
+            "size": track_file_size(track, path),
             "suffix": audio_suffix(track.file_type, path),
             "contentType": audio_mime_type(path),
             "path": track.path,
@@ -1108,6 +1108,13 @@ def bit_rate_kbps(value: int | None) -> int | None:
     if value >= 1000:
         return int(value / 1000)
     return value
+
+
+def track_file_size(track: Any, path: Path) -> int | None:
+    stored_size = getattr(track, "file_size_bytes", None)
+    if isinstance(stored_size, int) and stored_size > 0:
+        return stored_size
+    return file_size(path)
 
 
 def file_size(path: Path) -> int | None:

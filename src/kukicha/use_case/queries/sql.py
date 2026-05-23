@@ -8,6 +8,7 @@ TRACK_COLUMNS = """
     album_id,
     root_position,
     path,
+    file_size_bytes,
     file_type,
     scan_error,
     artist,

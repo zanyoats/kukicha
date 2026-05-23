@@ -1286,6 +1286,11 @@ class LibraryQueries:
                         else None
                     ),
                     path=str(row["path"]),
+                    file_size_bytes=(
+                        int(row["file_size_bytes"])
+                        if row["file_size_bytes"] is not None
+                        else None
+                    ),
                     file_type=row["file_type"],
                     scan_error=row["scan_error"],
                     artist=row["artist"],

@@ -635,6 +635,49 @@ class OpenSubsonicWebAdapterTest(unittest.TestCase):
         self.assertEqual(song["size"], 10)
         self.assertEqual(second.track_id, 2)
 
+    def test_get_album_uses_stored_song_size_when_path_is_not_local(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            root = temp_path / "music"
+            path = root / "Artist" / "Stored Size Album" / "01.flac"
+            save_library(
+                MusicLibrary(
+                    roots=[str(root)],
+                    tracks=[
+                        TrackRecord(
+                            path=str(path),
+                            root_position=0,
+                            file_size_bytes=12345,
+                            file_type="flac",
+                            artist="Artist",
+                            album_artist="Artist",
+                            album="Stored Size Album",
+                            title="Stored Size Track",
+                            track_number="1",
+                        )
+                    ],
+                    supported_extensions=[".flac"],
+                    generated_at="2026-05-07T00:00:00+00:00",
+                ),
+                temp_path / "kukicha.sqlite",
+            )
+            app = create_player_app(self.make_options(temp_path))
+
+            response = app.test_client().get(
+                "/rest/getAlbum.view",
+                query_string={
+                    "u": "guest",
+                    "p": "guest",
+                    "v": "1.13.0",
+                    "c": "Amperfy",
+                    "id": "artist::stored-size-album",
+                },
+            )
+
+        self.assertEqual(response.content_type, "text/xml; charset=utf-8")
+        self.assertIn(b"<song ", response.data)
+        self.assertIn(b'size="12345"', response.data)
+
     def test_get_genres_returns_album_genre_counts(self) -> None:
         with TemporaryDirectory() as tempdir:
             temp_path = Path(tempdir)

@@ -105,6 +105,7 @@ class PlaylistTrack:
     track_id: int | None = None
     album_id: str | None = None
     root_position: int | None = None
+    file_size_bytes: int | None = None
     file_type: str | None = None
     scan_error: str | None = None
     artist: str | None = None
