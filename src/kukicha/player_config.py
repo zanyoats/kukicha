@@ -58,7 +58,7 @@ PLAYER_CONFIG_KEY_ORDER = (
     "remote_roots",
     "remote_workers",
     "ffmpeg_path",
-    "youtube_download_path",
+    "youtube_download_root",
     "prefer_musicbrainz_english_aliases",
     "host",
     "port",
@@ -128,7 +128,7 @@ class PlayerServerOptions:
     appearance: str = DEFAULT_APPEARANCE
     toast_timeout_ms: int = DEFAULT_TOAST_TIMEOUT_MS
     album_artist_split_patterns: tuple[str, ...] = DEFAULT_ALBUM_ARTIST_SPLIT_PATTERNS
-    youtube_download_path: Path | None = None
+    youtube_download_root: str | None = None
     prefer_musicbrainz_english_aliases: bool = DEFAULT_PREFER_MUSICBRAINZ_ENGLISH_ALIASES
     auth: PlayerAuthOptions | None = None
     opensubsonic: OpenSubsonicOptions | None = None
@@ -318,10 +318,9 @@ def load_player_options(
         key="ffmpeg_path",
         base_dir=config_dir,
     )
-    youtube_download_path = parse_optional_config_path(
-        config.get("youtube_download_path", ""),
-        key="youtube_download_path",
-        base_dir=config_dir,
+    youtube_download_root = parse_optional_config_string(
+        config.get("youtube_download_root", ""),
+        key="youtube_download_root",
     )
     roots = parse_config_path_list(
         config.get("roots", ()),
@@ -376,7 +375,7 @@ def load_player_options(
         remote_roots=remote_roots,
         remote_workers=remote_workers,
         ffmpeg_path=ffmpeg_path,
-        youtube_download_path=youtube_download_path,
+        youtube_download_root=youtube_download_root,
         host=host,
         port=port,
         trusted_proxy_headers=trusted_proxy_headers,
@@ -473,9 +472,7 @@ def player_config_values(
         "remote_roots": format_player_config_remote_roots(options.remote_roots),
         "remote_workers": format_player_config_optional_int(options.remote_workers),
         "ffmpeg_path": format_player_config_optional_path(options.ffmpeg_path),
-        "youtube_download_path": format_player_config_optional_path(
-            options.youtube_download_path
-        ),
+        "youtube_download_root": options.youtube_download_root or "<unset>",
         "prefer_musicbrainz_english_aliases": format_player_config_bool(
             options.prefer_musicbrainz_english_aliases
         ),
@@ -1033,6 +1030,14 @@ def parse_optional_config_path(
     if not stripped:
         return None
     return resolve_path(Path(stripped).expanduser(), base_dir=base_dir)
+
+def parse_optional_config_string(value: object, *, key: str) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise PlayerConfigError(f"{key} must be a string")
+    stripped = value.strip()
+    return stripped or None
 
 def parse_config_path_list(
     value: object,

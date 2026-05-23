@@ -1802,7 +1802,7 @@ class PlayerConfigTest(unittest.TestCase):
                         "roots = ['music-a', 'music-b']",
                         "remote_workers = 6",
                         "ffmpeg_path = 'bin/ffmpeg'",
-                        "youtube_download_path = 'youtube'",
+                        "youtube_download_root = 'music-a'",
                         "prefer_musicbrainz_english_aliases = false",
                         "host = '0.0.0.0'",
                         "port = 43210",
@@ -1831,10 +1831,7 @@ class PlayerConfigTest(unittest.TestCase):
             )
             self.assertEqual(options.remote_workers, 6)
             self.assertEqual(options.ffmpeg_path, (temp_path / "bin" / "ffmpeg").resolve())
-            self.assertEqual(
-                options.youtube_download_path,
-                (temp_path / "youtube").resolve(),
-            )
+            self.assertEqual(options.youtube_download_root, "music-a")
             self.assertFalse(options.prefer_musicbrainz_english_aliases)
             self.assertEqual(options.host, "0.0.0.0")
             self.assertEqual(options.port, 43210)
@@ -2097,7 +2094,7 @@ class PlayerConfigTest(unittest.TestCase):
             self.assertEqual(options.config_path, config_path.resolve())
             self.assertEqual(options.database, (config_home / "kukicha" / "kukicha.sqlite").resolve())
             self.assertIsNone(options.ffmpeg_path)
-            self.assertIsNone(options.youtube_download_path)
+            self.assertIsNone(options.youtube_download_root)
             self.assertEqual(
                 options.prefer_musicbrainz_english_aliases,
                 DEFAULT_PREFER_MUSICBRAINZ_ENGLISH_ALIASES,
@@ -2306,6 +2303,7 @@ class PlayerConfigTest(unittest.TestCase):
             config_path = Path(tempdir) / "kukicha.toml"
             for text in (
                 "Bogus = 'value'\n",
+                "youtube_download_path = 'youtube'\n",
                 "linked_toast_timeout_ms = 25000\n",
                 "LogLevel = 'INFO'\n",
                 "OpenSubsonicUsername = 'guest'\n",
@@ -2331,7 +2329,7 @@ class PlayerConfigTest(unittest.TestCase):
             self.assertNotIn("Current values:", help_text)
             self.assertIn(
                 "Supported keys:\n  log_level\n  database_path\n  roots\n  remote_roots\n  remote_workers\n  ffmpeg_path\n"
-                "  youtube_download_path\n  prefer_musicbrainz_english_aliases\n  host\n  port\n"
+                "  youtube_download_root\n  prefer_musicbrainz_english_aliases\n  host\n  port\n"
                 "  trusted_proxy_headers\n  appearance\n  accent_color\n  toast_timeout_ms\n"
                 "  album_artist_split_patterns\n  auth.username\n  auth.password_hash_file\n"
                 "  auth.cookie_max_age\n  auth.cookie_name\n"
@@ -2555,6 +2553,7 @@ class InitCommandTest(unittest.TestCase):
                         "host = '0.0.0.0'",
                         "port = 4533",
                         "roots = ['/music']",
+                        "youtube_download_root = '/music'",
                         "appearance = 'dim'",
                         "",
                     )
@@ -2564,6 +2563,7 @@ class InitCommandTest(unittest.TestCase):
             self.assertEqual(exit_code, 0)
             config = tomllib.loads(config_path.read_text(encoding="utf-8"))
             self.assertEqual(config["host"], "0.0.0.0")
+            self.assertEqual(config["youtube_download_root"], "/music")
             self.assertEqual(config["auth"]["username"], "listener")
             self.assertEqual(
                 config["auth"]["password_hash_file"],
@@ -2599,6 +2599,17 @@ class InitCommandTest(unittest.TestCase):
         with TemporaryDirectory() as tempdir:
             config_path = Path(tempdir) / "kukicha.toml"
             exit_code = self.run_init(config_path, stdin="[auth]\nusername = 'bad'\n")
+
+            self.assertEqual(exit_code, 1)
+            self.assertFalse(config_path.exists())
+
+    def test_init_rejects_old_youtube_download_path_config(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            config_path = Path(tempdir) / "kukicha.toml"
+            exit_code = self.run_init(
+                config_path,
+                stdin="youtube_download_path = 'youtube'\n",
+            )
 
             self.assertEqual(exit_code, 1)
             self.assertFalse(config_path.exists())

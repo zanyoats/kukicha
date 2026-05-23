@@ -18,7 +18,7 @@ from kukicha.commands.tools import (
     run_bulk_tag_edit,
     run_copy_to_remote,
 )
-from kukicha.library_sources import RemoteRootConfig
+from kukicha.library_sources import RemoteRootConfig, canonical_s3_path
 from kukicha.commands.youtube_audio import (
     YoutubeAudioDownloadResult,
     YoutubeAudioTools,
@@ -26,10 +26,12 @@ from kukicha.commands.youtube_audio import (
     download_playlist_audio_items,
     download_youtube_audio,
     parse_chapters_file,
+    require_youtube_download_destination,
     resolve_youtube_audio_tools,
     run_youtube_download_audio,
 )
 from kukicha.player_config import PlayerServerOptions
+from kukicha.player_errors import PlayerConfigError
 
 
 class BulkTagEditCommandTest(unittest.TestCase):
@@ -804,7 +806,7 @@ class YoutubeAudioDownloadCommandTest(unittest.TestCase):
             with self.assertRaisesRegex(FileNotFoundError, "chapters file not found"):
                 parse_chapters_file(missing_path)
 
-    def test_run_youtube_audio_download_requires_configured_path(self) -> None:
+    def test_run_youtube_audio_download_requires_configured_root(self) -> None:
         with TemporaryDirectory() as tempdir:
             config_path = Path(tempdir) / "kukicha.toml"
             config_path.write_text("log_level = 'INFO'\n", encoding="utf-8")
@@ -823,14 +825,14 @@ class YoutubeAudioDownloadCommandTest(unittest.TestCase):
                 exit_code = args.func(args)
 
         self.assertEqual(exit_code, 1)
-        self.assertIn("youtube_download_path must be set", stderr.getvalue())
+        self.assertIn("youtube_download_root must be set", stderr.getvalue())
 
     def test_run_youtube_audio_download_loads_config_without_auth(self) -> None:
         with TemporaryDirectory() as tempdir:
             temp_path = Path(tempdir)
             config_path = temp_path / "kukicha.toml"
             config_path.write_text(
-                "youtube_download_path = 'youtube'\n",
+                "roots = ['music']\nyoutube_download_root = 'music'\n",
                 encoding="utf-8",
             )
             args = build_parser().parse_args(
@@ -857,12 +859,9 @@ class YoutubeAudioDownloadCommandTest(unittest.TestCase):
                 self.assertFalse(verbose)
                 self.assertEqual(chapters_file, temp_path / "chapters.txt")
                 self.assertIsNone(options.auth)
-                self.assertEqual(
-                    options.youtube_download_path,
-                    (temp_path / "youtube").resolve(),
-                )
+                self.assertEqual(options.youtube_download_root, "music")
                 return YoutubeAudioDownloadResult(
-                    output_dir=temp_path / "youtube" / "Album [abc123]",
+                    output_dir=temp_path / "music" / ".kukicha" / "yt" / "Album [abc123]",
                     files_written=0,
                     media_id="abc123",
                     title="Album",
@@ -885,6 +884,35 @@ class YoutubeAudioDownloadCommandTest(unittest.TestCase):
         self.assertEqual(exit_code, 0)
         self.assertIn("Done. Final audio files written to:", stdout.getvalue())
         self.assertEqual(stderr.getvalue(), "")
+
+    def test_youtube_audio_destination_requires_configured_local_root(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            options = self.make_options(
+                temp_path,
+                roots=(temp_path / "music",),
+                youtube_download_root=str(temp_path / "other"),
+            )
+
+            with self.assertRaisesRegex(PlayerConfigError, "must match"):
+                require_youtube_download_destination(options)
+
+    def test_youtube_audio_destination_rejects_ambiguous_local_and_remote_root(
+        self,
+    ) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            options = self.make_options(
+                temp_path,
+                roots=((temp_path / "music"),),
+                remote_roots=(
+                    RemoteRootConfig("music", "https://s3.example.test", "bucket"),
+                ),
+                youtube_download_root="music",
+            )
+
+            with self.assertRaisesRegex(PlayerConfigError, "ambiguous"):
+                require_youtube_download_destination(options)
 
     def test_resolve_youtube_audio_tools_checks_required_programs(self) -> None:
         with TemporaryDirectory() as tempdir:
@@ -930,8 +958,9 @@ class YoutubeAudioDownloadCommandTest(unittest.TestCase):
     def test_download_youtube_audio_video_uses_config_path_and_cleans_temp(self) -> None:
         with TemporaryDirectory() as tempdir:
             temp_path = Path(tempdir)
-            download_path = temp_path / "youtube"
-            options = self.make_options(temp_path, youtube_download_path=download_path)
+            download_root = (temp_path / "music").resolve(strict=False)
+            download_path = download_root / ".kukicha" / "yt"
+            options = self.make_options(temp_path, roots=(download_root,))
             tools = YoutubeAudioTools(
                 ffmpeg="/usr/local/bin/ffmpeg",
                 ffprobe="/usr/local/bin/ffprobe",
@@ -1015,13 +1044,144 @@ class YoutubeAudioDownloadCommandTest(unittest.TestCase):
             self.assertTrue((result.output_dir / "002 - Two.opus").exists())
             self.assertIn(f"Final output directory: {result.output_dir}", messages)
 
+    def test_download_youtube_audio_video_uploads_to_remote_root(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            remote = RemoteRootConfig(
+                name="archive",
+                endpoint_url="https://s3.example.test",
+                bucket="bucket",
+                prefix="tracks/",
+            )
+            options = self.make_options(
+                temp_path,
+                remote_roots=(remote,),
+                remote_workers=2,
+                youtube_download_root="archive",
+            )
+            tools = YoutubeAudioTools(
+                ffmpeg="/usr/local/bin/ffmpeg",
+                ffprobe="/usr/local/bin/ffprobe",
+                deno="/usr/local/bin/deno",
+            )
+            client = FakeS3Client()
+            captured: dict[str, object] = {}
+            messages: list[str] = []
+
+            def fake_download(
+                _url: str,
+                *,
+                stage_root: Path,
+                temp_dir: Path,
+                tools: YoutubeAudioTools,
+                verbose: bool,
+                manual_chapters: object = None,
+            ) -> None:
+                captured["stage_root"] = stage_root
+                captured["temp_dir"] = temp_dir
+                (stage_root / "chapters").mkdir(parents=True)
+
+            def fake_find(stage_root: Path, *, tools: YoutubeAudioTools) -> list[Path]:
+                return [
+                    stage_root / "chapters" / "001 - One.webm",
+                    stage_root / "chapters" / "002 - Two.webm",
+                ]
+
+            def fake_copy(
+                _input_path: Path,
+                output_path: Path,
+                *,
+                tools: YoutubeAudioTools,
+            ) -> None:
+                output_path.write_bytes(output_path.name.encode("utf-8"))
+
+            def fake_client_factory(
+                created_remote: RemoteRootConfig,
+                *,
+                remote_workers: int | None = None,
+            ) -> FakeS3Client:
+                captured["remote"] = created_remote
+                captured["remote_workers"] = remote_workers
+                return client
+
+            with (
+                patch(
+                    "kukicha.commands.youtube_audio.resolve_youtube_audio_tools",
+                    return_value=tools,
+                ),
+                patch(
+                    "kukicha.commands.youtube_audio.extract_youtube_info",
+                    return_value={
+                        "id": "abc123",
+                        "title": "Album: Title",
+                        "chapters": [{"title": "One"}, {"title": "Two"}],
+                    },
+                ),
+                patch(
+                    "kukicha.commands.youtube_audio.download_and_split_chapters",
+                    side_effect=fake_download,
+                ),
+                patch(
+                    "kukicha.commands.youtube_audio.find_stage_chapter_files",
+                    side_effect=fake_find,
+                ),
+                patch("kukicha.commands.youtube_audio.audio_codec", return_value="opus"),
+                patch(
+                    "kukicha.commands.youtube_audio.copy_audio_without_transcoding",
+                    side_effect=fake_copy,
+                ),
+                patch("kukicha.commands.youtube_audio.assert_audio_only"),
+                patch(
+                    "kukicha.commands.youtube_audio.create_s3_client_for_workers",
+                    side_effect=fake_client_factory,
+                ),
+            ):
+                result = download_youtube_audio(
+                    "https://www.youtube.com/watch?v=abc123",
+                    options=options,
+                    status=messages.append,
+                )
+
+            temp_root = captured["stage_root"].parent
+            self.assertFalse(temp_root.exists())
+            self.assertEqual(captured["remote"], remote)
+            self.assertEqual(captured["remote_workers"], 2)
+            self.assertEqual(
+                result.output_dir,
+                canonical_s3_path(
+                    remote,
+                    "tracks/.kukicha/yt/Album_ Title [abc123]",
+                ),
+            )
+            puts_by_key = {str(item["Key"]): item for item in client.puts}
+            self.assertEqual(
+                sorted(puts_by_key),
+                [
+                    "tracks/.kukicha/yt/Album_ Title [abc123]/001 - One.opus",
+                    "tracks/.kukicha/yt/Album_ Title [abc123]/002 - Two.opus",
+                ],
+            )
+            self.assertEqual(
+                puts_by_key[
+                    "tracks/.kukicha/yt/Album_ Title [abc123]/001 - One.opus"
+                ]["Body"],
+                b"001 - One.opus",
+            )
+            self.assertTrue(
+                any(
+                    message.startswith("Uploading finalized audio to archive")
+                    for message in messages
+                )
+            )
+
     def test_download_youtube_audio_video_uses_manual_chapters_without_yt_dlp_chapters(
         self,
     ) -> None:
         with TemporaryDirectory() as tempdir:
             temp_path = Path(tempdir)
-            download_path = temp_path / "youtube"
-            options = self.make_options(temp_path, youtube_download_path=download_path)
+            download_root = (temp_path / "music").resolve(strict=False)
+            download_path = download_root / ".kukicha" / "yt"
+            options = self.make_options(temp_path, roots=(download_root,))
             tools = YoutubeAudioTools(
                 ffmpeg="/usr/local/bin/ffmpeg",
                 ffprobe="/usr/local/bin/ffprobe",
@@ -1108,8 +1268,9 @@ class YoutubeAudioDownloadCommandTest(unittest.TestCase):
     ) -> None:
         with TemporaryDirectory() as tempdir:
             temp_path = Path(tempdir)
-            download_path = temp_path / "youtube"
-            options = self.make_options(temp_path, youtube_download_path=download_path)
+            download_root = (temp_path / "music").resolve(strict=False)
+            download_path = download_root / ".kukicha" / "yt"
+            options = self.make_options(temp_path, roots=(download_root,))
             tools = YoutubeAudioTools(
                 ffmpeg="/usr/local/bin/ffmpeg",
                 ffprobe="/usr/local/bin/ffprobe",
@@ -1196,8 +1357,9 @@ class YoutubeAudioDownloadCommandTest(unittest.TestCase):
     ) -> None:
         with TemporaryDirectory() as tempdir:
             temp_path = Path(tempdir)
-            download_path = temp_path / "youtube"
-            options = self.make_options(temp_path, youtube_download_path=download_path)
+            download_root = (temp_path / "music").resolve(strict=False)
+            download_path = download_root / ".kukicha" / "yt"
+            options = self.make_options(temp_path, roots=(download_root,))
             tools = YoutubeAudioTools(
                 ffmpeg="/usr/local/bin/ffmpeg",
                 ffprobe="/usr/local/bin/ffprobe",
@@ -1506,13 +1668,23 @@ class YoutubeAudioDownloadCommandTest(unittest.TestCase):
         self,
         temp_path: Path,
         *,
-        youtube_download_path: Path | None = None,
+        roots: tuple[Path, ...] | None = None,
+        remote_roots: tuple[RemoteRootConfig, ...] = (),
+        remote_workers: int | None = None,
+        youtube_download_root: str | None = None,
     ) -> PlayerServerOptions:
+        local_root = temp_path / "music"
+        resolved_roots = tuple(
+            root.expanduser().resolve(strict=False) for root in (roots or (local_root,))
+        )
         return PlayerServerOptions(
             config_path=temp_path / "kukicha.toml",
             database=temp_path / "kukicha.sqlite",
             ffmpeg_path=None,
-            youtube_download_path=youtube_download_path or (temp_path / "youtube"),
+            roots=resolved_roots,
+            remote_roots=remote_roots,
+            remote_workers=remote_workers,
+            youtube_download_root=youtube_download_root or str(local_root),
         )
 
 

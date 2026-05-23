@@ -9,6 +9,7 @@ import subprocess
 import sys
 import tempfile
 from collections.abc import Callable, Sequence
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -17,8 +18,16 @@ import yt_dlp
 from yt_dlp.postprocessor.common import PostProcessor
 from yt_dlp.utils import DownloadError
 
-from ..player_config import PlayerServerOptions, load_player_options
+from ..library_sources import (
+    RemoteRootConfig,
+    canonical_s3_path,
+    create_s3_client_for_workers,
+    remote_root_display_label,
+    resolve_remote_worker_count,
+)
+from ..player_config import PlayerServerOptions, load_player_options, resolve_path
 from ..player_errors import PlayerConfigError
+from .tools import remote_worker_source, upload_file_to_remote
 
 
 STRICT_AUDIO_FORMAT = "bestaudio[vcodec=none][acodec!=none]"
@@ -40,13 +49,21 @@ class YoutubeAudioTools:
 
 @dataclass(frozen=True, slots=True)
 class YoutubeAudioDownloadResult:
-    output_dir: Path
+    output_dir: Path | str
     files_written: int
     media_id: str
     title: str
     mode: str
     chapters_reported: int
     items_reported: int | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class YoutubeAudioDestination:
+    kind: str
+    local_base: Path | None = None
+    remote: RemoteRootConfig | None = None
+    remote_workers: int | None = None
 
 
 class ManualChaptersPP(PostProcessor):
@@ -165,9 +182,9 @@ def download_youtube_audio(
     if chapters_file is not None and manual_chapters is not None:
         raise ValueError("chapters_file and manual_chapters cannot both be provided")
 
-    output_base = require_youtube_download_path(options)
+    destination = require_youtube_download_destination(options)
     tools = resolve_youtube_audio_tools(options)
-    prepare_youtube_download_path(output_base)
+    prepare_youtube_download_destination(destination)
 
     info = extract_youtube_info(
         url,
@@ -180,7 +197,7 @@ def download_youtube_audio(
         return download_youtube_playlist_audio(
             url,
             info=info,
-            output_base=output_base,
+            destination=destination,
             tools=tools,
             verbose=verbose,
             status=status,
@@ -194,7 +211,7 @@ def download_youtube_audio(
     return download_youtube_video_audio_chapters(
         url,
         info=info,
-        output_base=output_base,
+        destination=destination,
         tools=tools,
         verbose=verbose,
         manual_chapters=chapters,
@@ -206,7 +223,7 @@ def download_youtube_video_audio_chapters(
     url: str,
     *,
     info: dict[str, Any],
-    output_base: Path,
+    destination: YoutubeAudioDestination,
     tools: YoutubeAudioTools,
     verbose: bool,
     manual_chapters: Sequence[dict[str, Any]] | None = None,
@@ -224,15 +241,17 @@ def download_youtube_video_audio_chapters(
     if not chapters:
         raise RuntimeError("yt-dlp did not report any chapters for this video")
 
-    final_album_dir = output_base / safe_path_component(
+    media_dir_name = safe_path_component(
         f"{title} [{video_id}]",
         fallback=video_id,
     )
+    final_album_dir = youtube_destination_output_dir(destination, media_dir_name)
 
     with tempfile.TemporaryDirectory(prefix="kukicha-youtube-audio-") as tempdir:
         temp_root = Path(tempdir)
         stage_root = temp_root / "stage"
         ytdlp_temp_dir = temp_root / "yt-dlp"
+        final_root = temp_root / "final"
 
         emit = status or (lambda _message: None)
         emit(f"Video: {title} [{video_id}]")
@@ -260,16 +279,18 @@ def download_youtube_video_audio_chapters(
                 f"but found {len(chapter_files)} staged audio file(s)"
             )
 
-        copy_stage_audio_files(
+        files_written = publish_stage_audio_files(
             chapter_files,
-            output_dir=final_album_dir,
+            destination=destination,
+            media_dir_name=media_dir_name,
+            final_root=final_root,
             tools=tools,
             status=emit,
         )
 
     return YoutubeAudioDownloadResult(
         output_dir=final_album_dir,
-        files_written=len(chapter_files),
+        files_written=files_written,
         media_id=video_id,
         title=title,
         mode="video",
@@ -281,7 +302,7 @@ def download_youtube_playlist_audio(
     url: str,
     *,
     info: dict[str, Any],
-    output_base: Path,
+    destination: YoutubeAudioDestination,
     tools: YoutubeAudioTools,
     verbose: bool,
     status: Callable[[str], None] | None = None,
@@ -292,15 +313,17 @@ def download_youtube_playlist_audio(
     if item_count == 0:
         raise RuntimeError("yt-dlp did not report any items for this playlist")
 
-    final_playlist_dir = output_base / safe_path_component(
+    media_dir_name = safe_path_component(
         f"{title} [{playlist_id}]",
         fallback=playlist_id,
     )
+    final_playlist_dir = youtube_destination_output_dir(destination, media_dir_name)
 
     with tempfile.TemporaryDirectory(prefix="kukicha-youtube-audio-") as tempdir:
         temp_root = Path(tempdir)
         stage_root = temp_root / "stage"
         ytdlp_temp_dir = temp_root / "yt-dlp"
+        final_root = temp_root / "final"
 
         emit = status or (lambda _message: None)
         emit(f"Playlist: {title} [{playlist_id}]")
@@ -328,16 +351,18 @@ def download_youtube_playlist_audio(
         if not item_files:
             raise RuntimeError("yt-dlp did not stage any playlist audio files")
 
-        copy_stage_audio_files(
+        files_written = publish_stage_audio_files(
             item_files,
-            output_dir=final_playlist_dir,
+            destination=destination,
+            media_dir_name=media_dir_name,
+            final_root=final_root,
             tools=tools,
             status=emit,
         )
 
     return YoutubeAudioDownloadResult(
         output_dir=final_playlist_dir,
-        files_written=len(item_files),
+        files_written=files_written,
         media_id=playlist_id,
         title=title,
         mode="playlist",
@@ -450,16 +475,83 @@ def parse_chapter_timestamp(value: str) -> float | int:
     return total
 
 
-def require_youtube_download_path(options: PlayerServerOptions) -> Path:
-    if options.youtube_download_path is None:
-        raise PlayerConfigError("youtube_download_path must be set in the config file")
-    return options.youtube_download_path
+def require_youtube_download_destination(
+    options: PlayerServerOptions,
+) -> YoutubeAudioDestination:
+    root_value = options.youtube_download_root
+    if root_value is None:
+        raise PlayerConfigError("youtube_download_root must be set in the config file")
+
+    remote_matches = [
+        remote for remote in options.remote_roots if remote.name == root_value
+    ]
+    if len(remote_matches) > 1:
+        raise PlayerConfigError(
+            f"youtube_download_root remote root name is ambiguous: {root_value}"
+        )
+
+    local_path = resolve_path(
+        Path(root_value).expanduser(),
+        base_dir=options.config_path.parent,
+    )
+    local_matches = [root for root in options.roots if root == local_path]
+
+    if remote_matches and local_matches:
+        raise PlayerConfigError(
+            "youtube_download_root is ambiguous; it matches both a remote root "
+            f"name and a local root: {root_value}"
+        )
+    if remote_matches:
+        return YoutubeAudioDestination(
+            kind="remote",
+            remote=remote_matches[0],
+            remote_workers=options.remote_workers,
+        )
+    if local_matches:
+        return YoutubeAudioDestination(
+            kind="local",
+            local_base=local_matches[0] / ".kukicha" / "yt",
+        )
+
+    raise PlayerConfigError(
+        "youtube_download_root must match a configured local root path or remote "
+        f"root name: {root_value}"
+    )
 
 
-def prepare_youtube_download_path(path: Path) -> None:
-    if path.exists() and not path.is_dir():
-        raise NotADirectoryError(f"youtube_download_path is not a directory: {path}")
-    path.mkdir(parents=True, exist_ok=True)
+def prepare_youtube_download_destination(destination: YoutubeAudioDestination) -> None:
+    if destination.kind != "local":
+        return
+    if destination.local_base is None:
+        raise RuntimeError("local YouTube download destination is missing a path")
+    if destination.local_base.exists() and not destination.local_base.is_dir():
+        raise NotADirectoryError(
+            f"youtube_download_root destination is not a directory: {destination.local_base}"
+        )
+    destination.local_base.mkdir(parents=True, exist_ok=True)
+
+
+def youtube_destination_output_dir(
+    destination: YoutubeAudioDestination,
+    media_dir_name: str,
+) -> Path | str:
+    if destination.kind == "local":
+        if destination.local_base is None:
+            raise RuntimeError("local YouTube download destination is missing a path")
+        return destination.local_base / media_dir_name
+    if destination.remote is None:
+        raise RuntimeError("remote YouTube download destination is missing a root")
+    return canonical_s3_path(
+        destination.remote,
+        f"{remote_youtube_download_prefix(destination.remote)}{media_dir_name}",
+    )
+
+
+def remote_youtube_download_prefix(remote: RemoteRootConfig) -> str:
+    prefix = remote.prefix
+    if prefix and not prefix.endswith("/"):
+        prefix += "/"
+    return f"{prefix}.kukicha/yt/"
 
 
 def resolve_youtube_audio_tools(options: PlayerServerOptions) -> YoutubeAudioTools:
@@ -651,8 +743,9 @@ def copy_stage_audio_files(
     output_dir: Path,
     tools: YoutubeAudioTools,
     status: Callable[[str], None],
-) -> None:
+) -> list[Path]:
     output_dir.mkdir(parents=True, exist_ok=True)
+    output_paths: list[Path] = []
     for input_path in input_files:
         in_codec = audio_codec(input_path, tools=tools)
         ext = extension_for_codec(in_codec)
@@ -673,6 +766,127 @@ def copy_stage_audio_files(
             )
 
         assert_audio_only(final_path, tools=tools)
+        output_paths.append(final_path)
+
+    return output_paths
+
+
+def publish_stage_audio_files(
+    input_files: Sequence[Path],
+    *,
+    destination: YoutubeAudioDestination,
+    media_dir_name: str,
+    final_root: Path,
+    tools: YoutubeAudioTools,
+    status: Callable[[str], None],
+) -> int:
+    final_media_dir = final_root / media_dir_name
+    final_files = copy_stage_audio_files(
+        input_files,
+        output_dir=final_media_dir,
+        tools=tools,
+        status=status,
+    )
+    publish_final_audio_files(
+        final_files,
+        source_dir=final_media_dir,
+        destination=destination,
+        media_dir_name=media_dir_name,
+        status=status,
+    )
+    return len(final_files)
+
+
+def publish_final_audio_files(
+    files: Sequence[Path],
+    *,
+    source_dir: Path,
+    destination: YoutubeAudioDestination,
+    media_dir_name: str,
+    status: Callable[[str], None],
+) -> None:
+    if destination.kind == "local":
+        publish_final_audio_files_local(
+            files,
+            source_dir=source_dir,
+            destination=destination,
+            media_dir_name=media_dir_name,
+            status=status,
+        )
+        return
+
+    publish_final_audio_files_remote(
+        files,
+        source_dir=source_dir,
+        destination=destination,
+        media_dir_name=media_dir_name,
+        status=status,
+    )
+
+
+def publish_final_audio_files_local(
+    files: Sequence[Path],
+    *,
+    source_dir: Path,
+    destination: YoutubeAudioDestination,
+    media_dir_name: str,
+    status: Callable[[str], None],
+) -> None:
+    if destination.local_base is None:
+        raise RuntimeError("local YouTube download destination is missing a path")
+    output_dir = destination.local_base / media_dir_name
+    output_dir.mkdir(parents=True, exist_ok=True)
+    for path in files:
+        relative_path = path.relative_to(source_dir)
+        output_path = output_dir / relative_path
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        status(f"Publishing audio file: {relative_path.as_posix()}")
+        shutil.copy2(path, output_path)
+
+
+def publish_final_audio_files_remote(
+    files: Sequence[Path],
+    *,
+    source_dir: Path,
+    destination: YoutubeAudioDestination,
+    media_dir_name: str,
+    status: Callable[[str], None],
+) -> None:
+    if destination.remote is None:
+        raise RuntimeError("remote YouTube download destination is missing a root")
+
+    remote = destination.remote
+    worker_count = resolve_remote_worker_count(destination.remote_workers)
+    client = create_s3_client_for_workers(remote, remote_workers=worker_count)
+    status(
+        "Uploading finalized audio to "
+        f"{remote_root_display_label(remote)} with {worker_count} remote worker(s) "
+        f"({remote_worker_source(None, destination.remote_workers)})"
+    )
+    tasks = [
+        (
+            path,
+            path.relative_to(source_dir),
+            (
+                f"{remote_youtube_download_prefix(remote)}"
+                f"{media_dir_name}/{path.relative_to(source_dir).as_posix()}"
+            ),
+        )
+        for path in files
+    ]
+
+    with ThreadPoolExecutor(max_workers=worker_count) as executor:
+        futures = {
+            executor.submit(upload_file_to_remote, client, remote, path, object_key): (
+                relative_path,
+                object_key,
+            )
+            for path, relative_path, object_key in tasks
+        }
+        for future in as_completed(futures):
+            relative_path, object_key = futures[future]
+            future.result()
+            status(f"Uploaded audio file: {relative_path.as_posix()} -> {object_key}")
 
 
 def youtube_ejs_opts(tools: YoutubeAudioTools) -> dict[str, Any]:

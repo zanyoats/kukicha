@@ -85,7 +85,7 @@ Example config after initialization:
 ```toml
 log_level = "INFO"
 roots = ["/Users/YOUR_USERNAME/Music"]
-youtube_download_path = "/Users/YOUR_USERNAME/Music/YouTube"
+youtube_download_root = "/Users/YOUR_USERNAME/Music"
 prefer_musicbrainz_english_aliases = true
 
 [auth]
@@ -103,8 +103,8 @@ Supported keys:
 - `roots`: music library folders to scan. Relative paths are resolved from the
   config file directory. Roots can also be managed from the Roots page.
 - `ffmpeg_path`: optional path to an executable `ffmpeg`; leave empty to unset.
-- `youtube_download_path`: folder where YouTube chapter audio downloads are
-  written. Relative paths are resolved from the config file directory.
+- `youtube_download_root`: configured local root path or remote root name where
+  YouTube audio downloads are written under `.kukicha/yt`.
 - `prefer_musicbrainz_english_aliases`: when writing MusicBrainz album tags, prefer
   the first English artist alias from the MusicBrainz payload. Defaults to
   `true`.
@@ -267,10 +267,11 @@ Playlist URLs are downloaded as one audio file per playlist item. Chapters
 reported inside individual playlist items are ignored, and `--chapters-file`
 cannot be used with playlist URLs.
 
-Set `youtube_download_path` in `kukicha.toml` before running this command. The
-tool checks that `ffmpeg`, `ffprobe`, and Deno 2.0.0 or newer are available.
-yt-dlp temporary and staged files are kept in the user's OS temp folder and are
-cleaned up when the command exits.
+Set `youtube_download_root` in `kukicha.toml` before running this command. Local
+roots write under `<root>/.kukicha/yt`; remote roots upload under
+`<prefix>.kukicha/yt`. The tool checks that `ffmpeg`, `ffprobe`, and Deno 2.0.0
+or newer are available. yt-dlp temporary and staged files are kept in the user's
+OS temp folder and are cleaned up when the command exits.
 
 ## Run With launchd
 
