@@ -2463,6 +2463,21 @@ class CliPlayerCommandTest(unittest.TestCase):
 
         self.assertEqual(args.config, Path("/tmp/kukicha.toml"))
 
+    def test_root_command_accepts_version_flag(self) -> None:
+        with patch("kukicha.cli.kukicha_version", return_value="9.8.7"):
+            parser = build_parser()
+
+        for version_flag in ("-v", "--version"):
+            with self.subTest(version_flag=version_flag):
+                with (
+                    patch("sys.stdout", new=io.StringIO()) as stdout,
+                    self.assertRaises(SystemExit) as raised,
+                ):
+                    parser.parse_args([version_flag])
+
+                self.assertEqual(raised.exception.code, 0)
+                self.assertEqual(stdout.getvalue(), "kukicha 9.8.7\n")
+
     def test_player_subcommand_is_not_available(self) -> None:
         parser = build_parser()
 

@@ -14,6 +14,7 @@ from .commands.opensubsonic import (
 from .commands.player import run_player
 from .commands.tools import non_empty_string, run_bulk_tag_edit, run_copy_to_remote
 from .commands.youtube_audio import add_youtube_download_audio_parser
+from .app_metadata import kukicha_version
 from .player_config import player_config_help_text
 
 
@@ -64,6 +65,12 @@ def build_parser(argv: Sequence[str] | None = None) -> argparse.ArgumentParser:
         "--config",
         type=Path,
         help="Path to the TOML config file. Default: $XDG_CONFIG_HOME/kukicha/kukicha.toml or ~/.config/kukicha/kukicha.toml",
+    )
+    parser.add_argument(
+        "-v",
+        "--version",
+        action="version",
+        version=f"%(prog)s {kukicha_version()}",
     )
     parser.set_defaults(func=run_player)
     subparsers = parser.add_subparsers(dest="command", metavar="COMMAND")
