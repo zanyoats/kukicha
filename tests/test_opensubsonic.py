@@ -1322,6 +1322,13 @@ class OpenSubsonicWebAdapterTest(unittest.TestCase):
                     "id": "album:artist::first-album",
                 },
             )
+            raw_album_cover_response = client.get(
+                "/rest/getCoverArt.view",
+                query_string={
+                    **self.auth_params(),
+                    "id": "artist::first-album",
+                },
+            )
 
         self.assertEqual(stream_response.status_code, 206)
         self.assertEqual(stream_response.headers["Content-Range"], "bytes 1-3/10")
@@ -1339,6 +1346,9 @@ class OpenSubsonicWebAdapterTest(unittest.TestCase):
             album_cover_response.headers["Cache-Control"],
             "private, max-age=604800",
         )
+        self.assertEqual(raw_album_cover_response.status_code, 200)
+        self.assertEqual(raw_album_cover_response.content_type, "image/png")
+        self.assertEqual(raw_album_cover_response.data, b"album-cover")
 
     def test_download_returns_original_audio_as_attachment_with_range_support(self) -> None:
         with TemporaryDirectory() as tempdir:

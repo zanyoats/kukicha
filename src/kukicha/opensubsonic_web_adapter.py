@@ -889,22 +889,29 @@ def song_payload(track: Any) -> dict[str, object]:
 
 def cover_art_track_ids(database: Path, cover_id: str) -> tuple[int, ...]:
     if cover_id.startswith("album:"):
-        album = LibraryQueries(database).get_album(cover_id[len("album:") :])
-        return tuple(
-            track_id
-            for track_id in (
-                album.art_track_id,
-                *(track.track_id for track in album.tracks),
-            )
-            if track_id is not None
-        )
+        return album_cover_art_track_ids(database, cover_id[len("album:") :])
     try:
         return (int(cover_id),)
-    except ValueError as error:
-        raise OpenSubsonicApiError(
-            ERROR_NOT_FOUND,
-            "The requested data was not found.",
-        ) from error
+    except ValueError:
+        try:
+            return album_cover_art_track_ids(database, cover_id)
+        except AlbumNotFoundError as error:
+            raise OpenSubsonicApiError(
+                ERROR_NOT_FOUND,
+                "The requested data was not found.",
+            ) from error
+
+
+def album_cover_art_track_ids(database: Path, album_id: str) -> tuple[int, ...]:
+    album = LibraryQueries(database).get_album(album_id)
+    return tuple(
+        track_id
+        for track_id in (
+            album.art_track_id,
+            *(track.track_id for track in album.tracks),
+        )
+        if track_id is not None
+    )
 
 
 def parse_byte_range(header: str | None, file_size: int) -> tuple[int, int] | None:
