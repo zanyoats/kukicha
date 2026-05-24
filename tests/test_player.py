@@ -16,6 +16,7 @@ from urllib.parse import parse_qs
 from kukicha._compat import UTC, tomllib
 from kukicha.album_artists import DEFAULT_ALBUM_ARTIST_SPLIT_PATTERNS
 from kukicha.app_metadata import kukicha_version
+from kukicha.audio_types import KNOWN_AUDIO_MIME_TYPES
 from kukicha.use_case import (
     ALBUM_LIST_SORT_ALBUMS,
     ALBUM_LIST_SORT_ARTIST,
@@ -132,6 +133,7 @@ from kukicha.use_case import album_list_query_from_params
 from kukicha.player_playlists import (
     update_playlist_file_for_membership,
 )
+from kukicha.scanner import SUPPORTED_EXTENSIONS
 from kukicha.player_presenters import (
     PlaylistMenuOption,
     TrackView,
@@ -939,6 +941,29 @@ class PlayerRuntimeTest(unittest.TestCase):
 
 
 class PlayerAudioMimeTypeTest(unittest.TestCase):
+    def test_known_audio_mime_types_cover_supported_extensions(self) -> None:
+        self.assertEqual(set(KNOWN_AUDIO_MIME_TYPES), SUPPORTED_EXTENSIONS)
+
+    def test_supported_audio_extensions_use_known_mime_types(self) -> None:
+        expected = {
+            ".flac": "audio/flac",
+            ".m4a": "audio/mp4",
+            ".m4b": "audio/mp4",
+            ".m4p": "audio/mp4",
+            ".m4r": "audio/mp4",
+            ".mp3": "audio/mpeg",
+            ".oga": "audio/ogg",
+            ".ogg": "audio/ogg",
+            ".opus": "audio/ogg",
+        }
+        for extension, mime_type in expected.items():
+            with self.subTest(extension=extension):
+                self.assertEqual(audio_mime_type(Path(f"track{extension}")), mime_type)
+
+    def test_flac_uses_flac_audio_mime_type_without_platform_mimetype(self) -> None:
+        with patch("kukicha.audio_types.mimetypes.guess_type", return_value=(None, None)):
+            self.assertEqual(audio_mime_type(Path("track.flac")), "audio/flac")
+
     def test_mpeg4_audio_extensions_use_mp4_audio_mime_type(self) -> None:
         for name in ("track.m4a", "track.m4b", "track.m4p", "track.m4r"):
             with self.subTest(name=name):
@@ -7227,7 +7252,10 @@ class PlayerWebAdapterTest(unittest.TestCase):
             def head_object(self, **kwargs: object) -> dict[str, object]:
                 assert kwargs["Bucket"] == "bucket"
                 assert kwargs["Key"] == "tracks/01.flac"
-                return {"ContentLength": len(self.data), "ContentType": "audio/flac"}
+                return {
+                    "ContentLength": len(self.data),
+                    "ContentType": "application/octet-stream",
+                }
 
             def get_object(self, **kwargs: object) -> dict[str, object]:
                 assert kwargs["Bucket"] == "bucket"
@@ -8933,6 +8961,7 @@ class PlayerAlbumTagEditTest(unittest.TestCase):
 
             with (
                 patch("kukicha.use_case.commands.album_edits.create_s3_client", return_value=client),
+                patch("kukicha.audio_types.mimetypes.guess_type", return_value=(None, None)),
                 patch(
                     "kukicha.use_case.commands.album_edits.write_track_audio_tags",
                     side_effect=fake_write,

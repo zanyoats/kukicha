@@ -3,7 +3,6 @@ from __future__ import annotations
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass, fields
 import logging
-import mimetypes
 from pathlib import Path
 import sqlite3
 from tempfile import TemporaryDirectory
@@ -11,6 +10,7 @@ from time import perf_counter
 from typing import Any
 import urllib.parse
 
+from ...audio_types import audio_mime_type_for_name
 from ..queries import AlbumNotFoundError, TrackNotFoundError
 from ..database import connect_database
 from ...album_artists import (
@@ -874,12 +874,7 @@ def remote_album_edit_content_type(
     object_key: str,
 ) -> str:
     name = Path(object_key).name or Path(snapshot.path).name
-    suffix = Path(name).suffix.casefold()
-    if suffix in {".m4a", ".m4b", ".m4p", ".m4r"}:
-        return "audio/mp4"
-    if suffix in {".oga", ".opus"}:
-        return "audio/ogg"
-    return mimetypes.guess_type(name)[0] or "application/octet-stream"
+    return audio_mime_type_for_name(name)
 
 
 def edit_library_album_musicbrainz(

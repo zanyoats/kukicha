@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import mimetypes
 import os
 import shutil
 import sys
@@ -12,6 +11,7 @@ from datetime import datetime
 from pathlib import Path
 
 from .._compat import UTC
+from ..audio_types import audio_mime_type_for_name
 from ..file_metadata import file_created_at
 from ..library_sources import (
     RemoteRootConfig,
@@ -472,7 +472,7 @@ def upload_file_to_remote(
 
 
 def content_type_for_path(path: Path) -> str:
-    return mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+    return audio_mime_type_for_name(path.name)
 
 
 def local_timestamp_metadata(path: Path) -> dict[str, str]:

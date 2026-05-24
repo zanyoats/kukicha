@@ -202,9 +202,12 @@ class CopyToRemoteCommandTest(unittest.TestCase):
             notes.write_bytes(b"notes")
             client = FakeS3Client()
 
-            with patch(
-                "kukicha.commands.tools.file_created_at",
-                return_value="2026-05-16T10:00:00+00:00",
+            with (
+                patch(
+                    "kukicha.commands.tools.file_created_at",
+                    return_value="2026-05-16T10:00:00+00:00",
+                ),
+                patch("kukicha.audio_types.mimetypes.guess_type", return_value=(None, None)),
             ):
                 result = copy_to_remote(
                     album,
@@ -222,6 +225,10 @@ class CopyToRemoteCommandTest(unittest.TestCase):
             sorted(["tracks/Album/01.flac", "tracks/Album/notes.bin"]),
         )
         self.assertEqual(puts_by_key["tracks/Album/01.flac"]["Body"], b"audio")
+        self.assertEqual(
+            puts_by_key["tracks/Album/01.flac"]["ContentType"],
+            "audio/flac",
+        )
         self.assertEqual(
             puts_by_key["tracks/Album/01.flac"]["Metadata"]["local-created-at"],
             "2026-05-16T10:00:00+00:00",

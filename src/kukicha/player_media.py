@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-import mimetypes
 from pathlib import Path
 from typing import Iterable
 
+from .audio_types import audio_content_type_for_name, audio_mime_type_for_name
 from .library_sources import (
     SOURCE_KIND_LOCAL,
     SOURCE_KIND_S3,
@@ -20,14 +20,6 @@ DOWNLOAD_CHUNK_SIZE = 1024 * 512
 
 def audio_mime_type(path: Path) -> str:
     return audio_mime_type_for_name(path.name)
-
-def audio_mime_type_for_name(name: str) -> str:
-    path = Path(name)
-    if path.suffix.casefold() in {".m4a", ".m4b", ".m4p", ".m4r"}:
-        return "audio/mp4"
-    if path.suffix.casefold() in {".oga", ".opus"}:
-        return "audio/ogg"
-    return mimetypes.guess_type(path.name)[0] or "application/octet-stream"
 
 def audio_resource_head(resource: AudioResource) -> tuple[int, str]:
     if resource.kind == SOURCE_KIND_LOCAL:
@@ -53,7 +45,7 @@ def audio_resource_head(resource: AudioResource) -> tuple[int, str]:
     if file_size <= 0:
         raise FileNotFoundError(resource.path)
     content_type = str(response.get("ContentType") or resource.content_type or "")
-    return file_size, content_type or audio_mime_type_for_name(resource.name)
+    return file_size, audio_content_type_for_name(resource.name, content_type)
 
 def iter_audio_resource_bytes(
     resource: AudioResource,
