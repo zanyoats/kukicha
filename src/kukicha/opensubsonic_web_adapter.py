@@ -344,7 +344,7 @@ def handle_get_open_subsonic_extensions(
 def handle_get_music_folders(params: Mapping[str, list[str]]) -> dict[str, object]:
     folders = [
         {
-            "id": str(root.position),
+            "id": root.position,
             "name": root.label if root.kind == "s3" else music_folder_name(root.path),
         }
         for root in LibraryQueries(open_subsonic_context().database).library_roots()

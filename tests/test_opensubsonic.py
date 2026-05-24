@@ -610,7 +610,7 @@ class OpenSubsonicWebAdapterTest(unittest.TestCase):
             )
 
         folders = subsonic_payload(folders_response)["musicFolders"]["musicFolder"]
-        self.assertEqual(folders, [{"id": "0", "name": "music"}])
+        self.assertEqual(folders, [{"id": 0, "name": "music"}])
 
         album_list = subsonic_payload(album_list_response)["albumList2"]["album"]
         self.assertEqual(len(album_list), 1)
