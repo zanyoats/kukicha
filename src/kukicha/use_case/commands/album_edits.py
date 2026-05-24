@@ -10,7 +10,7 @@ from time import perf_counter
 from typing import Any
 import urllib.parse
 
-from ...audio_types import audio_mime_type_for_name
+from ...audio_types import content_type_for_name
 from ..queries import AlbumNotFoundError, TrackNotFoundError
 from ..database import connect_database
 from ...album_artists import (
@@ -819,11 +819,7 @@ def write_album_edit_audio(
         if not isinstance(response, dict):
             raise OSError(f"failed to download S3 object: {object_key}")
         metadata = s3_user_metadata(response)
-        content_type = str(
-            response.get("ContentType")
-            or snapshot.content_type
-            or remote_album_edit_content_type(snapshot, object_key)
-        )
+        content_type = remote_album_edit_content_type(snapshot, object_key)
         body = response.get("Body")
         if body is None or not hasattr(body, "read"):
             raise OSError(f"failed to download S3 object: {object_key}")
@@ -874,7 +870,10 @@ def remote_album_edit_content_type(
     object_key: str,
 ) -> str:
     name = Path(object_key).name or Path(snapshot.path).name
-    return audio_mime_type_for_name(name)
+    content_type = content_type_for_name(name)
+    if content_type != "application/octet-stream":
+        return content_type
+    return snapshot.content_type or content_type
 
 
 def edit_library_album_musicbrainz(

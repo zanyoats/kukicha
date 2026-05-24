@@ -16,7 +16,12 @@ from urllib.parse import parse_qs
 from kukicha._compat import UTC, tomllib
 from kukicha.album_artists import DEFAULT_ALBUM_ARTIST_SPLIT_PATTERNS
 from kukicha.app_metadata import kukicha_version
-from kukicha.audio_types import KNOWN_AUDIO_MIME_TYPES
+from kukicha.audio_types import (
+    KNOWN_AUDIO_MIME_TYPES,
+    KNOWN_IMAGE_MIME_TYPES,
+    audio_content_type_for_name,
+    content_type_for_name,
+)
 from kukicha.use_case import (
     ALBUM_LIST_SORT_ALBUMS,
     ALBUM_LIST_SORT_ARTIST,
@@ -133,7 +138,7 @@ from kukicha.use_case import album_list_query_from_params
 from kukicha.player_playlists import (
     update_playlist_file_for_membership,
 )
-from kukicha.scanner import SUPPORTED_EXTENSIONS
+from kukicha.scanner import ARTWORK_IMAGE_EXTENSIONS, SUPPORTED_EXTENSIONS
 from kukicha.player_presenters import (
     PlaylistMenuOption,
     TrackView,
@@ -944,6 +949,9 @@ class PlayerAudioMimeTypeTest(unittest.TestCase):
     def test_known_audio_mime_types_cover_supported_extensions(self) -> None:
         self.assertEqual(set(KNOWN_AUDIO_MIME_TYPES), SUPPORTED_EXTENSIONS)
 
+    def test_known_image_mime_types_cover_artwork_extensions(self) -> None:
+        self.assertEqual(set(KNOWN_IMAGE_MIME_TYPES), set(ARTWORK_IMAGE_EXTENSIONS))
+
     def test_supported_audio_extensions_use_known_mime_types(self) -> None:
         expected = {
             ".flac": "audio/flac",
@@ -960,9 +968,40 @@ class PlayerAudioMimeTypeTest(unittest.TestCase):
             with self.subTest(extension=extension):
                 self.assertEqual(audio_mime_type(Path(f"track{extension}")), mime_type)
 
+    def test_artwork_extensions_use_known_mime_types(self) -> None:
+        expected = {
+            ".gif": "image/gif",
+            ".jpeg": "image/jpeg",
+            ".jpg": "image/jpeg",
+            ".png": "image/png",
+            ".webp": "image/webp",
+        }
+        for extension, mime_type in expected.items():
+            with self.subTest(extension=extension):
+                self.assertEqual(content_type_for_name(f"cover{extension}"), mime_type)
+
+    def test_image_mime_types_do_not_depend_on_platform_mimetypes(self) -> None:
+        with patch("kukicha.audio_types.mimetypes.guess_type", return_value=(None, None)):
+            self.assertEqual(content_type_for_name("cover.jpg"), "image/jpeg")
+            self.assertEqual(content_type_for_name("cover.webp"), "image/webp")
+
     def test_flac_uses_flac_audio_mime_type_without_platform_mimetype(self) -> None:
         with patch("kukicha.audio_types.mimetypes.guess_type", return_value=(None, None)):
             self.assertEqual(audio_mime_type(Path("track.flac")), "audio/flac")
+
+    def test_known_extensions_canonicalize_declared_content_type(self) -> None:
+        self.assertEqual(
+            audio_content_type_for_name("track.flac", "audio/x-flac"),
+            "audio/flac",
+        )
+        self.assertEqual(
+            audio_content_type_for_name("track.m4a", "audio/mp4a-latm"),
+            "audio/mp4",
+        )
+        self.assertEqual(
+            audio_content_type_for_name("cover.jpg", "binary/octet-stream"),
+            "image/jpeg",
+        )
 
     def test_mpeg4_audio_extensions_use_mp4_audio_mime_type(self) -> None:
         for name in ("track.m4a", "track.m4b", "track.m4p", "track.m4r"):
@@ -8951,6 +8990,7 @@ class PlayerAlbumTagEditTest(unittest.TestCase):
             client = FakeRemoteEditS3Client(
                 b"remote audio",
                 metadata={"Local-Created-At": "2026-05-16T12:00:00+00:00"},
+                content_type="application/octet-stream",
             )
             write_calls: list[tuple[Path, dict[str, object]]] = []
 

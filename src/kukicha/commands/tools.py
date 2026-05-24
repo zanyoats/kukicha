@@ -11,7 +11,7 @@ from datetime import datetime
 from pathlib import Path
 
 from .._compat import UTC
-from ..audio_types import audio_mime_type_for_name
+from ..audio_types import content_type_for_name
 from ..file_metadata import file_created_at
 from ..library_sources import (
     RemoteRootConfig,
@@ -472,7 +472,7 @@ def upload_file_to_remote(
 
 
 def content_type_for_path(path: Path) -> str:
-    return audio_mime_type_for_name(path.name)
+    return content_type_for_name(path.name)
 
 
 def local_timestamp_metadata(path: Path) -> dict[str, str]:

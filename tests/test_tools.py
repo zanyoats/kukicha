@@ -197,8 +197,10 @@ class CopyToRemoteCommandTest(unittest.TestCase):
             album = temp_path / "Album"
             album.mkdir()
             audio = album / "01.flac"
+            cover = album / "cover.jpg"
             notes = album / "notes.bin"
             audio.write_bytes(b"audio")
+            cover.write_bytes(b"cover")
             notes.write_bytes(b"notes")
             client = FakeS3Client()
 
@@ -216,18 +218,26 @@ class CopyToRemoteCommandTest(unittest.TestCase):
                     s3_client_factory=lambda _remote: client,
                 )
 
-        self.assertEqual(result.files_found, 2)
-        self.assertEqual(result.files_uploaded, 2)
+        self.assertEqual(result.files_found, 3)
+        self.assertEqual(result.files_uploaded, 3)
         self.assertEqual(result.files_failed, 0)
         puts_by_key = {str(item["Key"]): item for item in client.puts}
         self.assertEqual(
             sorted(puts_by_key),
-            sorted(["tracks/Album/01.flac", "tracks/Album/notes.bin"]),
+            sorted([
+                "tracks/Album/01.flac",
+                "tracks/Album/cover.jpg",
+                "tracks/Album/notes.bin",
+            ]),
         )
         self.assertEqual(puts_by_key["tracks/Album/01.flac"]["Body"], b"audio")
         self.assertEqual(
             puts_by_key["tracks/Album/01.flac"]["ContentType"],
             "audio/flac",
+        )
+        self.assertEqual(
+            puts_by_key["tracks/Album/cover.jpg"]["ContentType"],
+            "image/jpeg",
         )
         self.assertEqual(
             puts_by_key["tracks/Album/01.flac"]["Metadata"]["local-created-at"],
