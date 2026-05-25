@@ -1870,6 +1870,9 @@ class PlayerConfigTest(unittest.TestCase):
     def test_default_toast_timeout_is_five_seconds(self) -> None:
         self.assertEqual(DEFAULT_TOAST_TIMEOUT_MS, 5000)
 
+    def test_default_player_log_level_is_info(self) -> None:
+        self.assertEqual(DEFAULT_PLAYER_LOG_LEVEL, "INFO")
+
     def test_kukicha_version_uses_package_metadata_without_fallback(self) -> None:
         with patch("kukicha.app_metadata.version", side_effect=PackageNotFoundError):
             with self.assertRaises(PackageNotFoundError):

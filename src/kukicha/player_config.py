@@ -34,7 +34,7 @@ from .player_navigation import (
 )
 from .use_case import prepare_player_database
 
-DEFAULT_PLAYER_LOG_LEVEL = "DEBUG"
+DEFAULT_PLAYER_LOG_LEVEL = "INFO"
 DEFAULT_PLAYER_HOST = "127.0.0.1"
 DEFAULT_PLAYER_PORT = 4533
 DEFAULT_TRUSTED_PROXY_HEADERS = False
