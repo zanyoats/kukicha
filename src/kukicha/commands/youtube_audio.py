@@ -89,6 +89,8 @@ def run_youtube_download_audio(args: argparse.Namespace) -> int:
             options=options,
             verbose=args.verbose,
             chapters_file=args.chapters_file,
+            split_into_chapters=args.split_into_chapters
+            or args.chapters_file is not None,
             status=print,
         )
     except PlayerConfigError as error:
@@ -107,7 +109,7 @@ def run_youtube_download_audio(args: argparse.Namespace) -> int:
         print(f"Error: {error}", file=sys.stderr)
         return 1
 
-    print(f"Done. Final audio files written to: {result.output_dir}")
+    print(f"Done. Final audio written to: {result.output_dir}")
     return 0
 
 
@@ -136,6 +138,11 @@ def add_youtube_download_audio_arguments(
         ),
     )
     parser.add_argument(
+        "--split-into-chapters",
+        action="store_true",
+        help="Split video URLs into one audio file per chapter.",
+    )
+    parser.add_argument(
         "--verbose",
         action="store_true",
         help="Enable yt-dlp verbose logging.",
@@ -148,8 +155,9 @@ def build_standalone_parser(
     parser = argparse.ArgumentParser(
         prog="yt-download-audio",
         description=(
-            "Strictly download audio-only YouTube media, split video URLs by "
-            "chapters, and download playlist URLs as one file per item."
+            "Strictly download audio-only YouTube media. Video URLs are "
+            "downloaded as a single file unless chapter splitting is requested; "
+            "playlist URLs download as one file per item."
         ),
     )
     parser.add_argument(
@@ -176,11 +184,18 @@ def download_youtube_audio(
     options: PlayerServerOptions,
     verbose: bool = False,
     chapters_file: Path | None = None,
+    split_into_chapters: bool = False,
     manual_chapters: Sequence[dict[str, Any]] | None = None,
     status: Callable[[str], None] | None = None,
 ) -> YoutubeAudioDownloadResult:
     if chapters_file is not None and manual_chapters is not None:
         raise ValueError("chapters_file and manual_chapters cannot both be provided")
+
+    split_into_chapters = (
+        split_into_chapters
+        or chapters_file is not None
+        or manual_chapters is not None
+    )
 
     destination = require_youtube_download_destination(options)
     tools = resolve_youtube_audio_tools(options)
@@ -194,6 +209,8 @@ def download_youtube_audio(
     if is_playlist_info(info):
         if chapters_file is not None or manual_chapters is not None:
             raise RuntimeError("--chapters-file cannot be used with playlist URLs")
+        if split_into_chapters:
+            raise RuntimeError("--split-into-chapters cannot be used with playlist URLs")
         return download_youtube_playlist_audio(
             url,
             info=info,
@@ -208,14 +225,92 @@ def download_youtube_audio(
         if chapters_file is not None
         else manual_chapters
     )
-    return download_youtube_video_audio_chapters(
+    if split_into_chapters:
+        return download_youtube_video_audio_chapters(
+            url,
+            info=info,
+            destination=destination,
+            tools=tools,
+            verbose=verbose,
+            manual_chapters=chapters,
+            status=status,
+        )
+
+    return download_youtube_video_audio_file(
         url,
         info=info,
         destination=destination,
         tools=tools,
         verbose=verbose,
-        manual_chapters=chapters,
         status=status,
+    )
+
+
+def download_youtube_video_audio_file(
+    url: str,
+    *,
+    info: dict[str, Any],
+    destination: YoutubeAudioDestination,
+    tools: YoutubeAudioTools,
+    verbose: bool,
+    status: Callable[[str], None] | None = None,
+) -> YoutubeAudioDownloadResult:
+    video_id = info.get("id") or "unknown-id"
+    title = info.get("title") or "untitled"
+    reported_chapters = info.get("chapters") or []
+    media_dir_name = safe_path_component(
+        f"{title} [{video_id}]",
+        fallback=video_id,
+    )
+    final_media_dir = youtube_destination_output_dir(destination, media_dir_name)
+
+    with tempfile.TemporaryDirectory(prefix="kukicha-youtube-audio-") as tempdir:
+        temp_root = Path(tempdir)
+        stage_root = temp_root / "stage"
+        ytdlp_temp_dir = temp_root / "yt-dlp"
+        final_root = temp_root / "final"
+
+        emit = status or (lambda _message: None)
+        emit(f"Video: {title} [{video_id}]")
+        emit(f"Chapters reported by yt-dlp: {len(reported_chapters)}")
+        emit("Downloading video as a single audio file")
+        emit(f"Using Deno: {tools.deno}")
+        emit("Using yt-dlp remote component: ejs:github")
+        emit(f"Temporary stage directory: {stage_root}")
+        emit(f"Final output directory: {final_media_dir}")
+
+        download_video_audio_file(
+            url,
+            stage_root=stage_root,
+            temp_dir=ytdlp_temp_dir,
+            tools=tools,
+            verbose=verbose,
+        )
+
+        source_files = find_stage_video_files(stage_root, tools=tools)
+        if len(source_files) != 1:
+            raise RuntimeError(
+                "expected 1 staged audio file, "
+                f"but found {len(source_files)} staged audio file(s)"
+            )
+
+        publish_stage_audio_file(
+            source_files[0],
+            destination=destination,
+            media_dir_name=media_dir_name,
+            output_stem=media_dir_name,
+            final_root=final_root,
+            tools=tools,
+            status=emit,
+        )
+
+    return YoutubeAudioDownloadResult(
+        output_dir=final_media_dir,
+        files_written=1,
+        media_id=video_id,
+        title=title,
+        mode="video",
+        chapters_reported=len(reported_chapters),
     )
 
 
@@ -744,31 +839,77 @@ def copy_stage_audio_files(
     tools: YoutubeAudioTools,
     status: Callable[[str], None],
 ) -> list[Path]:
-    output_dir.mkdir(parents=True, exist_ok=True)
     output_paths: list[Path] = []
     for input_path in input_files:
-        in_codec = audio_codec(input_path, tools=tools)
-        ext = extension_for_codec(in_codec)
-        final_name = input_path.with_suffix(f".{ext}").name
-        final_path = output_dir / final_name
-
-        status(
-            "Copying audio stream without transcoding: "
-            f"{input_path.name} -> {final_path.name} [{in_codec}]"
+        output_paths.append(
+            copy_stage_audio_file(
+                input_path,
+                output_dir=output_dir,
+                output_stem=input_path.stem,
+                tools=tools,
+                status=status,
+            )
         )
 
-        copy_audio_without_transcoding(input_path, final_path, tools=tools)
-        out_codec = audio_codec(final_path, tools=tools)
-        if out_codec != in_codec:
-            raise RuntimeError(
-                f"Codec changed for {final_path}: "
-                f"input={in_codec}, output={out_codec}"
-            )
-
-        assert_audio_only(final_path, tools=tools)
-        output_paths.append(final_path)
-
     return output_paths
+
+
+def copy_stage_audio_file(
+    input_path: Path,
+    *,
+    output_dir: Path,
+    output_stem: str,
+    tools: YoutubeAudioTools,
+    status: Callable[[str], None],
+) -> Path:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    in_codec = audio_codec(input_path, tools=tools)
+    ext = extension_for_codec(in_codec)
+    final_path = output_dir / f"{output_stem}.{ext}"
+
+    status(
+        "Copying audio stream without transcoding: "
+        f"{input_path.name} -> {final_path.name} [{in_codec}]"
+    )
+
+    copy_audio_without_transcoding(input_path, final_path, tools=tools)
+    out_codec = audio_codec(final_path, tools=tools)
+    if out_codec != in_codec:
+        raise RuntimeError(
+            f"Codec changed for {final_path}: "
+            f"input={in_codec}, output={out_codec}"
+        )
+
+    assert_audio_only(final_path, tools=tools)
+    return final_path
+
+
+def publish_stage_audio_file(
+    input_file: Path,
+    *,
+    destination: YoutubeAudioDestination,
+    media_dir_name: str,
+    output_stem: str,
+    final_root: Path,
+    tools: YoutubeAudioTools,
+    status: Callable[[str], None],
+) -> Path:
+    output_dir = final_root / media_dir_name
+    final_file = copy_stage_audio_file(
+        input_file,
+        output_dir=output_dir,
+        output_stem=output_stem,
+        tools=tools,
+        status=status,
+    )
+    publish_final_audio_files(
+        [final_file],
+        source_dir=output_dir,
+        destination=destination,
+        media_dir_name=media_dir_name,
+        status=status,
+    )
+    return final_file
 
 
 def publish_stage_audio_files(
@@ -869,7 +1010,8 @@ def publish_final_audio_files_remote(
             path.relative_to(source_dir),
             (
                 f"{remote_youtube_download_prefix(remote)}"
-                f"{media_dir_name}/{path.relative_to(source_dir).as_posix()}"
+                f"{media_dir_name}/"
+                f"{path.relative_to(source_dir).as_posix()}"
             ),
         )
         for path in files
@@ -929,6 +1071,35 @@ def extract_youtube_info(
 
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         return ydl.extract_info(url, download=False)
+
+
+def download_video_audio_file(
+    url: str,
+    *,
+    stage_root: Path,
+    temp_dir: Path,
+    tools: YoutubeAudioTools,
+    verbose: bool,
+) -> None:
+    stage_root.mkdir(parents=True, exist_ok=True)
+    temp_dir.mkdir(parents=True, exist_ok=True)
+    ydl_opts = {
+        **base_ydl_opts(tools, verbose=verbose, noplaylist=True),
+        "paths": {
+            "home": str(stage_root),
+            "temp": str(temp_dir),
+        },
+        "outtmpl": {
+            "default": "source/source.%(ext)s",
+        },
+        "restrictfilenames": False,
+        "overwrites": True,
+    }
+
+    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+        retcode = ydl.download([url])
+        if retcode:
+            raise RuntimeError(f"yt-dlp returned non-zero exit code: {retcode}")
 
 
 def download_and_split_chapters(
@@ -1005,6 +1176,14 @@ def find_stage_chapter_files(
     tools: YoutubeAudioTools,
 ) -> list[Path]:
     return find_stage_audio_files(stage_root / "chapters", tools=tools)
+
+
+def find_stage_video_files(
+    stage_root: Path,
+    *,
+    tools: YoutubeAudioTools,
+) -> list[Path]:
+    return find_stage_audio_files(stage_root / "source", tools=tools)
 
 
 def find_stage_playlist_files(

@@ -239,14 +239,23 @@ and only writes album artist, album title, and genre tags. It has been convenien
 
 ## YouTube Audio
 
-Download audio-only YouTube media. Video URLs are split into chapter files:
+Download audio-only YouTube media. Video URLs are downloaded as one audio file
+inside a video-named folder under the configured YouTube download root:
 
 ```bash
 kukicha tools yt-download-audio "https://www.youtube.com/watch?v=VIDEO_ID"
 ```
 
+To split a video into one audio file per chapter, pass `--split-into-chapters`:
+
+```bash
+kukicha tools yt-download-audio \
+  --split-into-chapters \
+  "https://www.youtube.com/watch?v=VIDEO_ID"
+```
+
 If yt-dlp does not report chapters, or you want to override them, provide a
-manual chapter file:
+manual chapter file. `--chapters-file` implies `--split-into-chapters`:
 
 ```bash
 kukicha -c ~/kukicha.toml tools yt-download-audio \
@@ -263,9 +272,10 @@ are ignored:
 1:02:03.5 Finale
 ```
 
-Playlist URLs are downloaded as one audio file per playlist item. Chapters
-reported inside individual playlist items are ignored, and `--chapters-file`
-cannot be used with playlist URLs.
+Chapter-split video URLs are written to a folder named for the video. Playlist
+URLs are downloaded as one audio file per playlist item. Chapters reported
+inside individual playlist items are ignored, and `--chapters-file` and
+`--split-into-chapters` cannot be used with playlist URLs.
 
 Set `youtube_download_root` in `kukicha.toml` before running this command. Local
 roots write under `<root>/.kukicha/yt`; remote roots upload under

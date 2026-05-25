@@ -24,6 +24,7 @@ from kukicha.commands.youtube_audio import (
     YoutubeAudioTools,
     download_and_split_chapters,
     download_playlist_audio_items,
+    download_video_audio_file,
     download_youtube_audio,
     parse_chapters_file,
     require_youtube_download_destination,
@@ -745,6 +746,7 @@ class YoutubeAudioDownloadCommandTest(unittest.TestCase):
             [
                 "tools",
                 "yt-download-audio",
+                "--split-into-chapters",
                 "--chapters-file",
                 "/tmp/chapters.txt",
                 "https://www.youtube.com/watch?v=abc123",
@@ -754,6 +756,7 @@ class YoutubeAudioDownloadCommandTest(unittest.TestCase):
 
         self.assertEqual(args.url, "https://www.youtube.com/watch?v=abc123")
         self.assertEqual(args.chapters_file, Path("/tmp/chapters.txt"))
+        self.assertTrue(args.split_into_chapters)
         self.assertTrue(args.verbose)
         self.assertIs(args.func, run_youtube_download_audio)
 
@@ -870,11 +873,13 @@ class YoutubeAudioDownloadCommandTest(unittest.TestCase):
                 options: PlayerServerOptions,
                 verbose: bool = False,
                 chapters_file: Path | None = None,
+                split_into_chapters: bool = False,
                 status: object = None,
             ) -> YoutubeAudioDownloadResult:
                 self.assertEqual(url, "https://www.youtube.com/watch?v=abc123")
                 self.assertFalse(verbose)
                 self.assertEqual(chapters_file, temp_path / "chapters.txt")
+                self.assertTrue(split_into_chapters)
                 self.assertIsNone(options.auth)
                 self.assertEqual(options.youtube_download_root, "music")
                 return YoutubeAudioDownloadResult(
@@ -899,7 +904,7 @@ class YoutubeAudioDownloadCommandTest(unittest.TestCase):
                 exit_code = args.func(args)
 
         self.assertEqual(exit_code, 0)
-        self.assertIn("Done. Final audio files written to:", stdout.getvalue())
+        self.assertIn("Done. Final audio written to:", stdout.getvalue())
         self.assertEqual(stderr.getvalue(), "")
 
     def test_youtube_audio_destination_requires_configured_local_root(self) -> None:
@@ -993,6 +998,98 @@ class YoutubeAudioDownloadCommandTest(unittest.TestCase):
                 temp_dir: Path,
                 tools: YoutubeAudioTools,
                 verbose: bool,
+            ) -> None:
+                captured["stage_root"] = stage_root
+                captured["temp_dir"] = temp_dir
+                captured["source"] = stage_root / "source"
+                captured["source"].mkdir(parents=True)
+
+            def fake_find(stage_root: Path, *, tools: YoutubeAudioTools) -> list[Path]:
+                return [
+                    stage_root / "source" / "source.webm",
+                ]
+
+            def fake_copy(
+                _input_path: Path,
+                output_path: Path,
+                *,
+                tools: YoutubeAudioTools,
+            ) -> None:
+                output_path.write_bytes(b"audio")
+
+            with (
+                patch(
+                    "kukicha.commands.youtube_audio.resolve_youtube_audio_tools",
+                    return_value=tools,
+                ),
+                patch(
+                    "kukicha.commands.youtube_audio.extract_youtube_info",
+                    return_value={
+                        "id": "abc123",
+                        "title": "Album: Title",
+                        "chapters": [{"title": "One"}, {"title": "Two"}],
+                    },
+                ),
+                patch(
+                    "kukicha.commands.youtube_audio.download_video_audio_file",
+                    side_effect=fake_download,
+                ),
+                patch(
+                    "kukicha.commands.youtube_audio.find_stage_video_files",
+                    side_effect=fake_find,
+                ),
+                patch("kukicha.commands.youtube_audio.audio_codec", return_value="opus"),
+                patch(
+                    "kukicha.commands.youtube_audio.copy_audio_without_transcoding",
+                    side_effect=fake_copy,
+                ),
+                patch("kukicha.commands.youtube_audio.assert_audio_only"),
+            ):
+                result = download_youtube_audio(
+                    "https://www.youtube.com/watch?v=abc123",
+                    options=options,
+                    status=messages.append,
+                )
+
+            temp_root = captured["stage_root"].parent
+            os_temp = Path(gettempdir()).resolve(strict=False)
+            self.assertTrue(
+                captured["stage_root"].resolve(strict=False).is_relative_to(os_temp)
+            )
+            self.assertEqual(captured["temp_dir"], temp_root / "yt-dlp")
+            self.assertFalse(temp_root.exists())
+            expected_output_dir = download_path / "Album_ Title [abc123]"
+            expected_output = expected_output_dir / "Album_ Title [abc123].opus"
+            self.assertEqual(result.output_dir, expected_output_dir)
+            self.assertEqual(result.mode, "video")
+            self.assertEqual(result.files_written, 1)
+            self.assertTrue(expected_output.exists())
+            self.assertFalse((download_path / "Album_ Title [abc123].opus").exists())
+            self.assertIn(f"Final output directory: {expected_output_dir}", messages)
+
+    def test_download_youtube_audio_video_split_into_chapters_uses_config_path(
+        self,
+    ) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            download_root = (temp_path / "music").resolve(strict=False)
+            download_path = download_root / ".kukicha" / "yt"
+            options = self.make_options(temp_path, roots=(download_root,))
+            tools = YoutubeAudioTools(
+                ffmpeg="/usr/local/bin/ffmpeg",
+                ffprobe="/usr/local/bin/ffprobe",
+                deno="/usr/local/bin/deno",
+            )
+            captured: dict[str, Path] = {}
+            messages: list[str] = []
+
+            def fake_download(
+                _url: str,
+                *,
+                stage_root: Path,
+                temp_dir: Path,
+                tools: YoutubeAudioTools,
+                verbose: bool,
                 manual_chapters: object = None,
             ) -> None:
                 captured["stage_root"] = stage_root
@@ -1045,6 +1142,7 @@ class YoutubeAudioDownloadCommandTest(unittest.TestCase):
                 result = download_youtube_audio(
                     "https://www.youtube.com/watch?v=abc123",
                     options=options,
+                    split_into_chapters=True,
                     status=messages.append,
                 )
 
@@ -1057,9 +1155,73 @@ class YoutubeAudioDownloadCommandTest(unittest.TestCase):
             self.assertFalse(temp_root.exists())
             self.assertEqual(result.output_dir, download_path / "Album_ Title [abc123]")
             self.assertEqual(result.mode, "video")
+            self.assertEqual(result.files_written, 2)
             self.assertTrue((result.output_dir / "001 - One.opus").exists())
             self.assertTrue((result.output_dir / "002 - Two.opus").exists())
             self.assertIn(f"Final output directory: {result.output_dir}", messages)
+
+    def test_download_youtube_audio_chapters_file_implies_split_into_chapters(
+        self,
+    ) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            chapters_path = temp_path / "chapters.txt"
+            chapters_path.write_text(
+                "0:00 Manual One\n1:00 Manual Two\n",
+                encoding="utf-8",
+            )
+            options = self.make_options(temp_path)
+            tools = YoutubeAudioTools(
+                ffmpeg="/usr/local/bin/ffmpeg",
+                ffprobe="/usr/local/bin/ffprobe",
+                deno="/usr/local/bin/deno",
+            )
+            expected_result = YoutubeAudioDownloadResult(
+                output_dir=temp_path / "music" / ".kukicha" / "yt" / "Album [abc123]",
+                files_written=2,
+                media_id="abc123",
+                title="Album",
+                mode="video",
+                chapters_reported=0,
+            )
+
+            with (
+                patch(
+                    "kukicha.commands.youtube_audio.resolve_youtube_audio_tools",
+                    return_value=tools,
+                ),
+                patch(
+                    "kukicha.commands.youtube_audio.extract_youtube_info",
+                    return_value={
+                        "id": "abc123",
+                        "title": "Album",
+                        "chapters": [],
+                    },
+                ),
+                patch(
+                    "kukicha.commands.youtube_audio.download_youtube_video_audio_chapters",
+                    return_value=expected_result,
+                ) as split_download,
+                patch(
+                    "kukicha.commands.youtube_audio.download_youtube_video_audio_file",
+                ) as single_download,
+            ):
+                result = download_youtube_audio(
+                    "https://www.youtube.com/watch?v=abc123",
+                    options=options,
+                    chapters_file=chapters_path,
+                )
+
+        self.assertEqual(result, expected_result)
+        single_download.assert_not_called()
+        split_download.assert_called_once()
+        self.assertEqual(
+            split_download.call_args.kwargs["manual_chapters"],
+            [
+                {"start_time": 0, "title": "Manual One", "end_time": 60},
+                {"start_time": 60, "title": "Manual Two"},
+            ],
+        )
 
     def test_download_youtube_audio_video_uploads_to_remote_root(self) -> None:
         with TemporaryDirectory() as tempdir:
@@ -1092,16 +1254,14 @@ class YoutubeAudioDownloadCommandTest(unittest.TestCase):
                 temp_dir: Path,
                 tools: YoutubeAudioTools,
                 verbose: bool,
-                manual_chapters: object = None,
             ) -> None:
                 captured["stage_root"] = stage_root
                 captured["temp_dir"] = temp_dir
-                (stage_root / "chapters").mkdir(parents=True)
+                (stage_root / "source").mkdir(parents=True)
 
             def fake_find(stage_root: Path, *, tools: YoutubeAudioTools) -> list[Path]:
                 return [
-                    stage_root / "chapters" / "001 - One.webm",
-                    stage_root / "chapters" / "002 - Two.webm",
+                    stage_root / "source" / "source.webm",
                 ]
 
             def fake_copy(
@@ -1135,11 +1295,11 @@ class YoutubeAudioDownloadCommandTest(unittest.TestCase):
                     },
                 ),
                 patch(
-                    "kukicha.commands.youtube_audio.download_and_split_chapters",
+                    "kukicha.commands.youtube_audio.download_video_audio_file",
                     side_effect=fake_download,
                 ),
                 patch(
-                    "kukicha.commands.youtube_audio.find_stage_chapter_files",
+                    "kukicha.commands.youtube_audio.find_stage_video_files",
                     side_effect=fake_find,
                 ),
                 patch("kukicha.commands.youtube_audio.audio_codec", return_value="opus"),
@@ -1174,15 +1334,20 @@ class YoutubeAudioDownloadCommandTest(unittest.TestCase):
             self.assertEqual(
                 sorted(puts_by_key),
                 [
-                    "tracks/.kukicha/yt/Album_ Title [abc123]/001 - One.opus",
-                    "tracks/.kukicha/yt/Album_ Title [abc123]/002 - Two.opus",
+                    (
+                        "tracks/.kukicha/yt/Album_ Title [abc123]/"
+                        "Album_ Title [abc123].opus"
+                    ),
                 ],
             )
             self.assertEqual(
                 puts_by_key[
-                    "tracks/.kukicha/yt/Album_ Title [abc123]/001 - One.opus"
+                    (
+                        "tracks/.kukicha/yt/Album_ Title [abc123]/"
+                        "Album_ Title [abc123].opus"
+                    )
                 ]["Body"],
-                b"001 - One.opus",
+                b"Album_ Title [abc123].opus",
             )
             self.assertTrue(
                 any(
@@ -1507,6 +1672,95 @@ class YoutubeAudioDownloadCommandTest(unittest.TestCase):
                     )
 
         download.assert_not_called()
+
+    def test_download_youtube_audio_playlist_rejects_split_into_chapters(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            options = self.make_options(temp_path)
+            tools = YoutubeAudioTools(
+                ffmpeg="/usr/local/bin/ffmpeg",
+                ffprobe="/usr/local/bin/ffprobe",
+                deno="/usr/local/bin/deno",
+            )
+
+            with (
+                patch(
+                    "kukicha.commands.youtube_audio.resolve_youtube_audio_tools",
+                    return_value=tools,
+                ),
+                patch(
+                    "kukicha.commands.youtube_audio.extract_youtube_info",
+                    return_value={
+                        "_type": "playlist",
+                        "id": "pl123",
+                        "title": "Playlist",
+                        "entries": [{"id": "one", "title": "One"}],
+                    },
+                ),
+                patch("kukicha.commands.youtube_audio.download_playlist_audio_items") as download,
+            ):
+                with self.assertRaisesRegex(RuntimeError, "--split-into-chapters"):
+                    download_youtube_audio(
+                        "https://www.youtube.com/playlist?list=pl123",
+                        options=options,
+                        split_into_chapters=True,
+                    )
+
+        download.assert_not_called()
+
+    def test_download_video_audio_file_sets_yt_dlp_paths_and_templates(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            stage_root = temp_path / "stage"
+            temp_dir = temp_path / "yt-dlp"
+            tools = YoutubeAudioTools(
+                ffmpeg="/usr/local/bin/ffmpeg",
+                ffprobe="/usr/local/bin/ffprobe",
+                deno="/usr/local/bin/deno",
+            )
+            captured: dict[str, object] = {}
+
+            class FakeYoutubeDL:
+                def __init__(self, opts: dict[str, object]) -> None:
+                    captured["opts"] = opts
+
+                def __enter__(self) -> "FakeYoutubeDL":
+                    return self
+
+                def __exit__(self, *_args: object) -> None:
+                    return None
+
+                def download(self, urls: list[str]) -> int:
+                    captured["urls"] = urls
+                    return 0
+
+            with patch("kukicha.commands.youtube_audio.yt_dlp.YoutubeDL", FakeYoutubeDL):
+                download_video_audio_file(
+                    "https://www.youtube.com/watch?v=abc123",
+                    stage_root=stage_root,
+                    temp_dir=temp_dir,
+                    tools=tools,
+                    verbose=True,
+                )
+
+        opts = captured["opts"]
+        self.assertIsInstance(opts, dict)
+        self.assertEqual(
+            opts["paths"],
+            {
+                "home": str(stage_root),
+                "temp": str(temp_dir),
+            },
+        )
+        self.assertTrue(opts["noplaylist"])
+        self.assertEqual(
+            opts["outtmpl"],
+            {
+                "default": "source/source.%(ext)s",
+            },
+        )
+        self.assertNotIn("postprocessors", opts)
+        self.assertEqual(captured["urls"], ["https://www.youtube.com/watch?v=abc123"])
 
     def test_download_and_split_chapters_sets_yt_dlp_paths_and_templates(self) -> None:
         with TemporaryDirectory() as tempdir:
