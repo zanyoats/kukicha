@@ -174,6 +174,52 @@ class OpenSubsonicWebAdapterTest(unittest.TestCase):
         )
         return apples, ambient, green
 
+    def save_split_artist_library(self, temp_path: Path) -> str:
+        database = temp_path / "kukicha.sqlite"
+        connection = connect_database(database)
+        try:
+            connection.execute(
+                """
+                INSERT INTO album_artist_split_mappings (
+                    album_artist,
+                    mapped_artists
+                ) VALUES (?, ?)
+                """,
+                ("Brian Eno, Jon Hassell", "Brian Eno\nJon Hassell"),
+            )
+            connection.commit()
+        finally:
+            connection.close()
+
+        root = temp_path / "music"
+        path = root / "Brian Eno and Jon Hassell" / "Fourth World" / "01.flac"
+        path.parent.mkdir(parents=True)
+        path.write_bytes(b"fourth-world")
+        album_id = "brian-eno-jon-hassell::fourth-world-vol-1-possible-musics"
+        save_library(
+            MusicLibrary(
+                roots=[str(root)],
+                tracks=[
+                    TrackRecord(
+                        path=str(path),
+                        root_position=0,
+                        file_type="flac",
+                        artist="Brian Eno",
+                        album_artist="Brian Eno, Jon Hassell",
+                        album="Fourth World, Vol. 1: Possible Musics",
+                        title="Chemistry",
+                        date="1980",
+                        genres=["Ambient"],
+                        duration_seconds=90.0,
+                    )
+                ],
+                supported_extensions=[".flac"],
+                generated_at="2026-05-07T00:00:00+00:00",
+            ),
+            database,
+        )
+        return album_id
+
     def save_album_list_library(self, temp_path: Path) -> None:
         root = temp_path / "music"
         specs = (
@@ -1283,6 +1329,58 @@ class OpenSubsonicWebAdapterTest(unittest.TestCase):
         self.assertTrue(artist["album"][0]["isDir"])
         self.assertEqual(artist["album"][0]["duration"], 70)
         self.assertEqual(artist["album"][0]["genre"], "Ambient")
+
+    def test_split_album_artists_are_exposed_in_opensubsonic_payloads(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            album_id = self.save_split_artist_library(temp_path)
+            app = create_player_app(self.make_options(temp_path))
+            client = app.test_client()
+
+            artists_response = client.get(
+                "/rest/getArtists",
+                query_string=self.auth_params(),
+            )
+            artist_response = client.get(
+                "/rest/getArtist",
+                query_string={**self.auth_params(), "id": "artist:Brian Eno"},
+            )
+            album_response = client.get(
+                "/rest/getAlbum",
+                query_string={**self.auth_params(), "id": album_id},
+            )
+
+        indexes = subsonic_payload(artists_response)["artists"]["index"]
+        artist_names = [
+            artist["name"]
+            for index in indexes
+            for artist in index["artist"]
+        ]
+        self.assertEqual(artist_names, ["Brian Eno", "Jon Hassell"])
+
+        artist = subsonic_payload(artist_response)["artist"]
+        self.assertEqual(artist["id"], "artist:Brian Eno")
+        self.assertEqual([album["id"] for album in artist["album"]], [album_id])
+        self.assertEqual(artist["album"][0]["artist"], "Brian Eno, Jon Hassell")
+        self.assertEqual(artist["album"][0]["artistId"], "artist:Brian Eno")
+        self.assertEqual(
+            artist["album"][0]["artists"],
+            [
+                {"id": "artist:Brian Eno", "name": "Brian Eno"},
+                {"id": "artist:Jon Hassell", "name": "Jon Hassell"},
+            ],
+        )
+        self.assertEqual(
+            artist["album"][0]["displayArtist"],
+            "Brian Eno, Jon Hassell",
+        )
+
+        album = subsonic_payload(album_response)["album"]
+        self.assertEqual(album["artist"], "Brian Eno, Jon Hassell")
+        self.assertEqual(album["artistId"], "artist:Brian Eno")
+        self.assertEqual(album["song"][0]["albumArtist"], "Brian Eno, Jon Hassell")
+        self.assertEqual(album["song"][0]["albumArtistId"], "artist:Brian Eno")
+        self.assertEqual(album["song"][0]["albumArtists"], album["artists"])
 
     def test_get_artist_returns_not_found_for_missing_artist(self) -> None:
         with TemporaryDirectory() as tempdir:

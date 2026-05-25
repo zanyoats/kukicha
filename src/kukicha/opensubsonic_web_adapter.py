@@ -627,6 +627,8 @@ def artist_album_payloads(artist: LibraryArtistDetails) -> list[dict[str, object
             album_id=row.album_id,
             name=row.album,
             artist=row.artist,
+            album_artists=row.album_artists,
+            legacy_artist_id_name=artist.artist,
             song_count=row.track_count,
             year=row.year,
             created=row.file_created_at,
@@ -659,6 +661,15 @@ def artist_summary_payload(artist: LibraryArtistSummary) -> dict[str, object]:
             "roles": ["albumartist"],
         }
     )
+
+
+def artist_reference_payloads(artists: Iterable[str]) -> list[dict[str, object]] | None:
+    payloads = [
+        {"id": artist_id(artist), "name": artist}
+        for artist in artists
+        if artist
+    ]
+    return payloads or None
 
 
 def artist_indexes(artists: Iterable[dict[str, object]]) -> list[dict[str, object]]:
@@ -783,6 +794,7 @@ def album_list2_payloads(albums: Iterable[AlbumSummary]) -> list[dict[str, objec
             album_id=album.album_id,
             name=album.album,
             artist=album.artist,
+            album_artists=album.album_artists,
             song_count=album.track_count,
             year=album.year,
             created=album.file_created_at,
@@ -799,6 +811,8 @@ def album_summary_payload(
     album_id: str,
     name: str,
     artist: str,
+    album_artists: Iterable[str] = (),
+    legacy_artist_id_name: str | None = None,
     song_count: int,
     year: int | None,
     created: object,
@@ -806,12 +820,17 @@ def album_summary_payload(
     art_track_id: int | None,
     genre: str | None = None,
 ) -> dict[str, object]:
+    artist_values = tuple(artist for artist in album_artists if artist)
+    display_artist = album_artist_display_text(artist_values) or artist
+    legacy_artist = legacy_artist_id_name or (artist_values[0] if artist_values else artist)
     return without_none(
         {
             "id": album_id,
             "name": name,
-            "artist": artist,
-            "artistId": artist_id(artist),
+            "artist": display_artist,
+            "artistId": artist_id(legacy_artist),
+            "artists": artist_reference_payloads(artist_values),
+            "displayArtist": display_artist if artist_values else None,
             "coverArt": album_cover_art_id(album_id) if has_cover or art_track_id else None,
             "songCount": song_count,
             "created": str(created) if created else None,
@@ -827,6 +846,7 @@ def album_payload(album: Any, *, include_songs: bool = False) -> dict[str, objec
         album_id=album.album_id,
         name=album.album,
         artist=album.artist,
+        album_artists=album.album_artists,
         song_count=album.track_count,
         year=album.year,
         created=album.file_created_at,
@@ -850,6 +870,8 @@ def song_payload(track: Any) -> dict[str, object]:
     track_id = int(track.track_id) if track.track_id is not None else None
     artist = track.artist or track.album_artist or album_artist_display_text(track.album_artists)
     album_artist = album_artist_display_text(track.album_artists)
+    album_artist_values = tuple(track.album_artists)
+    legacy_album_artist = album_artist_values[0] if album_artist_values else album_artist
     path = Path(track.path)
     return without_none(
         {
@@ -861,7 +883,9 @@ def song_payload(track: Any) -> dict[str, object]:
             "artist": artist,
             "artistId": artist_id(artist),
             "albumArtist": album_artist,
-            "albumArtistId": artist_id(album_artist),
+            "albumArtistId": artist_id(legacy_album_artist),
+            "albumArtists": artist_reference_payloads(album_artist_values),
+            "displayAlbumArtist": album_artist if album_artist_values else None,
             "albumId": track.album_id,
             "coverArt": (
                 str(track_id)
