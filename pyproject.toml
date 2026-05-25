@@ -7,7 +7,7 @@ name = "kukicha"
 version = "0.1.0a2"
 description = "Scan and query a SQLite-backed music metadata database."
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.10,<3.15"
 dependencies = [
   "argon2-cffi>=25.1,<25.2",
   "botocore>=1.43,<1.44",
