@@ -763,6 +763,29 @@ function filterForm(document, controls = []) {
   return form;
 }
 
+function searchControls(document, controls = []) {
+  const element = document.createElement("div");
+  element.className = "search-controls";
+  element.append(...controls);
+  return element;
+}
+
+function readonlyArtistFilter(document, artist) {
+  const element = document.createElement("div");
+  element.className = "readonly-filter artist-filter-readonly";
+  element.dataset.readonlyArtistFilter = "";
+  element.title = `Artist: ${artist}`;
+  element.setAttribute("aria-label", `Artist filter: ${artist}`);
+  const label = document.createElement("span");
+  label.className = "readonly-filter-label";
+  label.textContent = "Artist:";
+  const value = document.createElement("span");
+  value.className = "readonly-filter-value";
+  value.textContent = artist;
+  element.append(label, value);
+  return element;
+}
+
 function sourceForUrl(context, url) {
   return context.sources.find((source) => source.buffer && source.buffer.url === url);
 }
@@ -856,6 +879,49 @@ test("library filter form patch preserves artist hidden inputs before changing s
 
   assert.equal(url.searchParams.get("artist"), "Amon Tobin");
   assert.equal(url.searchParams.has("sort"), false);
+});
+
+test("library filter form patch syncs readonly artist filter label", () => {
+  const harness = createHarness({
+    track_ids: [],
+    position: 0,
+    loaded_track_id: null,
+    paused: true,
+    errored_track_ids: [],
+    unavailable_track_ids: [],
+  });
+  const document = harness.document;
+  const currentControls = searchControls(document);
+  const currentForm = filterForm(document, [
+    testInput(document, {type: "hidden", name: "size", value: ""}),
+    currentControls,
+  ]);
+  const nextForm = filterForm(document, [
+    testInput(document, {type: "hidden", name: "size", value: ""}),
+    testInput(document, {type: "hidden", name: "artist", value: "Amon Tobin"}),
+    searchControls(document, [readonlyArtistFilter(document, "Amon Tobin")]),
+  ]);
+  const currentPage = document.createElement("div");
+  const nextPage = document.createElement("div");
+  currentPage.setQueryResult("form[data-filter-form]", currentForm);
+  nextPage.setQueryResult("form[data-filter-form]", nextForm);
+
+  harness.context.syncLibraryFilterForm(currentPage, nextPage);
+
+  let currentFilter = currentForm.querySelector("[data-readonly-artist-filter]");
+  assert.ok(currentFilter);
+  assert.equal(currentFilter.querySelector(".readonly-filter-value").textContent, "Amon Tobin");
+
+  const clearedForm = filterForm(document, [
+    testInput(document, {type: "hidden", name: "size", value: ""}),
+    searchControls(document),
+  ]);
+  nextPage.setQueryResult("form[data-filter-form]", clearedForm);
+
+  harness.context.syncLibraryFilterForm(currentPage, nextPage);
+
+  currentFilter = currentForm.querySelector("[data-readonly-artist-filter]");
+  assert.equal(currentFilter, null);
 });
 
 test("album filter form urls add genre search and sort params to current params", () => {

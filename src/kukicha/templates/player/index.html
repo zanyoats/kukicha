@@ -12,6 +12,15 @@
           <input type="hidden" name="artist" value="{{ artist }}">
         {% endfor %}
         <div class="search-controls">
+          {% if query.artists %}
+          {% set artist_filter_label = query.artists|join(', ') %}
+          <div class="readonly-filter artist-filter-readonly" data-readonly-artist-filter
+            title="Artist: {{ artist_filter_label }}"
+            aria-label="Artist filter: {{ artist_filter_label }}">
+            <span class="readonly-filter-label">Artist:</span>
+            <span class="readonly-filter-value">{{ artist_filter_label }}</span>
+          </div>
+          {% endif %}
           {% if show_filter_controls %}
           <details class="filter-menu" data-dropdown-menu>
             <summary data-filter-summary="genres" data-summary-label="Genres">Genres{% if selected_genre_filter_count %}: {{ selected_genre_filter_count_label }}{% endif %}</summary>

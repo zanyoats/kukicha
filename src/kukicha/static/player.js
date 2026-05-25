@@ -1069,7 +1069,30 @@ function syncLibraryFilterForm(currentPageRoot, nextPageRoot) {
     return;
   }
   syncTopLevelHiddenInputs(currentForm, nextForm);
+  syncReadonlyArtistFilter(currentForm, nextForm);
   syncFormControls(currentForm, nextForm);
+}
+
+function syncReadonlyArtistFilter(currentForm, nextForm) {
+  const currentFilter = currentForm.querySelector("[data-readonly-artist-filter]");
+  const nextFilter = nextForm.querySelector("[data-readonly-artist-filter]");
+  if (currentFilter instanceof HTMLElement && nextFilter instanceof HTMLElement) {
+    currentFilter.parentNode?.insertBefore(nextFilter, currentFilter);
+    currentFilter.remove();
+    return;
+  }
+  if (currentFilter instanceof HTMLElement) {
+    currentFilter.remove();
+    return;
+  }
+  if (!(nextFilter instanceof HTMLElement)) {
+    return;
+  }
+  const controls = currentForm.querySelector(".search-controls");
+  if (!(controls instanceof HTMLElement)) {
+    return;
+  }
+  controls.insertBefore(nextFilter, controls.children[0] || null);
 }
 
 function syncTopLevelHiddenInputs(currentForm, nextForm) {

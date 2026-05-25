@@ -5836,6 +5836,18 @@ class PlayerWebAdapterTest(unittest.TestCase):
         self.assertNotIn(b'data-filter-summary="artists"', response.data)
         self.assertIn(b'type="hidden" name="artist" value="Artist A"', response.data)
         self.assertIn(
+            b'class="readonly-filter artist-filter-readonly"',
+            response.data,
+        )
+        self.assertIn(
+            b'aria-label="Artist filter: Artist A"',
+            response.data,
+        )
+        self.assertIn(
+            b'<span class="readonly-filter-value">Artist A</span>',
+            response.data,
+        )
+        self.assertIn(
             b'href="/albums/artist-a::album" data-nav data-album-nav',
             response.data,
         )
@@ -5937,6 +5949,7 @@ class PlayerWebAdapterTest(unittest.TestCase):
         self.assertNotIn(b"Road Mix", albums_response.data)
         self.assertNotIn(b'name="playlist"', albums_response.data)
         self.assertNotIn(b"Not playlist", albums_response.data)
+        self.assertNotIn(b"artist-filter-readonly", albums_response.data)
 
         self.assertEqual(playlist_response.status_code, 200)
         self.assertIn(b"<h1>Playlists</h1>", playlist_response.data)

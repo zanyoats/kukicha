@@ -793,6 +793,34 @@ button:disabled,
   min-width: 0;
 }
 
+.readonly-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 220px;
+  min-height: 36px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  padding: 7px 12px;
+  white-space: nowrap;
+}
+
+.readonly-filter-label,
+.readonly-filter-value {
+  display: inline-block;
+  min-width: 0;
+  line-height: 1;
+}
+
+.readonly-filter-value {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .search-field input {
   width: 100%;
   min-height: 34px;
