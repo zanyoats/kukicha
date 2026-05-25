@@ -901,6 +901,33 @@ def start_album_edit(
     }
 
 
+def start_album_delete(
+    runtime: PlayerRuntime,
+    album_id: str,
+) -> dict[str, object]:
+    from ...player_jobs import job_payload
+    from .album_deletes import prepare_album_delete_job, run_delete_album_job
+
+    job = prepare_album_delete_job(runtime.database, album_id)
+    queued_job = runtime.enqueue_job(
+        kind="delete_album",
+        queued_message=f"Delete queued for {job.album_label}.",
+        running_message=f"Delete running for {job.album_label}.",
+        canceled_message=f"Delete canceled for {job.album_label}.",
+        failed_message=f"Delete failed for {job.album_label}.",
+        context={
+            "album": job.album_name,
+            "tracks_deleted": len(job.tracks),
+        },
+        runner=lambda cancel_token: run_delete_album_job(runtime, job, cancel_token),
+    )
+
+    return {
+        "message": f"Delete queued for {job.album_label}.",
+        "job": job_payload(queued_job),
+    }
+
+
 def track_audio_path(runtime: PlayerRuntime, track_id: int) -> Path:
     return LibraryQueries(runtime.database).get_track_audio_path(track_id)
 

@@ -58,6 +58,21 @@
         autocomplete="off"
         data-album-edit-form
       >
+        <div class="album-edit-danger-section">
+          <div class="album-edit-danger-copy">
+            <h4 class="album-edit-form-title">Delete Album</h4>
+            <p class="album-edit-form-description">
+              Deletes the audio files and eligible cover art from storage. Rescan the library to remove the album from Kukicha.
+            </p>
+          </div>
+          <button
+            class="danger"
+            type="button"
+            data-delete-album
+            data-delete-url="{{ album_delete_action_url }}"
+            data-album-label="{{ album.artist }} - {{ album.album|display_album_title }}"
+          >Delete Album</button>
+        </div>
         <div class="album-edit-actions album-edit-actions-top">
           <button class="primary" type="submit" data-apply-album-edit>Apply</button>
         </div>

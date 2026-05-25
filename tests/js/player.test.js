@@ -1320,6 +1320,75 @@ test("album edit submit can send MusicBrainz-only groups", async () => {
   assert.equal(bottomButton.getAttribute("aria-busy"), null);
 });
 
+test("album delete queues after confirmation", async () => {
+  const harness = createHarness({
+    track_ids: [],
+    position: 0,
+    loaded_track_id: null,
+    paused: true,
+    errored_track_ids: [],
+    unavailable_track_ids: [],
+    message: "Delete queued for Old Artist - Album.",
+    job: {
+      job_id: 31,
+      created_at: "2026-04-21T10:00:00Z",
+      created_at_label: "2026-04-21 10:00:00 UTC",
+      updated_at: "2026-04-21T10:00:00Z",
+      updated_at_label: "2026-04-21 10:00:00 UTC",
+      started_at: "",
+      started_at_label: "",
+      finished_at: "",
+      finished_at_label: "",
+      cancel_requested_at: "",
+      kind: "delete_album",
+      kind_label: "Delete Album",
+      status: "queued",
+      status_label: "Queued",
+      message: "Delete queued for Old Artist - Album.",
+      reason: "",
+      context_items: [],
+    },
+  });
+  const form = harness.document.createElement("form");
+  const status = harness.document.createElement("div");
+  const button = harness.document.createElement("button");
+  const confirmButton = harness.document.querySelector("[data-confirmation-confirm]");
+  const dialog = harness.document.getElementById("confirmation-dialog");
+  const message = harness.document.querySelector("[data-confirmation-message]");
+  form.setQueryResult("[data-album-edit-status]", status);
+  button.dataset.deleteUrl = "/api/albums/old-artist::album/delete";
+  button.dataset.albumLabel = "Old Artist - Album";
+  button.closest = (selector) => (
+    selector === "form[data-album-edit-form]" ? form : null
+  );
+
+  const deletePromise = harness.context.deleteAlbum(button);
+  await Promise.resolve();
+
+  assert.equal(dialog.hidden, false);
+  assert.equal(
+    message.textContent,
+    "Delete Old Artist - Album? This removes the audio files and eligible cover art. Rescan Kukicha afterward to prune the library.",
+  );
+  assert.equal(harness.fetchCalls.length, 0);
+
+  harness.document.listeners.get("click")[0]({
+    target: confirmButton,
+    preventDefault() {},
+  });
+  await deletePromise;
+  await harness.flush();
+
+  assert.equal(dialog.hidden, true);
+  assert.equal(harness.fetchCalls.length, 1);
+  assert.equal(harness.fetchCalls[0].url, "/api/albums/old-artist::album/delete");
+  assert.equal(harness.fetchCalls[0].request.method, "POST");
+  assert.equal(status.textContent, "Delete queued for Old Artist - Album.");
+  assert.equal(button.disabled, false);
+  assert.equal(button.getAttribute("aria-busy"), null);
+  assert.equal(harness.jobToasts.children.length, 1);
+});
+
 test("album edit MusicBrainz URL disables only album-level tag fields", () => {
   const harness = createHarness({
     track_ids: [],

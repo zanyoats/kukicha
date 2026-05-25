@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 import io
 import os
 from dataclasses import replace
@@ -93,6 +94,7 @@ from kukicha.player_config import (
 from kukicha.player_auth import hash_password, signed_auth_cookie, verify_password
 from kukicha.use_case import (
     append_queue as append_queue_command,
+    delete_album_files,
     edit_library_album_edit,
     edit_library_album_musicbrainz,
     edit_library_album_tags,
@@ -105,6 +107,7 @@ from kukicha.use_case import (
     list_player_jobs,
     mark_stale_player_jobs_canceled,
     playlist_menu_options_by_track_id,
+    prepare_album_delete_job,
     prepare_album_edit_job,
     prepare_album_musicbrainz_edit_job,
     prepare_album_musicbrainz_edit_request,
@@ -114,6 +117,7 @@ from kukicha.use_case import (
     sync_library_roots,
     set_track_playlist_membership,
     set_track_playlist_membership_database,
+    start_album_delete,
     start_album_edit,
     update_playback as update_playback_command,
     update_player_job,
@@ -247,12 +251,16 @@ class FakeRemoteEditS3Client:
         *,
         metadata: dict[str, str] | None = None,
         content_type: str = "audio/flac",
+        objects: Iterable[str] | None = None,
     ) -> None:
         self.data = data
         self.metadata = metadata or {"local-created-at": "2026-05-16T12:00:00+00:00"}
         self.content_type = content_type
+        self.objects = {key: b"" for key in objects or ()}
         self.gets: list[dict[str, object]] = []
         self.puts: list[dict[str, object]] = []
+        self.deletes: list[dict[str, object]] = []
+        self.lists: list[dict[str, object]] = []
 
     def get_object(self, **kwargs: object) -> dict[str, object]:
         self.gets.append(kwargs)
@@ -276,6 +284,23 @@ class FakeRemoteEditS3Client:
             }
         )
         return {}
+
+    def delete_object(self, **kwargs: object) -> dict[str, object]:
+        self.deletes.append(kwargs)
+        key = str(kwargs["Key"])
+        self.objects.pop(key, None)
+        return {}
+
+    def list_objects_v2(self, **kwargs: object) -> dict[str, object]:
+        self.lists.append(kwargs)
+        prefix = str(kwargs.get("Prefix") or "")
+        return {
+            "Contents": [
+                {"Key": key}
+                for key in sorted(self.objects)
+                if key.startswith(prefix)
+            ]
+        }
 
 
 class PlayerQueueStateTest(unittest.TestCase):
@@ -3768,6 +3793,7 @@ class PlayerAlbumDetailLinksTest(unittest.TestCase):
             album_genre_parts=("Ambient",),
             album_style_parts=(),
             album_edit_action_url="/api/albums/brian-eno::ambient-1/edit",
+            album_delete_action_url="/api/albums/brian-eno::ambient-1/delete",
             album_musicbrainz_sections=musicbrainz_sections,
             album_tag_edit_section=album_tag_edit_section_for_tracks(tracks),
             album_musicbrainz_release_mbid="",
@@ -3777,8 +3803,14 @@ class PlayerAlbumDetailLinksTest(unittest.TestCase):
         self.assertEqual(html.count("data-album-edit-form"), 1)
         self.assertEqual(html.count("data-apply-album-edit"), 2)
         self.assertIn('action="/api/albums/brian-eno::ambient-1/edit"', html)
+        self.assertIn('data-delete-url="/api/albums/brian-eno::ambient-1/delete"', html)
         self.assertEqual(html.count("data-musicbrainz-group"), 1)
         self.assertIn("Update Audio Tags", html)
+        notice_index = html.index("These actions queue jobs")
+        delete_index = html.index("album-edit-danger-section")
+        apply_index = html.index("data-apply-album-edit")
+        self.assertLess(notice_index, delete_index)
+        self.assertLess(delete_index, apply_index)
         self.assertIn("data-album-input", html)
         self.assertIn("data-album-artist-input", html)
         self.assertIn("data-album-genre-input", html)
@@ -5626,6 +5658,42 @@ class PlayerWebAdapterTest(unittest.TestCase):
             self.assertEqual(add_response.status_code, 404)
             self.assertEqual(delete_response.status_code, 404)
             runtime.enqueue_job.assert_not_called()
+
+    def test_delete_album_route_queues_background_job(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            runtime = self.make_runtime(temp_path / "kukicha.sqlite")
+            queued_job = PlayerJobRecord(
+                job_id=15,
+                created_at="2026-04-21T10:00:00Z",
+                updated_at="2026-04-21T10:00:00Z",
+                started_at=None,
+                finished_at=None,
+                cancel_requested_at=None,
+                kind="delete_album",
+                status="queued",
+                message="Delete queued for Old Artist - Album.",
+                reason="",
+                context={"album": "Album", "tracks_deleted": 2},
+            )
+            with (
+                patch("kukicha.player_web_adapter.PlayerRuntime", return_value=runtime),
+                patch(
+                    "kukicha.player_web_adapter.start_album_delete",
+                    return_value={
+                        "message": "Delete queued for Old Artist - Album.",
+                        "job": job_payload(queued_job),
+                    },
+                ) as start_delete,
+            ):
+                app = create_player_app(self.make_options(temp_path))
+                response = app.test_client().post("/api/albums/old-artist::album/delete")
+
+            self.assertEqual(response.status_code, 202)
+            payload = response.get_json()
+            self.assertEqual(payload["message"], "Delete queued for Old Artist - Album.")
+            self.assertEqual(payload["job"]["kind"], "delete_album")
+            start_delete.assert_called_once_with(runtime, "old-artist::album")
 
     def test_page_rendering_can_return_full_document_or_fragment(self) -> None:
         accent_theme = player_accent_theme("brown")
@@ -9091,6 +9159,284 @@ class PlayerAlbumTagEditTest(unittest.TestCase):
 
             with self.assertRaisesRegex(ValueError, "S3 object key metadata"):
                 edit_library_album_tags(database, job)
+
+    def test_delete_album_files_removes_local_tracks_sidecar_and_empty_folder(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            album_dir = temp_path / "Album"
+            album_dir.mkdir()
+            first = album_dir / "01.mp3"
+            second = album_dir / "02.mp3"
+            cover = album_dir / "cover.jpg"
+            first.write_bytes(b"one")
+            second.write_bytes(b"two")
+            cover.write_bytes(b"cover")
+            database = temp_path / "kukicha.sqlite"
+            self.seed_album(database, (first, second))
+            connection = connect_database(database)
+            try:
+                connection.execute(
+                    """
+                    UPDATE library_tracks
+                    SET sidecar_artwork_path = ?,
+                        sidecar_artwork_modified_at_ns = ?,
+                        sidecar_artwork_size_bytes = ?
+                    WHERE album_id = ?
+                    """,
+                    (str(cover), 1, 5, "old-artist::album"),
+                )
+                connection.commit()
+            finally:
+                connection.close()
+
+            job = prepare_album_delete_job(database, "old-artist::album")
+            result = delete_album_files(job)
+
+            self.assertFalse(first.exists())
+            self.assertFalse(second.exists())
+            self.assertFalse(cover.exists())
+            self.assertFalse(album_dir.exists())
+            self.assertTrue(temp_path.exists())
+            self.assertEqual(result.tracks_deleted, 2)
+            self.assertEqual(result.local_files_deleted, 3)
+            self.assertEqual(result.local_folders_pruned, 1)
+            connection = connect_database(database)
+            try:
+                row = connection.execute(
+                    "SELECT COUNT(*) AS count FROM library_tracks WHERE album_id = ?",
+                    ("old-artist::album",),
+                ).fetchone()
+                self.assertEqual(int(row["count"]), 2)
+                self.assertIsNotNone(
+                    connection.execute(
+                        "SELECT 1 FROM library_albums WHERE album_id = ?",
+                        ("old-artist::album",),
+                    ).fetchone()
+                )
+            finally:
+                connection.close()
+
+    def test_delete_album_files_preserves_shared_local_sidecar(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            album_dir = temp_path / "Album"
+            album_dir.mkdir()
+            first = album_dir / "01.mp3"
+            second = album_dir / "02.mp3"
+            cover = album_dir / "cover.jpg"
+            first.write_bytes(b"one")
+            second.write_bytes(b"two")
+            cover.write_bytes(b"cover")
+            database = temp_path / "kukicha.sqlite"
+            self.seed_album(database, (first, second))
+            connection = connect_database(database)
+            try:
+                insert_library_album(connection, "other::album", "Other", "Album", 1981, 1)
+                connection.execute(
+                    """
+                    INSERT INTO library_tracks (
+                        track_id, album_id, root_position, path, file_type, title,
+                        sidecar_artwork_path
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (3, "other::album", 0, str(temp_path / "Other" / "01.mp3"), "mp3", "Other", str(cover)),
+                )
+                connection.execute(
+                    """
+                    UPDATE library_tracks
+                    SET sidecar_artwork_path = ?
+                    WHERE album_id = ?
+                    """,
+                    (str(cover), "old-artist::album"),
+                )
+                connection.commit()
+            finally:
+                connection.close()
+
+            job = prepare_album_delete_job(database, "old-artist::album")
+            result = delete_album_files(job)
+
+            self.assertEqual(job.local_sidecar_paths, ())
+            self.assertFalse(first.exists())
+            self.assertFalse(second.exists())
+            self.assertTrue(cover.exists())
+            self.assertTrue(album_dir.exists())
+            self.assertEqual(result.local_files_deleted, 2)
+            self.assertEqual(result.local_folders_pruned, 0)
+
+    def test_delete_album_files_tolerates_missing_local_files(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            album_dir = temp_path / "Album"
+            album_dir.mkdir()
+            first = album_dir / "01.mp3"
+            second = album_dir / "02.mp3"
+            first.write_bytes(b"one")
+            database = temp_path / "kukicha.sqlite"
+            self.seed_album(database, (first, second))
+
+            job = prepare_album_delete_job(database, "old-artist::album")
+            result = delete_album_files(job)
+
+            self.assertFalse(first.exists())
+            self.assertFalse(album_dir.exists())
+            self.assertEqual(result.local_files_deleted, 1)
+            self.assertEqual(result.local_folders_pruned, 1)
+
+    def test_delete_album_files_removes_remote_object_and_empty_prefix_marker(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            database = Path(tempdir) / "kukicha.sqlite"
+            self.seed_remote_album(database)
+            job = prepare_album_delete_job(database, "old-artist::album")
+            client = FakeRemoteEditS3Client(
+                objects=("tracks/Album/01.flac", "tracks/Album/", "tracks/")
+            )
+
+            with patch("kukicha.use_case.commands.album_deletes.create_s3_client", return_value=client):
+                result = delete_album_files(job)
+
+            self.assertEqual(result.remote_objects_deleted, 1)
+            self.assertEqual(result.remote_prefixes_pruned, 1)
+            self.assertEqual(
+                client.deletes,
+                [
+                    {"Bucket": "bucket", "Key": "tracks/Album/01.flac"},
+                    {"Bucket": "bucket", "Key": "tracks/Album/"},
+                ],
+            )
+
+    def test_delete_album_files_preserves_nonempty_remote_prefix_marker(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            database = Path(tempdir) / "kukicha.sqlite"
+            self.seed_remote_album(database)
+            job = prepare_album_delete_job(database, "old-artist::album")
+            client = FakeRemoteEditS3Client(
+                objects=(
+                    "tracks/Album/01.flac",
+                    "tracks/Album/02.flac",
+                    "tracks/Album/",
+                )
+            )
+
+            with patch("kukicha.use_case.commands.album_deletes.create_s3_client", return_value=client):
+                result = delete_album_files(job)
+
+            self.assertEqual(result.remote_objects_deleted, 1)
+            self.assertEqual(result.remote_prefixes_pruned, 0)
+            self.assertEqual(
+                client.deletes,
+                [{"Bucket": "bucket", "Key": "tracks/Album/01.flac"}],
+            )
+
+    def test_delete_album_files_preserves_shared_remote_sidecar(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            database = Path(tempdir) / "kukicha.sqlite"
+            remote, track_path = self.seed_remote_album(database)
+            cover_path = canonical_s3_path(remote, "tracks/Album/cover.jpg")
+            other_path = canonical_s3_path(remote, "tracks/Other/01.flac")
+            connection = connect_database(database)
+            try:
+                insert_library_album(connection, "other::album", "Other", "Album", 1981, 1)
+                connection.execute(
+                    """
+                    INSERT INTO library_tracks (
+                        track_id, album_id, root_position, path, file_type, title,
+                        sidecar_artwork_path
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (3, "other::album", 0, other_path, "flac", "Other", cover_path),
+                )
+                connection.execute(
+                    """
+                    INSERT INTO library_track_sources (
+                        track_id, source_kind, root_position, canonical_path,
+                        object_key, sidecar_object_key
+                    ) VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    (3, "s3", 0, other_path, "tracks/Other/01.flac", "tracks/Album/cover.jpg"),
+                )
+                connection.execute(
+                    "UPDATE library_tracks SET sidecar_artwork_path = ? WHERE track_id = ?",
+                    (cover_path, 1),
+                )
+                connection.execute(
+                    "UPDATE library_track_sources SET sidecar_object_key = ? WHERE track_id = ?",
+                    ("tracks/Album/cover.jpg", 1),
+                )
+                connection.commit()
+            finally:
+                connection.close()
+
+            job = prepare_album_delete_job(database, "old-artist::album")
+            client = FakeRemoteEditS3Client(
+                objects=(
+                    "tracks/Album/01.flac",
+                    "tracks/Album/cover.jpg",
+                    "tracks/Album/",
+                )
+            )
+
+            with patch("kukicha.use_case.commands.album_deletes.create_s3_client", return_value=client):
+                result = delete_album_files(job)
+
+            self.assertEqual(job.remote_sidecar_refs, ())
+            self.assertEqual(result.remote_objects_deleted, 1)
+            self.assertEqual(
+                client.deletes,
+                [{"Bucket": "bucket", "Key": "tracks/Album/01.flac"}],
+            )
+            self.assertEqual(track_path, job.tracks[0].path)
+
+    def test_delete_album_files_requires_remote_object_key_metadata(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            database = Path(tempdir) / "kukicha.sqlite"
+            self.seed_remote_album(database, object_key=None)
+            job = prepare_album_delete_job(database, "old-artist::album")
+
+            with self.assertRaisesRegex(ValueError, "S3 object key metadata"):
+                delete_album_files(job)
+
+    def test_start_album_delete_queues_background_job(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            database = temp_path / "kukicha.sqlite"
+            first = temp_path / "Album" / "01.mp3"
+            second = temp_path / "Album" / "02.mp3"
+            first.parent.mkdir()
+            first.write_bytes(b"one")
+            second.write_bytes(b"two")
+            self.seed_album(database, (first, second))
+            runtime = Mock()
+            runtime.database = database
+            runtime.enqueue_job.return_value = PlayerJobRecord(
+                job_id=14,
+                created_at="2026-04-21T10:00:00Z",
+                updated_at="2026-04-21T10:00:00Z",
+                started_at=None,
+                finished_at=None,
+                cancel_requested_at=None,
+                kind="delete_album",
+                status="queued",
+                message="Delete queued for Old Artist - Album.",
+                reason="",
+                context={
+                    "album": "Album",
+                    "tracks_deleted": 2,
+                },
+            )
+
+            result = start_album_delete(runtime, "old-artist::album")
+
+            self.assertEqual(result["message"], "Delete queued for Old Artist - Album.")
+            self.assertEqual(result["job"]["job_id"], 14)
+            runtime.enqueue_job.assert_called_once()
+            enqueue_kwargs = runtime.enqueue_job.call_args.kwargs
+            self.assertEqual(enqueue_kwargs["kind"], "delete_album")
+            self.assertEqual(enqueue_kwargs["queued_message"], "Delete queued for Old Artist - Album.")
+            self.assertEqual(enqueue_kwargs["running_message"], "Delete running for Old Artist - Album.")
+            self.assertEqual(enqueue_kwargs["failed_message"], "Delete failed for Old Artist - Album.")
+            self.assertEqual(enqueue_kwargs["context"]["tracks_deleted"], 2)
+            self.assertTrue(callable(enqueue_kwargs["runner"]))
 
     def test_edit_library_album_musicbrainz_rewrites_remote_audio_and_stores_links(self) -> None:
         with TemporaryDirectory() as tempdir:

@@ -351,6 +351,7 @@ def list_active_player_jobs(database: Path) -> tuple[PlayerJobRecord, ...]:
 def job_kind_label_for_message(kind: str) -> str:
     labels = {
         "add_root": "Add and scan",
+        "delete_album": "Delete album",
         "delete_root": "Delete",
         "edit_album": "Tag edit",
         "edit_album_musicbrainz": "Tag edit",

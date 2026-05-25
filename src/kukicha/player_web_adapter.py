@@ -29,6 +29,7 @@ from .use_case import (
     remove_queue_item as remove_queue_item_command,
     reset_listening_data,
     save_album_artist_split_mapping,
+    start_album_delete,
     start_album_edit,
     start_rescan_library,
     start_sync,
@@ -330,6 +331,11 @@ def create_player_app(options: PlayerServerOptions) -> Flask:
     def edit_album(album_id: str) -> Response:
         payload = read_json_body()
         result = start_album_edit(player_context().runtime, album_id, payload)
+        return json_response(result, status=202)
+
+    @app.post("/api/albums/<path:album_id>/delete")
+    def delete_album(album_id: str) -> Response:
+        result = start_album_delete(player_context().runtime, album_id)
         return json_response(result, status=202)
 
     @app.post("/api/albums/<path:album_id>/star")

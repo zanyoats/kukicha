@@ -1698,6 +1698,12 @@ document.addEventListener("click", (event) => {
     void deleteMusicBrainzOverride(deleteMusicBrainzOverrideButton);
     return;
   }
+  const deleteAlbumButton = event.target.closest("[data-delete-album]");
+  if (deleteAlbumButton) {
+    event.preventDefault();
+    void deleteAlbum(deleteAlbumButton);
+    return;
+  }
   const editAlbumArtistMappingButton = event.target.closest("[data-edit-album-artist-mapping]");
   if (editAlbumArtistMappingButton) {
     event.preventDefault();
@@ -3329,6 +3335,69 @@ async function deleteMusicBrainzOverride(button) {
     await navigate(window.location.href, {replace: true, scroll: false});
   } catch {
     showToast("Unable to delete MusicBrainz override.", {error: true});
+  } finally {
+    if (button.isConnected) {
+      button.disabled = false;
+      button.removeAttribute("aria-busy");
+    }
+  }
+}
+
+async function deleteAlbum(button) {
+  if (!(button instanceof HTMLButtonElement) || button.disabled) {
+    return;
+  }
+  const form = button.closest("form[data-album-edit-form]");
+  const deleteUrl = button.dataset.deleteUrl;
+  const albumLabel = (button.dataset.albumLabel || "this album").trim() || "this album";
+  if (!deleteUrl) {
+    return;
+  }
+
+  const confirmed = await confirmAction({
+    title: "Delete Album",
+    message: `Delete ${albumLabel}? This removes the audio files and eligible cover art. Rescan Kukicha afterward to prune the library.`,
+    confirmLabel: "Delete",
+    returnFocus: button,
+  });
+  if (!confirmed) {
+    return;
+  }
+
+  if (form instanceof HTMLFormElement) {
+    setAlbumEditStatus(form, "Submitting album delete...");
+  }
+  button.disabled = true;
+  button.setAttribute("aria-busy", "true");
+  try {
+    const response = await fetch(deleteUrl, {method: "POST"});
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const message = payload && typeof payload.error === "string" && payload.error.trim()
+        ? payload.error
+        : "Unable to delete album.";
+      if (form instanceof HTMLFormElement) {
+        setAlbumEditStatus(form, message, true);
+      }
+      showToast(message, {error: true});
+      return;
+    }
+    const message = payload && typeof payload.message === "string" && payload.message.trim()
+      ? payload.message
+      : "Album delete queued.";
+    if (form instanceof HTMLFormElement) {
+      setAlbumEditStatus(form, message);
+    }
+    if (payload && payload.job) {
+      showJobToast(payload.job);
+    } else {
+      showToast(message);
+    }
+  } catch {
+    if (form instanceof HTMLFormElement) {
+      setAlbumEditStatus(form, "Unable to delete album.", true);
+    }
+    showToast("Unable to delete album.", {error: true});
   } finally {
     if (button.isConnected) {
       button.disabled = false;

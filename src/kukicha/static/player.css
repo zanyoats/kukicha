@@ -2067,6 +2067,23 @@ button:disabled,
   gap: 14px;
 }
 
+.album-edit-danger-section {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  border-left: 3px solid var(--danger);
+  background: #fff8fa;
+  padding: 12px 0 12px 14px;
+}
+
+.album-edit-danger-copy {
+  display: grid;
+  gap: 5px;
+  min-width: min(100%, 260px);
+}
+
 .album-edit-field {
   display: grid;
   gap: 6px;
