@@ -8946,6 +8946,8 @@ class PlayerAlbumTagEditTest(unittest.TestCase):
         paths: tuple[Path, Path],
         *,
         album_id: str = "old-artist::album",
+        album_artist: str = "Old Artist",
+        album: str = "Album",
     ) -> None:
         connection = connect_database(database)
         try:
@@ -8956,8 +8958,8 @@ class PlayerAlbumTagEditTest(unittest.TestCase):
             insert_library_album(
                 connection,
                 album_id,
-                "Old Artist",
-                "Album",
+                album_artist,
+                album,
                 1980,
                 2,
             )
@@ -8986,8 +8988,8 @@ class PlayerAlbumTagEditTest(unittest.TestCase):
                     str(paths[0]),
                     "mp3",
                     "Artist One",
-                    "Old Artist",
-                    "Album",
+                    album_artist,
+                    album,
                     "Track One",
                     "1",
                     "1980",
@@ -9020,8 +9022,8 @@ class PlayerAlbumTagEditTest(unittest.TestCase):
                     str(paths[1]),
                     "mp3",
                     "Artist Two",
-                    "Old Artist",
-                    "Album",
+                    album_artist,
+                    album,
                     "Track Two",
                     "2",
                     "1980",
@@ -9526,6 +9528,40 @@ class PlayerAlbumTagEditTest(unittest.TestCase):
             self.assertEqual((first.parent / "cover.png").read_bytes(), b"new cover")
             self.assertEqual((second.parent / "cover.png").read_bytes(), b"new cover")
 
+    def test_prepare_album_cover_upload_job_rejects_unknown_album_metadata(self) -> None:
+        cases = (
+            ("unknown::unknown", "__Unknown", "__Unknown"),
+            ("foo::unknown", "Foo", "__Unknown"),
+            ("unknown::foo", "__Unknown", "Foo"),
+        )
+        for album_id, album_artist, album in cases:
+            with self.subTest(album_id=album_id), TemporaryDirectory() as tempdir:
+                temp_path = Path(tempdir)
+                first = temp_path / "Album" / "01.mp3"
+                second = temp_path / "Album" / "02.mp3"
+                first.parent.mkdir()
+                first.write_bytes(b"one")
+                second.write_bytes(b"two")
+                database = temp_path / "kukicha.sqlite"
+                self.seed_album(
+                    database,
+                    (first, second),
+                    album_id=album_id,
+                    album_artist=album_artist,
+                    album=album,
+                )
+
+                with self.assertRaisesRegex(
+                    ValueError,
+                    "unknown album artist or album",
+                ):
+                    prepare_album_cover_upload_job(
+                        database,
+                        album_id,
+                        filename="front.jpg",
+                        data=b"cover",
+                    )
+
     def test_album_edit_context_shows_cover_upload_for_single_musicbrainz_group(self) -> None:
         with TemporaryDirectory() as tempdir:
             temp_path = Path(tempdir)
@@ -9541,6 +9577,33 @@ class PlayerAlbumTagEditTest(unittest.TestCase):
             context = build_album_edit_context(PlayerRuntime(database), album_id, "")
 
             self.assertTrue(context["album_cover_upload_enabled"])
+
+    def test_album_edit_context_hides_cover_upload_for_unknown_album_metadata(self) -> None:
+        cases = (
+            ("unknown::unknown", "__Unknown", "__Unknown"),
+            ("foo::unknown", "Foo", "__Unknown"),
+            ("unknown::foo", "__Unknown", "Foo"),
+        )
+        for album_id, album_artist, album in cases:
+            with self.subTest(album_id=album_id), TemporaryDirectory() as tempdir:
+                temp_path = Path(tempdir)
+                database = temp_path / "kukicha.sqlite"
+                first = temp_path / "Album" / "01.mp3"
+                second = temp_path / "Album" / "02.mp3"
+                first.parent.mkdir()
+                first.write_bytes(b"one")
+                second.write_bytes(b"two")
+                self.seed_album(
+                    database,
+                    (first, second),
+                    album_id=album_id,
+                    album_artist=album_artist,
+                    album=album,
+                )
+
+                context = build_album_edit_context(PlayerRuntime(database), album_id, "")
+
+                self.assertFalse(context["album_cover_upload_enabled"])
 
     def test_album_edit_context_hides_cover_upload_for_multiple_musicbrainz_groups(self) -> None:
         with TemporaryDirectory() as tempdir:

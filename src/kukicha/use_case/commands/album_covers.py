@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 import io
 import logging
@@ -17,6 +17,7 @@ from ...library_sources import (
     is_remote_path,
     remote_root_from_source_json,
 )
+from ...models import UNKNOWN_METADATA_TAG
 from ...player_runtime import PlayerJobCancelToken, PlayerJobResult, PlayerRuntime
 from ..database import connect_database
 from ..queries import AlbumNotFoundError
@@ -54,6 +55,26 @@ class AlbumCoverUploadResult:
     remote_objects_updated: int
 
 
+def album_cover_upload_enabled_for_metadata(
+    album: str | None,
+    album_artists: Iterable[str | None],
+) -> bool:
+    return not album_cover_upload_has_unknown_metadata(album, album_artists)
+
+
+def album_cover_upload_has_unknown_metadata(
+    album: str | None,
+    album_artists: Iterable[str | None],
+) -> bool:
+    if is_unknown_metadata(album):
+        return True
+    return any(is_unknown_metadata(artist) for artist in album_artists)
+
+
+def is_unknown_metadata(value: str | None) -> bool:
+    return str(value or "").strip().casefold() == UNKNOWN_METADATA_TAG.casefold()
+
+
 def prepare_album_cover_upload_job(
     database: Path,
     album_id: str,
@@ -82,6 +103,18 @@ def prepare_album_cover_upload_job(
         if album_row is None:
             raise AlbumNotFoundError(cleaned_album_id)
         artist_label = album_artist_display_text(connection, cleaned_album_id)
+        album_artists = tuple(
+            str(row["artist"] or "")
+            for row in connection.execute(
+                """
+                SELECT artist
+                FROM library_album_artists
+                WHERE album_id = ?
+                ORDER BY position
+                """,
+                (cleaned_album_id,),
+            )
+        )
 
         track_rows = list(
             connection.execute(
@@ -109,11 +142,16 @@ def prepare_album_cover_upload_job(
     if not track_rows:
         raise ValueError("album has no tracks for cover upload")
 
+    album_name = str(album_row["album"]) if album_row["album"] else "<unknown album>"
+    if not album_cover_upload_enabled_for_metadata(album_name, album_artists):
+        raise ValueError(
+            "cover upload is unavailable for albums with unknown album artist or album"
+        )
+
     targets = album_cover_upload_targets(track_rows)
     if not targets:
         raise ValueError("album has no track folders for cover upload")
 
-    album_name = str(album_row["album"]) if album_row["album"] else "<unknown album>"
     return AlbumCoverUploadJob(
         album_id=cleaned_album_id,
         album_label=album_display_label(artist_label, album_name),

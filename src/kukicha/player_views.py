@@ -656,10 +656,12 @@ def build_album_edit_context(
         album_tag_edit_sections,
         track_view,
     )
+    from .use_case.commands.album_covers import album_cover_upload_enabled_for_metadata
 
     api = LibraryQueries(runtime.database)
     query = AlbumListQuery()
     album = api.get_album(album_id)
+    album_artist_part_values = album_artist_parts(album)
     track_views = [track_view(track) for track in album.tracks]
     musicbrainz_link = album_musicbrainz_link(runtime.database, album.album_id)
     roots = api.library_roots()
@@ -678,14 +680,20 @@ def build_album_edit_context(
         tracks=track_views,
         album_musicbrainz_sections=musicbrainz_sections,
         album_tag_edit_section=album_tag_edit_section_for_tracks(track_views),
-        album_artist_parts=album_artist_parts(album),
+        album_artist_parts=album_artist_part_values,
         album_year_text=str(album.year) if album.year else "",
         album_genre_parts=album_genre_parts(album),
         album_style_parts=album_style_parts(album),
         album_back_url=album_url(album, query),
         album_edit_action_url=f"/api/albums/{quote(album.album_id, safe=':')}/edit",
         album_cover_upload_action_url=f"/api/albums/{quote(album.album_id, safe=':')}/cover",
-        album_cover_upload_enabled=len(musicbrainz_sections) <= 1,
+        album_cover_upload_enabled=(
+            len(musicbrainz_sections) <= 1
+            and album_cover_upload_enabled_for_metadata(
+                album.album,
+                album_artist_part_values,
+            )
+        ),
         album_delete_action_url=f"/api/albums/{quote(album.album_id, safe=':')}/delete",
         album_musicbrainz_release_mbid=(
             musicbrainz_link.release_mbid if musicbrainz_link is not None else ""
