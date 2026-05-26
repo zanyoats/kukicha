@@ -684,6 +684,8 @@ def build_album_edit_context(
         album_style_parts=album_style_parts(album),
         album_back_url=album_url(album, query),
         album_edit_action_url=f"/api/albums/{quote(album.album_id, safe=':')}/edit",
+        album_cover_upload_action_url=f"/api/albums/{quote(album.album_id, safe=':')}/cover",
+        album_cover_upload_enabled=len(musicbrainz_sections) <= 1,
         album_delete_action_url=f"/api/albums/{quote(album.album_id, safe=':')}/delete",
         album_musicbrainz_release_mbid=(
             musicbrainz_link.release_mbid if musicbrainz_link is not None else ""

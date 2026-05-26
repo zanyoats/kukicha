@@ -2058,8 +2058,22 @@ button:disabled,
 }
 
 .album-edit-notice {
+  display: flex;
+  gap: 9px;
+  align-items: flex-start;
   color: var(--text);
   font-weight: 600;
+}
+
+.album-edit-notice p {
+  margin: 0;
+}
+
+.album-edit-notice-icon {
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  color: var(--accent);
 }
 
 .album-edit-form {
@@ -2067,21 +2081,49 @@ button:disabled,
   gap: 14px;
 }
 
-.album-edit-danger-section {
+.album-edit-action-form {
+  display: grid;
+  gap: 10px;
+}
+
+.album-edit-delete-panel {
+  border-left: 3px solid var(--danger);
+}
+
+.album-edit-cover-panel {
+  border-left: 3px solid var(--accent);
+}
+
+.album-edit-tags-panel {
+  border-left: 3px solid var(--line);
+}
+
+.album-edit-danger-section,
+.album-edit-cover-section {
   display: flex;
   flex-wrap: wrap;
   justify-content: space-between;
   gap: 12px;
   align-items: center;
-  border-left: 3px solid var(--danger);
-  background: #fff8fa;
-  padding: 12px 0 12px 14px;
 }
 
-.album-edit-danger-copy {
+.album-edit-section-copy {
   display: grid;
   gap: 5px;
   min-width: min(100%, 260px);
+}
+
+.album-edit-cover-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  justify-content: flex-end;
+  min-width: min(100%, 260px);
+}
+
+.album-edit-cover-input {
+  max-width: min(100%, 320px);
 }
 
 .album-edit-field {

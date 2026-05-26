@@ -1704,6 +1704,12 @@ document.addEventListener("click", (event) => {
     void deleteAlbum(deleteAlbumButton);
     return;
   }
+  const uploadAlbumCoverButton = event.target.closest("[data-upload-album-cover]");
+  if (uploadAlbumCoverButton) {
+    event.preventDefault();
+    void uploadAlbumCover(uploadAlbumCoverButton);
+    return;
+  }
   const editAlbumArtistMappingButton = event.target.closest("[data-edit-album-artist-mapping]");
   if (editAlbumArtistMappingButton) {
     event.preventDefault();
@@ -3347,7 +3353,7 @@ async function deleteAlbum(button) {
   if (!(button instanceof HTMLButtonElement) || button.disabled) {
     return;
   }
-  const form = button.closest("form[data-album-edit-form]");
+  const form = button.closest("form[data-album-delete-form]");
   const deleteUrl = button.dataset.deleteUrl;
   const albumLabel = (button.dataset.albumLabel || "this album").trim() || "this album";
   if (!deleteUrl) {
@@ -3365,7 +3371,7 @@ async function deleteAlbum(button) {
   }
 
   if (form instanceof HTMLFormElement) {
-    setAlbumEditStatus(form, "Submitting album delete...");
+    setAlbumDeleteStatus(form, "Submitting album delete...");
   }
   button.disabled = true;
   button.setAttribute("aria-busy", "true");
@@ -3377,7 +3383,7 @@ async function deleteAlbum(button) {
         ? payload.error
         : "Unable to delete album.";
       if (form instanceof HTMLFormElement) {
-        setAlbumEditStatus(form, message, true);
+        setAlbumDeleteStatus(form, message, true);
       }
       showToast(message, {error: true});
       return;
@@ -3386,7 +3392,7 @@ async function deleteAlbum(button) {
       ? payload.message
       : "Album delete queued.";
     if (form instanceof HTMLFormElement) {
-      setAlbumEditStatus(form, message);
+      setAlbumDeleteStatus(form, message);
     }
     if (payload && payload.job) {
       showJobToast(payload.job);
@@ -3395,10 +3401,115 @@ async function deleteAlbum(button) {
     }
   } catch {
     if (form instanceof HTMLFormElement) {
-      setAlbumEditStatus(form, "Unable to delete album.", true);
+      setAlbumDeleteStatus(form, "Unable to delete album.", true);
     }
     showToast("Unable to delete album.", {error: true});
   } finally {
+    if (button.isConnected) {
+      button.disabled = false;
+      button.removeAttribute("aria-busy");
+    }
+  }
+}
+
+function albumCoverUploadExtension(filename) {
+  const name = String(filename || "").trim();
+  const slashIndex = Math.max(name.lastIndexOf("/"), name.lastIndexOf("\\"));
+  const basename = name.slice(slashIndex + 1);
+  const dotIndex = basename.lastIndexOf(".");
+  if (dotIndex <= 0 || dotIndex === basename.length - 1) {
+    return "";
+  }
+  const extension = basename.slice(dotIndex).toLowerCase();
+  if (![".gif", ".jpeg", ".jpg", ".png", ".webp"].includes(extension)) {
+    return "";
+  }
+  return extension;
+}
+
+async function uploadAlbumCover(button) {
+  if (!(button instanceof HTMLButtonElement) || button.disabled) {
+    return;
+  }
+  const form = button.closest("form[data-album-cover-form]");
+  const uploadUrl = button.dataset.uploadUrl;
+  const albumLabel = (button.dataset.albumLabel || "this album").trim() || "this album";
+  const input = form instanceof HTMLFormElement
+    ? form.querySelector("[data-album-cover-input]")
+    : null;
+  if (!uploadUrl || !(input instanceof HTMLInputElement)) {
+    return;
+  }
+
+  const file = input.files && input.files.length ? input.files[0] : null;
+  if (!file) {
+    if (form instanceof HTMLFormElement) {
+      setAlbumCoverStatus(form, "Choose a cover image first.", true);
+    }
+    return;
+  }
+  const extension = albumCoverUploadExtension(file.name);
+  if (!extension) {
+    if (form instanceof HTMLFormElement) {
+      setAlbumCoverStatus(form, "Cover must be a GIF, JPEG, PNG, or WebP image.", true);
+    }
+    return;
+  }
+  const coverFilename = `cover${extension}`;
+  const confirmed = await confirmAction({
+    title: "Upload Cover",
+    message: `Upload ${file.name} as ${coverFilename} for ${albumLabel}? Existing ${coverFilename} files will be overwritten. Rescan Kukicha afterward to reconcile the new cover art.`,
+    confirmLabel: "Upload",
+    returnFocus: button,
+  });
+  if (!confirmed) {
+    return;
+  }
+
+  if (form instanceof HTMLFormElement) {
+    setAlbumCoverStatus(form, "Submitting cover upload...");
+  }
+  input.disabled = true;
+  button.disabled = true;
+  button.setAttribute("aria-busy", "true");
+  const body = new FormData();
+  body.append("cover", file, file.name);
+  try {
+    const response = await fetch(uploadUrl, {
+      method: "POST",
+      body,
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const message = payload && typeof payload.error === "string" && payload.error.trim()
+        ? payload.error
+        : "Unable to upload cover.";
+      if (form instanceof HTMLFormElement) {
+        setAlbumCoverStatus(form, message, true);
+      }
+      showToast(message, {error: true});
+      return;
+    }
+    const message = payload && typeof payload.message === "string" && payload.message.trim()
+      ? payload.message
+      : "Cover upload queued.";
+    if (form instanceof HTMLFormElement) {
+      setAlbumCoverStatus(form, message);
+    }
+    if (payload && payload.job) {
+      showJobToast(payload.job);
+    } else {
+      showToast(message);
+    }
+  } catch {
+    if (form instanceof HTMLFormElement) {
+      setAlbumCoverStatus(form, "Unable to upload cover.", true);
+    }
+    showToast("Unable to upload cover.", {error: true});
+  } finally {
+    if (input.isConnected) {
+      input.disabled = false;
+    }
     if (button.isConnected) {
       button.disabled = false;
       button.removeAttribute("aria-busy");
@@ -3549,6 +3660,14 @@ function setStatusMessage(formOrElement, selector, message, isError = false) {
 
 function setAlbumEditStatus(formOrElement, message, isError = false) {
   setStatusMessage(formOrElement, "[data-album-edit-status]", message, isError);
+}
+
+function setAlbumDeleteStatus(formOrElement, message, isError = false) {
+  setStatusMessage(formOrElement, "[data-album-delete-status]", message, isError);
+}
+
+function setAlbumCoverStatus(formOrElement, message, isError = false) {
+  setStatusMessage(formOrElement, "[data-album-cover-status]", message, isError);
 }
 
 function setAlbumArtistMappingStatus(formOrElement, message, isError = false) {

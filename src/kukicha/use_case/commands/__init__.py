@@ -22,6 +22,10 @@ from .album_deletes import (
     delete_album_files,
     prepare_album_delete_job,
 )
+from .album_covers import (
+    prepare_album_cover_upload_job,
+    upload_album_cover_files,
+)
 from .player import (
     append_queue,
     clear_cache_tables,
@@ -32,6 +36,7 @@ from .player import (
     playlist_audio_path,
     remove_queue_item,
     save_album_artist_split_mapping,
+    start_album_cover_upload,
     start_album_delete,
     start_album_edit,
     start_rescan_library,
@@ -83,6 +88,7 @@ __all__ = [
     "list_active_player_jobs",
     "list_player_jobs",
     "mark_stale_player_jobs_canceled",
+    "prepare_album_cover_upload_job",
     "prepare_album_edit_job",
     "prepare_album_delete_job",
     "prepare_album_musicbrainz_edit_job",
@@ -96,6 +102,7 @@ __all__ = [
     "save_album_artist_split_mapping",
     "set_track_playlist_membership",
     "set_track_playlist_membership_database",
+    "start_album_cover_upload",
     "start_album_delete",
     "start_album_edit",
     "start_rescan_library",
@@ -103,6 +110,7 @@ __all__ = [
     "track_artwork",
     "track_audio_path",
     "track_audio_resource",
+    "upload_album_cover_files",
     "update_album_star",
     "update_playback",
     "update_player_job",

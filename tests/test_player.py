@@ -107,6 +107,7 @@ from kukicha.use_case import (
     list_player_jobs,
     mark_stale_player_jobs_canceled,
     playlist_menu_options_by_track_id,
+    prepare_album_cover_upload_job,
     prepare_album_delete_job,
     prepare_album_edit_job,
     prepare_album_musicbrainz_edit_job,
@@ -117,11 +118,13 @@ from kukicha.use_case import (
     sync_library_roots,
     set_track_playlist_membership,
     set_track_playlist_membership_database,
+    start_album_cover_upload,
     start_album_delete,
     start_album_edit,
     update_playback as update_playback_command,
     update_player_job,
     update_queue as update_queue_command,
+    upload_album_cover_files,
 )
 from kukicha.player_errors import PlayerConfigError, PlayerConflictError
 from kukicha.player_common import format_compact_count, format_count_label
@@ -160,7 +163,11 @@ from kukicha.player_presenters import (
     track_view,
     valid_playback_ids,
 )
-from kukicha.player_views import album_musicbrainz_edit_sections, base_player_context
+from kukicha.player_views import (
+    album_musicbrainz_edit_sections,
+    base_player_context,
+    build_album_edit_context,
+)
 
 from kukicha.player_runtime import (
     PlayerJobCanceled,
@@ -3698,6 +3705,8 @@ class PlayerAlbumDetailLinksTest(unittest.TestCase):
             album_genre_parts=("__Unknown",),
             album_style_parts=(),
             album_edit_action_url="/api/albums/unknown::unknown/edit",
+            album_delete_action_url="/api/albums/unknown::unknown/delete",
+            album_cover_upload_enabled=False,
             album_musicbrainz_sections=musicbrainz_sections,
             album_tag_edit_section=tag_section,
             album_musicbrainz_release_mbid="",
@@ -3705,9 +3714,16 @@ class PlayerAlbumDetailLinksTest(unittest.TestCase):
         )
 
         self.assertEqual(html.count("data-album-edit-form"), 1)
+        self.assertEqual(html.count("data-album-delete-form"), 1)
+        self.assertNotIn("data-album-cover-form", html)
         self.assertEqual(html.count("data-apply-album-edit"), 2)
         self.assertEqual(html.count("data-album-edit-status"), 1)
+        self.assertEqual(html.count("data-album-delete-status"), 1)
+        self.assertNotIn("data-album-cover-status", html)
         self.assertNotIn("data-album-musicbrainz-status", html)
+        self.assertIn("album-edit-notice-icon", html)
+        self.assertIn('fill="currentColor"', html)
+        self.assertIn("Tag / MusicBrainz Edits", html)
         self.assertIn(
             "These actions queue jobs that edit the metadata stored in the audio files",
             html,
@@ -3727,8 +3743,8 @@ class PlayerAlbumDetailLinksTest(unittest.TestCase):
         self.assertNotIn("data-musicbrainz-release-group-mbid-input", html)
         self.assertEqual(html.count('data-server-value=""'), 2)
         self.assertEqual(
-            html.count('class="album-edit-panel settings-panel album-edit-section"'),
-            1,
+            html.count('class="album-edit-panel settings-panel album-edit-section'),
+            2,
         )
         self.assertEqual(html.count("data-musicbrainz-track-id"), 2)
         self.assertIn(".../downloads/Unknown/", html)
@@ -3793,6 +3809,8 @@ class PlayerAlbumDetailLinksTest(unittest.TestCase):
             album_genre_parts=("Ambient",),
             album_style_parts=(),
             album_edit_action_url="/api/albums/brian-eno::ambient-1/edit",
+            album_cover_upload_action_url="/api/albums/brian-eno::ambient-1/cover",
+            album_cover_upload_enabled=True,
             album_delete_action_url="/api/albums/brian-eno::ambient-1/delete",
             album_musicbrainz_sections=musicbrainz_sections,
             album_tag_edit_section=album_tag_edit_section_for_tracks(tracks),
@@ -3801,16 +3819,30 @@ class PlayerAlbumDetailLinksTest(unittest.TestCase):
         )
 
         self.assertEqual(html.count("data-album-edit-form"), 1)
+        self.assertEqual(html.count("data-album-delete-form"), 1)
+        self.assertEqual(html.count("data-album-cover-form"), 1)
         self.assertEqual(html.count("data-apply-album-edit"), 2)
+        self.assertEqual(html.count("data-album-edit-status"), 1)
+        self.assertEqual(html.count("data-album-delete-status"), 1)
+        self.assertEqual(html.count("data-album-cover-status"), 1)
         self.assertIn('action="/api/albums/brian-eno::ambient-1/edit"', html)
         self.assertIn('data-delete-url="/api/albums/brian-eno::ambient-1/delete"', html)
+        self.assertIn('data-upload-url="/api/albums/brian-eno::ambient-1/cover"', html)
         self.assertEqual(html.count("data-musicbrainz-group"), 1)
         self.assertIn("Update Audio Tags", html)
-        notice_index = html.index("These actions queue jobs")
-        delete_index = html.index("album-edit-danger-section")
+        delete_index = html.index("data-album-delete-form")
+        cover_index = html.index("data-album-cover-form")
+        tags_index = html.index("Tag / MusicBrainz Edits")
+        notice_index = html.index("album-edit-notice-icon")
         apply_index = html.index("data-apply-album-edit")
-        self.assertLess(notice_index, delete_index)
-        self.assertLess(delete_index, apply_index)
+        self.assertLess(delete_index, cover_index)
+        self.assertLess(cover_index, tags_index)
+        self.assertLess(tags_index, notice_index)
+        self.assertLess(notice_index, apply_index)
+        self.assertIn(
+            "These actions queue jobs that edit the metadata stored in the audio files. On rescan, Kukicha will extract the updated metadata into Kukicha's library database.",
+            html,
+        )
         self.assertIn("data-album-input", html)
         self.assertIn("data-album-artist-input", html)
         self.assertIn("data-album-genre-input", html)
@@ -3959,6 +3991,67 @@ class PlayerAlbumDetailLinksTest(unittest.TestCase):
             'data-server-value="https://musicbrainz.org/release/6439fcbe-b404-4cf4-ac58-4816c43cf2e3"',
             html,
         )
+
+    def test_album_edit_template_shows_cover_upload_when_enabled(self) -> None:
+        album = AlbumDetails(
+            album_id="aphex-twin::selected-ambient-works-volume-ii::09f",
+            artist="Aphex Twin",
+            album_artists=("Aphex Twin",),
+            album="Selected Ambient Works, Volume II",
+            year=1994,
+            track_count=1,
+        )
+        roots = (
+            LibraryRootFilterOption(position=0, path="/music/downloaded", label=".../downloaded"),
+        )
+        tracks = [
+            make_track_view(
+                1,
+                root_position=0,
+                path="/music/downloaded/Aphex Twin/Selected Ambient Works, Volume II/01.flac",
+                album_id=album.album_id,
+                album="Selected Ambient Works, Volume II",
+            ),
+        ]
+        musicbrainz_sections = album_tag_edit_sections(tracks, roots)
+        template = build_template_environment().get_template("player/album_edit.html")
+
+        html = template.render(
+            album=album,
+            album_back_url="/albums/aphex-twin::selected-ambient-works-volume-ii::09f",
+            album_root_links=(),
+            album_artist_parts=("Aphex Twin",),
+            album_year_text="1994",
+            album_genre_parts=("Electronic",),
+            album_style_parts=(),
+            album_edit_action_url=(
+                "/api/albums/aphex-twin::selected-ambient-works-volume-ii::09f/edit"
+            ),
+            album_cover_upload_action_url=(
+                "/api/albums/aphex-twin::selected-ambient-works-volume-ii::09f/cover"
+            ),
+            album_cover_upload_enabled=True,
+            album_delete_action_url=(
+                "/api/albums/aphex-twin::selected-ambient-works-volume-ii::09f/delete"
+            ),
+            album_musicbrainz_sections=musicbrainz_sections,
+            album_tag_edit_section=album_tag_edit_section_for_tracks(tracks),
+            album_musicbrainz_release_mbid="",
+            album_musicbrainz_release_group_mbid="",
+        )
+
+        delete_index = html.index("Delete Album")
+        cover_index = html.index("Upload Cover")
+        apply_index = html.index("data-apply-album-edit")
+        self.assertLess(delete_index, cover_index)
+        self.assertLess(cover_index, apply_index)
+        self.assertIn("data-album-cover-input", html)
+        self.assertIn("data-upload-album-cover", html)
+        self.assertIn(
+            'data-upload-url="/api/albums/aphex-twin::selected-ambient-works-volume-ii::09f/cover"',
+            html,
+        )
+        self.assertIn("Existing cover files with the same extension will be overwritten", html)
 
     def test_album_musicbrainz_edit_sections_prefill_urls_from_track_links(self) -> None:
         with TemporaryDirectory() as tempdir:
@@ -8847,7 +8940,13 @@ class PlayerJobLogTest(unittest.TestCase):
 
 
 class PlayerAlbumTagEditTest(unittest.TestCase):
-    def seed_album(self, database: Path, paths: tuple[Path, Path]) -> None:
+    def seed_album(
+        self,
+        database: Path,
+        paths: tuple[Path, Path],
+        *,
+        album_id: str = "old-artist::album",
+    ) -> None:
         connection = connect_database(database)
         try:
             connection.execute(
@@ -8856,7 +8955,7 @@ class PlayerAlbumTagEditTest(unittest.TestCase):
             )
             insert_library_album(
                 connection,
-                "old-artist::album",
+                album_id,
                 "Old Artist",
                 "Album",
                 1980,
@@ -8882,7 +8981,7 @@ class PlayerAlbumTagEditTest(unittest.TestCase):
                 """,
                 (
                     1,
-                    "old-artist::album",
+                    album_id,
                     0,
                     str(paths[0]),
                     "mp3",
@@ -8916,7 +9015,7 @@ class PlayerAlbumTagEditTest(unittest.TestCase):
                 """,
                 (
                     2,
-                    "old-artist::album",
+                    album_id,
                     0,
                     str(paths[1]),
                     "mp3",
@@ -8962,6 +9061,7 @@ class PlayerAlbumTagEditTest(unittest.TestCase):
         source_json: str | None = None,
         object_key: str | None = "tracks/Album/01.flac",
         content_type: str | None = "audio/flac",
+        album_id: str = "old-artist::album",
     ) -> tuple[RemoteRootConfig, str]:
         remote = RemoteRootConfig(
             name="Remote",
@@ -8984,7 +9084,7 @@ class PlayerAlbumTagEditTest(unittest.TestCase):
             )
             insert_library_album(
                 connection,
-                "old-artist::album",
+                album_id,
                 "Old Artist",
                 "Album",
                 1980,
@@ -9007,7 +9107,7 @@ class PlayerAlbumTagEditTest(unittest.TestCase):
                 """,
                 (
                     1,
-                    "old-artist::album",
+                    album_id,
                     0,
                     track_path,
                     "flac",
@@ -9396,6 +9496,100 @@ class PlayerAlbumTagEditTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "S3 object key metadata"):
                 delete_album_files(job)
 
+    def test_upload_album_cover_files_writes_cover_to_each_local_track_folder(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            album_id = "old-artist::album"
+            first = temp_path / "One" / "Album" / "01.mp3"
+            second = temp_path / "Two" / "Album" / "02.mp3"
+            first.parent.mkdir(parents=True)
+            second.parent.mkdir(parents=True)
+            first.write_bytes(b"one")
+            second.write_bytes(b"two")
+            existing_cover = first.parent / "cover.png"
+            existing_cover.write_bytes(b"old cover")
+            database = temp_path / "kukicha.sqlite"
+            self.seed_album(database, (first, second), album_id=album_id)
+
+            job = prepare_album_cover_upload_job(
+                database,
+                album_id,
+                filename="Front.PNG",
+                data=b"new cover",
+            )
+            result = upload_album_cover_files(job)
+
+            self.assertEqual(job.cover_filename, "cover.png")
+            self.assertEqual(result.targets_updated, 2)
+            self.assertEqual(result.local_files_updated, 2)
+            self.assertEqual(result.remote_objects_updated, 0)
+            self.assertEqual((first.parent / "cover.png").read_bytes(), b"new cover")
+            self.assertEqual((second.parent / "cover.png").read_bytes(), b"new cover")
+
+    def test_album_edit_context_shows_cover_upload_for_single_musicbrainz_group(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            album_id = "old-artist::album"
+            database = temp_path / "kukicha.sqlite"
+            first = temp_path / "Album" / "01.mp3"
+            second = temp_path / "Album" / "02.mp3"
+            first.parent.mkdir()
+            first.write_bytes(b"one")
+            second.write_bytes(b"two")
+            self.seed_album(database, (first, second), album_id=album_id)
+
+            context = build_album_edit_context(PlayerRuntime(database), album_id, "")
+
+            self.assertTrue(context["album_cover_upload_enabled"])
+
+    def test_album_edit_context_hides_cover_upload_for_multiple_musicbrainz_groups(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            album_id = "old-artist::album"
+            database = temp_path / "kukicha.sqlite"
+            first = temp_path / "One" / "Album" / "01.mp3"
+            second = temp_path / "Two" / "Album" / "02.mp3"
+            first.parent.mkdir(parents=True)
+            second.parent.mkdir(parents=True)
+            first.write_bytes(b"one")
+            second.write_bytes(b"two")
+            self.seed_album(database, (first, second), album_id=album_id)
+
+            context = build_album_edit_context(PlayerRuntime(database), album_id, "")
+
+            self.assertFalse(context["album_cover_upload_enabled"])
+
+    def test_upload_album_cover_files_puts_remote_cover_object(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            album_id = "old-artist::album::abc"
+            database = Path(tempdir) / "kukicha.sqlite"
+            self.seed_remote_album(database, album_id=album_id)
+            job = prepare_album_cover_upload_job(
+                database,
+                album_id,
+                filename="front.JPEG",
+                data=b"remote cover",
+            )
+            client = FakeRemoteEditS3Client()
+
+            with patch("kukicha.use_case.commands.album_covers.create_s3_client", return_value=client):
+                result = upload_album_cover_files(job)
+
+            self.assertEqual(result.targets_updated, 1)
+            self.assertEqual(result.remote_objects_updated, 1)
+            self.assertEqual(
+                client.puts,
+                [
+                    {
+                        "Bucket": "bucket",
+                        "Key": "tracks/Album/cover.jpeg",
+                        "Body": b"remote cover",
+                        "ContentType": "image/jpeg",
+                        "Metadata": {},
+                    }
+                ],
+            )
+
     def test_start_album_delete_queues_background_job(self) -> None:
         with TemporaryDirectory() as tempdir:
             temp_path = Path(tempdir)
@@ -9436,6 +9630,56 @@ class PlayerAlbumTagEditTest(unittest.TestCase):
             self.assertEqual(enqueue_kwargs["running_message"], "Delete running for Old Artist - Album.")
             self.assertEqual(enqueue_kwargs["failed_message"], "Delete failed for Old Artist - Album.")
             self.assertEqual(enqueue_kwargs["context"]["tracks_deleted"], 2)
+            self.assertTrue(callable(enqueue_kwargs["runner"]))
+
+    def test_start_album_cover_upload_queues_background_job(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            album_id = "old-artist::album::abc"
+            database = temp_path / "kukicha.sqlite"
+            first = temp_path / "Album" / "01.mp3"
+            second = temp_path / "Album" / "02.mp3"
+            first.parent.mkdir()
+            first.write_bytes(b"one")
+            second.write_bytes(b"two")
+            self.seed_album(database, (first, second), album_id=album_id)
+            runtime = Mock()
+            runtime.database = database
+            runtime.enqueue_job.return_value = PlayerJobRecord(
+                job_id=15,
+                created_at="2026-04-21T10:00:00Z",
+                updated_at="2026-04-21T10:00:00Z",
+                started_at=None,
+                finished_at=None,
+                cancel_requested_at=None,
+                kind="upload_album_cover",
+                status="queued",
+                message="Cover upload queued for Old Artist - Album.",
+                reason="",
+                context={
+                    "album": "Album",
+                    "cover_filename": "cover.jpg",
+                    "cover_targets": 1,
+                },
+            )
+
+            result = start_album_cover_upload(
+                runtime,
+                album_id,
+                filename="folder.jpg",
+                data=b"cover",
+            )
+
+            self.assertEqual(result["message"], "Cover upload queued for Old Artist - Album.")
+            self.assertEqual(result["job"]["job_id"], 15)
+            runtime.enqueue_job.assert_called_once()
+            enqueue_kwargs = runtime.enqueue_job.call_args.kwargs
+            self.assertEqual(enqueue_kwargs["kind"], "upload_album_cover")
+            self.assertEqual(enqueue_kwargs["queued_message"], "Cover upload queued for Old Artist - Album.")
+            self.assertEqual(enqueue_kwargs["running_message"], "Cover upload running for Old Artist - Album.")
+            self.assertEqual(enqueue_kwargs["failed_message"], "Cover upload failed for Old Artist - Album.")
+            self.assertEqual(enqueue_kwargs["context"]["cover_filename"], "cover.jpg")
+            self.assertEqual(enqueue_kwargs["context"]["cover_targets"], 1)
             self.assertTrue(callable(enqueue_kwargs["runner"]))
 
     def test_edit_library_album_musicbrainz_rewrites_remote_audio_and_stores_links(self) -> None:

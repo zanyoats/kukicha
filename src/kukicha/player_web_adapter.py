@@ -29,6 +29,7 @@ from .use_case import (
     remove_queue_item as remove_queue_item_command,
     reset_listening_data,
     save_album_artist_split_mapping,
+    start_album_cover_upload,
     start_album_delete,
     start_album_edit,
     start_rescan_library,
@@ -90,6 +91,7 @@ from .player_views import (
 
 BYTE_RANGE_RE = re.compile(r"bytes=(\d*)-(\d*)$")
 MAX_POST_BYTES = 1024 * 64
+MAX_COVER_UPLOAD_BYTES = 1024 * 1024 * 25
 FRAGMENT_HEADER = "X-Kukicha-Fragment"
 PLAYER_CONTEXT_KEY = "kukicha_player_context"
 STATIC_CONTENT_TYPES = {
@@ -331,6 +333,17 @@ def create_player_app(options: PlayerServerOptions) -> Flask:
     def edit_album(album_id: str) -> Response:
         payload = read_json_body()
         result = start_album_edit(player_context().runtime, album_id, payload)
+        return json_response(result, status=202)
+
+    @app.post("/api/albums/<path:album_id>/cover")
+    def upload_album_cover(album_id: str) -> Response:
+        filename, data = read_cover_upload()
+        result = start_album_cover_upload(
+            player_context().runtime,
+            album_id,
+            filename=filename,
+            data=data,
+        )
         return json_response(result, status=202)
 
     @app.post("/api/albums/<path:album_id>/delete")
@@ -808,6 +821,24 @@ def read_json_body() -> dict[str, Any]:
     if not isinstance(payload, dict):
         raise ValueError("expected a JSON object")
     return payload
+
+
+def read_cover_upload() -> tuple[str, bytes]:
+    length = request.content_length
+    if length is not None and length > MAX_COVER_UPLOAD_BYTES:
+        raise ValueError("cover upload is too large")
+    uploaded = request.files.get("cover")
+    if uploaded is None:
+        raise ValueError("cover file is required")
+    filename = str(uploaded.filename or "").strip()
+    if not filename:
+        raise ValueError("cover file must have a filename")
+    data = uploaded.stream.read(MAX_COVER_UPLOAD_BYTES + 1)
+    if len(data) > MAX_COVER_UPLOAD_BYTES:
+        raise ValueError("cover upload is too large")
+    if not data:
+        raise ValueError("cover file is empty")
+    return filename, data
 
 
 def audio_file_response(path: Path) -> Response:

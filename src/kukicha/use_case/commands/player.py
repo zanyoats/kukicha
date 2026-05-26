@@ -928,6 +928,49 @@ def start_album_delete(
     }
 
 
+def start_album_cover_upload(
+    runtime: PlayerRuntime,
+    album_id: str,
+    *,
+    filename: str,
+    data: bytes,
+) -> dict[str, object]:
+    from ...player_jobs import job_payload
+    from .album_covers import (
+        prepare_album_cover_upload_job,
+        run_upload_album_cover_job,
+    )
+
+    job = prepare_album_cover_upload_job(
+        runtime.database,
+        album_id,
+        filename=filename,
+        data=data,
+    )
+    queued_job = runtime.enqueue_job(
+        kind="upload_album_cover",
+        queued_message=f"Cover upload queued for {job.album_label}.",
+        running_message=f"Cover upload running for {job.album_label}.",
+        canceled_message=f"Cover upload canceled for {job.album_label}.",
+        failed_message=f"Cover upload failed for {job.album_label}.",
+        context={
+            "album": job.album_name,
+            "cover_filename": job.cover_filename,
+            "cover_targets": len(job.targets),
+        },
+        runner=lambda cancel_token: run_upload_album_cover_job(
+            runtime,
+            job,
+            cancel_token,
+        ),
+    )
+
+    return {
+        "message": f"Cover upload queued for {job.album_label}.",
+        "job": job_payload(queued_job),
+    }
+
+
 def track_audio_path(runtime: PlayerRuntime, track_id: int) -> Path:
     return LibraryQueries(runtime.database).get_track_audio_path(track_id)
 

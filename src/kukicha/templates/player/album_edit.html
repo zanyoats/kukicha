@@ -46,20 +46,16 @@
         or album_musicbrainz_release_group_mbid
       )
     ) %}
-    <section class="album-edit-panel settings-panel album-edit-section">
-      <p class="album-edit-notice">
-        These actions queue jobs that edit the metadata stored in the audio files. On rescan,
-        Kukicha will extract the updated metadata into Kukicha's library database.
-      </p>
+    <section class="album-edit-panel settings-panel album-edit-section album-edit-delete-panel" data-album-delete-section>
       <form
-        class="album-edit-form"
-        action="{{ album_edit_action_url }}"
+        class="album-edit-action-form"
+        action="{{ album_delete_action_url }}"
         method="post"
         autocomplete="off"
-        data-album-edit-form
+        data-album-delete-form
       >
         <div class="album-edit-danger-section">
-          <div class="album-edit-danger-copy">
+          <div class="album-edit-section-copy">
             <h4 class="album-edit-form-title">Delete Album</h4>
             <p class="album-edit-form-description">
               Deletes the audio files and eligible cover art from storage. Rescan the library to remove the album from Kukicha.
@@ -73,6 +69,75 @@
             data-album-label="{{ album.artist }} - {{ album.album|display_album_title }}"
           >Delete Album</button>
         </div>
+        <div
+          class="settings-status"
+          data-album-delete-status
+          aria-live="polite"
+        ></div>
+      </form>
+    </section>
+
+    {% if album_cover_upload_enabled %}
+      <section class="album-edit-panel settings-panel album-edit-section album-edit-cover-panel" data-album-cover-section>
+        <form
+          class="album-edit-action-form"
+          action="{{ album_cover_upload_action_url }}"
+          method="post"
+          enctype="multipart/form-data"
+          autocomplete="off"
+          data-album-cover-form
+        >
+          <div class="album-edit-cover-section">
+            <div class="album-edit-section-copy">
+              <h4 class="album-edit-form-title">Upload Cover</h4>
+              <p class="album-edit-form-description">
+                Uploads the image as cover.[ext] to every folder represented by this album.
+                Existing cover files with the same extension will be overwritten. Rescan the library to reconcile the new cover art.
+              </p>
+            </div>
+            <div class="album-edit-cover-controls">
+              <input
+                class="album-edit-cover-input"
+                type="file"
+                accept="image/gif,image/jpeg,image/png,image/webp"
+                data-album-cover-input
+              >
+              <button
+                type="button"
+                data-upload-album-cover
+                data-upload-url="{{ album_cover_upload_action_url }}"
+                data-album-label="{{ album.artist }} - {{ album.album|display_album_title }}"
+              >Upload Cover</button>
+            </div>
+          </div>
+          <div
+            class="settings-status"
+            data-album-cover-status
+            aria-live="polite"
+          ></div>
+        </form>
+      </section>
+    {% endif %}
+
+    <section class="album-edit-panel settings-panel album-edit-section album-edit-tags-panel">
+      <h4 class="album-edit-form-title">Tag / MusicBrainz Edits</h4>
+      <div class="album-edit-notice">
+        <svg class="album-edit-notice-icon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" focusable="false">
+          <path d="M12 17.75C12.4142 17.75 12.75 17.4142 12.75 17V11C12.75 10.5858 12.4142 10.25 12 10.25C11.5858 10.25 11.25 10.5858 11.25 11V17C11.25 17.4142 11.5858 17.75 12 17.75Z" fill="currentColor"></path>
+          <path d="M12 7C12.5523 7 13 7.44772 13 8C13 8.55228 12.5523 9 12 9C11.4477 9 11 8.55228 11 8C11 7.44772 11.4477 7 12 7Z" fill="currentColor"></path>
+          <path fill-rule="evenodd" clip-rule="evenodd" d="M1.25 12C1.25 6.06294 6.06294 1.25 12 1.25C17.9371 1.25 22.75 6.06294 22.75 12C22.75 17.9371 17.9371 22.75 12 22.75C6.06294 22.75 1.25 17.9371 1.25 12ZM12 2.75C6.89137 2.75 2.75 6.89137 2.75 12C2.75 17.1086 6.89137 21.25 12 21.25C17.1086 21.25 21.25 17.1086 21.25 12C21.25 6.89137 17.1086 2.75 12 2.75Z" fill="currentColor"></path>
+        </svg>
+        <p>
+          These actions queue jobs that edit the metadata stored in the audio files. On rescan, Kukicha will extract the updated metadata into Kukicha's library database.
+        </p>
+      </div>
+      <form
+        class="album-edit-form"
+        action="{{ album_edit_action_url }}"
+        method="post"
+        autocomplete="off"
+        data-album-edit-form
+      >
         <div class="album-edit-actions album-edit-actions-top">
           <button class="primary" type="submit" data-apply-album-edit>Apply</button>
         </div>

@@ -480,6 +480,9 @@ class TestDocument {
 class TestFormData {
   constructor(form) {
     this.items = [];
+    if (!form) {
+      return;
+    }
     for (const control of form.elements || []) {
       if (!control.name || control.disabled) {
         continue;
@@ -493,6 +496,10 @@ class TestFormData {
       }
       this.items.push([control.name, control.value]);
     }
+  }
+
+  append(name, value, filename) {
+    this.items.push([name, value, filename]);
   }
 
   delete(name) {
@@ -676,7 +683,15 @@ function createHarness(initialQueueState, options = {}) {
     requestAnimationFrame: window.requestAnimationFrame,
     cancelAnimationFrame: window.cancelAnimationFrame,
     fetch: async (url, request = {}) => {
-      const parsedBody = request.body ? JSON.parse(request.body) : null;
+      let parsedBody = null;
+      if (request.body instanceof TestFormData) {
+        parsedBody = {};
+        for (const [key, value] of request.body.entries()) {
+          parsedBody[key] = value;
+        }
+      } else if (request.body) {
+        parsedBody = JSON.parse(request.body);
+      }
       fetchCalls.push({url, request, body: parsedBody});
       return {
         ok: true,
@@ -1355,11 +1370,11 @@ test("album delete queues after confirmation", async () => {
   const confirmButton = harness.document.querySelector("[data-confirmation-confirm]");
   const dialog = harness.document.getElementById("confirmation-dialog");
   const message = harness.document.querySelector("[data-confirmation-message]");
-  form.setQueryResult("[data-album-edit-status]", status);
+  form.setQueryResult("[data-album-delete-status]", status);
   button.dataset.deleteUrl = "/api/albums/old-artist::album/delete";
   button.dataset.albumLabel = "Old Artist - Album";
   button.closest = (selector) => (
-    selector === "form[data-album-edit-form]" ? form : null
+    selector === "form[data-album-delete-form]" ? form : null
   );
 
   const deletePromise = harness.context.deleteAlbum(button);
@@ -1384,6 +1399,84 @@ test("album delete queues after confirmation", async () => {
   assert.equal(harness.fetchCalls[0].url, "/api/albums/old-artist::album/delete");
   assert.equal(harness.fetchCalls[0].request.method, "POST");
   assert.equal(status.textContent, "Delete queued for Old Artist - Album.");
+  assert.equal(button.disabled, false);
+  assert.equal(button.getAttribute("aria-busy"), null);
+  assert.equal(harness.jobToasts.children.length, 1);
+});
+
+test("album cover upload sends selected file after overwrite confirmation", async () => {
+  const harness = createHarness({
+    track_ids: [],
+    position: 0,
+    loaded_track_id: null,
+    paused: true,
+    errored_track_ids: [],
+    unavailable_track_ids: [],
+    message: "Cover upload queued for Old Artist - Album.",
+    job: {
+      job_id: 32,
+      created_at: "2026-04-21T10:00:00Z",
+      created_at_label: "2026-04-21 10:00:00 UTC",
+      updated_at: "2026-04-21T10:00:00Z",
+      updated_at_label: "2026-04-21 10:00:00 UTC",
+      started_at: "",
+      started_at_label: "",
+      finished_at: "",
+      finished_at_label: "",
+      cancel_requested_at: "",
+      kind: "upload_album_cover",
+      kind_label: "Upload Cover",
+      status: "queued",
+      status_label: "Queued",
+      message: "Cover upload queued for Old Artist - Album.",
+      reason: "",
+      context_items: [],
+    },
+  });
+  const form = harness.document.createElement("form");
+  const status = harness.document.createElement("div");
+  const input = harness.document.createElement("input");
+  const button = harness.document.createElement("button");
+  const file = {name: "Front.JPG"};
+  const confirmButton = harness.document.querySelector("[data-confirmation-confirm]");
+  const dialog = harness.document.getElementById("confirmation-dialog");
+  const message = harness.document.querySelector("[data-confirmation-message]");
+  input.files = [file];
+  form.setQueryResult("[data-album-cover-status]", status);
+  form.setQueryResult("[data-album-cover-input]", input);
+  button.dataset.uploadUrl = "/api/albums/old-artist::album::abc/cover";
+  button.dataset.albumLabel = "Old Artist - Album";
+  button.closest = (selector) => {
+    if (selector === "form[data-album-cover-form]") {
+      return form;
+    }
+    return null;
+  };
+
+  const uploadPromise = harness.context.uploadAlbumCover(button);
+  await Promise.resolve();
+
+  assert.equal(dialog.hidden, false);
+  assert.equal(
+    message.textContent,
+    "Upload Front.JPG as cover.jpg for Old Artist - Album? Existing cover.jpg files will be overwritten. Rescan Kukicha afterward to reconcile the new cover art.",
+  );
+  assert.equal(harness.fetchCalls.length, 0);
+
+  harness.document.listeners.get("click")[0]({
+    target: confirmButton,
+    preventDefault() {},
+  });
+  await uploadPromise;
+  await harness.flush();
+
+  assert.equal(dialog.hidden, true);
+  assert.equal(harness.fetchCalls.length, 1);
+  assert.equal(harness.fetchCalls[0].url, "/api/albums/old-artist::album::abc/cover");
+  assert.equal(harness.fetchCalls[0].request.method, "POST");
+  assert.equal(harness.fetchCalls[0].body.cover, file);
+  assert.equal(status.textContent, "Cover upload queued for Old Artist - Album.");
+  assert.equal(input.disabled, false);
   assert.equal(button.disabled, false);
   assert.equal(button.getAttribute("aria-busy"), null);
   assert.equal(harness.jobToasts.children.length, 1);
