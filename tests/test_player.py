@@ -3724,6 +3724,10 @@ class PlayerAlbumDetailLinksTest(unittest.TestCase):
         self.assertIn("album-edit-notice-icon", html)
         self.assertIn('fill="currentColor"', html)
         self.assertIn("Tag / MusicBrainz Edits", html)
+        self.assertLess(
+            html.index("album-edit-notice-icon"),
+            html.index("data-album-delete-form"),
+        )
         self.assertIn(
             "These actions queue jobs that edit the metadata stored in the audio files",
             html,
@@ -3830,15 +3834,15 @@ class PlayerAlbumDetailLinksTest(unittest.TestCase):
         self.assertIn('data-upload-url="/api/albums/brian-eno::ambient-1/cover"', html)
         self.assertEqual(html.count("data-musicbrainz-group"), 1)
         self.assertIn("Update Audio Tags", html)
+        notice_index = html.index("album-edit-notice-icon")
         delete_index = html.index("data-album-delete-form")
         cover_index = html.index("data-album-cover-form")
         tags_index = html.index("Tag / MusicBrainz Edits")
-        notice_index = html.index("album-edit-notice-icon")
         apply_index = html.index("data-apply-album-edit")
+        self.assertLess(notice_index, delete_index)
         self.assertLess(delete_index, cover_index)
         self.assertLess(cover_index, tags_index)
-        self.assertLess(tags_index, notice_index)
-        self.assertLess(notice_index, apply_index)
+        self.assertLess(tags_index, apply_index)
         self.assertIn(
             "These actions queue jobs that edit the metadata stored in the audio files. On rescan, Kukicha will extract the updated metadata into Kukicha's library database.",
             html,
