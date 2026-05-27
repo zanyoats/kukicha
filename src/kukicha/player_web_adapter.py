@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-from importlib.resources import files
 import json
 from pathlib import Path
 from queue import Empty, Queue
@@ -88,17 +87,18 @@ from .player_views import (
     build_simple_page_context,
     playlist_playback_payload,
 )
+from .static_assets import (
+    HTML_CACHE_CONTROL,
+    STATIC_ASSET_CACHE_CONTROL,
+    STATIC_COMPAT_CACHE_CONTROL,
+    resolve_static_asset_request,
+)
 
 BYTE_RANGE_RE = re.compile(r"bytes=(\d*)-(\d*)$")
 MAX_POST_BYTES = 1024 * 64
 MAX_COVER_UPLOAD_BYTES = 1024 * 1024 * 25
 FRAGMENT_HEADER = "X-Kukicha-Fragment"
 PLAYER_CONTEXT_KEY = "kukicha_player_context"
-STATIC_CONTENT_TYPES = {
-    "player.css": "text/css; charset=utf-8",
-    "player.js": "application/javascript; charset=utf-8",
-    "favicon.svg": "image/svg+xml",
-}
 
 
 @dataclass(frozen=True, slots=True)
@@ -142,6 +142,7 @@ def create_player_app(options: PlayerServerOptions) -> Flask:
         app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1)
     template_environment = build_template_environment()
     app.jinja_env.filters.update(template_environment.filters)
+    app.jinja_env.globals.update(template_environment.globals)
     runtime = PlayerRuntime(options)
     mark_stale_player_jobs_canceled(runtime.database)
     if type(runtime) is PlayerRuntime:
@@ -644,7 +645,7 @@ def login_response(error: str = "", *, status: int = 200) -> Response:
         error=error,
         next_url=next_url,
     )
-    return Response(html, status=status, content_type="text/html; charset=utf-8")
+    return html_response(html, status=status)
 
 
 def query_string() -> str:
@@ -757,7 +758,13 @@ def rendered_response(context: dict[str, Any], *, status: int = 200) -> Response
 
     template_name = context["view_template"] if wants_fragment() else "player/base.html"
     html = render_template(template_name, **context)
-    return Response(html, status=status, content_type="text/html; charset=utf-8")
+    return html_response(html, status=status)
+
+
+def html_response(html: str, *, status: int = 200) -> Response:
+    response = Response(html, status=status, content_type="text/html; charset=utf-8")
+    response.headers["Cache-Control"] = HTML_CACHE_CONTROL
+    return response
 
 
 def json_response(
@@ -899,16 +906,18 @@ def artwork_response(height_px: int, track_id: int) -> Response:
 
 
 def static_response(name: str) -> Response:
-    content_type = STATIC_CONTENT_TYPES.get(name)
-    if content_type is None:
-        abort(404)
-    resource = files("kukicha").joinpath("static", name)
     try:
-        data = resource.read_bytes()
+        resolved = resolve_static_asset_request(name)
     except FileNotFoundError:
         abort(404)
-    response = Response(data, content_type=content_type)
-    response.headers["Cache-Control"] = "private, max-age=60"
+    if resolved is None:
+        abort(404)
+    asset, is_fingerprinted = resolved
+    data = asset.data
+    response = Response(data, content_type=asset.content_type)
+    response.headers["Cache-Control"] = (
+        STATIC_ASSET_CACHE_CONTROL if is_fingerprinted else STATIC_COMPAT_CACHE_CONTROL
+    )
     return response
 
 

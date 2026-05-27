@@ -179,6 +179,12 @@ from kukicha.player_runtime import (
 )
 from kukicha.player_web_adapter import create_player_app, serve_player, start_player_sync
 from kukicha.playlist_art import playlist_cover_data_url, playlist_cover_svg
+from kukicha.static_assets import (
+    HTML_CACHE_CONTROL,
+    STATIC_ASSET_CACHE_CONTROL,
+    STATIC_COMPAT_CACHE_CONTROL,
+    static_asset_url,
+)
 
 
 TEST_ARGON2ID_HASH = (
@@ -4301,6 +4307,23 @@ class PlayerWebAdapterTest(unittest.TestCase):
             self.assertEqual(static_response.status_code, 200)
             self.assertEqual(health_response.status_code, 204)
 
+    def test_login_page_uses_fingerprinted_static_assets(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            runtime = self.make_runtime(temp_path / "kukicha.sqlite")
+            with patch("kukicha.player_web_adapter.PlayerRuntime", return_value=runtime):
+                app = create_player_app(self.make_auth_options(temp_path))
+
+            response = app.test_client().get("/login")
+
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.headers["Cache-Control"], HTML_CACHE_CONTROL)
+            html = response.data.decode()
+            self.assertIn(f'href="{static_asset_url("favicon.svg")}"', html)
+            self.assertIn(f'href="{static_asset_url("player.css")}"', html)
+            self.assertNotIn('href="/static/favicon.svg"', html)
+            self.assertNotIn('href="/static/player.css"', html)
+
     def test_trusted_proxy_headers_use_forwarded_client_ip(self) -> None:
         with TemporaryDirectory() as tempdir:
             temp_path = Path(tempdir)
@@ -5159,6 +5182,113 @@ class PlayerWebAdapterTest(unittest.TestCase):
         self.assertIn('class="home-track-cover album-cover-placeholder"', track_section)
         self.assertNotIn(f'src="/art/250/{tracks[-1].track_id}"', track_section)
 
+    def test_home_and_album_pages_skip_deleted_album_listening_stats(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            database = temp_path / "kukicha.sqlite"
+            old_track = TrackRecord(
+                path="/music/Yoshihiro Kanno/Deleted Album/01.flac",
+                root_position=0,
+                file_type="flac",
+                artist="Yoshihiro Kanno",
+                album_artist="Yoshihiro Kanno",
+                album="Deleted Album",
+                title="Water",
+                track_number="1",
+                genres=["Stale Genre"],
+            )
+            save_library(
+                MusicLibrary(
+                    roots=["/music"],
+                    tracks=[old_track],
+                    supported_extensions=[".flac"],
+                    generated_at="2026-05-01T00:00:00+00:00",
+                ),
+                database,
+            )
+            record_playback(
+                database,
+                old_track.track_id or 1,
+                submission=True,
+                played_at=datetime(2026, 5, 11, 12, 0, tzinfo=UTC),
+                source="test",
+            )
+            with connect_database(database, create=False) as connection:
+                old_album_id = str(
+                    connection.execute(
+                        """
+                        SELECT album_id
+                        FROM library_albums
+                        WHERE album = 'Deleted Album'
+                        """
+                    ).fetchone()["album_id"]
+                )
+
+            new_track = TrackRecord(
+                path="/music/Yoshihiro Kanno/Current Album/01.flac",
+                root_position=0,
+                file_type="flac",
+                artist="Yoshihiro Kanno",
+                album_artist="Yoshihiro Kanno",
+                album="Current Album",
+                title="Water",
+                track_number="1",
+                genres=["Current Genre"],
+            )
+            save_library(
+                MusicLibrary(
+                    roots=["/music"],
+                    tracks=[new_track],
+                    supported_extensions=[".flac"],
+                    generated_at="2026-05-02T00:00:00+00:00",
+                ),
+                database,
+            )
+            dashboard = home_dashboard(database)
+            api = LibraryQueries(database)
+            recent = api.list_album_page(AlbumListQuery(sort=ALBUM_LIST_SORT_RECENT))
+            frequent = api.list_album_page(AlbumListQuery(sort=ALBUM_LIST_SORT_FREQUENT))
+            with connect_database(database, create=False) as connection:
+                stale_album_stat_count = int(
+                    connection.execute(
+                        """
+                        SELECT COUNT(*) AS count
+                        FROM play_album_stats
+                        WHERE album_id = ?
+                        """,
+                        (old_album_id,),
+                    ).fetchone()["count"]
+                )
+                stale_track_stat_count = int(
+                    connection.execute(
+                        """
+                        SELECT COUNT(*) AS count
+                        FROM play_track_stats
+                        WHERE album_id = ?
+                        """,
+                        (old_album_id,),
+                    ).fetchone()["count"]
+                )
+            runtime = self.make_runtime(database)
+            with patch("kukicha.player_web_adapter.PlayerRuntime", return_value=runtime):
+                app = create_player_app(self.make_options(temp_path))
+                response = app.test_client().get("/")
+
+        html = response.data.decode()
+        self.assertEqual(stale_album_stat_count, 1)
+        self.assertEqual(stale_track_stat_count, 1)
+        self.assertEqual(dashboard.recent_albums, ())
+        self.assertEqual(dashboard.recent_tracks, ())
+        self.assertEqual(dashboard.recent_artists, ())
+        self.assertEqual(dashboard.recent_genres, ())
+        self.assertEqual(recent.items, ())
+        self.assertEqual(frequent.items, ())
+        self.assertNotIn("Deleted Album", html)
+        self.assertNotIn("Recently Listened Albums", html)
+        self.assertNotIn("Recent Tracks", html)
+        self.assertNotIn("Recent Artists", html)
+        self.assertIn("No listening history yet", html)
+
     def test_playlist_play_history_survives_rescans_and_reattaches_tracks(self) -> None:
         with TemporaryDirectory() as tempdir:
             temp_path = Path(tempdir)
@@ -5617,6 +5747,7 @@ class PlayerWebAdapterTest(unittest.TestCase):
 
             self.assertEqual(response.status_code, 404)
             self.assertEqual(response.content_type, "text/html; charset=utf-8")
+            self.assertEqual(response.headers["Cache-Control"], HTML_CACHE_CONTROL)
             self.assertIn(b"<!doctype html>", response.data)
             self.assertIn(b"<h1>Not Found</h1>", response.data)
             self.assertIn(b"album not found: missing-album", response.data)
@@ -5823,12 +5954,19 @@ class PlayerWebAdapterTest(unittest.TestCase):
                 fragment_response = client.get("/albums", headers={"X-Kukicha-Fragment": "1"})
 
             self.assertEqual(full_response.status_code, 200)
+            self.assertEqual(full_response.headers["Cache-Control"], HTML_CACHE_CONTROL)
             full_html = full_response.data.decode()
             self.assertIn(b"<!doctype html>", full_response.data)
             self.assertIn(b"<h1>Albums</h1>", full_response.data)
             self.assertIn(b'class="toast-region"', full_response.data)
             self.assertIn(b'data-toast-timeout-ms="12000"', full_response.data)
             self.assertNotIn(b"data-linked-toast-timeout-ms", full_response.data)
+            self.assertIn(f'href="{static_asset_url("favicon.svg")}"', full_html)
+            self.assertIn(f'href="{static_asset_url("player.css")}"', full_html)
+            self.assertIn(f'src="{static_asset_url("player.js")}"', full_html)
+            self.assertNotIn('href="/static/favicon.svg"', full_html)
+            self.assertNotIn('href="/static/player.css"', full_html)
+            self.assertNotIn('src="/static/player.js"', full_html)
             self.assertIn('id="confirmation-dialog"', full_html)
             self.assertIn('<h2 id="confirmation-title" data-confirmation-title>Confirm Action</h2>', full_html)
             self.assertIn('data-confirmation-cancel>Cancel</button>', full_html)
@@ -5867,6 +6005,7 @@ class PlayerWebAdapterTest(unittest.TestCase):
             self.assertNotIn('id="previous"', buttons_html)
             self.assertNotIn('id="next"', buttons_html)
             self.assertEqual(fragment_response.status_code, 200)
+            self.assertEqual(fragment_response.headers["Cache-Control"], HTML_CACHE_CONTROL)
             self.assertNotIn(b"<!doctype html>", fragment_response.data)
             self.assertNotIn(b'id="confirmation-dialog"', fragment_response.data)
             self.assertNotIn(b'id="keyboard-shortcuts-dialog"', fragment_response.data)
@@ -7369,13 +7508,31 @@ class PlayerWebAdapterTest(unittest.TestCase):
                 app = create_player_app(self.make_options(temp_path))
                 client = app.test_client()
                 static_response = client.get("/static/player.css")
+                css_response = client.get(static_asset_url("player.css"))
+                js_response = client.get(static_asset_url("player.js"))
+                svg_response = client.get(static_asset_url("favicon.svg"))
                 favicon_response = client.get("/favicon.ico")
+                stale_url = "/static/player.000000000000.css"
+                if stale_url == static_asset_url("player.css"):
+                    stale_url = "/static/player.111111111111.css"
+                stale_response = client.get(stale_url)
 
             self.assertEqual(static_response.status_code, 200)
             self.assertEqual(static_response.content_type, "text/css; charset=utf-8")
-            self.assertEqual(static_response.headers["Cache-Control"], "private, max-age=60")
+            self.assertEqual(static_response.headers["Cache-Control"], STATIC_COMPAT_CACHE_CONTROL)
+            self.assertEqual(css_response.status_code, 200)
+            self.assertEqual(css_response.content_type, "text/css; charset=utf-8")
+            self.assertEqual(css_response.headers["Cache-Control"], STATIC_ASSET_CACHE_CONTROL)
+            self.assertEqual(js_response.status_code, 200)
+            self.assertEqual(js_response.content_type, "application/javascript; charset=utf-8")
+            self.assertEqual(js_response.headers["Cache-Control"], STATIC_ASSET_CACHE_CONTROL)
+            self.assertEqual(svg_response.status_code, 200)
+            self.assertEqual(svg_response.content_type, "image/svg+xml")
+            self.assertEqual(svg_response.headers["Cache-Control"], STATIC_ASSET_CACHE_CONTROL)
             self.assertEqual(favicon_response.status_code, 200)
             self.assertEqual(favicon_response.content_type, "image/svg+xml")
+            self.assertEqual(favicon_response.headers["Cache-Control"], STATIC_COMPAT_CACHE_CONTROL)
+            self.assertEqual(stale_response.status_code, 404)
 
     def test_artwork_responses_are_cached_for_one_week(self) -> None:
         with TemporaryDirectory() as tempdir:

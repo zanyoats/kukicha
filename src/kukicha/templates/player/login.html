@@ -4,8 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{{ app_title }}</title>
-  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml" sizes="any">
-  <link rel="stylesheet" href="/static/player.css">
+  <link rel="icon" href="{{ static_asset_url("favicon.svg") }}" type="image/svg+xml" sizes="any">
+  <link rel="stylesheet" href="{{ static_asset_url("player.css") }}">
   <style>
     :root {
       color-scheme: {{ appearance_theme.color_scheme }};

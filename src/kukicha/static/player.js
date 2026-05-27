@@ -953,10 +953,11 @@ async function fetchFragment(url, options = {}) {
     headers: {[fragmentHeader]: "1"},
     signal: options.signal
   });
-  if (!response.ok) {
+  const html = await response.text();
+  if (!response.ok && response.status !== 404) {
     throw new Error(`fragment request failed: ${response.status}`);
   }
-  return response.text();
+  return html;
 }
 
 function renderFragment(html, url, options = {}) {

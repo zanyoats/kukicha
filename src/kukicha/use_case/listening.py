@@ -657,22 +657,8 @@ def home_dashboard(
             recent_albums=recent_listening_albums(connection, limit=album_limit),
             recent_playlists=recent_listening_playlists(connection, limit=limit),
             recent_tracks=recent_listening_tracks(connection, limit=limit),
-            recent_artists=recent_named_stats(
-                connection,
-                table="play_artist_stats",
-                key_column="artist_key",
-                name_column="artist",
-                url_prefix="/albums?artist=",
-                limit=artist_limit,
-            ),
-            recent_genres=recent_named_stats(
-                connection,
-                table="play_genre_stats",
-                key_column="genre_key",
-                name_column="genre",
-                url_prefix="/albums?genre[0][p]=",
-                limit=genre_limit,
-            ),
+            recent_artists=recent_listening_artists(connection, limit=artist_limit),
+            recent_genres=recent_listening_genres(connection, limit=genre_limit),
             recently_added_albums=recently_added_albums,
             recently_starred_albums=recently_starred_album_summaries(
                 connection,
@@ -865,7 +851,7 @@ def recent_listening_albums(
                 albums.starred_at,
                 albums.art_track_id
             FROM play_album_stats AS stats
-            LEFT JOIN library_albums AS albums
+            JOIN library_albums AS albums
                 ON albums.album_id = stats.album_id
             ORDER BY stats.last_played_at DESC, stats.play_count DESC, stats.album_id
             LIMIT ?
@@ -976,17 +962,19 @@ def recent_listening_tracks(
         connection.execute(
             """
             SELECT
-                track_key,
-                play_count,
-                last_played_at,
-                track_id,
-                album_id,
-                path,
-                title,
-                artist,
-                album
-            FROM play_track_stats
-            ORDER BY last_played_at DESC, play_count DESC, track_key
+                stats.track_key,
+                stats.play_count,
+                stats.last_played_at,
+                stats.track_id,
+                stats.album_id,
+                stats.path,
+                stats.title,
+                stats.artist,
+                stats.album
+            FROM play_track_stats AS stats
+            JOIN library_albums AS albums
+                ON albums.album_id = stats.album_id
+            ORDER BY stats.last_played_at DESC, stats.play_count DESC, stats.track_key
             LIMIT ?
             """,
             (limit,),
@@ -1039,30 +1027,69 @@ def recent_listening_tracks(
     return tuple(tracks)
 
 
-def recent_named_stats(
+def recent_listening_artists(
     connection: Connection,
     *,
-    table: str,
-    key_column: str,
-    name_column: str,
-    url_prefix: str,
     limit: int,
 ) -> tuple[ListeningNamedStat, ...]:
     rows = list(
         connection.execute(
-            f"""
+            """
             SELECT
-                {key_column} AS item_key,
-                {name_column} AS item_name,
-                play_count,
-                last_played_at
-            FROM {table}
-            ORDER BY last_played_at DESC, play_count DESC, {key_column}
+                MIN(artists.artist) AS item_key,
+                MIN(artists.artist) AS item_name,
+                SUM(stats.play_count) AS play_count,
+                MAX(stats.last_played_at) AS last_played_at
+            FROM play_album_stats AS stats
+            JOIN library_albums AS albums
+                ON albums.album_id = stats.album_id
+            JOIN library_album_artists AS artists
+                ON artists.album_id = albums.album_id
+            WHERE COALESCE(artists.artist, '') != ''
+            GROUP BY artists.artist COLLATE NOCASE
+            ORDER BY last_played_at DESC, play_count DESC, item_name COLLATE NOCASE
             LIMIT ?
             """,
             (limit,),
         )
     )
+    return listening_named_stats(rows, url_prefix="/albums?artist=")
+
+
+def recent_listening_genres(
+    connection: Connection,
+    *,
+    limit: int,
+) -> tuple[ListeningNamedStat, ...]:
+    rows = list(
+        connection.execute(
+            """
+            SELECT
+                MIN(genres.genre) AS item_key,
+                MIN(genres.genre) AS item_name,
+                SUM(stats.play_count) AS play_count,
+                MAX(stats.last_played_at) AS last_played_at
+            FROM play_album_stats AS stats
+            JOIN library_albums AS albums
+                ON albums.album_id = stats.album_id
+            JOIN library_album_genres AS genres
+                ON genres.album_id = albums.album_id
+            WHERE COALESCE(genres.genre, '') != ''
+            GROUP BY genres.genre COLLATE NOCASE
+            ORDER BY last_played_at DESC, play_count DESC, item_name COLLATE NOCASE
+            LIMIT ?
+            """,
+            (limit,),
+        )
+    )
+    return listening_named_stats(rows, url_prefix="/albums?genre[0][p]=")
+
+
+def listening_named_stats(
+    rows: Iterable[Row],
+    *,
+    url_prefix: str,
+) -> tuple[ListeningNamedStat, ...]:
     return tuple(
         ListeningNamedStat(
             key=str(row["item_key"]),

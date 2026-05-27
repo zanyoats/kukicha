@@ -88,6 +88,10 @@ class TestElement {
     return formAssociatedDescendants(this);
   }
 
+  get firstElementChild() {
+    return this.children[0] || null;
+  }
+
   addEventListener(type, listener) {
     const listeners = this.listeners.get(type) || [];
     listeners.push(listener);
@@ -225,6 +229,39 @@ class TestElement {
   getBoundingClientRect() {
     return {top: 0};
   }
+}
+
+class TestTemplateElement extends TestElement {
+  constructor() {
+    super("template");
+    this.content = new TestElement("#document-fragment");
+    this._innerHTML = "";
+  }
+
+  get innerHTML() {
+    return this._innerHTML;
+  }
+
+  set innerHTML(value) {
+    this._innerHTML = String(value);
+    this.content.replaceChildren(...parseTemplateChildren(this._innerHTML));
+  }
+}
+
+function parseTemplateChildren(html) {
+  const match = html.match(/<([a-z0-9-]+)([^>]*)>/i);
+  if (!match) {
+    return [];
+  }
+  const element = new TestElement(match[1]);
+  const attributes = match[2] || "";
+  for (const attribute of attributes.matchAll(/\s([a-z0-9-:]+)(?:="([^"]*)")?/gi)) {
+    element.setAttribute(attribute[1], attribute[2] || "");
+    if (attribute[1].startsWith("data-")) {
+      element.dataset[datasetKey(attribute[1].slice(5))] = attribute[2] || "";
+    }
+  }
+  return [element];
 }
 
 function findDescendant(element, selector) {
@@ -443,6 +480,9 @@ class TestDocument {
   }
 
   createElement(tagName) {
+    if (String(tagName).toLowerCase() === "template") {
+      return new TestTemplateElement();
+    }
     return new TestElement(tagName);
   }
 
@@ -555,6 +595,11 @@ function createHarness(initialQueueState, options = {}) {
       new URL(snapshot.audioUrl, "http://localhost/queue").toString() === absoluteUrl
     ));
     return Number(track && track.durationSeconds) || 60;
+  }
+  function configuredFetchResponse(url) {
+    const responses = options.fetchResponses || {};
+    const rawUrl = String(url);
+    return responses[rawUrl] || responses[new URL(rawUrl, "http://localhost/queue").toString()] || null;
   }
   class HarnessURL extends URL {
     static createObjectURL(blob) {
@@ -693,6 +738,23 @@ function createHarness(initialQueueState, options = {}) {
         parsedBody = JSON.parse(request.body);
       }
       fetchCalls.push({url, request, body: parsedBody});
+      const configuredResponse = configuredFetchResponse(url);
+      if (configuredResponse) {
+        const status = Number(configuredResponse.status || 200);
+        return {
+          ok: configuredResponse.ok ?? (status >= 200 && status < 300),
+          status,
+          async json() {
+            return configuredResponse.json || {};
+          },
+          async text() {
+            return configuredResponse.text || "";
+          },
+          async arrayBuffer() {
+            return configuredResponse.arrayBuffer || audioBufferPayload(url);
+          },
+        };
+      }
       return {
         ok: true,
         status: 200,
@@ -808,6 +870,63 @@ function sourceForUrl(context, url) {
 function latestSourceForUrl(context, url) {
   return [...context.sources].reverse().find((source) => source.buffer && source.buffer.url === url);
 }
+
+test("404 fragment navigation renders not found without document fallback", async () => {
+  const missingUrl = "http://localhost/albums/missing";
+  const harness = createHarness(
+    {
+      track_ids: [],
+      position: 0,
+      loaded_track_id: null,
+      paused: true,
+      errored_track_ids: [],
+      unavailable_track_ids: [],
+    },
+    {
+      fetchResponses: {
+        [missingUrl]: {
+          status: 404,
+          text: '<div class="view-page not-found-page" data-page="not-found"></div>',
+        },
+      },
+    }
+  );
+
+  await harness.context.navigate(missingUrl);
+
+  assert.equal(harness.fetchCalls[0].url, missingUrl);
+  assert.equal(harness.fetchCalls[0].request.headers["X-Kukicha-Fragment"], "1");
+  assert.equal(harness.context.window.location.href, "http://localhost/queue");
+  assert.equal(harness.view.dataset.page, "not-found");
+  assert.equal(harness.document.body.dataset.page, "not-found");
+});
+
+test("non-404 fragment failures still fall back to document navigation", async () => {
+  const failingUrl = "http://localhost/albums/error";
+  const harness = createHarness(
+    {
+      track_ids: [],
+      position: 0,
+      loaded_track_id: null,
+      paused: true,
+      errored_track_ids: [],
+      unavailable_track_ids: [],
+    },
+    {
+      fetchResponses: {
+        [failingUrl]: {
+          status: 500,
+          text: "server error",
+        },
+      },
+    }
+  );
+
+  await harness.context.navigate(failingUrl);
+
+  assert.equal(harness.context.window.location.href, failingUrl);
+  assert.notEqual(harness.view.dataset.page, "not-found");
+});
 
 test("filter form submit helper closes search menu", () => {
   const harness = createHarness({

@@ -32,6 +32,7 @@ from .player_navigation import (
     album_summary_text,
     album_url,
 )
+from .static_assets import static_asset_url
 from .use_case import prepare_player_database
 
 DEFAULT_PLAYER_LOG_LEVEL = "INFO"
@@ -1209,4 +1210,5 @@ def build_template_environment() -> Environment:
     environment.filters["album_summary"] = album_summary_text
     environment.filters["compact_count"] = format_compact_count
     environment.filters["display_album_title"] = display_album_title
+    environment.globals["static_asset_url"] = static_asset_url
     return environment
