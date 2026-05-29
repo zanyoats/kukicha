@@ -3718,6 +3718,7 @@ class PlayerAlbumDetailLinksTest(unittest.TestCase):
             album_musicbrainz_release_mbid="",
             album_musicbrainz_release_group_mbid="",
         )
+        normalized_html = " ".join(html.split())
 
         self.assertEqual(html.count("data-album-edit-form"), 1)
         self.assertEqual(html.count("data-album-delete-form"), 1)
@@ -3730,17 +3731,25 @@ class PlayerAlbumDetailLinksTest(unittest.TestCase):
         self.assertIn("album-edit-notice-icon", html)
         self.assertIn('fill="currentColor"', html)
         self.assertIn("Tag / MusicBrainz Edits", html)
-        self.assertLess(
-            html.index("album-edit-notice-icon"),
-            html.index("data-album-delete-form"),
-        )
+        delete_index = html.index("data-album-delete-form")
+        tags_index = html.index("Tag / MusicBrainz Edits")
+        notice_index = html.index("album-edit-notice-icon")
+        form_index = html.index("data-album-edit-form")
+        self.assertLess(delete_index, tags_index)
+        self.assertLess(tags_index, notice_index)
+        self.assertLess(notice_index, form_index)
         self.assertIn(
             "These actions queue jobs that edit the metadata stored in the audio files",
             html,
         )
         self.assertIn("On rescan", html)
         self.assertIn("extract the updated metadata into Kukicha's library database", html)
-        self.assertIn("writes MusicBrainz-derived album artist", html)
+        self.assertIn("fetches the MusicBrainz", normalized_html)
+        self.assertIn("album artist, album, and genres", normalized_html)
+        self.assertIn("resolves genres against Kukicha's taxonomy", normalized_html)
+        self.assertIn("writes MusicBrainz-derived album artist", normalized_html)
+        self.assertIn("Track titles", normalized_html)
+        self.assertIn("track numbers are not changed", normalized_html)
         self.assertIn("Clearing the URL removes the saved IDs without", html)
         self.assertNotIn(
             "Writes the album, album artist, genre, track artist, track number, and title fields",
@@ -3845,10 +3854,10 @@ class PlayerAlbumDetailLinksTest(unittest.TestCase):
         cover_index = html.index("data-album-cover-form")
         tags_index = html.index("Tag / MusicBrainz Edits")
         apply_index = html.index("data-apply-album-edit")
-        self.assertLess(notice_index, delete_index)
         self.assertLess(delete_index, cover_index)
         self.assertLess(cover_index, tags_index)
-        self.assertLess(tags_index, apply_index)
+        self.assertLess(tags_index, notice_index)
+        self.assertLess(notice_index, apply_index)
         self.assertIn(
             "These actions queue jobs that edit the metadata stored in the audio files. On rescan, Kukicha will extract the updated metadata into Kukicha's library database.",
             html,
@@ -3927,6 +3936,17 @@ class PlayerAlbumDetailLinksTest(unittest.TestCase):
         note_start = html.index("data-album-level-musicbrainz-note")
         note_end = html.index(">", note_start)
         self.assertNotIn("hidden", html[note_start:note_end])
+        normalized_html = " ".join(html.split())
+        self.assertIn(
+            "Album, album artist, and genre are locked while a MusicBrainz URL is set",
+            normalized_html,
+        )
+        self.assertIn("Clear the URL to edit them manually.", normalized_html)
+        self.assertIn("album-level-musicbrainz-note-icon", html)
+        self.assertLess(
+            html.index("album-level-musicbrainz-note-icon"),
+            html.index("Album, album artist, and genre are locked"),
+        )
 
     def test_album_edit_template_prefills_group_musicbrainz_urls(self) -> None:
         album = AlbumDetails(

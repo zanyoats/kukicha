@@ -2076,6 +2076,26 @@ button:disabled,
   color: var(--accent);
 }
 
+.album-level-musicbrainz-note {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  color: var(--text);
+  font-weight: 600;
+}
+
+.album-level-musicbrainz-note[hidden] {
+  display: none;
+}
+
+.album-level-musicbrainz-note-icon {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  color: var(--accent);
+  margin-top: 1px;
+}
+
 .album-edit-form {
   display: grid;
   gap: 14px;
@@ -2100,11 +2120,13 @@ button:disabled,
 
 .album-edit-danger-section,
 .album-edit-cover-section {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: space-between;
+  display: grid;
   gap: 12px;
-  align-items: center;
+  align-items: start;
+}
+
+.album-edit-danger-section > button {
+  justify-self: start;
 }
 
 .album-edit-section-copy {
@@ -2114,12 +2136,10 @@ button:disabled,
 }
 
 .album-edit-cover-controls {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
   gap: 8px;
-  align-items: center;
-  justify-content: flex-end;
-  min-width: min(100%, 260px);
+  justify-items: start;
+  width: 100%;
 }
 
 .album-edit-cover-input {
