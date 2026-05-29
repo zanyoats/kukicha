@@ -37,7 +37,7 @@ from ..library import (
     AlbumArtistMappingResolver,
     CoverArtResolutionStats,
     GenreResolutionStats,
-    load_library,
+    load_rescan_tracks_by_path,
     resolve_library_cover_art,
     resolve_library_genres,
     save_rescanned_library_incremental,
@@ -230,11 +230,7 @@ def rescan_library(
 
     if cancel_check is not None:
         cancel_check()
-    existing_library = load_library(database)
-    existing_tracks_by_path = {
-        track.path: track
-        for track in existing_library.tracks
-    }
+    existing_tracks_by_path = load_rescan_tracks_by_path(database)
     if all_sources_are_local(root_sources):
         incremental_build = build_incremental_library(
             [Path(root.path) for root in root_sources],

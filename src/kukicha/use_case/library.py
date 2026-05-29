@@ -2612,282 +2612,163 @@ def cover_art_archive_artworks_for_album(
             return {entity_type: artwork}
     return {}
 
-def load_library(source: Path, *, include_artwork: bool = False) -> MusicLibrary:
+
+def load_rescan_tracks_by_path(source: Path) -> dict[str, TrackRecord]:
     with connect_database(source, create=False) as connection:
-        roots = [
-            str(row["root_path"])
-            for row in connection.execute(
-                "SELECT root_path FROM library_roots ORDER BY position"
-            )
-        ]
-        generated_at = get_metadata(connection, "library_generated_at")
-        supported_extensions = json.loads(
-            get_metadata(connection, "library_supported_extensions_json", "[]")
+        return {track.path: track for track in _load_rescan_track_records(connection)}
+
+
+def _load_rescan_track_records(connection: sqlite3.Connection) -> list[TrackRecord]:
+    genres_by_track: dict[int, list[str]] = defaultdict(list)
+    for row in connection.execute(
+        "SELECT track_id, genre FROM library_track_genres ORDER BY track_id, position"
+    ):
+        genres_by_track[int(row["track_id"])].append(str(row["genre"]))
+
+    styles_by_track: dict[int, list[str]] = defaultdict(list)
+    for row in connection.execute(
+        "SELECT track_id, style FROM library_track_styles ORDER BY track_id, position"
+    ):
+        styles_by_track[int(row["track_id"])].append(str(row["style"]))
+
+    taxonomy_genres = {
+        str(row["genre"]).casefold()
+        for row in connection.execute("SELECT genre FROM taxonomy_genres")
+    }
+    taxonomy_styles = {
+        str(row["style"]).casefold()
+        for row in connection.execute("SELECT style FROM taxonomy_styles")
+    }
+
+    sources_by_track: dict[int, TrackSourceRecord] = {}
+    for row in connection.execute(
+        """
+        SELECT
+            track_id,
+            source_kind,
+            root_position,
+            canonical_path,
+            object_key,
+            etag,
+            version_id,
+            last_modified,
+            content_type,
+            size_bytes,
+            sidecar_object_key,
+            sidecar_etag,
+            sidecar_version_id,
+            sidecar_last_modified,
+            sidecar_content_type,
+            sidecar_size_bytes
+        FROM library_track_sources
+        """
+    ):
+        track_id = int(row["track_id"])
+        sources_by_track[track_id] = TrackSourceRecord(
+            source_kind=str(row["source_kind"] or SOURCE_KIND_LOCAL),
+            root_position=(
+                int(row["root_position"])
+                if row["root_position"] is not None
+                else None
+            ),
+            canonical_path=str(row["canonical_path"] or ""),
+            object_key=row["object_key"],
+            etag=row["etag"],
+            version_id=row["version_id"],
+            last_modified=row["last_modified"],
+            content_type=row["content_type"],
+            size_bytes=(
+                int(row["size_bytes"]) if row["size_bytes"] is not None else None
+            ),
+            sidecar_object_key=row["sidecar_object_key"],
+            sidecar_etag=row["sidecar_etag"],
+            sidecar_version_id=row["sidecar_version_id"],
+            sidecar_last_modified=row["sidecar_last_modified"],
+            sidecar_content_type=row["sidecar_content_type"],
+            sidecar_size_bytes=(
+                int(row["sidecar_size_bytes"])
+                if row["sidecar_size_bytes"] is not None
+                else None
+            ),
         )
 
-        genres_by_track: dict[int, list[str]] = defaultdict(list)
-        for row in connection.execute(
-            "SELECT track_id, genre FROM library_track_genres ORDER BY track_id, position"
-        ):
-            genres_by_track[int(row["track_id"])].append(str(row["genre"]))
-
-        styles_by_track: dict[int, list[str]] = defaultdict(list)
-        for row in connection.execute(
-            "SELECT track_id, style FROM library_track_styles ORDER BY track_id, position"
-        ):
-            styles_by_track[int(row["track_id"])].append(str(row["style"]))
-
-        album_artists_by_album: dict[str, tuple[str, ...]] = {}
-        rows_by_album: dict[str, list[str]] = defaultdict(list)
-        for row in connection.execute(
-            """
-            SELECT album_id, artist
-            FROM library_album_artists
-            ORDER BY album_id, position
-            """
-        ):
-            rows_by_album[str(row["album_id"])].append(str(row["artist"]))
-        album_artists_by_album = {
-            album_id: tuple(artists)
-            for album_id, artists in rows_by_album.items()
-        }
-
-        taxonomy_genres = {
-            str(row["genre"]).casefold()
-            for row in connection.execute("SELECT genre FROM taxonomy_genres")
-        }
-        taxonomy_styles = {
-            str(row["style"]).casefold()
-            for row in connection.execute("SELECT style FROM taxonomy_styles")
-        }
-        track_ids_with_cover = {
-            int(row["track_id"])
-            for row in connection.execute(
-                "SELECT DISTINCT track_id FROM library_track_artwork"
-            )
-        }
-        album_ids_with_cover = {
-            str(row["album_id"])
-            for row in connection.execute(
-                """
-                SELECT DISTINCT library_tracks.album_id
-                FROM library_tracks
-                JOIN library_track_artwork
-                    ON library_track_artwork.track_id = library_tracks.track_id
-                WHERE library_tracks.album_id IS NOT NULL
-                    AND library_tracks.album_id != ''
-                """
-            )
-        }
-        artwork_by_track: dict[tuple[int, int], TrackArtwork] = {}
-        if include_artwork:
-            for row in connection.execute(
-                """
-                SELECT track_id, height_px, mime_type, data
-                FROM library_track_artwork
-                """
-            ):
-                artwork_by_track[(int(row["track_id"]), int(row["height_px"]))] = TrackArtwork(
-                    mime_type=str(row["mime_type"]),
-                    data=bytes(row["data"]),
-                )
-
-        sources_by_track: dict[int, TrackSourceRecord] = {}
-        for row in connection.execute(
-            """
-            SELECT
-                track_id,
-                source_kind,
-                root_position,
-                canonical_path,
-                object_key,
-                etag,
-                version_id,
-                last_modified,
-                content_type,
-                size_bytes,
-                sidecar_object_key,
-                sidecar_etag,
-                sidecar_version_id,
-                sidecar_last_modified,
-                sidecar_content_type,
-                sidecar_size_bytes
-            FROM library_track_sources
-            """
-        ):
-            track_id = int(row["track_id"])
-            sources_by_track[track_id] = TrackSourceRecord(
-                source_kind=str(row["source_kind"] or SOURCE_KIND_LOCAL),
-                root_position=(
-                    int(row["root_position"])
-                    if row["root_position"] is not None
-                    else None
-                ),
-                canonical_path=str(row["canonical_path"] or ""),
-                object_key=row["object_key"],
-                etag=row["etag"],
-                version_id=row["version_id"],
-                last_modified=row["last_modified"],
-                content_type=row["content_type"],
-                size_bytes=(
-                    int(row["size_bytes"]) if row["size_bytes"] is not None else None
-                ),
-                sidecar_object_key=row["sidecar_object_key"],
-                sidecar_etag=row["sidecar_etag"],
-                sidecar_version_id=row["sidecar_version_id"],
-                sidecar_last_modified=row["sidecar_last_modified"],
-                sidecar_content_type=row["sidecar_content_type"],
-                sidecar_size_bytes=(
-                    int(row["sidecar_size_bytes"])
-                    if row["sidecar_size_bytes"] is not None
-                    else None
-                ),
-            )
-
-        tracks: list[TrackRecord] = []
-        for row in connection.execute(
-            """
-            SELECT
-                track_id,
-                album_id,
-                root_position,
-                path,
-                file_created_at,
-                file_modified_at_ns,
-                file_size_bytes,
-                sidecar_artwork_path,
-                sidecar_artwork_modified_at_ns,
-                sidecar_artwork_size_bytes,
-                file_type,
-                scan_error,
-                artist,
-                album_artist,
-                composer,
-                album,
-                title,
-                work,
-                grouping,
-                movement_name,
-                is_compilation,
-                track_number,
-                disc_number,
-                date,
-                duration_seconds,
-                bitrate
-            FROM library_tracks
-            ORDER BY track_id
-            """
-        ):
-            track_id = int(row["track_id"])
-            album_id = str(row["album_id"]) if row["album_id"] else None
-            genres, styles = split_genres_and_styles(
-                normalize_genre_values(genres_by_track.get(track_id, [])),
-                normalize_genre_values(styles_by_track.get(track_id, [])),
-                taxonomy_genres=taxonomy_genres,
-                taxonomy_styles=taxonomy_styles,
-            )
-            tracks.append(
-                TrackRecord(
-                    path=str(row["path"]),
-                    track_id=track_id,
-                    root_position=(
-                        int(row["root_position"])
-                        if row["root_position"] is not None
-                        else None
-                    ),
-                    file_created_at=row["file_created_at"],
-                    file_modified_at_ns=row["file_modified_at_ns"],
-                    file_size_bytes=row["file_size_bytes"],
-                    sidecar_artwork_path=row["sidecar_artwork_path"],
-                    sidecar_artwork_modified_at_ns=row["sidecar_artwork_modified_at_ns"],
-                    sidecar_artwork_size_bytes=row["sidecar_artwork_size_bytes"],
-                    file_type=row["file_type"],
-                    scan_error=row["scan_error"],
-                    artist=row["artist"],
-                    album_artist=row["album_artist"],
-                    album_artists=album_artists_by_album.get(album_id, ()),
-                    composer=row["composer"],
-                    album=row["album"],
-                    title=row["title"],
-                    work=row["work"],
-                    grouping=row["grouping"],
-                    movement_name=row["movement_name"],
-                    has_cover=(
-                        track_id in track_ids_with_cover
-                        or bool(album_id and album_id in album_ids_with_cover)
-                    ),
-                    is_compilation=bool(row["is_compilation"]),
-                    track_number=row["track_number"],
-                    disc_number=row["disc_number"],
-                    date=row["date"],
-                    genres=genres,
-                    styles=styles,
-                    artwork=artwork_by_track.get((track_id, TRACK_ARTWORK_HEIGHT)),
-                    album_artwork=artwork_by_track.get((track_id, ALBUM_ARTWORK_HEIGHT)),
-                    duration_seconds=row["duration_seconds"],
-                    bitrate=row["bitrate"],
-                    source=sources_by_track.get(track_id),
-                )
-            )
-
-        playlist_items_by_playlist: dict[int, list[PlaylistItemRecord]] = defaultdict(list)
-        for row in connection.execute(
-            """
-            SELECT
-                playlist_id,
-                track_id,
-                path,
-                title,
-                duration_seconds,
-                duration_is_indeterminate,
-                genre,
-                cover_url
-            FROM library_playlist_items
-            ORDER BY playlist_id, position
-            """
-        ):
-            playlist_items_by_playlist[int(row["playlist_id"])].append(
-                PlaylistItemRecord(
-                    path=str(row["path"]),
-                    track_id=int(row["track_id"]) if row["track_id"] is not None else None,
-                    title=row["title"],
-                    duration_seconds=row["duration_seconds"],
-                    duration_is_indeterminate=bool(row["duration_is_indeterminate"]),
-                    genre=row["genre"],
-                    cover_url=row["cover_url"],
-                )
-            )
-
-        playlists = [
-            PlaylistRecord(
-                playlist_id=int(row["playlist_id"]),
-                root_position=(
-                    int(row["root_position"])
-                    if row["root_position"] is not None
-                    else None
-                ),
+    tracks: list[TrackRecord] = []
+    for row in connection.execute(
+        """
+        SELECT
+            track_id,
+            root_position,
+            path,
+            file_created_at,
+            file_modified_at_ns,
+            file_size_bytes,
+            sidecar_artwork_path,
+            sidecar_artwork_modified_at_ns,
+            sidecar_artwork_size_bytes,
+            file_type,
+            scan_error,
+            artist,
+            album_artist,
+            composer,
+            album,
+            title,
+            work,
+            grouping,
+            movement_name,
+            is_compilation,
+            track_number,
+            disc_number,
+            date,
+            duration_seconds,
+            bitrate
+        FROM library_tracks
+        ORDER BY track_id
+        """
+    ):
+        track_id = int(row["track_id"])
+        genres, styles = split_genres_and_styles(
+            normalize_genre_values(genres_by_track.get(track_id, [])),
+            normalize_genre_values(styles_by_track.get(track_id, [])),
+            taxonomy_genres=taxonomy_genres,
+            taxonomy_styles=taxonomy_styles,
+        )
+        tracks.append(
+            TrackRecord(
                 path=str(row["path"]),
-                name=str(row["name"]),
+                track_id=track_id,
+                root_position=(
+                    int(row["root_position"])
+                    if row["root_position"] is not None
+                    else None
+                ),
                 file_created_at=row["file_created_at"],
-                cover_svg=str(row["cover_svg"] or ""),
-                items=playlist_items_by_playlist.get(int(row["playlist_id"]), []),
+                file_modified_at_ns=row["file_modified_at_ns"],
+                file_size_bytes=row["file_size_bytes"],
+                sidecar_artwork_path=row["sidecar_artwork_path"],
+                sidecar_artwork_modified_at_ns=row["sidecar_artwork_modified_at_ns"],
+                sidecar_artwork_size_bytes=row["sidecar_artwork_size_bytes"],
+                file_type=row["file_type"],
+                scan_error=row["scan_error"],
+                artist=row["artist"],
+                album_artist=row["album_artist"],
+                composer=row["composer"],
+                album=row["album"],
+                title=row["title"],
+                work=row["work"],
+                grouping=row["grouping"],
+                movement_name=row["movement_name"],
+                is_compilation=bool(row["is_compilation"]),
+                track_number=row["track_number"],
+                disc_number=row["disc_number"],
+                date=row["date"],
+                genres=genres,
+                styles=styles,
+                duration_seconds=row["duration_seconds"],
+                bitrate=row["bitrate"],
+                source=sources_by_track.get(track_id),
             )
-            for row in connection.execute(
-                """
-                SELECT playlist_id, root_position, path, name, cover_svg, file_created_at
-                FROM library_playlists
-                ORDER BY playlist_id
-                """
-            )
-        ]
-
-    return MusicLibrary(
-        roots=roots,
-        tracks=tracks,
-        supported_extensions=list(supported_extensions),
-        generated_at=generated_at,
-        playlists=playlists,
-    )
+        )
+    return tracks
 
 
 def split_genres_and_styles(

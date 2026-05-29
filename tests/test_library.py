@@ -32,7 +32,7 @@ from kukicha.use_case import (
     sync_library_roots,
     UNKNOWN_GENRE_TAG,
 )
-from kukicha.use_case.library import load_library
+from kukicha.use_case.library import load_rescan_tracks_by_path
 from kukicha.use_case.library import save_library_with_options
 from kukicha.use_case.library import save_rescanned_library_incremental
 from kukicha.use_case.database import clear_library
@@ -1440,7 +1440,12 @@ class LibraryAlbumArtistMappingTest(unittest.TestCase):
                     (raw_artist, raw_artist),
                 )
 
-            rescanned_library = load_library(database)
+            rescanned_library = MusicLibrary(
+                roots=["/music"],
+                tracks=list(load_rescan_tracks_by_path(database).values()),
+                supported_extensions=[".flac"],
+                generated_at="2026-04-22T00:00:00+00:00",
+            )
             save_rescanned_library_incremental(
                 rescanned_library,
                 database,
@@ -3981,6 +3986,56 @@ class LibraryPlaylistPersistenceTest(unittest.TestCase):
         self.assertEqual(playlist.items[1].genre, "Electronic")
         self.assertEqual(playlist.items[1].cover_url, "https://example.test/cover.jpg")
 
+    def test_load_rescan_tracks_by_path_keeps_reusable_track_state_only(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            database = Path(tempdir) / "kukicha.sqlite"
+            tracked_path = "/music/Artist/Album/01.flac"
+            save_library(
+                MusicLibrary(
+                    roots=["/music"],
+                    tracks=[
+                        TrackRecord(
+                            path=tracked_path,
+                            root_position=0,
+                            file_type="flac",
+                            artist="Artist",
+                            album_artist="Artist",
+                            album="Album",
+                            title="Tracked",
+                            genres=["Electronic"],
+                            album_artwork=TrackArtwork(
+                                mime_type="image/png",
+                                data=b"cover",
+                            ),
+                        )
+                    ],
+                    playlists=[
+                        PlaylistRecord(
+                            path="/music/lists/mixed.m3u8",
+                            root_position=0,
+                            name="Mixed",
+                            items=[PlaylistItemRecord(path=tracked_path)],
+                        )
+                    ],
+                    supported_extensions=[".flac"],
+                    generated_at="2026-04-25T00:00:00+00:00",
+                ),
+                database,
+            )
+
+            tracks_by_path = load_rescan_tracks_by_path(database)
+
+        self.assertEqual(list(tracks_by_path), [tracked_path])
+        track = tracks_by_path[tracked_path]
+        self.assertEqual(track.title, "Tracked")
+        self.assertEqual(track.genres, ["Electronic"])
+        self.assertEqual(track.track_id, 1)
+        self.assertIsNotNone(track.source)
+        self.assertEqual(track.source.source_kind, "local")
+        self.assertEqual(track.album_artists, ())
+        self.assertFalse(track.has_cover)
+        self.assertIsNone(track.album_artwork)
+
     def test_playlist_items_preserve_indeterminate_duration(self) -> None:
         with TemporaryDirectory() as tempdir:
             database = Path(tempdir) / "kukicha.sqlite"
@@ -4009,14 +4064,19 @@ class LibraryPlaylistPersistenceTest(unittest.TestCase):
             )
 
             playlist = LibraryQueries(database).get_playlist(1)
-            loaded_library = load_library(database)
+            with connect_database(database, create=False) as connection:
+                row = connection.execute(
+                    """
+                    SELECT duration_seconds, duration_is_indeterminate
+                    FROM library_playlist_items
+                    """
+                ).fetchone()
 
         item = playlist.items[0]
         self.assertIsNone(item.duration_seconds)
         self.assertTrue(item.duration_is_indeterminate)
-        loaded_item = loaded_library.playlists[0].items[0]
-        self.assertIsNone(loaded_item.duration_seconds)
-        self.assertTrue(loaded_item.duration_is_indeterminate)
+        self.assertIsNone(row["duration_seconds"])
+        self.assertEqual(int(row["duration_is_indeterminate"]), 1)
 
     def test_list_album_page_separates_album_and_playlist_items(self) -> None:
         with TemporaryDirectory() as tempdir:
