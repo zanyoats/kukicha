@@ -7814,7 +7814,7 @@ class PlayerRootMutationTest(unittest.TestCase):
             finally:
                 connection.close()
 
-            with patch("kukicha.use_case.commands.roots.build_library") as build_library:
+            with patch("kukicha.use_case.commands.roots.build_incremental_library") as build_library:
                 result = sync_library_roots(database, (root_a, root_b))
 
             self.assertFalse(result.changed)
@@ -7883,12 +7883,12 @@ class PlayerRootMutationTest(unittest.TestCase):
                 generated_at="2026-04-21T12:00:00+00:00",
             )
 
-            def fake_build_library(roots: object, *_args: object, **_kwargs: object) -> MusicLibrary:
-                self.assertEqual([str(root) for root in roots], [str(root_a), str(root_b), str(root_c)])
-                return scanned_library
+            def fake_build_library(roots: object, *_args: object, **_kwargs: object) -> SimpleNamespace:
+                self.assertEqual([str(root.path) for root in roots], [str(root_a), str(root_b), str(root_c)])
+                return SimpleNamespace(library=scanned_library)
 
             with (
-                patch("kukicha.use_case.commands.roots.build_library", side_effect=fake_build_library),
+                patch("kukicha.use_case.commands.roots.build_incremental_library", side_effect=fake_build_library),
                 patch("kukicha.use_case.commands.roots.resolve_library_genres", return_value=None),
                 patch("kukicha.use_case.commands.roots.resolve_library_cover_art", return_value=None),
             ):
@@ -7969,7 +7969,10 @@ class PlayerRootMutationTest(unittest.TestCase):
             )
 
             with (
-                patch("kukicha.use_case.commands.roots.build_library", return_value=scanned_library),
+                patch(
+                    "kukicha.use_case.commands.roots.build_incremental_library",
+                    return_value=SimpleNamespace(library=scanned_library),
+                ),
                 patch("kukicha.use_case.commands.roots.resolve_library_genres", return_value=None),
                 patch("kukicha.use_case.commands.roots.resolve_library_cover_art", return_value=None),
             ):
@@ -8076,7 +8079,10 @@ class PlayerRootMutationTest(unittest.TestCase):
                 raise RuntimeError("boom")
 
             with (
-                patch("kukicha.use_case.commands.roots.build_library", return_value=scanned_library),
+                patch(
+                    "kukicha.use_case.commands.roots.build_incremental_library",
+                    return_value=SimpleNamespace(library=scanned_library),
+                ),
                 patch("kukicha.use_case.commands.roots.resolve_library_genres", side_effect=failing_resolve),
             ):
                 with self.assertRaisesRegex(RuntimeError, "boom"):
@@ -8123,7 +8129,10 @@ class PlayerRootMutationTest(unittest.TestCase):
                         if calls["count"] == cancel_at:
                             raise PlayerJobCanceled("Canceled by user.")
 
-                    with patch("kukicha.use_case.commands.roots.build_library", return_value=scanned_library) as build_library:
+                    with patch(
+                        "kukicha.use_case.commands.roots.build_incremental_library",
+                        return_value=SimpleNamespace(library=scanned_library),
+                    ) as build_library:
                         with self.assertRaises(PlayerJobCanceled):
                             sync_library_roots(database, (root_a, root_b), cancel_check=cancel_check)
 
@@ -8635,7 +8644,7 @@ class PlayerRootMutationTest(unittest.TestCase):
             )
 
             def fake_build_library(roots: object, *_args: object, **_kwargs: object) -> SimpleNamespace:
-                self.assertEqual([str(root) for root in roots], ["/music/a", "/music/b"])
+                self.assertEqual([str(root.path) for root in roots], ["/music/a", "/music/b"])
                 return SimpleNamespace(
                     library=rescanned_library,
                     scanned_paths=frozenset(track.path for track in rescanned_library.tracks),

@@ -48,9 +48,6 @@ from ...models import MusicLibrary
 from ...scanner import (
     SUPPORTED_EXTENSIONS,
     build_incremental_library,
-    build_incremental_library_from_sources,
-    build_library,
-    build_library_from_sources,
 )
 
 LOGGER = logging.getLogger("kukicha.player")
@@ -79,10 +76,6 @@ def root_rows_for_sources(
     sources: Iterable[LibraryRootSource],
 ) -> tuple[LibraryRootSource, ...]:
     return tuple(sources)
-
-
-def all_sources_are_local(sources: Iterable[LibraryRootSource]) -> bool:
-    return all(source.kind == "local" for source in sources)
 
 
 def runtime_remote_workers(runtime: PlayerRuntime) -> int | None:
@@ -231,23 +224,14 @@ def rescan_library(
     if cancel_check is not None:
         cancel_check()
     existing_tracks_by_path = load_rescan_tracks_by_path(database)
-    if all_sources_are_local(root_sources):
-        incremental_build = build_incremental_library(
-            [Path(root.path) for root in root_sources],
-            existing_tracks_by_path=existing_tracks_by_path,
-            progress=scan_progress,
-            progress_every=500,
-            report_new_paths=True,
-        )
-    else:
-        incremental_build = build_incremental_library_from_sources(
-            root_sources,
-            existing_tracks_by_path=existing_tracks_by_path,
-            progress=scan_progress,
-            progress_every=500,
-            report_new_paths=True,
-            remote_workers=remote_workers,
-        )
+    incremental_build = build_incremental_library(
+        root_sources,
+        existing_tracks_by_path=existing_tracks_by_path,
+        progress=scan_progress,
+        progress_every=500,
+        report_new_paths=True,
+        remote_workers=remote_workers,
+    )
     library = incremental_build.library
     stale_paths = set(existing_tracks_by_path) - {track.path for track in library.tracks}
     if stale_paths:
@@ -404,19 +388,13 @@ def sync_library_roots(
         LOGGER.info("%s", library_scan_progress_text("sync", message))
 
     if sync_plan.root_rows:
-        if all_sources_are_local(sync_plan.root_rows):
-            library = build_library(
-                [Path(root.path) for root in sync_plan.root_rows],
-                progress=scan_progress,
-                progress_every=500,
-            )
-        else:
-            library = build_library_from_sources(
-                sync_plan.root_rows,
-                progress=scan_progress,
-                progress_every=500,
-                remote_workers=remote_workers,
-            )
+        library = build_incremental_library(
+            sync_plan.root_rows,
+            existing_tracks_by_path={},
+            progress=scan_progress,
+            progress_every=500,
+            remote_workers=remote_workers,
+        ).library
     else:
         library = MusicLibrary(
             roots=[],
