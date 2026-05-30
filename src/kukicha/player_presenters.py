@@ -497,7 +497,16 @@ def playlist_item_cover_url(
     playlist_name: str,
 ) -> str:
     cover_svg = playlist.cover_svg if playlist is not None else item.playlist_cover_svg
-    return playlist_cover_url(cover_svg, playlist_name)
+    cover_mime_type = (
+        playlist.cover_mime_type if playlist is not None else item.playlist_cover_mime_type
+    )
+    playlist_id = playlist_item_playlist_id(item, playlist)
+    return playlist_cover_url(
+        cover_svg,
+        playlist_name,
+        playlist_id=playlist_id,
+        cover_mime_type=cover_mime_type,
+    )
 
 def tracked_playlist_item_table_title(track: TrackView) -> str:
     artist = track.album_artist or track.artist

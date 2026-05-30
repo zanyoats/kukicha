@@ -1705,10 +1705,22 @@ document.addEventListener("click", (event) => {
     void deleteAlbum(deleteAlbumButton);
     return;
   }
+  const deletePlaylistButton = event.target.closest("[data-delete-playlist]");
+  if (deletePlaylistButton) {
+    event.preventDefault();
+    void deletePlaylist(deletePlaylistButton);
+    return;
+  }
   const uploadAlbumCoverButton = event.target.closest("[data-upload-album-cover]");
   if (uploadAlbumCoverButton) {
     event.preventDefault();
     void uploadAlbumCover(uploadAlbumCoverButton);
+    return;
+  }
+  const uploadPlaylistCoverButton = event.target.closest("[data-upload-playlist-cover]");
+  if (uploadPlaylistCoverButton) {
+    event.preventDefault();
+    void uploadPlaylistCover(uploadPlaylistCoverButton);
     return;
   }
   const editAlbumArtistMappingButton = event.target.closest("[data-edit-album-artist-mapping]");
@@ -3594,6 +3606,65 @@ async function deleteAlbum(button) {
   }
 }
 
+async function deletePlaylist(button) {
+  if (!(button instanceof HTMLButtonElement) || button.disabled) {
+    return;
+  }
+  const form = button.closest("form[data-playlist-delete-form]");
+  const deleteUrl = button.dataset.deleteUrl;
+  const playlistLabel = (button.dataset.playlistLabel || "this playlist").trim() || "this playlist";
+  if (!deleteUrl) {
+    return;
+  }
+
+  const confirmed = await confirmAction({
+    title: "Delete Playlist",
+    message: `Delete ${playlistLabel}? This removes the playlist from Kukicha.`,
+    confirmLabel: "Delete",
+    returnFocus: button,
+  });
+  if (!confirmed) {
+    return;
+  }
+
+  if (form instanceof HTMLFormElement) {
+    setPlaylistDeleteStatus(form, "Deleting playlist...");
+  }
+  button.disabled = true;
+  button.setAttribute("aria-busy", "true");
+  try {
+    const response = await fetch(deleteUrl, {method: "POST"});
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const message = responsePayloadError(payload, "Unable to delete playlist.");
+      if (form instanceof HTMLFormElement) {
+        setPlaylistDeleteStatus(form, message, true);
+      }
+      showToast(message, {error: true});
+      return;
+    }
+    const message = responsePayloadMessage(payload, "Playlist deleted.");
+    if (form instanceof HTMLFormElement) {
+      setPlaylistDeleteStatus(form, message);
+    }
+    showToast(message);
+    const redirectUrl = typeof payload.redirect_url === "string" && payload.redirect_url.trim()
+      ? payload.redirect_url
+      : "/playlists";
+    await navigate(redirectUrl, {replace: true});
+  } catch {
+    if (form instanceof HTMLFormElement) {
+      setPlaylistDeleteStatus(form, "Unable to delete playlist.", true);
+    }
+    showToast("Unable to delete playlist.", {error: true});
+  } finally {
+    if (button.isConnected) {
+      button.disabled = false;
+      button.removeAttribute("aria-busy");
+    }
+  }
+}
+
 function albumCoverUploadExtension(filename) {
   const name = String(filename || "").trim();
   const slashIndex = Math.max(name.lastIndexOf("/"), name.lastIndexOf("\\"));
@@ -3813,6 +3884,88 @@ async function uploadAlbumCover(button) {
   }
 }
 
+async function uploadPlaylistCover(button) {
+  if (!(button instanceof HTMLButtonElement) || button.disabled) {
+    return;
+  }
+  const form = button.closest("form[data-playlist-cover-form]");
+  const uploadUrl = button.dataset.uploadUrl;
+  const playlistLabel = (button.dataset.playlistLabel || "this playlist").trim() || "this playlist";
+  const input = form instanceof HTMLFormElement
+    ? form.querySelector("[data-playlist-cover-input]")
+    : null;
+  if (!uploadUrl || !(input instanceof HTMLInputElement)) {
+    return;
+  }
+
+  const file = input.files && input.files.length ? input.files[0] : null;
+  if (!file) {
+    if (form instanceof HTMLFormElement) {
+      setPlaylistCoverStatus(form, "Choose a cover image first.", true);
+    }
+    return;
+  }
+  const extension = albumCoverUploadExtension(file.name);
+  if (!extension) {
+    if (form instanceof HTMLFormElement) {
+      setPlaylistCoverStatus(form, "Cover must be a GIF, JPEG, PNG, or WebP image.", true);
+    }
+    return;
+  }
+  const confirmed = await confirmAction({
+    title: "Upload Cover",
+    message: `Upload ${file.name} as the cover for ${playlistLabel}?`,
+    confirmLabel: "Upload",
+    returnFocus: button,
+  });
+  if (!confirmed) {
+    return;
+  }
+
+  if (form instanceof HTMLFormElement) {
+    setPlaylistCoverStatus(form, "Uploading cover...");
+  }
+  input.disabled = true;
+  button.disabled = true;
+  button.setAttribute("aria-busy", "true");
+  const body = new FormData();
+  body.append("cover", file, file.name);
+  try {
+    const response = await fetch(uploadUrl, {
+      method: "POST",
+      body,
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const message = responsePayloadError(payload, "Unable to upload cover.");
+      if (form instanceof HTMLFormElement) {
+        setPlaylistCoverStatus(form, message, true);
+      }
+      showToast(message, {error: true});
+      return;
+    }
+    const message = responsePayloadMessage(payload, "Playlist cover updated.");
+    if (form instanceof HTMLFormElement) {
+      setPlaylistCoverStatus(form, message);
+    }
+    showToast(message);
+    await navigate(window.location.href, {replace: true, scroll: false});
+  } catch {
+    if (form instanceof HTMLFormElement) {
+      setPlaylistCoverStatus(form, "Unable to upload cover.", true);
+    }
+    showToast("Unable to upload cover.", {error: true});
+  } finally {
+    if (input.isConnected) {
+      input.disabled = false;
+    }
+    if (button.isConnected) {
+      button.disabled = false;
+      button.removeAttribute("aria-busy");
+    }
+  }
+}
+
 async function clearCache(button) {
   if (!(button instanceof HTMLButtonElement) || button.disabled) {
     return;
@@ -3964,6 +4117,14 @@ function setAlbumDeleteStatus(formOrElement, message, isError = false) {
 
 function setAlbumCoverStatus(formOrElement, message, isError = false) {
   setStatusMessage(formOrElement, "[data-album-cover-status]", message, isError);
+}
+
+function setPlaylistDeleteStatus(formOrElement, message, isError = false) {
+  setStatusMessage(formOrElement, "[data-playlist-delete-status]", message, isError);
+}
+
+function setPlaylistCoverStatus(formOrElement, message, isError = false) {
+  setStatusMessage(formOrElement, "[data-playlist-cover-status]", message, isError);
 }
 
 function setPlaylistCreateStatus(formOrElement, message, isError = false) {

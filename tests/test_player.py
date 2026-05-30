@@ -1672,7 +1672,8 @@ class PlayerPlaylistMembershipTest(unittest.TestCase):
             ),
             playlist_back_url="/",
             playlist_index_url="/?is_playlist=1",
-            playlist_cover_data_url="data:image/svg+xml,cover",
+            playlist_cover_url="data:image/svg+xml,cover",
+            playlist_edit_page_url="/playlists/3/edit",
             table_rows=[{"track": view, "group_label": ""}],
             playlist_track_meta=(),
             queue_state=PlayerQueueState(track_ids=[]),
@@ -7477,6 +7478,87 @@ class PlayerWebAdapterTest(unittest.TestCase):
         self.assertEqual(str(playlist["kind"]), "local")
         self.assertEqual(int(item["track_id"]), 1)
         self.assertEqual(str(item["path"]), str(track_path))
+
+    def test_playlist_edit_cover_upload_and_delete_routes_update_database(self) -> None:
+        png_cover = b"\x89PNG\r\n\x1a\nplaylist-cover"
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            database = temp_path / "kukicha.sqlite"
+            track_path = temp_path / "music" / "Artist" / "Album" / "01.flac"
+            save_library(
+                MusicLibrary(
+                    roots=[str(temp_path / "music")],
+                    tracks=[
+                        TrackRecord(
+                            path=str(track_path),
+                            root_position=0,
+                            file_type="flac",
+                            artist="Artist",
+                            album_artist="Artist",
+                            album="Album",
+                            title="Track",
+                        )
+                    ],
+                    playlists=[
+                        PlaylistRecord(
+                            playlist_id=1,
+                            name="Road Mix",
+                            source="manual",
+                            items=[PlaylistItemRecord(path=str(track_path), track_id=1)],
+                        )
+                    ],
+                    supported_extensions=[".flac"],
+                    generated_at="2026-05-30T00:00:00+00:00",
+                ),
+                database,
+            )
+            with connect_database(database, create=False) as connection:
+                connection.execute(
+                    """
+                    INSERT INTO play_playlist_stats (
+                        playlist_key, play_count, last_played_at, playlist_id, name
+                    ) VALUES (?, ?, ?, ?, ?)
+                    """,
+                    ("1", 1, "2026-05-30T00:00:00+00:00", 1, "Road Mix"),
+                )
+                connection.commit()
+            app = create_player_app(self.make_options(temp_path))
+            client = app.test_client()
+
+            edit_response = client.get("/playlists/1/edit")
+            upload_response = client.post(
+                "/api/playlists/1/cover",
+                data={"cover": (io.BytesIO(png_cover), "front.png")},
+            )
+            cover_response = client.get("/api/playlists/1/cover")
+            playlist_response = client.get("/playlists/1")
+            delete_response = client.post("/api/playlists/1/delete")
+            with connect_database(database, create=False) as connection:
+                playlist_count = int(
+                    connection.execute("SELECT COUNT(*) FROM library_playlists").fetchone()[0]
+                )
+                item_count = int(
+                    connection.execute("SELECT COUNT(*) FROM library_playlist_items").fetchone()[0]
+                )
+                stats_count = int(
+                    connection.execute("SELECT COUNT(*) FROM play_playlist_stats").fetchone()[0]
+                )
+
+        self.assertEqual(edit_response.status_code, 200)
+        self.assertIn(b'data-page="playlist-edit"', edit_response.data)
+        self.assertIn(b'data-playlist-delete-form', edit_response.data)
+        self.assertIn(b'data-playlist-cover-form', edit_response.data)
+        self.assertEqual(upload_response.status_code, 200)
+        self.assertEqual(upload_response.get_json()["cover_mime_type"], "image/png")
+        self.assertEqual(cover_response.status_code, 200)
+        self.assertEqual(cover_response.content_type, "image/png")
+        self.assertEqual(cover_response.data, png_cover)
+        self.assertIn(b'src="/api/playlists/1/cover"', playlist_response.data)
+        self.assertEqual(delete_response.status_code, 200)
+        self.assertEqual(delete_response.get_json()["redirect_url"], "/playlists")
+        self.assertEqual(playlist_count, 0)
+        self.assertEqual(item_count, 0)
+        self.assertEqual(stats_count, 0)
 
     def test_static_file_and_favicon_are_served(self) -> None:
         with TemporaryDirectory() as tempdir:

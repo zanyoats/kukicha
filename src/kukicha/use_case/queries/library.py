@@ -237,6 +237,7 @@ class LibraryQueries:
                     playlists.kind,
                     playlists.source,
                     playlists.cover_svg,
+                    playlists.cover_mime_type,
                     playlists.created_at,
                     COUNT(items.playlist_item_id) AS item_count
                 FROM library_playlists AS playlists
@@ -249,6 +250,7 @@ class LibraryQueries:
                     playlists.kind,
                     playlists.source,
                     playlists.cover_svg,
+                    playlists.cover_mime_type,
                     playlists.created_at
                 """,
                 params,
@@ -266,6 +268,7 @@ class LibraryQueries:
                 is_playlist=True,
                 playlist_id=int(row["playlist_id"]),
                 cover_svg=str(row["cover_svg"] or ""),
+                cover_mime_type=str(row["cover_mime_type"] or ""),
                 playlist_kind=str(row["kind"] or "local"),
                 playlist_source=str(row["source"] or "manual"),
             )
@@ -385,7 +388,15 @@ class LibraryQueries:
         with connect_database(self.database, create=False) as connection:
             row = connection.execute(
                 """
-                SELECT playlist_id, name, kind, source, cover_svg, created_at, updated_at
+                SELECT
+                    playlist_id,
+                    name,
+                    kind,
+                    source,
+                    cover_svg,
+                    cover_mime_type,
+                    created_at,
+                    updated_at
                 FROM library_playlists
                 WHERE playlist_id = ?
                 """,
@@ -398,11 +409,13 @@ class LibraryQueries:
                 playlist_id,
                 playlist_name=str(row["name"]),
                 playlist_cover_svg=str(row["cover_svg"] or ""),
+                playlist_cover_mime_type=str(row["cover_mime_type"] or ""),
             )
         return PlaylistDetails(
             playlist_id=int(row["playlist_id"]),
             name=str(row["name"]),
             cover_svg=str(row["cover_svg"] or ""),
+            cover_mime_type=str(row["cover_mime_type"] or ""),
             kind=str(row["kind"] or "local"),
             source=str(row["source"] or "manual"),
             created_at=str(row["created_at"] or ""),
@@ -440,7 +453,8 @@ class LibraryQueries:
                         items.genre,
                         items.cover_url,
                         playlists.name AS playlist_name,
-                        playlists.cover_svg AS playlist_cover_svg
+                        playlists.cover_svg AS playlist_cover_svg,
+                        playlists.cover_mime_type AS playlist_cover_mime_type
                     FROM library_playlist_items AS items
                     JOIN library_playlists AS playlists
                         ON playlists.playlist_id = items.playlist_id
@@ -1046,6 +1060,7 @@ class LibraryQueries:
         *,
         playlist_name: str = "",
         playlist_cover_svg: str = "",
+        playlist_cover_mime_type: str = "",
     ) -> list[PlaylistItem]:
         rows = list(
             connection.execute(
@@ -1073,6 +1088,7 @@ class LibraryQueries:
             rows,
             playlist_name=playlist_name,
             playlist_cover_svg=playlist_cover_svg,
+            playlist_cover_mime_type=playlist_cover_mime_type,
         )
 
     def _playlist_items_from_rows(
@@ -1082,6 +1098,7 @@ class LibraryQueries:
         *,
         playlist_name: str = "",
         playlist_cover_svg: str = "",
+        playlist_cover_mime_type: str = "",
     ) -> list[PlaylistItem]:
         item_rows = list(rows)
         track_ids = [
@@ -1121,6 +1138,12 @@ class LibraryQueries:
                 and row["playlist_cover_svg"] is not None
                 else playlist_cover_svg
             )
+            row_playlist_cover_mime_type = (
+                str(row["playlist_cover_mime_type"])
+                if "playlist_cover_mime_type" in row.keys()
+                and row["playlist_cover_mime_type"] is not None
+                else playlist_cover_mime_type
+            )
             items.append(
                 PlaylistItem(
                     playlist_item_id=int(row["playlist_item_id"]),
@@ -1140,6 +1163,7 @@ class LibraryQueries:
                     genre=row["genre"],
                     cover_url=row["cover_url"],
                     playlist_cover_svg=row_playlist_cover_svg,
+                    playlist_cover_mime_type=row_playlist_cover_mime_type,
                 )
             )
         return items

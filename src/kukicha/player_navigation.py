@@ -219,10 +219,23 @@ def album_edit_url(album: AlbumSummary, query: AlbumListQuery | None = None) -> 
 
 def album_art_url(album: AlbumSummary | AlbumDetails) -> str:
     if album.is_playlist:
-        return playlist_cover_url(album.cover_svg, album.album)
+        return playlist_cover_url(
+            album.cover_svg,
+            album.album,
+            playlist_id=album.playlist_id,
+            cover_mime_type=album.cover_mime_type,
+        )
     return f"/art/{ALBUM_ARTWORK_HEIGHT}/{album.art_track_id}" if album.art_track_id else ""
 
-def playlist_cover_url(cover_svg: str, playlist_name: str) -> str:
+def playlist_cover_url(
+    cover_svg: str,
+    playlist_name: str,
+    *,
+    playlist_id: int | None = None,
+    cover_mime_type: str = "",
+) -> str:
+    if playlist_id is not None and cover_mime_type:
+        return f"/api/playlists/{playlist_id}/cover"
     return playlist_cover_data_url(cover_svg or playlist_cover_svg(playlist_name))
 
 def album_summary_text(album: AlbumSummary) -> str:

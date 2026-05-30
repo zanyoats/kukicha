@@ -1280,16 +1280,6 @@ button:disabled,
   padding: 16px;
 }
 
-.playlist-create-form-manual {
-  box-shadow: inset 4px 0 0 var(--accent);
-}
-
-.playlist-create-form-import {
-  background:
-    linear-gradient(90deg, var(--surface-alt), var(--surface) 28%);
-  box-shadow: inset 4px 0 0 var(--muted);
-}
-
 .playlist-create-form .settings-status {
   min-height: 18px;
 }
@@ -1332,12 +1322,35 @@ button:disabled,
   width: 100%;
   min-width: 0;
   min-height: 40px;
-  border: 1px dashed var(--line);
-  border-radius: 8px;
-  background: var(--surface);
+  border: 0;
+  background: transparent;
   color: var(--text);
   font: inherit;
   line-height: 1.2;
+  padding: 0;
+}
+
+.playlist-file-input::file-selector-button {
+  appearance: none;
+  border: 0;
+  border-radius: 6px;
+  background: var(--surface-alt);
+  box-shadow: none;
+  color: var(--text);
+  font: inherit;
+  margin-right: 8px;
+  padding: 8px 10px;
+}
+
+.playlist-file-input::-webkit-file-upload-button {
+  -webkit-appearance: none;
+  border: 0;
+  border-radius: 6px;
+  background: var(--surface-alt);
+  box-shadow: none;
+  color: var(--text);
+  font: inherit;
+  margin-right: 8px;
   padding: 8px 10px;
 }
 

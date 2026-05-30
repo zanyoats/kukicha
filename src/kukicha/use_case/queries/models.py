@@ -148,6 +148,7 @@ class AlbumSummary:
     is_playlist: bool = False
     playlist_id: int | None = None
     cover_svg: str = ""
+    cover_mime_type: str = ""
     playlist_kind: str = "local"
     playlist_source: str = "manual"
     sort_genre: str | None = None
@@ -199,6 +200,7 @@ class PlaylistItem:
     genre: str | None = None
     cover_url: str | None = None
     playlist_cover_svg: str = ""
+    playlist_cover_mime_type: str = ""
 
     @property
     def playback_id(self) -> int:
@@ -215,6 +217,7 @@ class PlaylistDetails:
     name: str
     root_position: int | None = None
     cover_svg: str = ""
+    cover_mime_type: str = ""
     kind: str = "local"
     source: str = "manual"
     created_at: str = ""

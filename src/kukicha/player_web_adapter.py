@@ -21,10 +21,12 @@ from .use_case import (
     append_queue as append_queue_command,
     clear_cache_tables,
     create_or_replace_manual_playlist,
+    delete_playlist as delete_playlist_command,
     delete_album_musicbrainz_override,
     import_playlist_file,
     mark_stale_player_jobs_canceled,
     pause_queue_for_document_load,
+    playlist_cover as playlist_cover_command,
     playlist_audio_path,
     record_playback,
     remove_queue_item as remove_queue_item_command,
@@ -39,6 +41,7 @@ from .use_case import (
     track_audio_path,
     track_audio_resource,
     update_album_star as update_album_star_command,
+    upload_playlist_cover as upload_playlist_cover_command,
     update_playback as update_playback_command,
     update_queue as update_queue_command,
     update_track_playlist_membership as update_track_playlist_membership_command,
@@ -83,6 +86,7 @@ from .player_views import (
     build_musicbrainz_overrides_page_context,
     build_not_found_context,
     build_playlist_context,
+    build_playlist_edit_context,
     build_playlist_index_context,
     build_queue_context,
     build_roots_page_context,
@@ -251,6 +255,10 @@ def create_player_app(options: PlayerServerOptions) -> Flask:
         payload = playlist_playback_payload(player_context().database, playlist_id)
         return json_response(payload, cache_control="private, max-age=60")
 
+    @app.get("/api/playlists/<int:playlist_id>/cover")
+    def playlist_cover(playlist_id: int) -> Response:
+        return playlist_cover_response(playlist_id)
+
     @app.get("/healthz")
     def healthz() -> Response:
         return Response(status=204)
@@ -274,6 +282,13 @@ def create_player_app(options: PlayerServerOptions) -> Flask:
         reset_playback_for_document_load()
         return rendered_response(
             build_playlist_context(player_context().runtime, playlist_id, query_string())
+        )
+
+    @app.get("/playlists/<int:playlist_id>/edit")
+    def playlist_edit(playlist_id: int) -> Response:
+        reset_playback_for_document_load()
+        return rendered_response(
+            build_playlist_edit_context(player_context().runtime, playlist_id, query_string())
         )
 
     @app.get("/queue")
@@ -405,6 +420,27 @@ def create_player_app(options: PlayerServerOptions) -> Flask:
             else f"Imported {result.item_count} playlist item(s)."
         )
         return json_response(result.payload(message=message), status=201)
+
+    @app.post("/api/playlists/<int:playlist_id>/cover")
+    def upload_playlist_cover(playlist_id: int) -> Response:
+        filename, data = read_cover_upload()
+        result = upload_playlist_cover_command(
+            player_context().database,
+            playlist_id,
+            filename=filename,
+            data=data,
+        )
+        return json_response(
+            result.payload(message=f"Playlist cover updated for {result.name}.")
+        )
+
+    @app.post("/api/playlists/<int:playlist_id>/delete")
+    def delete_playlist(playlist_id: int) -> Response:
+        result = delete_playlist_command(player_context().database, playlist_id)
+        return json_response(
+            result.payload(message=f"Playlist deleted: {result.name}.")
+            | {"redirect_url": "/playlists"}
+        )
 
     @app.post("/api/album-artist-mappings")
     def edit_album_artist_split_mapping() -> Response:
@@ -960,6 +996,19 @@ def artwork_response(height_px: int, track_id: int) -> Response:
     if artwork is None:
         abort(404)
     response = Response(artwork.data, content_type=artwork.mime_type)
+    response.headers["Cache-Control"] = ARTWORK_CACHE_CONTROL
+    return response
+
+
+def playlist_cover_response(playlist_id: int) -> Response:
+    from .playlist_art import playlist_cover_svg
+
+    cover = playlist_cover_command(player_context().database, playlist_id)
+    if cover.has_uploaded_cover:
+        response = Response(cover.cover_data or b"", content_type=cover.cover_mime_type)
+    else:
+        svg = cover.cover_svg or playlist_cover_svg(cover.name)
+        response = Response(svg.encode("utf-8"), content_type="image/svg+xml; charset=utf-8")
     response.headers["Cache-Control"] = ARTWORK_CACHE_CONTROL
     return response
 

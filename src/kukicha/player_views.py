@@ -638,7 +638,44 @@ def build_playlist_context(
         playlist_back_url=playlist_index_url(query),
         playlist_index_url=playlist_index_url(query),
         playlist_track_meta=playlist_track_meta(playlist, track_views),
-        playlist_cover_data_url=playlist_cover_url(playlist.cover_svg, playlist.name),
+        playlist_cover_url=playlist_cover_url(
+            playlist.cover_svg,
+            playlist.name,
+            playlist_id=playlist.playlist_id,
+            cover_mime_type=playlist.cover_mime_type,
+        ),
+        playlist_edit_page_url=f"/playlists/{playlist.playlist_id}/edit",
+    )
+
+
+def build_playlist_edit_context(
+    runtime: PlayerRuntime,
+    playlist_id: int,
+    _query_string: str,
+) -> dict[str, Any]:
+    from .player_navigation import (
+        playlist_cover_url,
+        playlist_index_url,
+    )
+
+    api = LibraryQueries(runtime.database)
+    query = playlist_index_query_from_query_string(_query_string)
+    playlist = api.get_playlist(playlist_id)
+    return base_player_context(
+        runtime,
+        page_name="playlist-edit",
+        view_template="player/playlist_edit.html",
+        playlist=playlist,
+        playlist_back_url=f"/playlists/{playlist.playlist_id}",
+        playlist_index_url=playlist_index_url(query),
+        playlist_cover_url=playlist_cover_url(
+            playlist.cover_svg,
+            playlist.name,
+            playlist_id=playlist.playlist_id,
+            cover_mime_type=playlist.cover_mime_type,
+        ),
+        playlist_cover_upload_action_url=f"/api/playlists/{playlist.playlist_id}/cover",
+        playlist_delete_action_url=f"/api/playlists/{playlist.playlist_id}/delete",
     )
 
 

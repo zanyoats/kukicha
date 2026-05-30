@@ -1,0 +1,96 @@
+<div class="view-page album-view playlist-edit-view" data-page="playlist-edit">
+  <div class="album-view-nav">
+    <a class="back-link" href="{{ playlist_back_url }}" data-history-back data-nav>&larr; back</a>
+    <a class="back-link" href="{{ playlist_index_url }}" data-nav>&uarr; index</a>
+  </div>
+
+  <header class="album-header">
+    <div class="album-identity">
+      <img class="album-hero-cover playlist-cover-image" src="{{ playlist_cover_url }}" alt="" loading="lazy" data-playlist-cover-image>
+      <div class="album-detail-copy">
+        <h2 title="{{ playlist.name }}">
+          <span class="album-detail-title-text" title="{{ playlist.name }}">{{ playlist.name }}</span>
+        </h2>
+        <ul class="meta-list album-genre-meta">
+          <li>Playlist</li>
+          <li>{{ "Remote" if playlist.kind == "remote" else "Local" }}</li>
+          {% if playlist.source == "file_import" %}
+            <li>File import</li>
+          {% endif %}
+        </ul>
+      </div>
+    </div>
+  </header>
+
+  <div class="album-edit-sections">
+    <section class="album-edit-panel settings-panel album-edit-section album-edit-delete-panel" data-playlist-delete-section>
+      <form
+        class="album-edit-action-form"
+        action="{{ playlist_delete_action_url }}"
+        method="post"
+        autocomplete="off"
+        data-playlist-delete-form
+      >
+        <div class="album-edit-danger-section">
+          <div class="album-edit-section-copy">
+            <h4 class="album-edit-form-title">Delete Playlist</h4>
+            <p class="album-edit-form-description">
+              Removes this playlist and its items from Kukicha.
+            </p>
+          </div>
+          <button
+            class="danger"
+            type="button"
+            data-delete-playlist
+            data-delete-url="{{ playlist_delete_action_url }}"
+            data-playlist-label="{{ playlist.name }}"
+          >Delete Playlist</button>
+        </div>
+        <div
+          class="settings-status"
+          data-playlist-delete-status
+          aria-live="polite"
+        ></div>
+      </form>
+    </section>
+
+    <section class="album-edit-panel settings-panel album-edit-section album-edit-cover-panel" data-playlist-cover-section>
+      <form
+        class="album-edit-action-form"
+        action="{{ playlist_cover_upload_action_url }}"
+        method="post"
+        enctype="multipart/form-data"
+        autocomplete="off"
+        data-playlist-cover-form
+      >
+        <div class="album-edit-cover-section">
+          <div class="album-edit-section-copy">
+            <h4 class="album-edit-form-title">Upload Cover</h4>
+            <p class="album-edit-form-description">
+              Overrides the default cassette artwork for this playlist.
+            </p>
+          </div>
+          <div class="album-edit-cover-controls">
+            <input
+              class="album-edit-cover-input"
+              type="file"
+              accept="image/gif,image/jpeg,image/png,image/webp"
+              data-playlist-cover-input
+            >
+            <button
+              type="button"
+              data-upload-playlist-cover
+              data-upload-url="{{ playlist_cover_upload_action_url }}"
+              data-playlist-label="{{ playlist.name }}"
+            >Upload Cover</button>
+          </div>
+        </div>
+        <div
+          class="settings-status"
+          data-playlist-cover-status
+          aria-live="polite"
+        ></div>
+      </form>
+    </section>
+  </div>
+</div>

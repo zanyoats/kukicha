@@ -4,12 +4,13 @@
   <div class="album-view-nav">
     <a class="back-link" href="{{ playlist_back_url }}" data-history-back data-nav>&larr; back</a>
     <a class="back-link" href="{{ playlist_index_url }}" data-nav>&uarr; index</a>
+    <a class="back-link album-edit-link" href="{{ playlist_edit_page_url }}" data-nav>edit</a>
   </div>
 
   <header class="album-header">
     <div class="album-identity" data-album-playback-source data-playlist-id="{{ playlist.playlist_id }}">
       <div class="album-hero-cover-wrap">
-        <img class="album-hero-cover playlist-cover-image" src="{{ playlist_cover_data_url }}" alt="" loading="lazy">
+        <img class="album-hero-cover playlist-cover-image" src="{{ playlist_cover_url }}" alt="" loading="lazy">
         {% if playlist.track_count %}
           <div class="album-cover-actions">
             <button class="album-cover-action play-icon-button" type="button" data-play-album

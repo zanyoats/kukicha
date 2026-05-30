@@ -911,6 +911,7 @@ def recent_listening_playlists(
                 playlists.playlist_id,
                 playlists.name,
                 playlists.cover_svg,
+                playlists.cover_mime_type,
                 playlists.created_at,
                 playlists.kind,
                 playlists.source,
@@ -947,6 +948,7 @@ def recent_listening_playlists(
                     or row["snapshot_cover_svg"]
                     or playlist_cover_svg(str(row["snapshot_name"] or "Playlist"))
                 ),
+                cover_mime_type=str(row["cover_mime_type"] or ""),
                 playlist_kind=str(row["kind"] or "local"),
                 playlist_source=str(row["source"] or "manual"),
             ),

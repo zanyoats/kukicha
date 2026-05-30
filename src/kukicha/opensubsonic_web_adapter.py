@@ -9,6 +9,7 @@ import json
 from pathlib import Path
 import re
 from typing import Any
+from urllib.parse import urlsplit
 from xml.sax.saxutils import escape, quoteattr
 
 from flask import Flask, Response, current_app, redirect, request, stream_with_context
@@ -45,12 +46,15 @@ from .use_case import (
     PlaylistNotFoundError,
     TrackNotFoundError,
     create_or_replace_manual_playlist,
+    delete_playlist,
+    playlist_cover,
     playlist_audio_path,
     record_opensubsonic_client,
     record_playback,
     track_artwork,
     track_audio_path,
     track_audio_resource,
+    update_manual_playlist,
     update_album_star,
 )
 from .use_case.queries.library import album_artist_display_text
@@ -191,6 +195,8 @@ def open_subsonic_handlers() -> dict[str, Any]:
         "getplaylists": handle_get_playlists,
         "getplaylist": handle_get_playlist,
         "createplaylist": handle_create_playlist,
+        "updateplaylist": handle_update_playlist,
+        "deleteplaylist": handle_delete_playlist,
         "stream": handle_stream,
         "download": handle_download,
         "getcoverart": handle_get_cover_art,
@@ -450,6 +456,24 @@ def handle_create_playlist(params: Mapping[str, list[str]]) -> dict[str, object]
     return {"playlist": playlist_summary_payload(playlist)}
 
 
+def handle_update_playlist(params: Mapping[str, list[str]]) -> dict[str, object]:
+    playlist_id = int_required_param(params, "playlistId")
+    update_manual_playlist(
+        open_subsonic_context().database,
+        playlist_id,
+        name=first_param(params, "name"),
+        track_ids_to_add=tuple(int_repeated_param(params, "songIdToAdd")),
+        item_indexes_to_remove=tuple(int_repeated_param(params, "songIndexToRemove")),
+    )
+    return {}
+
+
+def handle_delete_playlist(params: Mapping[str, list[str]]) -> dict[str, object]:
+    playlist_id = int_required_param(params, "id")
+    delete_playlist(open_subsonic_context().database, playlist_id)
+    return {}
+
+
 def handle_stream(params: Mapping[str, list[str]]) -> Response:
     track_id = int_required_param(params, "id")
     if track_id < 0:
@@ -500,9 +524,12 @@ def handle_get_cover_art(params: Mapping[str, list[str]]) -> Response:
     cover_id = require_param(params, "id")
     if cover_id.startswith("playlist:"):
         playlist_id = cover_id[len("playlist:") :]
-        playlist = LibraryQueries(open_subsonic_context().database).get_playlist(int(playlist_id))
-        svg = playlist.cover_svg or playlist_cover_svg(playlist.name)
-        response = Response(svg.encode("utf-8"), content_type="image/svg+xml; charset=utf-8")
+        cover = playlist_cover(open_subsonic_context().database, int(playlist_id))
+        if cover.has_uploaded_cover:
+            response = Response(cover.cover_data or b"", content_type=cover.cover_mime_type)
+        else:
+            svg = cover.cover_svg or playlist_cover_svg(cover.name)
+            response = Response(svg.encode("utf-8"), content_type="image/svg+xml; charset=utf-8")
         response.headers["Cache-Control"] = ARTWORK_CACHE_CONTROL
         return response
     context = open_subsonic_context()

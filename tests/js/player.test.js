@@ -1601,6 +1601,137 @@ test("album cover upload sends selected file after overwrite confirmation", asyn
   assert.equal(harness.jobToasts.children.length, 1);
 });
 
+test("playlist delete posts and navigates to playlist index after confirmation", async () => {
+  const harness = createHarness({
+    track_ids: [],
+    position: 0,
+    loaded_track_id: null,
+    paused: true,
+    errored_track_ids: [],
+    unavailable_track_ids: [],
+  }, {
+    fetchResponses: {
+      "/api/playlists/1/delete": {
+        json: {
+          message: "Playlist deleted: Road Mix.",
+          redirect_url: "/playlists",
+        },
+      },
+      "/playlists": {
+        text: '<div data-page="playlists"></div>',
+      },
+    },
+  });
+  const form = harness.document.createElement("form");
+  const status = harness.document.createElement("div");
+  const button = harness.document.createElement("button");
+  const confirmButton = harness.document.querySelector("[data-confirmation-confirm]");
+  const dialog = harness.document.getElementById("confirmation-dialog");
+  const message = harness.document.querySelector("[data-confirmation-message]");
+  form.setQueryResult("[data-playlist-delete-status]", status);
+  button.dataset.deleteUrl = "/api/playlists/1/delete";
+  button.dataset.playlistLabel = "Road Mix";
+  button.closest = (selector) => (
+    selector === "form[data-playlist-delete-form]" ? form : null
+  );
+
+  const deletePromise = harness.context.deletePlaylist(button);
+  await Promise.resolve();
+
+  assert.equal(dialog.hidden, false);
+  assert.equal(
+    message.textContent,
+    "Delete Road Mix? This removes the playlist from Kukicha.",
+  );
+  assert.equal(harness.fetchCalls.length, 0);
+
+  harness.document.listeners.get("click")[0]({
+    target: confirmButton,
+    preventDefault() {},
+  });
+  await deletePromise;
+  await harness.flush();
+
+  assert.equal(dialog.hidden, true);
+  assert.equal(harness.fetchCalls[0].url, "/api/playlists/1/delete");
+  assert.equal(harness.fetchCalls[0].request.method, "POST");
+  assert.equal(harness.fetchCalls[1].url, "/playlists");
+  assert.equal(harness.fetchCalls[1].request.headers["X-Kukicha-Fragment"], "1");
+  assert.equal(status.textContent, "Playlist deleted: Road Mix.");
+  assert.equal(button.disabled, false);
+  assert.equal(button.getAttribute("aria-busy"), null);
+});
+
+test("playlist cover upload sends selected image after confirmation", async () => {
+  const harness = createHarness({
+    track_ids: [],
+    position: 0,
+    loaded_track_id: null,
+    paused: true,
+    errored_track_ids: [],
+    unavailable_track_ids: [],
+  }, {
+    fetchResponses: {
+      "/api/playlists/1/cover": {
+        json: {
+          message: "Playlist cover updated for Road Mix.",
+        },
+      },
+      "http://localhost/playlists/1/edit": {
+        text: '<div data-page="playlist-edit"></div>',
+      },
+    },
+  });
+  harness.context.window.location.href = "http://localhost/playlists/1/edit";
+  const form = harness.document.createElement("form");
+  const status = harness.document.createElement("div");
+  const input = harness.document.createElement("input");
+  const button = harness.document.createElement("button");
+  const file = {name: "Front.JPG"};
+  const confirmButton = harness.document.querySelector("[data-confirmation-confirm]");
+  const dialog = harness.document.getElementById("confirmation-dialog");
+  const message = harness.document.querySelector("[data-confirmation-message]");
+  input.files = [file];
+  form.setQueryResult("[data-playlist-cover-status]", status);
+  form.setQueryResult("[data-playlist-cover-input]", input);
+  button.dataset.uploadUrl = "/api/playlists/1/cover";
+  button.dataset.playlistLabel = "Road Mix";
+  button.closest = (selector) => {
+    if (selector === "form[data-playlist-cover-form]") {
+      return form;
+    }
+    return null;
+  };
+
+  const uploadPromise = harness.context.uploadPlaylistCover(button);
+  await Promise.resolve();
+
+  assert.equal(dialog.hidden, false);
+  assert.equal(
+    message.textContent,
+    "Upload Front.JPG as the cover for Road Mix?",
+  );
+  assert.equal(harness.fetchCalls.length, 0);
+
+  harness.document.listeners.get("click")[0]({
+    target: confirmButton,
+    preventDefault() {},
+  });
+  await uploadPromise;
+  await harness.flush();
+
+  assert.equal(dialog.hidden, true);
+  assert.equal(harness.fetchCalls[0].url, "/api/playlists/1/cover");
+  assert.equal(harness.fetchCalls[0].request.method, "POST");
+  assert.equal(harness.fetchCalls[0].body.cover, file);
+  assert.equal(harness.fetchCalls[1].url, "http://localhost/playlists/1/edit");
+  assert.equal(harness.fetchCalls[1].request.headers["X-Kukicha-Fragment"], "1");
+  assert.equal(status.textContent, "Playlist cover updated for Road Mix.");
+  assert.equal(input.disabled, false);
+  assert.equal(button.disabled, false);
+  assert.equal(button.getAttribute("aria-busy"), null);
+});
+
 test("album edit MusicBrainz URL disables only album-level tag fields", () => {
   const harness = createHarness({
     track_ids: [],

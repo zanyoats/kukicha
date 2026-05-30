@@ -48,6 +48,8 @@ CREATE TABLE IF NOT EXISTS library_playlists (
     kind TEXT NOT NULL DEFAULT 'local' CHECK (kind IN ('local', 'remote')),
     source TEXT NOT NULL DEFAULT 'manual' CHECK (source IN ('manual', 'file_import')),
     cover_svg TEXT NOT NULL DEFAULT '',
+    cover_mime_type TEXT NOT NULL DEFAULT '',
+    cover_data BLOB,
     created_at TEXT NOT NULL DEFAULT '',
     updated_at TEXT NOT NULL DEFAULT ''
 );
@@ -881,9 +883,19 @@ def ensure_library_playlist_schema(connection: sqlite3.Connection) -> None:
         "kind",
         "source",
         "cover_svg",
+        "cover_mime_type",
+        "cover_data",
         "created_at",
         "updated_at",
     }
+    if "cover_mime_type" not in columns:
+        connection.execute(
+            "ALTER TABLE library_playlists ADD COLUMN cover_mime_type TEXT NOT NULL DEFAULT ''"
+        )
+        columns.add("cover_mime_type")
+    if "cover_data" not in columns:
+        connection.execute("ALTER TABLE library_playlists ADD COLUMN cover_data BLOB")
+        columns.add("cover_data")
     if desired_columns.issubset(columns) and "path" not in columns and "file_created_at" not in columns:
         return
 
@@ -967,9 +979,11 @@ def ensure_library_playlist_schema(connection: sqlite3.Connection) -> None:
                 kind,
                 source,
                 cover_svg,
+                cover_mime_type,
+                cover_data,
                 created_at,
                 updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 playlist_id,
@@ -977,6 +991,8 @@ def ensure_library_playlist_schema(connection: sqlite3.Connection) -> None:
                 kind,
                 source,
                 str(row["cover_svg"] or "") if "cover_svg" in keys else "",
+                str(row["cover_mime_type"] or "") if "cover_mime_type" in keys else "",
+                row["cover_data"] if "cover_data" in keys else None,
                 created_at,
                 updated_at,
             ),

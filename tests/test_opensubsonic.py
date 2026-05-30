@@ -794,6 +794,70 @@ class OpenSubsonicWebAdapterTest(unittest.TestCase):
         self.assertEqual(cover_response.content_type, "image/svg+xml; charset=utf-8")
         self.assertIn(b"Road Mix Updated", cover_response.data)
 
+    def test_update_and_delete_playlist_mutate_manual_playlist(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            first, second = self.save_sample_library(temp_path)
+            app = create_player_app(self.make_options(temp_path))
+            client = app.test_client()
+
+            create_query = list(self.auth_params().items()) + [
+                ("name", "Road Mix"),
+                ("songId", str(first.track_id)),
+                ("songId", str(second.track_id)),
+            ]
+            with patch(
+                "kukicha.use_case.commands.playlists.utc_now_iso",
+                return_value="2026-05-08T12:00:00+00:00",
+            ):
+                client.get("/rest/createPlaylist", query_string=create_query)
+            update_query = list(self.auth_params().items()) + [
+                ("playlistId", "1"),
+                ("name", "Road Mix Edited"),
+                ("songIndexToRemove", "0"),
+                ("songIdToAdd", str(first.track_id)),
+            ]
+            with patch(
+                "kukicha.use_case.commands.playlists.utc_now_iso",
+                return_value="2026-05-08T13:00:00+00:00",
+            ):
+                update_response = client.get("/rest/updatePlaylist", query_string=update_query)
+            playlist_response = client.get(
+                "/rest/getPlaylist",
+                query_string={**self.auth_params(), "id": "1"},
+            )
+            delete_response = client.get(
+                "/rest/deletePlaylist",
+                query_string={**self.auth_params(), "id": "1"},
+            )
+            playlists_response = client.get(
+                "/rest/getPlaylists",
+                query_string=self.auth_params(),
+            )
+            with connect_database(temp_path / "kukicha.sqlite", create=False) as connection:
+                playlist_count = int(
+                    connection.execute("SELECT COUNT(*) FROM library_playlists").fetchone()[0]
+                )
+                item_count = int(
+                    connection.execute("SELECT COUNT(*) FROM library_playlist_items").fetchone()[0]
+                )
+
+        self.assertEqual(subsonic_payload(update_response)["status"], "ok")
+        playlist = subsonic_payload(playlist_response)["playlist"]
+        self.assertEqual(playlist["name"], "Road Mix Edited")
+        self.assertEqual(playlist["changed"], "2026-05-08T13:00:00+00:00")
+        self.assertEqual(
+            [entry["id"] for entry in playlist["entry"]],
+            [str(second.track_id), str(first.track_id)],
+        )
+        self.assertEqual(subsonic_payload(delete_response)["status"], "ok")
+        self.assertEqual(
+            subsonic_payload(playlists_response)["playlists"]["playlist"],
+            [],
+        )
+        self.assertEqual(playlist_count, 0)
+        self.assertEqual(item_count, 0)
+
     def test_get_genres_returns_album_genre_and_style_counts(self) -> None:
         with TemporaryDirectory() as tempdir:
             temp_path = Path(tempdir)
