@@ -409,6 +409,7 @@ def playlist_item_playback_snapshot(
         "album": str(row["playlist_name"]),
         "album_artists": [],
         "genres": [genre] if genre else [],
+        "styles": [],
         "is_stream": is_url_resource(path),
     }
 
@@ -438,6 +439,7 @@ def snapshot_from_track_row(connection: Connection, row: Row) -> dict[str, objec
         "album_artists": list(album_artists),
         "album": str(row["album"] or ""),
         "genres": track_genres(connection, track_id),
+        "styles": track_styles(connection, track_id),
     }
 
 
@@ -1329,6 +1331,21 @@ def track_genres(connection: Connection, track_id: int) -> list[str]:
             """
             SELECT genre
             FROM library_track_genres
+            WHERE track_id = ?
+            ORDER BY position
+            """,
+            (track_id,),
+        )
+    ]
+
+
+def track_styles(connection: Connection, track_id: int) -> list[str]:
+    return [
+        str(row["style"])
+        for row in connection.execute(
+            """
+            SELECT style
+            FROM library_track_styles
             WHERE track_id = ?
             ORDER BY position
             """,

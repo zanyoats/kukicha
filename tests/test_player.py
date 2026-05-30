@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 import io
+import json
 import os
 from dataclasses import replace
 from datetime import datetime
@@ -4893,6 +4894,7 @@ class PlayerWebAdapterTest(unittest.TestCase):
                 track_number="1/15",
                 disc_number="1/1",
                 genres=["Ambient", "Electronic"],
+                styles=["Downtempo", "Minimal"],
             )
             save_library(
                 MusicLibrary(
@@ -4949,8 +4951,9 @@ class PlayerWebAdapterTest(unittest.TestCase):
                     (track.track_id,),
                 ).fetchone()
                 event_row = connection.execute(
-                    "SELECT source FROM play_events"
+                    "SELECT source, snapshot_json FROM play_events"
                 ).fetchone()
+                event_snapshot = json.loads(str(event_row["snapshot_json"]))
                 album_stats = connection.execute(
                     "SELECT play_count, last_played_at FROM play_album_stats"
                 ).fetchone()
@@ -4986,6 +4989,8 @@ class PlayerWebAdapterTest(unittest.TestCase):
         self.assertEqual(int(track_stats["play_count"]), 1)
         self.assertEqual(track_stats["last_played_at"], expected_played)
         self.assertEqual(event_row["source"], NATIVE_PLAYBACK_SOURCE)
+        self.assertEqual(event_snapshot["genres"], ["Ambient", "Electronic"])
+        self.assertEqual(event_snapshot["styles"], ["Downtempo", "Minimal"])
         self.assertEqual(track_stats["title"], "Emerald and Lime")
         self.assertEqual(track_stats["album"], "Small Craft on a Milk Sea")
         self.assertEqual(int(album_stats["play_count"]), 1)
