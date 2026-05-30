@@ -819,7 +819,7 @@ class LibraryAlbumPathQueryTest(unittest.TestCase):
         self.assertFalse(hasattr(root_b_page.items[0], "track_ids"))
         self.assertEqual([album.album for album in root_b_genre_page.items], ["Album"])
 
-    def test_list_genres_counts_album_genres_without_styles_or_taxonomy(self) -> None:
+    def test_list_genres_counts_album_genres_and_styles(self) -> None:
         with TemporaryDirectory() as tempdir:
             database = Path(tempdir) / "kukicha.sqlite"
             tracks = [
@@ -883,10 +883,10 @@ class LibraryAlbumPathQueryTest(unittest.TestCase):
             [
                 ("Ambient", 1, 1),
                 ("Electronic", 2, 1),
+                ("Electronica", 2, 1),
                 ("Rock", 1, 1),
             ],
         )
-        self.assertNotIn("Electronica", [genre.value for genre in genres])
 
     def test_list_genres_returns_empty_for_empty_library(self) -> None:
         with TemporaryDirectory() as tempdir:

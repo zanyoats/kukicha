@@ -223,12 +223,12 @@ class OpenSubsonicWebAdapterTest(unittest.TestCase):
     def save_album_list_library(self, temp_path: Path) -> None:
         root = temp_path / "music"
         specs = (
-            ("A Artist", "Zulu", "Rock"),
-            ("B Artist", "Alpha", "Electronic"),
-            ("C Artist", "Middle", "Jazz"),
+            ("A Artist", "Zulu", "Rock", "Classic Rock"),
+            ("B Artist", "Alpha", "Electronic", "Electronica"),
+            ("C Artist", "Middle", "Jazz", "Modal"),
         )
         tracks = []
-        for index, (artist, album, genre) in enumerate(specs, start=1):
+        for index, (artist, album, genre, style) in enumerate(specs, start=1):
             path = root / artist / album / "01.flac"
             path.parent.mkdir(parents=True)
             path.write_bytes(f"{artist}-{album}".encode("utf-8"))
@@ -242,6 +242,7 @@ class OpenSubsonicWebAdapterTest(unittest.TestCase):
                     album=album,
                     title=f"Track {index}",
                     genres=[genre],
+                    styles=[style],
                     duration_seconds=30.0 + index,
                 )
             )
@@ -724,7 +725,7 @@ class OpenSubsonicWebAdapterTest(unittest.TestCase):
         self.assertIn(b"<song ", response.data)
         self.assertIn(b'size="12345"', response.data)
 
-    def test_get_genres_returns_album_genre_counts(self) -> None:
+    def test_get_genres_returns_album_genre_and_style_counts(self) -> None:
         with TemporaryDirectory() as tempdir:
             temp_path = Path(tempdir)
             self.save_genre_library(temp_path)
@@ -741,10 +742,10 @@ class OpenSubsonicWebAdapterTest(unittest.TestCase):
             [
                 {"value": "Ambient", "songCount": 1, "albumCount": 1},
                 {"value": "Electronic", "songCount": 2, "albumCount": 1},
+                {"value": "Electronica", "songCount": 2, "albumCount": 1},
                 {"value": "Rock", "songCount": 1, "albumCount": 1},
             ],
         )
-        self.assertNotIn("Electronica", [genre["value"] for genre in genres])
 
     def test_get_genres_returns_empty_for_empty_library(self) -> None:
         with TemporaryDirectory() as tempdir:
@@ -784,7 +785,10 @@ class OpenSubsonicWebAdapterTest(unittest.TestCase):
             b'<genre value="Electronic" songCount="2" albumCount="1"/>',
             response.data,
         )
-        self.assertNotIn(b"Electronica", response.data)
+        self.assertIn(
+            b'<genre value="Electronica" songCount="2" albumCount="1"/>',
+            response.data,
+        )
 
     def test_scrobble_tracks_now_playing_and_submitted_play_counts(self) -> None:
         with TemporaryDirectory() as tempdir:
@@ -1153,6 +1157,19 @@ class OpenSubsonicWebAdapterTest(unittest.TestCase):
         self.assertEqual(by_genre, ["Alpha"])
         self.assertEqual(subsonic_payload(missing_genre_response)["status"], "failed")
         self.assertEqual(subsonic_payload(missing_genre_response)["error"]["code"], 10)
+
+    def test_album_list2_by_genre_accepts_style_values(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            self.save_album_list_library(temp_path)
+
+            by_style = self.album_list2_names(
+                temp_path,
+                album_list_type="byGenre",
+                genre="electronica",
+            )
+
+        self.assertEqual(by_style, ["Alpha"])
 
     def test_album_list2_returns_empty_for_unsupported_types(self) -> None:
         with TemporaryDirectory() as tempdir:

@@ -735,8 +735,10 @@ def album_list2_query_from_params(
 ) -> AlbumListQuery | None:
     folded_type = album_list_type.casefold()
     if folded_type == "bygenre":
+        genre = require_param(params, "genre")
         return AlbumListQuery(
-            genre_filters=(GenreStyleFilter(genre=require_param(params, "genre")),),
+            genre_filters=(GenreStyleFilter(genre=genre),),
+            styles=(genre,),
             offset=offset,
         )
     if folded_type == "starred":

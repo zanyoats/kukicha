@@ -640,21 +640,36 @@ class LibraryQueries:
                 connection.execute(
                     """
                     SELECT
-                        album_genres.genre,
-                        COUNT(DISTINCT tracks.track_id) AS song_count,
-                        COUNT(DISTINCT album_genres.album_id) AS album_count
-                    FROM library_album_genres AS album_genres
-                    LEFT JOIN library_tracks AS tracks
-                        ON tracks.album_id = album_genres.album_id
-                    WHERE album_genres.genre != ''
-                    GROUP BY album_genres.genre
-                    ORDER BY album_genres.genre COLLATE NOCASE
+                        value,
+                        COUNT(DISTINCT track_id) AS song_count,
+                        COUNT(DISTINCT album_id) AS album_count
+                    FROM (
+                        SELECT
+                            album_genres.genre AS value,
+                            tracks.track_id,
+                            album_genres.album_id
+                        FROM library_album_genres AS album_genres
+                        LEFT JOIN library_tracks AS tracks
+                            ON tracks.album_id = album_genres.album_id
+                        WHERE album_genres.genre != ''
+                        UNION ALL
+                        SELECT
+                            album_styles.style AS value,
+                            tracks.track_id,
+                            album_styles.album_id
+                        FROM library_album_styles AS album_styles
+                        LEFT JOIN library_tracks AS tracks
+                            ON tracks.album_id = album_styles.album_id
+                        WHERE album_styles.style != ''
+                    )
+                    GROUP BY value
+                    ORDER BY value COLLATE NOCASE
                     """
                 )
             )
         return tuple(
             LibraryGenre(
-                value=str(row["genre"]),
+                value=str(row["value"]),
                 song_count=int(row["song_count"]),
                 album_count=int(row["album_count"]),
             )
