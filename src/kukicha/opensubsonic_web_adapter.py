@@ -48,7 +48,7 @@ from .use_case import (
     create_or_replace_manual_playlist,
     delete_playlist,
     playlist_cover,
-    playlist_audio_path,
+    playlist_audio_resource,
     record_opensubsonic_client,
     record_playback,
     track_artwork,
@@ -478,11 +478,11 @@ def handle_stream(params: Mapping[str, list[str]]) -> Response:
     track_id = int_required_param(params, "id")
     if track_id < 0:
         try:
-            path = playlist_audio_path(open_subsonic_context().runtime, -track_id)
+            resource = playlist_audio_resource(open_subsonic_context().runtime, -track_id)
         except FileNotFoundError:
             item = LibraryQueries(open_subsonic_context().database).get_playlist_item(-track_id)
             return redirect(item.path, code=302)
-        return audio_file_response(path)
+        return audio_resource_response(resource)
     try:
         resource = track_audio_resource(open_subsonic_context().runtime, track_id)
     except TrackNotFoundError:
@@ -495,13 +495,13 @@ def handle_download(params: Mapping[str, list[str]]) -> Response:
     track_id = int_required_param(params, "id")
     if track_id < 0:
         try:
-            path = playlist_audio_path(open_subsonic_context().runtime, -track_id)
+            resource = playlist_audio_resource(open_subsonic_context().runtime, -track_id)
         except FileNotFoundError:
             item = LibraryQueries(open_subsonic_context().database).get_playlist_item(-track_id)
             return redirect(item.path, code=302)
-        response = audio_file_response(path)
+        response = audio_resource_response(resource)
         response.headers["Content-Disposition"] = (
-            f'attachment; filename="{content_disposition_filename(path.name)}"'
+            f'attachment; filename="{content_disposition_filename(resource.name)}"'
         )
         return response
     try:

@@ -27,7 +27,7 @@ from .use_case import (
     mark_stale_player_jobs_canceled,
     pause_queue_for_document_load,
     playlist_cover as playlist_cover_command,
-    playlist_audio_path,
+    playlist_audio_resource,
     record_playback,
     remove_queue_item as remove_queue_item_command,
     reset_listening_data,
@@ -307,10 +307,10 @@ def create_player_app(options: PlayerServerOptions) -> Flask:
     @app.get("/playlist-audio/<int:playlist_item_id>")
     def playlist_audio(playlist_item_id: int) -> Response:
         try:
-            path = playlist_audio_path(player_context().runtime, playlist_item_id)
+            resource = playlist_audio_resource(player_context().runtime, playlist_item_id)
         except FileNotFoundError:
             abort(404, "Playlist URL audio uses its source URL directly")
-        return audio_file_response(path)
+        return audio_resource_response(resource)
 
     @app.get("/art/<int:track_id>")
     def track_artwork(track_id: int) -> Response:

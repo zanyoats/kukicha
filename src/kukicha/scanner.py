@@ -16,7 +16,6 @@ from io import BytesIO
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import Callable
-from urllib.parse import urlsplit
 
 from mutagen import File as MutagenFile
 
@@ -30,6 +29,8 @@ from .library_sources import (
     canonical_s3_path,
     create_s3_client,
     create_s3_client_for_workers,
+    is_http_url_resource,
+    is_remote_path,
     local_root_source,
     remote_root_display_label,
     remote_root_from_source_json,
@@ -1046,10 +1047,7 @@ def parse_uploaded_playlist_file(
         allowed = ", ".join(sorted(PLAYLIST_EXTENSIONS))
         raise ValueError(f"playlist file extension must be one of: {allowed}")
     text = read_uploaded_playlist_text(upload_name, data)
-    tracks_by_path = {
-        normalize_local_playlist_path(track.path): track
-        for track in tracks
-    }
+    tracks_by_path = {normalize_playlist_track_path(track.path): track for track in tracks}
     if suffix == ".pls":
         return parse_uploaded_pls_playlist(upload_name, text, tracks_by_path)
     return parse_uploaded_m3u_playlist(upload_name, text, tracks_by_path)
@@ -1277,12 +1275,20 @@ def parse_playlist_duration(value: str) -> float | None:
 
 
 def normalize_uploaded_playlist_resource(value: str) -> str | None:
-    if is_url_resource(value):
-        return value.strip()
-    path = Path(value).expanduser()
+    text = value.strip()
+    if is_url_resource(text) or is_remote_path(text):
+        return text
+    path = Path(text).expanduser()
     if not path.is_absolute():
         return None
     return normalize_local_playlist_path(str(path))
+
+
+def normalize_playlist_track_path(value: str) -> str:
+    text = str(value).strip()
+    if is_remote_path(text):
+        return text
+    return normalize_local_playlist_path(text)
 
 
 def normalize_local_playlist_path(value: str) -> str:
@@ -1290,8 +1296,7 @@ def normalize_local_playlist_path(value: str) -> str:
 
 
 def is_url_resource(value: str) -> bool:
-    parsed = urlsplit(value.strip())
-    return parsed.scheme.casefold() in {"http", "https"} and bool(parsed.netloc)
+    return is_http_url_resource(value)
 
 
 def scan_track(path: Path) -> TrackRecord:

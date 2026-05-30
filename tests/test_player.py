@@ -7786,6 +7786,110 @@ class PlayerWebAdapterTest(unittest.TestCase):
         self.assertEqual(head_response.data, b"")
         self.assertEqual(head_response.headers["Content-Length"], "4")
 
+    def test_playlist_audio_route_streams_tracked_remote_item(self) -> None:
+        class FakeS3Client:
+            def __init__(self, data: bytes) -> None:
+                self.data = data
+
+            def head_object(self, **kwargs: object) -> dict[str, object]:
+                assert kwargs["Bucket"] == "bucket"
+                assert kwargs["Key"] == "tracks/01.flac"
+                return {
+                    "ContentLength": len(self.data),
+                    "ContentType": "application/octet-stream",
+                }
+
+            def get_object(self, **kwargs: object) -> dict[str, object]:
+                assert kwargs["Bucket"] == "bucket"
+                assert kwargs["Key"] == "tracks/01.flac"
+                range_header = kwargs.get("Range")
+                if isinstance(range_header, str) and range_header.startswith("bytes="):
+                    start_text, end_text = range_header.removeprefix("bytes=").split("-", 1)
+                    start = int(start_text)
+                    end = int(end_text)
+                    return {"Body": io.BytesIO(self.data[start : end + 1])}
+                return {"Body": io.BytesIO(self.data)}
+
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            database = temp_path / "kukicha.sqlite"
+            remote = RemoteRootConfig(
+                name="Remote",
+                endpoint_url="https://s3.example.test",
+                bucket="bucket",
+                prefix="tracks/",
+            )
+            track_path = canonical_s3_path(remote, "tracks/01.flac")
+            connection = connect_database(database)
+            try:
+                connection.execute(
+                    """
+                    INSERT INTO library_roots (
+                        position, root_path, kind, source_json
+                    ) VALUES (?, ?, ?, ?)
+                    """,
+                    (0, remote.root_path, "s3", remote.source_json),
+                )
+                connection.execute(
+                    """
+                    INSERT INTO library_tracks (
+                        track_id, root_position, path, file_type, title
+                    ) VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (7, 0, track_path, "flac", "Remote Track"),
+                )
+                connection.execute(
+                    """
+                    INSERT INTO library_track_sources (
+                        track_id,
+                        source_kind,
+                        root_position,
+                        canonical_path,
+                        object_key,
+                        content_type,
+                        size_bytes
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (7, "s3", 0, track_path, "tracks/01.flac", "audio/flac", 10),
+                )
+                connection.execute(
+                    """
+                    INSERT INTO library_playlists (
+                        playlist_id, name, kind, source
+                    ) VALUES (?, ?, ?, ?)
+                    """,
+                    (3, "Remote Mix", "local", "manual"),
+                )
+                connection.execute(
+                    """
+                    INSERT INTO library_playlist_items (
+                        playlist_item_id, playlist_id, position, path, track_id
+                    ) VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (12, 3, 0, track_path, 7),
+                )
+                connection.commit()
+            finally:
+                connection.close()
+
+            runtime = self.make_runtime(database)
+            fake_client = FakeS3Client(b"0123456789")
+            with (
+                patch("kukicha.player_web_adapter.PlayerRuntime", return_value=runtime),
+                patch("kukicha.player_media.create_s3_client", return_value=fake_client),
+            ):
+                app = create_player_app(self.make_options(temp_path))
+                client = app.test_client()
+                response = client.get(
+                    "/playlist-audio/12",
+                    headers={"Range": "bytes=2-5"},
+                )
+
+        self.assertEqual(response.status_code, 206)
+        self.assertEqual(response.data, b"2345")
+        self.assertEqual(response.headers["Content-Range"], "bytes 2-5/10")
+        self.assertEqual(response.content_type, "audio/flac")
+
     def test_job_events_stream_retries_and_unsubscribes_on_close(self) -> None:
         with TemporaryDirectory() as tempdir:
             temp_path = Path(tempdir)

@@ -899,6 +899,33 @@ class ScannerPlaylistTest(unittest.TestCase):
         self.assertIsNone(url_item.duration_seconds)
         self.assertTrue(url_item.duration_is_indeterminate)
 
+    def test_uploaded_m3u_reconciles_remote_root_paths_with_existing_tracks(self) -> None:
+        remote = RemoteRootConfig(
+            name="Remote",
+            endpoint_url="https://s3.us-east-1.wasabisys.com",
+            bucket="com.cconroy.music-test",
+            prefix="tracks/",
+        )
+        tracked_path = canonical_s3_path(remote, "tracks/Album/01 Tracked.flac")
+
+        parsed = parse_uploaded_playlist_file(
+            "remote.m3u8",
+            "\n".join(
+                (
+                    "#EXTM3U",
+                    "#EXTINF:321,Tracked Metadata Ignored",
+                    tracked_path,
+                )
+            ).encode("utf-8"),
+            (TrackRecord(path=tracked_path, track_id=7),),
+        )
+
+        self.assertEqual(parsed.skipped_relative_paths, ())
+        self.assertEqual(len(parsed.items), 1)
+        self.assertEqual(parsed.items[0].path, tracked_path)
+        self.assertEqual(parsed.items[0].track_id, 7)
+        self.assertIsNone(parsed.items[0].title)
+
 
 class ScannerExternalArtworkTest(unittest.TestCase):
     def test_build_library_picks_up_new_sidecar_cover_after_previous_scan(self) -> None:

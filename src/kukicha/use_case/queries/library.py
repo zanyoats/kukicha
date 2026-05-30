@@ -8,7 +8,16 @@ from sqlite3 import Connection, Row
 from ..cache import CACHE_TABLE_GROUPS
 from ..database import connect_database
 from ..library import split_genres_and_styles
-from ...library_sources import SOURCE_KIND_LOCAL, SOURCE_KIND_S3, root_source_label
+from ...library_sources import (
+    SOURCE_KIND_LOCAL,
+    SOURCE_KIND_S3,
+    is_http_url_resource,
+    is_remote_path,
+    path_is_in_source,
+    remote_root_from_source_json,
+    root_source_label,
+    s3_object_key_from_canonical_path,
+)
 from ...media_resources import AudioResource, local_audio_resource
 from ...models import ALBUM_ARTWORK_HEIGHT, TrackArtwork, normalize_genre_values
 from .filters import (
@@ -559,6 +568,31 @@ class LibraryQueries:
     def get_playlist_item_audio_path(self, playlist_item_id: int) -> Path:
         item = self.get_playlist_item(playlist_item_id)
         return Path(item.path)
+
+    def get_playlist_item_audio_resource(self, playlist_item_id: int) -> AudioResource:
+        remote_resource: AudioResource | None = None
+        with connect_database(self.database, create=False) as connection:
+            row = connection.execute(
+                """
+                SELECT playlist_item_id, path, track_id
+                FROM library_playlist_items
+                WHERE playlist_item_id = ?
+                """,
+                (playlist_item_id,),
+            ).fetchone()
+            if row is None:
+                raise PlaylistItemNotFoundError(playlist_item_id)
+            track_id = int(row["track_id"]) if row["track_id"] is not None else None
+            path = str(row["path"])
+            if track_id is None and not is_http_url_resource(path):
+                remote_resource = remote_playlist_item_audio_resource(connection, path)
+        if track_id is not None:
+            return self.get_track_audio_resource(track_id)
+        if is_http_url_resource(path):
+            raise FileNotFoundError(path)
+        if remote_resource is not None:
+            return remote_resource
+        return local_audio_resource(path)
 
     def get_track_artwork(self, track_id: int, *, height_px: int) -> TrackArtwork | None:
         with connect_database(self.database, create=False) as connection:
@@ -1718,6 +1752,44 @@ def unique_sorted(values: Iterable[object]) -> tuple[str, ...]:
             continue
         seen.setdefault(value.casefold(), value)
     return tuple(sorted(seen.values(), key=str.casefold))
+
+
+def remote_playlist_item_audio_resource(
+    connection: Connection,
+    path: str,
+) -> AudioResource | None:
+    if not is_remote_path(path):
+        return None
+    rows = list(
+        connection.execute(
+            """
+            SELECT root_path, source_json
+            FROM library_roots
+            WHERE kind = ?
+            ORDER BY LENGTH(root_path) DESC
+            """,
+            (SOURCE_KIND_S3,),
+        )
+    )
+    for row in rows:
+        root_path = str(row["root_path"])
+        if not path_is_in_source(path, root_path, SOURCE_KIND_S3):
+            continue
+        source_json = str(row["source_json"] or "{}")
+        try:
+            remote = remote_root_from_source_json(source_json)
+        except Exception:
+            continue
+        object_key = s3_object_key_from_canonical_path(remote, path)
+        if object_key is None:
+            continue
+        return AudioResource(
+            kind=SOURCE_KIND_S3,
+            path=path,
+            source_json=source_json,
+            object_key=object_key,
+        )
+    return None
 
 
 def library_root_filter_label(root_path: str) -> str:

@@ -981,6 +981,12 @@ def playlist_audio_path(runtime: PlayerRuntime, playlist_item_id: int) -> Path:
     return Path(item.path)
 
 
+def playlist_audio_resource(runtime: PlayerRuntime, playlist_item_id: int) -> object:
+    return LibraryQueries(runtime.database).get_playlist_item_audio_resource(
+        playlist_item_id
+    )
+
+
 def track_artwork(
     runtime: PlayerRuntime,
     height_px: int,

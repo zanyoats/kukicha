@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
-from urllib.parse import quote, urlsplit
+from urllib.parse import quote, unquote, urlsplit
 
 
 SOURCE_KIND_LOCAL = "local"
@@ -155,6 +155,17 @@ def canonical_s3_path(remote: RemoteRootConfig, key: str) -> str:
     return f"s3+{remote.endpoint_url}/{bucket}/"
 
 
+def s3_object_key_from_canonical_path(
+    remote: RemoteRootConfig,
+    path: str,
+) -> str | None:
+    base_path = canonical_s3_path(remote, "")
+    path_text = path.strip()
+    if not path_text.startswith(base_path):
+        return None
+    return unquote(path_text[len(base_path) :])
+
+
 def remote_root_display_label(root: RemoteRootConfig) -> str:
     if root.name:
         return root.name
@@ -176,7 +187,13 @@ def root_source_label(path: str, kind: str, source_json: str) -> str:
 
 
 def is_remote_path(path: str) -> bool:
-    return path.startswith("s3+http://") or path.startswith("s3+https://")
+    path_text = path.strip()
+    return path_text.startswith("s3+http://") or path_text.startswith("s3+https://")
+
+
+def is_http_url_resource(value: str) -> bool:
+    parsed = urlsplit(value.strip())
+    return parsed.scheme.casefold() in {"http", "https"} and bool(parsed.netloc)
 
 
 def path_is_in_source(path: str, root_path: str, kind: str = SOURCE_KIND_LOCAL) -> bool:

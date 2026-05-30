@@ -3991,6 +3991,102 @@ class LibraryPlaylistPersistenceTest(unittest.TestCase):
         self.assertEqual(playlist.items[1].genre, "Electronic")
         self.assertEqual(playlist.items[1].cover_url, "https://example.test/cover.jpg")
 
+    def test_save_library_links_remote_playlist_items_by_canonical_path(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            database = Path(tempdir) / "kukicha.sqlite"
+            remote = RemoteRootConfig(
+                name="Remote",
+                endpoint_url="https://s3.us-east-1.wasabisys.com",
+                bucket="com.cconroy.music-test",
+                prefix="tracks/",
+            )
+            tracked_path = canonical_s3_path(remote, "tracks/Artist/Album/01.flac")
+            save_library_with_options(
+                MusicLibrary(
+                    roots=[remote.root_path],
+                    tracks=[
+                        TrackRecord(
+                            path=tracked_path,
+                            root_position=0,
+                            file_type="flac",
+                            artist="Artist",
+                            album_artist="Artist",
+                            album="Album",
+                            title="Remote Track",
+                            source=TrackSourceRecord(
+                                source_kind="s3",
+                                root_position=0,
+                                canonical_path=tracked_path,
+                                object_key="tracks/Artist/Album/01.flac",
+                            ),
+                        )
+                    ],
+                    playlists=[
+                        PlaylistRecord(
+                            path="remote.m3u8",
+                            root_position=0,
+                            name="Remote Mix",
+                            items=[PlaylistItemRecord(path=tracked_path)],
+                        )
+                    ],
+                    supported_extensions=[".flac"],
+                    generated_at="2026-04-25T00:00:00+00:00",
+                ),
+                database,
+                root_rows=[remote_root_source(0, remote)],
+            )
+
+            playlist = LibraryQueries(database).get_playlist(1)
+
+        self.assertEqual(playlist.name, "Remote Mix")
+        self.assertEqual(len(playlist.items), 1)
+        self.assertEqual(playlist.items[0].path, tracked_path)
+        self.assertEqual(playlist.items[0].track_id, 1)
+        self.assertIsNotNone(playlist.items[0].track)
+        self.assertEqual(playlist.items[0].track.title, "Remote Track")
+
+    def test_playlist_audio_resource_resolves_untracked_remote_root_path(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            database = Path(tempdir) / "kukicha.sqlite"
+            remote = RemoteRootConfig(
+                name="Remote",
+                endpoint_url="https://s3.us-east-1.wasabisys.com",
+                bucket="com.cconroy.music-test",
+                prefix="tracks/",
+            )
+            item_path = canonical_s3_path(remote, "tracks/Artist/Album/01.flac")
+            with connect_database(database) as connection:
+                connection.execute(
+                    """
+                    INSERT INTO library_roots (
+                        position, root_path, kind, source_json
+                    ) VALUES (?, ?, ?, ?)
+                    """,
+                    (0, remote.root_path, "s3", remote.source_json),
+                )
+                connection.execute(
+                    """
+                    INSERT INTO library_playlists (playlist_id, name, kind, source)
+                    VALUES (?, ?, ?, ?)
+                    """,
+                    (1, "Remote Mix", "local", "manual"),
+                )
+                connection.execute(
+                    """
+                    INSERT INTO library_playlist_items (
+                        playlist_item_id, playlist_id, position, path
+                    ) VALUES (?, ?, ?, ?)
+                    """,
+                    (2, 1, 0, item_path),
+                )
+
+            resource = LibraryQueries(database).get_playlist_item_audio_resource(2)
+
+        self.assertEqual(resource.kind, "s3")
+        self.assertEqual(resource.path, item_path)
+        self.assertEqual(resource.object_key, "tracks/Artist/Album/01.flac")
+        self.assertEqual(resource.source_json, remote.source_json)
+
     def test_load_rescan_tracks_by_path_keeps_reusable_track_state_only(self) -> None:
         with TemporaryDirectory() as tempdir:
             database = Path(tempdir) / "kukicha.sqlite"
