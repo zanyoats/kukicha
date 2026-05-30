@@ -17,6 +17,7 @@ from ..library_sources import (
     RemoteRootConfig,
     create_s3_client,
     create_s3_client_for_workers,
+    normalize_remote_prefix,
     remote_root_display_label,
     resolve_remote_worker_count,
 )
@@ -106,6 +107,7 @@ class CopyToRemoteResult:
     upload_errors: tuple[CopyToRemoteUploadError, ...]
     deleted_sources: tuple[Path, ...]
     delete_errors: tuple[CopyToRemoteDeleteError, ...]
+    destination_prefix: str = ""
 
     @property
     def files_failed(self) -> int:
@@ -145,6 +147,7 @@ def run_copy_to_remote(args: argparse.Namespace) -> int:
             options=options,
             source_children=args.source_children,
             delete_source=args.delete_source,
+            destination_prefix=args.destination_prefix,
             remote_workers=args.remote_workers,
             status=status,
         )
@@ -210,6 +213,7 @@ def copy_to_remote(
     options: PlayerServerOptions,
     source_children: bool = False,
     delete_source: bool = False,
+    destination_prefix: str = "",
     remote_workers: int | None = None,
     s3_client_factory: Callable[..., object] = create_s3_client,
     status: Callable[[str], None] | None = None,
@@ -221,6 +225,9 @@ def copy_to_remote(
         raise NotADirectoryError(f"source is not a folder: {source}")
 
     remote = select_remote_root(options.remote_roots, remote_name)
+    normalized_destination_prefix = normalize_copy_to_remote_destination_prefix(
+        destination_prefix
+    )
     worker_count = resolve_remote_worker_count(
         remote_workers if remote_workers is not None else options.remote_workers
     )
@@ -254,8 +261,11 @@ def copy_to_remote(
     for unit_index, unit in enumerate(units):
         for path in unit.files:
             file_number += 1
-            object_key = remote_object_key(remote, path.relative_to(base))
-            relative_path = path.relative_to(base).as_posix()
+            relative_path = copy_to_remote_relative_path(
+                normalized_destination_prefix,
+                path.relative_to(base),
+            )
+            object_key = remote_object_key(remote, relative_path)
             upload_tasks.append(
                 CopyToRemoteUploadTask(
                     unit_index=unit_index,
@@ -356,6 +366,7 @@ def copy_to_remote(
         upload_errors=tuple(upload_errors),
         deleted_sources=tuple(deleted_sources),
         delete_errors=tuple(delete_errors),
+        destination_prefix=normalized_destination_prefix,
     )
 
 
@@ -451,8 +462,25 @@ def remote_worker_source(
     return "auto"
 
 
-def remote_object_key(remote: RemoteRootConfig, relative_path: Path) -> str:
-    return f"{remote.prefix}{relative_path.as_posix()}"
+def normalize_copy_to_remote_destination_prefix(value: str | None) -> str:
+    prefix = normalize_remote_prefix(value or "")
+    if not prefix:
+        return ""
+    parts = prefix.rstrip("/").split("/")
+    if any(part in {".", ".."} for part in parts):
+        raise ValueError("destination prefix must not contain . or .. path segments")
+    return prefix
+
+
+def copy_to_remote_relative_path(destination_prefix: str, relative_path: Path) -> str:
+    upload_path = relative_path.as_posix()
+    if not destination_prefix:
+        return upload_path
+    return f"{destination_prefix}{upload_path}"
+
+
+def remote_object_key(remote: RemoteRootConfig, relative_path: str) -> str:
+    return f"{remote.prefix}{relative_path}"
 
 
 def upload_file_to_remote(
@@ -515,6 +543,8 @@ def format_copy_to_remote_summary(result: CopyToRemoteResult) -> str:
         f"files uploaded: {result.files_uploaded}",
         f"files failed: {result.files_failed}",
     ]
+    if result.destination_prefix:
+        lines.insert(4, f"destination prefix: {result.destination_prefix}")
     if result.delete_source:
         lines.extend(
             [

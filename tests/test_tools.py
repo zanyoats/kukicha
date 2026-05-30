@@ -179,6 +179,8 @@ class CopyToRemoteCommandTest(unittest.TestCase):
                 "--source",
                 "/tmp/Album",
                 "--source-children",
+                "--destination-prefix",
+                "/Compilations/",
                 "--delete-source",
                 "--remote-workers",
                 "3",
@@ -188,6 +190,7 @@ class CopyToRemoteCommandTest(unittest.TestCase):
         self.assertEqual(args.remote, "archive")
         self.assertEqual(args.source, Path("/tmp/Album"))
         self.assertTrue(args.source_children)
+        self.assertEqual(args.destination_prefix, "Compilations/")
         self.assertTrue(args.delete_source)
         self.assertEqual(args.remote_workers, 3)
         self.assertIs(args.func, run_copy_to_remote)
@@ -248,6 +251,28 @@ class CopyToRemoteCommandTest(unittest.TestCase):
         self.assertEqual(
             puts_by_key["tracks/Album/notes.bin"]["ContentType"],
             "application/octet-stream",
+        )
+
+    def test_copy_to_remote_uploads_source_folder_under_destination_prefix(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            album = temp_path / "Compilations" / "Lanquidity (Definitive Edition)"
+            album.mkdir(parents=True)
+            (album / "01.flac").write_bytes(b"audio")
+            client = FakeS3Client()
+
+            result = copy_to_remote(
+                album,
+                remote_name="archive",
+                options=self.make_options(temp_path),
+                destination_prefix="Compilations",
+                s3_client_factory=lambda _remote: client,
+            )
+
+        self.assertEqual(result.destination_prefix, "Compilations/")
+        self.assertEqual(
+            [item["Key"] for item in client.puts],
+            ["tracks/Compilations/Lanquidity (Definitive Edition)/01.flac"],
         )
 
     def test_copy_to_remote_skips_linux_and_macos_filesystem_junk(self) -> None:
@@ -358,6 +383,8 @@ class CopyToRemoteCommandTest(unittest.TestCase):
                     "archive",
                     "--source",
                     str(source),
+                    "--destination-prefix",
+                    "Compilations",
                     "--remote-workers",
                     "4",
                 ]
@@ -370,10 +397,12 @@ class CopyToRemoteCommandTest(unittest.TestCase):
                 options: PlayerServerOptions,
                 source_children: bool = False,
                 delete_source: bool = False,
+                destination_prefix: str = "",
                 remote_workers: int | None = None,
                 status: object = None,
             ) -> CopyToRemoteResult:
                 self.assertEqual(remote_name, "archive")
+                self.assertEqual(destination_prefix, "Compilations/")
                 self.assertEqual(remote_workers, 4)
                 if not callable(status):
                     raise AssertionError("status callback was not passed")
@@ -448,10 +477,12 @@ class CopyToRemoteCommandTest(unittest.TestCase):
                 options: PlayerServerOptions,
                 source_children: bool = False,
                 delete_source: bool = False,
+                destination_prefix: str = "",
                 remote_workers: int | None = None,
                 status: object = None,
             ) -> CopyToRemoteResult:
                 self.assertEqual(remote_name, "archive")
+                self.assertEqual(destination_prefix, "")
                 self.assertIsNone(options.auth)
                 self.assertEqual(options.remote_roots[0].name, "archive")
                 return CopyToRemoteResult(
