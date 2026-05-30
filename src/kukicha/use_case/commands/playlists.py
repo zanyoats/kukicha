@@ -12,7 +12,7 @@ from ...models import TrackRecord
 from ...player_common import placeholders_for
 from ...playlist_art import playlist_cover_svg
 from ...scanner import is_url_resource, parse_uploaded_playlist_file, sniff_image_mime_type
-from ..queries import PlaylistNotFoundError, TrackNotFoundError
+from ..queries import PlaylistItemNotFoundError, PlaylistNotFoundError, TrackNotFoundError
 
 
 LOGGER = logging.getLogger("kukicha.player")
@@ -20,6 +20,12 @@ PLAYLIST_KIND_LOCAL = "local"
 PLAYLIST_KIND_REMOTE = "remote"
 PLAYLIST_SOURCE_MANUAL = "manual"
 PLAYLIST_SOURCE_FILE_IMPORT = "file_import"
+INTERNET_RADIO_STREAM_URL_ERROR = (
+    "Internet radio station streamUrl must be an HTTP or HTTPS URL."
+)
+INTERNET_RADIO_READ_ONLY_ERROR = (
+    "Internet radio stations imported from playlist files are read-only."
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -50,6 +56,14 @@ class PlaylistMutationResult:
         if message:
             result["message"] = message
         return result
+
+
+@dataclass(frozen=True, slots=True)
+class InternetRadioStationMutationResult:
+    playlist_id: int
+    playlist_item_id: int
+    name: str
+    stream_url: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -390,6 +404,159 @@ def import_playlist_file(
     )
 
 
+def create_internet_radio_station(
+    database: Path,
+    *,
+    name: str,
+    stream_url: str,
+) -> InternetRadioStationMutationResult:
+    station_name = normalized_playlist_name(name)
+    station_url = normalized_internet_radio_stream_url(stream_url)
+    now = utc_now_iso()
+    with connect_database(database, create=False) as connection:
+        cursor = connection.execute(
+            """
+            INSERT INTO library_playlists (
+                name,
+                kind,
+                source,
+                cover_svg,
+                created_at,
+                updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                station_name,
+                PLAYLIST_KIND_REMOTE,
+                PLAYLIST_SOURCE_MANUAL,
+                playlist_cover_svg(station_name),
+                now,
+                now,
+            ),
+        )
+        playlist_id = int(cursor.lastrowid)
+        item_cursor = connection.execute(
+            """
+            INSERT INTO library_playlist_items (
+                playlist_id,
+                position,
+                path,
+                title,
+                duration_is_indeterminate
+            ) VALUES (?, ?, ?, ?, ?)
+            """,
+            (playlist_id, 0, station_url, station_name, 1),
+        )
+        playlist_item_id = int(item_cursor.lastrowid)
+        connection.commit()
+    return InternetRadioStationMutationResult(
+        playlist_id=playlist_id,
+        playlist_item_id=playlist_item_id,
+        name=station_name,
+        stream_url=station_url,
+    )
+
+
+def update_internet_radio_station(
+    database: Path,
+    station_id: int,
+    *,
+    name: str,
+    stream_url: str,
+) -> InternetRadioStationMutationResult:
+    station_name = normalized_playlist_name(name)
+    station_url = normalized_internet_radio_stream_url(stream_url)
+    now = utc_now_iso()
+    with connect_database(database, create=False) as connection:
+        row = internet_radio_station_row(connection, station_id)
+        ensure_internet_radio_station_editable(row)
+        playlist_id = int(row["playlist_id"])
+        connection.execute(
+            """
+            UPDATE library_playlist_items
+            SET path = ?,
+                title = ?
+            WHERE playlist_item_id = ?
+            """,
+            (station_url, station_name, station_id),
+        )
+        if playlist_item_count(connection, playlist_id) == 1:
+            connection.execute(
+                """
+                UPDATE library_playlists
+                SET name = ?,
+                    kind = ?,
+                    cover_svg = ?,
+                    updated_at = ?
+                WHERE playlist_id = ?
+                """,
+                (
+                    station_name,
+                    PLAYLIST_KIND_REMOTE,
+                    playlist_cover_svg(station_name),
+                    now,
+                    playlist_id,
+                ),
+            )
+        else:
+            connection.execute(
+                """
+                UPDATE library_playlists
+                SET kind = ?,
+                    updated_at = ?
+                WHERE playlist_id = ?
+                """,
+                (playlist_kind(connection, playlist_id), now, playlist_id),
+            )
+        connection.commit()
+    return InternetRadioStationMutationResult(
+        playlist_id=playlist_id,
+        playlist_item_id=station_id,
+        name=station_name,
+        stream_url=station_url,
+    )
+
+
+def delete_internet_radio_station(
+    database: Path,
+    station_id: int,
+) -> InternetRadioStationMutationResult:
+    with connect_database(database, create=False) as connection:
+        row = internet_radio_station_row(connection, station_id)
+        ensure_internet_radio_station_editable(row)
+        playlist_id = int(row["playlist_id"])
+        station = InternetRadioStationMutationResult(
+            playlist_id=playlist_id,
+            playlist_item_id=station_id,
+            name=str(row["title"] or row["playlist_name"]),
+            stream_url=str(row["path"]),
+        )
+        if playlist_item_count(connection, playlist_id) == 1:
+            connection.execute(
+                "DELETE FROM library_playlists WHERE playlist_id = ?",
+                (playlist_id,),
+            )
+            connection.execute(
+                """
+                DELETE FROM play_playlist_stats
+                WHERE playlist_id = ? OR playlist_key = ?
+                """,
+                (playlist_id, str(playlist_id)),
+            )
+        else:
+            connection.execute(
+                """
+                DELETE FROM library_playlist_items
+                WHERE playlist_item_id = ?
+                """,
+                (station_id,),
+            )
+            compact_playlist_positions(connection, playlist_id)
+            touch_playlist(connection, playlist_id)
+        connection.commit()
+    return station
+
+
 def delete_playlist(database: Path, playlist_id: int) -> PlaylistMutationResult:
     with connect_database(database, create=False) as connection:
         row = playlist_row(connection, playlist_id)
@@ -574,6 +741,63 @@ def normalized_playlist_name(value: str | None, *, required: bool = True) -> str
     if required and not name:
         raise ValueError("playlist name is required")
     return name
+
+
+def normalized_internet_radio_stream_url(value: str | None) -> str:
+    stream_url = str(value or "").strip()
+    if not is_url_resource(stream_url):
+        raise ValueError(INTERNET_RADIO_STREAM_URL_ERROR)
+    return stream_url
+
+
+def internet_radio_station_row(
+    connection: sqlite3.Connection,
+    station_id: int,
+) -> sqlite3.Row:
+    row = connection.execute(
+        """
+        SELECT
+            items.playlist_item_id,
+            items.playlist_id,
+            items.path,
+            items.track_id,
+            items.title,
+            playlists.name AS playlist_name,
+            playlists.kind AS playlist_kind,
+            playlists.source AS playlist_source
+        FROM library_playlist_items AS items
+        JOIN library_playlists AS playlists
+            ON playlists.playlist_id = items.playlist_id
+        WHERE items.playlist_item_id = ?
+        """,
+        (station_id,),
+    ).fetchone()
+    if (
+        row is None
+        or row["track_id"] is not None
+        or str(row["playlist_kind"]) != PLAYLIST_KIND_REMOTE
+        or not is_url_resource(str(row["path"]))
+    ):
+        raise PlaylistItemNotFoundError(station_id)
+    return row
+
+
+def ensure_internet_radio_station_editable(row: sqlite3.Row) -> None:
+    if str(row["playlist_source"]) == PLAYLIST_SOURCE_FILE_IMPORT:
+        raise ValueError(INTERNET_RADIO_READ_ONLY_ERROR)
+
+
+def playlist_item_count(connection: sqlite3.Connection, playlist_id: int) -> int:
+    return int(
+        connection.execute(
+            """
+            SELECT COUNT(*)
+            FROM library_playlist_items
+            WHERE playlist_id = ?
+            """,
+            (playlist_id,),
+        ).fetchone()[0]
+    )
 
 
 def editable_playlist_row(connection: sqlite3.Connection, playlist_id: int) -> sqlite3.Row:

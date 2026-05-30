@@ -8,7 +8,13 @@ import unittest
 from unittest.mock import patch
 
 from kukicha._compat import UTC
-from kukicha.models import MusicLibrary, TrackArtwork, TrackRecord
+from kukicha.models import (
+    MusicLibrary,
+    PlaylistItemRecord,
+    PlaylistRecord,
+    TrackArtwork,
+    TrackRecord,
+)
 from kukicha.player_auth import hash_password
 from kukicha.player_config import (
     OpenSubsonicOptions,
@@ -858,6 +864,406 @@ class OpenSubsonicWebAdapterTest(unittest.TestCase):
         )
         self.assertEqual(playlist_count, 0)
         self.assertEqual(item_count, 0)
+
+    def test_get_internet_radio_stations_returns_external_http_items(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            root = temp_path / "music"
+            local_track_path = root / "Artist" / "Album" / "01.flac"
+            remote_track_path = "https://cdn.example.test/library-track.mp3"
+            save_library(
+                MusicLibrary(
+                    roots=[str(root)],
+                    tracks=[
+                        TrackRecord(
+                            path=str(local_track_path),
+                            root_position=0,
+                            file_type="flac",
+                            artist="Artist",
+                            album_artist="Artist",
+                            album="Album",
+                            title="Local Track",
+                        ),
+                        TrackRecord(
+                            path=remote_track_path,
+                            root_position=0,
+                            file_type="mp3",
+                            artist="Artist",
+                            album_artist="Artist",
+                            album="Remote Album",
+                            title="Tracked Remote",
+                        ),
+                    ],
+                    playlists=[
+                        PlaylistRecord(
+                            name="Imported Streams",
+                            source="file_import",
+                            items=[
+                                PlaylistItemRecord(
+                                    path="http://example.test/imported-one",
+                                    title="Imported One",
+                                ),
+                                PlaylistItemRecord(
+                                    path="HTTPS://example.test/imported-two",
+                                    title="Imported Two",
+                                ),
+                                PlaylistItemRecord(
+                                    path="s3+https://bucket.example.test/object",
+                                    title="Remote Object",
+                                ),
+                            ],
+                        ),
+                        PlaylistRecord(
+                            name="Manual Station",
+                            source="manual",
+                            items=[
+                                PlaylistItemRecord(
+                                    path="https://example.test/manual-live",
+                                    title="Manual Live",
+                                )
+                            ],
+                        ),
+                        PlaylistRecord(
+                            name="Tracked Remote",
+                            source="manual",
+                            items=[PlaylistItemRecord(path=remote_track_path)],
+                        ),
+                        PlaylistRecord(
+                            name="Local Mix",
+                            source="manual",
+                            items=[PlaylistItemRecord(path=str(local_track_path))],
+                        ),
+                    ],
+                    supported_extensions=[".flac", ".mp3"],
+                    generated_at="2026-05-08T00:00:00+00:00",
+                ),
+                temp_path / "kukicha.sqlite",
+            )
+            app = create_player_app(self.make_options(temp_path))
+
+            response = app.test_client().get(
+                "/rest/getInternetRadioStations",
+                query_string=self.auth_params(),
+            )
+
+        stations = subsonic_payload(response)["internetRadioStations"][
+            "internetRadioStation"
+        ]
+        self.assertEqual(
+            [station["name"] for station in stations],
+            ["Imported One", "Imported Two", "Manual Live"],
+        )
+        self.assertEqual(
+            [station["streamUrl"] for station in stations],
+            [
+                "http://example.test/imported-one",
+                "HTTPS://example.test/imported-two",
+                "https://example.test/manual-live",
+            ],
+        )
+        self.assertEqual(
+            [station["coverArt"] for station in stations],
+            ["playlist:1", "playlist:1", "playlist:2"],
+        )
+
+    def test_internet_radio_station_create_update_and_delete(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            save_library(
+                MusicLibrary(
+                    roots=[],
+                    tracks=[],
+                    supported_extensions=[".flac"],
+                    generated_at="2026-05-08T00:00:00+00:00",
+                ),
+                temp_path / "kukicha.sqlite",
+            )
+            app = create_player_app(self.make_options(temp_path))
+            client = app.test_client()
+
+            create_query = {
+                **self.auth_params(),
+                "name": "A Deep Space",
+                "streamUrl": "https://example.test/live",
+                "homepageUrl": "https://ignored.example.test",
+            }
+            duplicate_query = {
+                **self.auth_params(),
+                "name": "B Deep Space",
+                "streamUrl": "https://example.test/live",
+            }
+            with patch(
+                "kukicha.use_case.commands.playlists.utc_now_iso",
+                return_value="2026-05-08T12:00:00+00:00",
+            ):
+                create_response = client.get(
+                    "/rest/createInternetRadioStation",
+                    query_string=create_query,
+                )
+                duplicate_response = client.get(
+                    "/rest/createInternetRadioStation",
+                    query_string=duplicate_query,
+                )
+            with connect_database(temp_path / "kukicha.sqlite", create=False) as connection:
+                connection.execute(
+                    """
+                    UPDATE library_playlist_items
+                    SET duration_seconds = ?,
+                        duration_is_indeterminate = ?,
+                        genre = ?,
+                        cover_url = ?
+                    WHERE playlist_item_id = ?
+                    """,
+                    (
+                        42,
+                        0,
+                        "Ambient",
+                        "https://example.test/cover.jpg",
+                        1,
+                    ),
+                )
+                connection.commit()
+
+            with patch(
+                "kukicha.use_case.commands.playlists.utc_now_iso",
+                return_value="2026-05-08T13:00:00+00:00",
+            ):
+                update_response = client.get(
+                    "/rest/updateInternetRadioStation",
+                    query_string={
+                        **self.auth_params(),
+                        "id": "1",
+                        "name": "A Deep Space Edited",
+                        "streamUrl": "http://example.test/edited",
+                    },
+                )
+            stations_response = client.get(
+                "/rest/getInternetRadioStations",
+                query_string=self.auth_params(),
+            )
+            with connect_database(temp_path / "kukicha.sqlite", create=False) as connection:
+                updated_playlist = connection.execute(
+                    """
+                    SELECT name, kind, source, created_at, updated_at, cover_svg
+                    FROM library_playlists
+                    WHERE playlist_id = 1
+                    """
+                ).fetchone()
+                updated_item = connection.execute(
+                    """
+                    SELECT
+                        path,
+                        title,
+                        duration_seconds,
+                        duration_is_indeterminate,
+                        genre,
+                        cover_url
+                    FROM library_playlist_items
+                    WHERE playlist_item_id = 1
+                    """
+                ).fetchone()
+            delete_first_response = client.get(
+                "/rest/deleteInternetRadioStation",
+                query_string={**self.auth_params(), "id": "1"},
+            )
+            remaining_response = client.get(
+                "/rest/getInternetRadioStations",
+                query_string=self.auth_params(),
+            )
+            delete_second_response = client.get(
+                "/rest/deleteInternetRadioStation",
+                query_string={**self.auth_params(), "id": "2"},
+            )
+            empty_response = client.get(
+                "/rest/getInternetRadioStations",
+                query_string=self.auth_params(),
+            )
+            with connect_database(temp_path / "kukicha.sqlite", create=False) as connection:
+                playlist_count = int(
+                    connection.execute("SELECT COUNT(*) FROM library_playlists").fetchone()[0]
+                )
+                item_count = int(
+                    connection.execute("SELECT COUNT(*) FROM library_playlist_items").fetchone()[0]
+                )
+
+        self.assertEqual(subsonic_payload(create_response)["status"], "ok")
+        self.assertEqual(subsonic_payload(duplicate_response)["status"], "ok")
+        self.assertEqual(subsonic_payload(update_response)["status"], "ok")
+        stations = subsonic_payload(stations_response)["internetRadioStations"][
+            "internetRadioStation"
+        ]
+        self.assertEqual([station["id"] for station in stations], ["1", "2"])
+        self.assertEqual(
+            [station["name"] for station in stations],
+            ["A Deep Space Edited", "B Deep Space"],
+        )
+        self.assertEqual(
+            [station["streamUrl"] for station in stations],
+            ["http://example.test/edited", "https://example.test/live"],
+        )
+        self.assertEqual([station["coverArt"] for station in stations], ["playlist:1", "playlist:2"])
+        self.assertEqual(str(updated_playlist["name"]), "A Deep Space Edited")
+        self.assertEqual(str(updated_playlist["kind"]), "remote")
+        self.assertEqual(str(updated_playlist["source"]), "manual")
+        self.assertEqual(str(updated_playlist["created_at"]), "2026-05-08T12:00:00+00:00")
+        self.assertEqual(str(updated_playlist["updated_at"]), "2026-05-08T13:00:00+00:00")
+        self.assertIn("A Deep Space Edited", str(updated_playlist["cover_svg"]))
+        self.assertEqual(str(updated_item["path"]), "http://example.test/edited")
+        self.assertEqual(str(updated_item["title"]), "A Deep Space Edited")
+        self.assertEqual(float(updated_item["duration_seconds"]), 42.0)
+        self.assertEqual(int(updated_item["duration_is_indeterminate"]), 0)
+        self.assertEqual(str(updated_item["genre"]), "Ambient")
+        self.assertEqual(str(updated_item["cover_url"]), "https://example.test/cover.jpg")
+        self.assertEqual(subsonic_payload(delete_first_response)["status"], "ok")
+        remaining_stations = subsonic_payload(remaining_response)["internetRadioStations"][
+            "internetRadioStation"
+        ]
+        self.assertEqual([station["id"] for station in remaining_stations], ["2"])
+        self.assertEqual(subsonic_payload(delete_second_response)["status"], "ok")
+        self.assertEqual(
+            subsonic_payload(empty_response)["internetRadioStations"]["internetRadioStation"],
+            [],
+        )
+        self.assertEqual(playlist_count, 0)
+        self.assertEqual(item_count, 0)
+
+    def test_internet_radio_station_rejects_non_http_stream_urls(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            save_library(
+                MusicLibrary(
+                    roots=[],
+                    tracks=[],
+                    supported_extensions=[".flac"],
+                    generated_at="2026-05-08T00:00:00+00:00",
+                ),
+                temp_path / "kukicha.sqlite",
+            )
+            app = create_player_app(self.make_options(temp_path))
+            client = app.test_client()
+            valid_response = client.get(
+                "/rest/createInternetRadioStation",
+                query_string={
+                    **self.auth_params(),
+                    "name": "Valid",
+                    "streamUrl": "https://example.test/live",
+                },
+            )
+            create_response = client.get(
+                "/rest/createInternetRadioStation",
+                query_string={
+                    **self.auth_params(),
+                    "name": "Invalid",
+                    "streamUrl": "ftp://example.test/live",
+                },
+            )
+            update_response = client.get(
+                "/rest/updateInternetRadioStation",
+                query_string={
+                    **self.auth_params(),
+                    "id": "1",
+                    "name": "Still Valid",
+                    "streamUrl": "file:///tmp/live.mp3",
+                },
+            )
+            with connect_database(temp_path / "kukicha.sqlite", create=False) as connection:
+                rows = list(
+                    connection.execute(
+                        """
+                        SELECT playlists.name, items.path, items.title
+                        FROM library_playlist_items AS items
+                        JOIN library_playlists AS playlists
+                            ON playlists.playlist_id = items.playlist_id
+                        """
+                    )
+                )
+
+        self.assertEqual(subsonic_payload(valid_response)["status"], "ok")
+        self.assertEqual(subsonic_payload(create_response)["status"], "failed")
+        self.assertEqual(subsonic_payload(update_response)["status"], "failed")
+        self.assertEqual(
+            subsonic_payload(create_response)["error"]["message"],
+            "Internet radio station streamUrl must be an HTTP or HTTPS URL.",
+        )
+        self.assertEqual(
+            subsonic_payload(update_response)["error"]["message"],
+            "Internet radio station streamUrl must be an HTTP or HTTPS URL.",
+        )
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(str(rows[0]["name"]), "Valid")
+        self.assertEqual(str(rows[0]["path"]), "https://example.test/live")
+        self.assertEqual(str(rows[0]["title"]), "Valid")
+
+    def test_internet_radio_station_file_import_mutations_are_read_only(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            save_library(
+                MusicLibrary(
+                    roots=[],
+                    tracks=[],
+                    playlists=[
+                        PlaylistRecord(
+                            name="Imported Streams",
+                            source="file_import",
+                            items=[
+                                PlaylistItemRecord(
+                                    path="https://example.test/imported",
+                                    title="Imported Stream",
+                                )
+                            ],
+                        )
+                    ],
+                    supported_extensions=[".flac"],
+                    generated_at="2026-05-08T00:00:00+00:00",
+                ),
+                temp_path / "kukicha.sqlite",
+            )
+            app = create_player_app(self.make_options(temp_path))
+            client = app.test_client()
+            stations_response = client.get(
+                "/rest/getInternetRadioStations",
+                query_string=self.auth_params(),
+            )
+            station_id = subsonic_payload(stations_response)["internetRadioStations"][
+                "internetRadioStation"
+            ][0]["id"]
+
+            update_response = client.get(
+                "/rest/updateInternetRadioStation",
+                query_string={
+                    **self.auth_params(),
+                    "id": station_id,
+                    "name": "Changed",
+                    "streamUrl": "https://example.test/changed",
+                },
+            )
+            delete_response = client.get(
+                "/rest/deleteInternetRadioStation",
+                query_string={**self.auth_params(), "id": station_id},
+            )
+            with connect_database(temp_path / "kukicha.sqlite", create=False) as connection:
+                row = connection.execute(
+                    """
+                    SELECT playlists.name, items.path, items.title
+                    FROM library_playlist_items AS items
+                    JOIN library_playlists AS playlists
+                        ON playlists.playlist_id = items.playlist_id
+                    """
+                ).fetchone()
+
+        self.assertEqual(subsonic_payload(update_response)["status"], "failed")
+        self.assertEqual(subsonic_payload(delete_response)["status"], "failed")
+        self.assertEqual(
+            subsonic_payload(update_response)["error"]["message"],
+            "Internet radio stations imported from playlist files are read-only.",
+        )
+        self.assertEqual(
+            subsonic_payload(delete_response)["error"]["message"],
+            "Internet radio stations imported from playlist files are read-only.",
+        )
+        self.assertEqual(str(row["name"]), "Imported Streams")
+        self.assertEqual(str(row["path"]), "https://example.test/imported")
+        self.assertEqual(str(row["title"]), "Imported Stream")
 
     def test_get_genres_returns_album_genre_and_style_counts(self) -> None:
         with TemporaryDirectory() as tempdir:

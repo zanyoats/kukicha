@@ -45,12 +45,15 @@ from .use_case import (
     PlaylistItemNotFoundError,
     PlaylistNotFoundError,
     TrackNotFoundError,
+    create_internet_radio_station,
     create_or_replace_manual_playlist,
+    delete_internet_radio_station,
     delete_playlist,
     playlist_cover,
     playlist_audio_resource,
     record_opensubsonic_client,
     record_playback,
+    update_internet_radio_station,
     track_artwork,
     track_audio_path,
     track_audio_resource,
@@ -197,6 +200,10 @@ def open_subsonic_handlers() -> dict[str, Any]:
         "createplaylist": handle_create_playlist,
         "updateplaylist": handle_update_playlist,
         "deleteplaylist": handle_delete_playlist,
+        "getinternetradiostations": handle_get_internet_radio_stations,
+        "createinternetradiostation": handle_create_internet_radio_station,
+        "updateinternetradiostation": handle_update_internet_radio_station,
+        "deleteinternetradiostation": handle_delete_internet_radio_station,
         "stream": handle_stream,
         "download": handle_download,
         "getcoverart": handle_get_cover_art,
@@ -247,6 +254,16 @@ def record_authenticated_opensubsonic_client(params: Mapping[str, list[str]]) ->
 def require_param(params: Mapping[str, list[str]], key: str) -> str:
     value = first_param(params, key)
     if value is None or not value:
+        raise OpenSubsonicApiError(
+            ERROR_REQUIRED_PARAMETER_MISSING,
+            f"Required parameter is missing: {key}",
+        )
+    return value
+
+
+def require_non_blank_param(params: Mapping[str, list[str]], key: str) -> str:
+    value = require_param(params, key)
+    if not value.strip():
         raise OpenSubsonicApiError(
             ERROR_REQUIRED_PARAMETER_MISSING,
             f"Required parameter is missing: {key}",
@@ -471,6 +488,55 @@ def handle_update_playlist(params: Mapping[str, list[str]]) -> dict[str, object]
 def handle_delete_playlist(params: Mapping[str, list[str]]) -> dict[str, object]:
     playlist_id = int_required_param(params, "id")
     delete_playlist(open_subsonic_context().database, playlist_id)
+    return {}
+
+
+def handle_get_internet_radio_stations(
+    params: Mapping[str, list[str]],
+) -> dict[str, object]:
+    stations = LibraryQueries(
+        open_subsonic_context().database
+    ).list_internet_radio_station_items()
+    return {
+        "internetRadioStations": {
+            "internetRadioStation": [
+                internet_radio_station_payload(station)
+                for station in stations
+            ]
+        }
+    }
+
+
+def handle_create_internet_radio_station(
+    params: Mapping[str, list[str]],
+) -> dict[str, object]:
+    create_internet_radio_station(
+        open_subsonic_context().database,
+        stream_url=require_non_blank_param(params, "streamUrl"),
+        name=require_non_blank_param(params, "name"),
+    )
+    return {}
+
+
+def handle_update_internet_radio_station(
+    params: Mapping[str, list[str]],
+) -> dict[str, object]:
+    update_internet_radio_station(
+        open_subsonic_context().database,
+        int_required_param(params, "id"),
+        stream_url=require_non_blank_param(params, "streamUrl"),
+        name=require_non_blank_param(params, "name"),
+    )
+    return {}
+
+
+def handle_delete_internet_radio_station(
+    params: Mapping[str, list[str]],
+) -> dict[str, object]:
+    delete_internet_radio_station(
+        open_subsonic_context().database,
+        int_required_param(params, "id"),
+    )
     return {}
 
 
@@ -1034,6 +1100,17 @@ def playlist_item_payload(item: Any) -> dict[str, object]:
             "path": path,
             "type": "music",
             "isVideo": False,
+        }
+    )
+
+
+def internet_radio_station_payload(item: Any) -> dict[str, object]:
+    return without_none(
+        {
+            "id": str(item.playlist_item_id),
+            "name": item.title or item.playlist_name or item.path,
+            "streamUrl": item.path,
+            "coverArt": playlist_cover_art_id(int(item.playlist_id)),
         }
     )
 
