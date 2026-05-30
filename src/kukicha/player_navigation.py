@@ -22,10 +22,9 @@ from .use_case import (
     LibraryAlbumArtistStats,
     LibraryFilterOptions,
 )
-from .use_case import DEFAULT_ALBUMS_SIZE, album_query_params
-from .display import display_album_title
+from .use_case import album_query_params
 from .models import ALBUM_ARTWORK_HEIGHT
-from .player_common import format_count_label, plural
+from .player_common import format_count_label
 from .playlist_art import playlist_cover_data_url, playlist_cover_svg
 
 PLAYLIST_COVER_SVG = playlist_cover_svg("Playlist")

@@ -20,6 +20,9 @@ dependencies = [
 ]
 
 [dependency-groups]
+dev = [
+    "ruff>=0.15.15",
+]
 release = [
   "twine>=6.2,<6.3",
 ]

@@ -1,0 +1,17 @@
+#!/bin/sh
+set -eu
+
+repo_root=$(git rev-parse --show-toplevel)
+cd "$repo_root"
+
+run() {
+    printf '\n==> %s\n' "$*"
+    "$@"
+}
+
+run uv run ruff check .
+run uv run python -m unittest discover -s tests
+
+NPM_CONFIG_UPDATE_NOTIFIER=false
+export NPM_CONFIG_UPDATE_NOTIFIER
+run npm test

@@ -4874,7 +4874,7 @@ class LibraryCoverArtResolutionTest(unittest.TestCase):
     def test_get_itunes_lookup_image_caches_missing_artwork_results(self) -> None:
         with TemporaryDirectory() as tempdir:
             database = Path(tempdir) / "kukicha.sqlite"
-            connection = connect_database(Path(tempdir) / "kukicha.sqlite")
+            connection = connect_database(database)
             try:
                 client = ItunesLookupClient(stats=ItunesLookupStats())
                 candidate = ItunesLookupCandidate(lookup_kind="album", lookup_id="440769149")

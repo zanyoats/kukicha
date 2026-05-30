@@ -7,7 +7,6 @@ from pathlib import Path
 import re
 import sqlite3
 import sys
-from typing import Any
 
 from jinja2 import Environment, PackageLoader, select_autoescape
 

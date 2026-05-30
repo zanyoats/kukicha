@@ -503,6 +503,7 @@ class OpenSubsonicWebAdapterTest(unittest.TestCase):
         self.assertEqual(subsonic_payload(handler_error_response)["status"], "failed")
         self.assertEqual(subsonic_payload(extension_response)["status"], "ok")
         self.assertEqual(subsonic_payload(authenticated_extension_response)["status"], "ok")
+        self.assertEqual(subsonic_payload(third_response)["status"], "ok")
         self.assertEqual(throttled_seen, first_seen)
         self.assertEqual(error_client_count, 1)
         self.assertEqual(bad_client_count, 0)

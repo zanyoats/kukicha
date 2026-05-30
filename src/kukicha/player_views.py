@@ -80,7 +80,6 @@ def playlist_index_query_from_query_string(_query_string: str) -> AlbumListQuery
 def build_index_context(runtime: PlayerRuntime, query_string: str) -> dict[str, Any]:
     from .player_navigation import (
         ALBUM_SORT_OPTIONS,
-        DEFAULT_ALBUMS_SIZE,
         album_index_url,
         checked_genre_values,
         player_page_context,
@@ -88,6 +87,7 @@ def build_index_context(runtime: PlayerRuntime, query_string: str) -> dict[str, 
         selected_genre_values,
         selected_style_values,
     )
+    from .use_case import DEFAULT_ALBUMS_SIZE
 
     api = LibraryQueries(runtime.database)
     query = api.expand_album_list_query(album_index_query_from_query_string(query_string))
@@ -692,7 +692,6 @@ def build_album_edit_context(
     )
     from .player_presenters import (
         album_tag_edit_section_for_tracks,
-        album_tag_edit_sections,
         track_view,
     )
     from .use_case.commands.album_covers import album_cover_upload_enabled_for_metadata

@@ -1362,7 +1362,6 @@ class YoutubeAudioDownloadCommandTest(unittest.TestCase):
         with TemporaryDirectory() as tempdir:
             temp_path = Path(tempdir)
             download_root = (temp_path / "music").resolve(strict=False)
-            download_path = download_root / ".kukicha" / "yt"
             options = self.make_options(temp_path, roots=(download_root,))
             tools = YoutubeAudioTools(
                 ffmpeg="/usr/local/bin/ffmpeg",
@@ -1451,7 +1450,6 @@ class YoutubeAudioDownloadCommandTest(unittest.TestCase):
         with TemporaryDirectory() as tempdir:
             temp_path = Path(tempdir)
             download_root = (temp_path / "music").resolve(strict=False)
-            download_path = download_root / ".kukicha" / "yt"
             options = self.make_options(temp_path, roots=(download_root,))
             tools = YoutubeAudioTools(
                 ffmpeg="/usr/local/bin/ffmpeg",

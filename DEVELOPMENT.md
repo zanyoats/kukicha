@@ -50,6 +50,17 @@ Run the lightweight browser-player JavaScript tests:
 npm test
 ```
 
+## Git Hooks
+
+Use the repo-local pre-commit hook:
+
+```bash
+git config core.hooksPath .githooks
+```
+
+The hook runs Ruff, the Python `unittest` suite, and the JavaScript tests before
+each commit.
+
 ## Release A Version
 
 Kukicha releases are published to PyPI and mirrored with a GitHub release for the

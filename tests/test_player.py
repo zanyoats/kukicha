@@ -60,7 +60,6 @@ from kukicha.library_sources import (
     clear_s3_client_cache,
     create_s3_client,
 )
-from kukicha.models import TrackSourceRecord
 from kukicha.player_jobs import (
     job_payload,
 )
@@ -70,9 +69,7 @@ from kukicha.player_config import (
     DEFAULT_ACCENT_COLOR,
     DEFAULT_AUTH_COOKIE_MAX_AGE,
     DEFAULT_AUTH_COOKIE_NAME,
-    DEFAULT_OPEN_SUBSONIC_MOUNT_PREFIX,
     DEFAULT_OPEN_SUBSONIC_SECRET_FILENAME,
-    DEFAULT_APPEARANCE,
     DEFAULT_PLAYER_HOST,
     DEFAULT_PLAYER_LOG_LEVEL,
     DEFAULT_PLAYER_PORT,
@@ -117,7 +114,6 @@ from kukicha.use_case import (
     rescan_library,
     remove_queue_item as remove_queue_item_command,
     sync_library_roots,
-    set_track_playlist_membership,
     set_track_playlist_membership_database,
     start_album_cover_upload,
     start_album_delete,

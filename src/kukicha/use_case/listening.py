@@ -7,7 +7,6 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
 from sqlite3 import Connection, Row
-from typing import Any
 
 from .._compat import UTC
 from ..album_artists import normalized_album_artist_values
