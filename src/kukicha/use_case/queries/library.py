@@ -233,11 +233,11 @@ class LibraryQueries:
                 f"""
                 SELECT
                     playlists.playlist_id,
-                    playlists.root_position,
-                    playlists.path,
                     playlists.name,
+                    playlists.kind,
+                    playlists.source,
                     playlists.cover_svg,
-                    playlists.file_created_at,
+                    playlists.created_at,
                     COUNT(items.playlist_item_id) AS item_count
                 FROM library_playlists AS playlists
                 LEFT JOIN library_playlist_items AS items
@@ -245,11 +245,11 @@ class LibraryQueries:
                 {where_sql}
                 GROUP BY
                     playlists.playlist_id,
-                    playlists.root_position,
-                    playlists.path,
                     playlists.name,
+                    playlists.kind,
+                    playlists.source,
                     playlists.cover_svg,
-                    playlists.file_created_at
+                    playlists.created_at
                 """,
                 params,
             )
@@ -262,11 +262,12 @@ class LibraryQueries:
                 album=str(row["name"]),
                 year=None,
                 track_count=int(row["item_count"]),
-                file_created_at=row["file_created_at"],
+                file_created_at=row["created_at"],
                 is_playlist=True,
                 playlist_id=int(row["playlist_id"]),
-                path=str(row["path"]),
                 cover_svg=str(row["cover_svg"] or ""),
+                playlist_kind=str(row["kind"] or "local"),
+                playlist_source=str(row["source"] or "manual"),
             )
             for row in rows
         )
@@ -384,7 +385,7 @@ class LibraryQueries:
         with connect_database(self.database, create=False) as connection:
             row = connection.execute(
                 """
-                SELECT playlist_id, root_position, path, name, cover_svg
+                SELECT playlist_id, name, kind, source, cover_svg, created_at, updated_at
                 FROM library_playlists
                 WHERE playlist_id = ?
                 """,
@@ -400,14 +401,12 @@ class LibraryQueries:
             )
         return PlaylistDetails(
             playlist_id=int(row["playlist_id"]),
-            root_position=(
-                int(row["root_position"])
-                if row["root_position"] is not None
-                else None
-            ),
-            path=str(row["path"]),
             name=str(row["name"]),
             cover_svg=str(row["cover_svg"] or ""),
+            kind=str(row["kind"] or "local"),
+            source=str(row["source"] or "manual"),
+            created_at=str(row["created_at"] or ""),
+            updated_at=str(row["updated_at"] or ""),
             items=tuple(items),
         )
 
@@ -950,8 +949,7 @@ class LibraryQueries:
                 """
                 SELECT
                     tracks_scanned,
-                    albums_scanned,
-                    playlists_scanned
+                    albums_scanned
                 FROM library_stats
                 WHERE stats_id = 1
                 """
@@ -981,13 +979,11 @@ class LibraryQueries:
             return LibraryStats(
                 tracks_scanned=0,
                 albums_scanned=0,
-                playlists_scanned=0,
                 album_artists=album_artists,
             )
         return LibraryStats(
             tracks_scanned=int(stats_row["tracks_scanned"]),
             albums_scanned=int(stats_row["albums_scanned"]),
-            playlists_scanned=int(stats_row["playlists_scanned"]),
             album_artists=album_artists,
         )
 
@@ -999,8 +995,7 @@ class LibraryQueries:
                     SELECT
                         root_position,
                         tracks_scanned,
-                        albums_scanned,
-                        playlists_scanned
+                        albums_scanned
                     FROM library_root_stats
                     ORDER BY root_position
                     """
@@ -1037,7 +1032,6 @@ class LibraryQueries:
                 root_position=int(row["root_position"]),
                 tracks_scanned=int(row["tracks_scanned"]),
                 albums_scanned=int(row["albums_scanned"]),
-                playlists_scanned=int(row["playlists_scanned"]),
                 album_artists=tuple(
                     artist_stats_by_root.get(int(row["root_position"]), ())
                 ),

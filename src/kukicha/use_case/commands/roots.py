@@ -90,12 +90,9 @@ def library_job_summary_text(
     *,
     tracks_scanned: int,
     albums_scanned: int,
-    playlists_scanned: int | None = None,
     duration_seconds: float,
 ) -> str:
     scan_parts = f"tracks={tracks_scanned}, albums={albums_scanned}"
-    if playlists_scanned is not None:
-        scan_parts = f"{scan_parts}, playlists={playlists_scanned}"
     return (
         f"{job_label} completed for {root_path} "
         f"({scan_parts}, duration={duration_seconds:.2f}s)"
@@ -106,7 +103,6 @@ def library_job_detail_lines(
     *,
     tracks_scanned: int,
     albums_scanned: int,
-    playlists_scanned: int | None = None,
     audio_files_checked: int | None = None,
     audio_files_read: int | None = None,
     audio_files_reused: int | None = None,
@@ -119,8 +115,6 @@ def library_job_detail_lines(
         f"tracks in library: {tracks_scanned}",
         f"albums in library: {albums_scanned}",
     ]
-    if playlists_scanned is not None:
-        scan_lines.append(f"playlists in library: {playlists_scanned}")
     if audio_files_checked is not None:
         scan_lines.append(f"audio files checked: {audio_files_checked}")
     if audio_files_read is not None:
@@ -171,7 +165,6 @@ class LibraryRescanResult:
     roots_scanned: int
     tracks_scanned: int
     albums_scanned: int
-    playlists_scanned: int
     audio_files_checked: int
     audio_files_read: int
     audio_files_reused: int
@@ -197,7 +190,6 @@ class LibrarySyncResult:
     roots_scanned: int
     tracks_scanned: int
     albums_scanned: int
-    playlists_scanned: int
     changed: bool
     genre_resolution: GenreResolutionStats
     cover_art_resolution: CoverArtResolutionStats
@@ -289,7 +281,6 @@ def rescan_library(
         roots_scanned=len(root_sources),
         tracks_scanned=persisted_stats.tracks_scanned,
         albums_scanned=persisted_stats.albums_scanned,
-        playlists_scanned=persisted_stats.playlists_scanned,
         audio_files_checked=len(library.tracks) + len(stale_paths),
         audio_files_read=len(incremental_build.scanned_paths),
         audio_files_reused=len(incremental_build.reused_paths),
@@ -319,14 +310,12 @@ def run_rescan_library_job(
             "library",
             tracks_scanned=result.tracks_scanned,
             albums_scanned=result.albums_scanned,
-            playlists_scanned=result.playlists_scanned,
             duration_seconds=duration_seconds,
         ),
     )
     for line in library_job_detail_lines(
         tracks_scanned=result.tracks_scanned,
         albums_scanned=result.albums_scanned,
-        playlists_scanned=result.playlists_scanned,
         audio_files_checked=result.audio_files_checked,
         audio_files_read=result.audio_files_read,
         audio_files_reused=result.audio_files_reused,
@@ -342,7 +331,6 @@ def run_rescan_library_job(
             "roots_scanned": result.roots_scanned,
             "tracks_scanned": result.tracks_scanned,
             "albums_scanned": result.albums_scanned,
-            "playlists_scanned": result.playlists_scanned,
             "audio_files_checked": result.audio_files_checked,
             "audio_files_read": result.audio_files_read,
             "audio_files_reused": result.audio_files_reused,
@@ -376,7 +364,6 @@ def sync_library_roots(
             roots_scanned=0,
             tracks_scanned=0,
             albums_scanned=0,
-            playlists_scanned=0,
             changed=False,
             genre_resolution=GenreResolutionStats(),
             cover_art_resolution=CoverArtResolutionStats(),
@@ -454,7 +441,6 @@ def sync_library_roots(
         roots_scanned=len(sync_plan.root_rows),
         tracks_scanned=len(library.tracks),
         albums_scanned=len(albums),
-        playlists_scanned=len(library.playlists),
         changed=True,
         genre_resolution=genre_resolution,
         cover_art_resolution=cover_art_resolution,
@@ -585,14 +571,12 @@ def run_sync_job(
             "configured roots",
             tracks_scanned=result.tracks_scanned,
             albums_scanned=result.albums_scanned,
-            playlists_scanned=result.playlists_scanned,
             duration_seconds=duration_seconds,
         ),
     )
     for line in library_job_detail_lines(
         tracks_scanned=result.tracks_scanned,
         albums_scanned=result.albums_scanned,
-        playlists_scanned=result.playlists_scanned,
         genre_resolution=result.genre_resolution,
         cover_art_resolution=result.cover_art_resolution,
     ):
@@ -606,7 +590,6 @@ def run_sync_job(
             "roots_scanned": result.roots_scanned,
             "tracks_scanned": result.tracks_scanned,
             "albums_scanned": result.albums_scanned,
-            "playlists_scanned": result.playlists_scanned,
             "duration_seconds": duration_seconds,
         },
     )

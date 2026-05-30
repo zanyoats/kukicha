@@ -567,22 +567,15 @@ def update_track_playlist_membership(
     playlist_id: int,
     payload: dict[str, Any],
 ) -> dict[str, object]:
-    from ...player_playlists import start_playlist_file_update_job
     from .playlists import set_track_playlist_membership_database
 
     checked = bool(payload.get("checked"))
-    response, job = set_track_playlist_membership_database(
+    return set_track_playlist_membership_database(
         runtime.database,
         track_id,
         playlist_id,
         checked,
     )
-    if job is not None:
-        queued_job = start_playlist_file_update_job(runtime, job)
-        from ...player_jobs import job_payload
-
-        response["job"] = job_payload(queued_job)
-    return response
 
 
 def save_album_artist_split_mapping(

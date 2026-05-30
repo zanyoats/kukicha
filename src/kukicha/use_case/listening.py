@@ -371,7 +371,6 @@ def playlist_item_playback_snapshot(
             items.genre,
             items.duration_is_indeterminate,
             playlists.playlist_id,
-            playlists.path AS playlist_path,
             playlists.name AS playlist_name,
             playlists.cover_svg
         FROM library_playlist_items AS items
@@ -385,9 +384,8 @@ def playlist_item_playback_snapshot(
         raise PlaylistItemNotFoundError(playlist_item_id)
 
     playlist_snapshot = {
-        "playlist_key": str(row["playlist_path"]),
+        "playlist_key": str(row["playlist_id"]),
         "playlist_id": int(row["playlist_id"]),
-        "playlist_path": str(row["playlist_path"]),
         "playlist_name": str(row["playlist_name"]),
         "playlist_cover_svg": str(row["cover_svg"] or ""),
         "duration_is_indeterminate": bool(row["duration_is_indeterminate"]),
@@ -567,7 +565,7 @@ def increment_playlist_stats(
             playlist_key,
             timestamp,
             int_value(snapshot.get("playlist_id")),
-            text_value(snapshot.get("playlist_path")),
+            "",
             text_value(snapshot.get("playlist_name")),
             text_value(snapshot.get("playlist_cover_svg")),
             snapshot_json,
@@ -725,23 +723,25 @@ def current_playlist_summary(
     *,
     snapshot: dict[str, object],
 ) -> AlbumSummary:
+    playlist_id = int_value(playlist_key)
     row = connection.execute(
         """
         SELECT
             playlists.playlist_id,
-            playlists.path,
             playlists.name,
             playlists.cover_svg,
-            playlists.file_created_at,
+            playlists.created_at,
+            playlists.kind,
+            playlists.source,
             COUNT(items.playlist_item_id) AS item_count
         FROM library_playlists AS playlists
         LEFT JOIN library_playlist_items AS items
             ON items.playlist_id = playlists.playlist_id
-        WHERE playlists.path = ?
+        WHERE playlists.playlist_id = ?
         GROUP BY playlists.playlist_id
         """,
-        (playlist_key,),
-    ).fetchone()
+        (playlist_id or -1,),
+    ).fetchone() if playlist_id is not None else None
     if row is None:
         name = (
             text_value(snapshot.get("playlist_name"))
@@ -754,7 +754,6 @@ def current_playlist_summary(
             album=name,
             track_count=0,
             is_playlist=True,
-            path=playlist_key,
             cover_svg=text_value(snapshot.get("playlist_cover_svg"))
             or playlist_cover_svg(name),
         )
@@ -765,15 +764,16 @@ def current_playlist_summary(
         album=name,
         year=None,
         track_count=int(row["item_count"] or 0),
-        file_created_at=row["file_created_at"],
+        file_created_at=row["created_at"],
         is_playlist=True,
         playlist_id=int(row["playlist_id"]),
-        path=str(row["path"] or playlist_key),
         cover_svg=str(
             row["cover_svg"]
             or snapshot.get("playlist_cover_svg")
             or playlist_cover_svg(name)
         ),
+        playlist_kind=str(row["kind"] or "local"),
+        playlist_source=str(row["source"] or "manual"),
     )
 
 
@@ -909,14 +909,15 @@ def recent_listening_playlists(
                 stats.name AS snapshot_name,
                 stats.cover_svg AS snapshot_cover_svg,
                 playlists.playlist_id,
-                playlists.path,
                 playlists.name,
                 playlists.cover_svg,
-                playlists.file_created_at,
+                playlists.created_at,
+                playlists.kind,
+                playlists.source,
                 COUNT(items.playlist_item_id) AS item_count
             FROM play_playlist_stats AS stats
             LEFT JOIN library_playlists AS playlists
-                ON playlists.path = stats.playlist_key
+                ON playlists.playlist_id = stats.playlist_id
             LEFT JOIN library_playlist_items AS items
                 ON items.playlist_id = playlists.playlist_id
             GROUP BY stats.playlist_key
@@ -936,17 +937,18 @@ def recent_listening_playlists(
                 album=str(row["name"] or row["snapshot_name"] or "Playlist"),
                 year=None,
                 track_count=int(row["item_count"] or 0),
-                file_created_at=row["file_created_at"],
+                file_created_at=row["created_at"],
                 is_playlist=True,
                 playlist_id=(
                     int(row["playlist_id"]) if row["playlist_id"] is not None else None
                 ),
-                path=str(row["path"] or row["snapshot_path"] or row["playlist_key"]),
                 cover_svg=str(
                     row["cover_svg"]
                     or row["snapshot_cover_svg"]
                     or playlist_cover_svg(str(row["snapshot_name"] or "Playlist"))
                 ),
+                playlist_kind=str(row["kind"] or "local"),
+                playlist_source=str(row["source"] or "manual"),
             ),
             play_count=int(row["play_count"]),
             last_played_at=str(row["last_played_at"]),

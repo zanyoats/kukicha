@@ -27,8 +27,9 @@
         </h2>
         <ul class="meta-list album-genre-meta">
           <li>Playlist</li>
-          {% if playlist_path_text %}
-            <li title="{{ playlist_path_text }}">{{ playlist_path_text }}</li>
+          <li>{{ "Remote" if playlist.kind == "remote" else "Local" }}</li>
+          {% if playlist.source == "file_import" %}
+            <li>File import</li>
           {% endif %}
         </ul>
       </div>

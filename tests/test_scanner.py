@@ -21,6 +21,7 @@ from kukicha.scanner import (
     clear_external_artwork_caches,
     first_value,
     normalize_tags,
+    parse_uploaded_playlist_file,
     scan_track,
     write_album_audio_tags,
     write_track_audio_tags,
@@ -353,7 +354,7 @@ class ScannerProgressTest(unittest.TestCase):
         )
         self.assertIn(
             f"finished root 1/1: {root.resolve()} "
-            "(501 music file(s), 501 read, 0 reused, 0 playlist file(s))",
+            "(501 music file(s), 501 read, 0 reused)",
             progress_messages,
         )
         self.assertEqual(progress_messages[-1], "scanned 501 music files")
@@ -678,7 +679,7 @@ class ScannerRemoteS3Test(unittest.TestCase):
         )
         self.assertIn(
             "finished root 1/1: Remote "
-            "(2 music file(s), 2 read, 0 reused, 0 playlist file(s))",
+            "(2 music file(s), 2 read, 0 reused)",
             progress_messages,
         )
 
@@ -774,11 +775,10 @@ class ScannerRemoteS3Test(unittest.TestCase):
 
 
 class ScannerPlaylistTest(unittest.TestCase):
-    def test_build_library_parses_ascii_m3u_playlist(self) -> None:
+    def test_build_library_does_not_scan_playlist_files(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
             root = Path(tempdir)
-            playlist_path = root / "streams.m3u"
-            playlist_path.write_text(
+            (root / "streams.m3u").write_text(
                 "\n".join(
                     (
                         "#EXTM3U",
@@ -792,145 +792,75 @@ class ScannerPlaylistTest(unittest.TestCase):
 
             library = build_library([root])
 
-        self.assertEqual(len(library.playlists), 1)
-        playlist = library.playlists[0]
-        self.assertEqual(playlist.name, "ASCII Streams")
-        self.assertEqual(playlist.path, str(playlist_path.resolve()))
-        self.assertIn("ASCII Streams", playlist.cover_svg)
-        self.assertEqual(len(playlist.items), 1)
-        self.assertEqual(playlist.items[0].path, "https://ice6.somafm.com/deepspaceone-128-mp3")
-        self.assertEqual(playlist.items[0].title, "SomaFM: Deep Space One")
-        self.assertIsNone(playlist.items[0].duration_seconds)
-        self.assertTrue(playlist.items[0].duration_is_indeterminate)
+        self.assertEqual(library.playlists, [])
 
-    def test_build_library_parses_utf8_m3u_playlist(self) -> None:
-        with tempfile.TemporaryDirectory() as tempdir:
-            root = Path(tempdir)
-            playlist_path = root / "unicode.m3u"
-            playlist_path.write_bytes(
-                "\n".join(
-                    (
-                        "#EXTM3U",
-                        "#PLAYLIST:Café Streams",
-                        "#EXTINF:0,SomaFM: Deep Space One",
-                        "https://ice6.somafm.com/deepspaceone-128-mp3",
-                    )
-                ).encode("utf-8")
-            )
+    def test_uploaded_m3u_playlist_parses_urls_and_metadata(self) -> None:
+        parsed = parse_uploaded_playlist_file(
+            "streams.m3u",
+            "\n".join(
+                (
+                    "#EXTM3U",
+                    "#PLAYLIST:Café Streams",
+                    "#EXTINF:-1,SomaFM: Deep Space One",
+                    "https://ice6.somafm.com/deepspaceone-128-mp3",
+                )
+            ).encode("utf-8"),
+            (),
+        )
 
-            library = build_library([root])
+        self.assertEqual(parsed.name, "Café Streams")
+        self.assertEqual(parsed.skipped_relative_paths, ())
+        self.assertEqual(len(parsed.items), 1)
+        self.assertEqual(parsed.items[0].path, "https://ice6.somafm.com/deepspaceone-128-mp3")
+        self.assertEqual(parsed.items[0].title, "SomaFM: Deep Space One")
+        self.assertIsNone(parsed.items[0].duration_seconds)
+        self.assertTrue(parsed.items[0].duration_is_indeterminate)
 
-        self.assertEqual(len(library.playlists), 1)
-        playlist = library.playlists[0]
-        self.assertEqual(playlist.name, "Café Streams")
-        self.assertEqual(playlist.path, str(playlist_path.resolve()))
-        self.assertEqual(len(playlist.items), 1)
-        self.assertEqual(playlist.items[0].path, "https://ice6.somafm.com/deepspaceone-128-mp3")
-        self.assertEqual(playlist.items[0].title, "SomaFM: Deep Space One")
+    def test_uploaded_pls_playlist_skips_relative_paths(self) -> None:
+        parsed = parse_uploaded_playlist_file(
+            "streams.pls",
+            "\n".join(
+                (
+                    "[playlist]",
+                    "numberofentries=3",
+                    "File1=https://ice6.somafm.com/cliqhop-256-mp3",
+                    "Title1=SomaFM: cliqhop idm (#1)",
+                    "Length1=-1",
+                    "File2=music/01 Tracked.flac",
+                    "Title2=Tracked Metadata Ignored",
+                    "Length2=321",
+                    "File3=https://example.test/archive.mp3",
+                    "Title3=Archive Track",
+                    "Length3=42",
+                    "Version=2",
+                )
+            ).encode("utf-8"),
+            (),
+        )
 
-    def test_build_library_treats_negative_extinf_duration_as_indeterminate(self) -> None:
-        with tempfile.TemporaryDirectory() as tempdir:
-            root = Path(tempdir)
-            playlist_path = root / "streams.m3u8"
-            playlist_path.write_text(
-                "\n".join(
-                    (
-                        "#EXTM3U",
-                        "#EXTINF:-1,Live Stream",
-                        "https://example.test/live",
-                    )
-                ),
-                encoding="utf-8",
-            )
-
-            library = build_library([root])
-
-        item = library.playlists[0].items[0]
-        self.assertEqual(item.title, "Live Stream")
-        self.assertIsNone(item.duration_seconds)
-        self.assertTrue(item.duration_is_indeterminate)
-
-    def test_build_library_parses_pls_playlist(self) -> None:
-        with tempfile.TemporaryDirectory() as tempdir:
-            root = Path(tempdir)
-            music_dir = root / "music"
-            music_dir.mkdir()
-            tracked_path = music_dir / "01 Tracked.flac"
-            playlist_path = root / "streams.pls"
-            tracked_path.write_bytes(b"not real audio; mutagen is mocked")
-            playlist_path.write_text(
-                "\n".join(
-                    (
-                        "[playlist]",
-                        "numberofentries=3",
-                        "File1=https://ice6.somafm.com/cliqhop-256-mp3",
-                        "Title1=SomaFM: cliqhop idm (#1)",
-                        "Length1=-1",
-                        "File2=music/01 Tracked.flac",
-                        "Title2=Tracked Metadata Ignored",
-                        "Length2=321",
-                        "File3=https://example.test/archive.mp3",
-                        "Title3=Archive Track",
-                        "Length3=42",
-                        "Version=2",
-                    )
-                ),
-                encoding="utf-8",
-            )
-
-            audio = SimpleNamespace(
-                tags={
-                    "ARTIST": ["Track Artist"],
-                    "ALBUMARTIST": ["Track Artist"],
-                    "ALBUM": ["Track Album"],
-                    "TITLE": ["Tracked Title"],
-                },
-                info=SimpleNamespace(length=321.0, bitrate=128000),
-            )
-
-            with patch("kukicha.scanner.MutagenFile", return_value=audio):
-                library = build_library([root])
-
-        self.assertEqual(len(library.tracks), 1)
-        self.assertEqual(len(library.playlists), 1)
-        playlist = library.playlists[0]
-        self.assertEqual(playlist.name, "streams")
-        self.assertEqual(playlist.path, str(playlist_path.resolve()))
-        self.assertEqual(playlist.root_position, 0)
-        self.assertIn("streams", playlist.cover_svg)
-        self.assertEqual(len(playlist.items), 3)
-
-        stream_item = playlist.items[0]
+        self.assertEqual(parsed.name, "streams")
+        self.assertEqual(parsed.skipped_relative_paths, ("music/01 Tracked.flac",))
+        self.assertEqual(len(parsed.items), 2)
+        stream_item = parsed.items[0]
         self.assertEqual(stream_item.path, "https://ice6.somafm.com/cliqhop-256-mp3")
         self.assertEqual(stream_item.title, "SomaFM: cliqhop idm (#1)")
         self.assertIsNone(stream_item.duration_seconds)
         self.assertTrue(stream_item.duration_is_indeterminate)
-
-        tracked_item = playlist.items[1]
-        self.assertEqual(tracked_item.path, str(tracked_path.resolve()))
-        self.assertIsNone(tracked_item.track_id)
-        self.assertIsNone(tracked_item.title)
-
-        archive_item = playlist.items[2]
+        archive_item = parsed.items[1]
         self.assertEqual(archive_item.path, "https://example.test/archive.mp3")
         self.assertEqual(archive_item.title, "Archive Track")
         self.assertEqual(archive_item.duration_seconds, 42.0)
         self.assertFalse(archive_item.duration_is_indeterminate)
 
-    def test_build_library_parses_mixed_m3u8_playlist_after_tracks(self) -> None:
+    def test_uploaded_m3u_reconciles_absolute_paths_with_existing_tracks(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
-            root = Path(tempdir) / "root"
-            music_dir = root / "music"
-            playlists_dir = root / "playlists"
-            external_dir = Path(tempdir) / "external"
-            music_dir.mkdir(parents=True)
-            playlists_dir.mkdir()
-            external_dir.mkdir()
-            tracked_path = music_dir / "01 Tracked.flac"
-            external_path = external_dir / "External.m4a"
-            playlist_path = playlists_dir / "mixed.m3u8"
-            tracked_path.write_bytes(b"not real audio; mutagen is mocked")
-            playlist_path.write_text(
+            root = Path(tempdir)
+            tracked_path = root / "music" / "01 Tracked.flac"
+            external_path = root / "external" / "External.m4a"
+            tracked_path.parent.mkdir()
+            external_path.parent.mkdir()
+            parsed = parse_uploaded_playlist_file(
+                "mixed.m3u8",
                 "\n".join(
                     (
                         "#EXTM3U",
@@ -938,39 +868,20 @@ class ScannerPlaylistTest(unittest.TestCase):
                         "#EXTINF:123,External Title",
                         "#EXTGENRE:Electronic",
                         "#EXTALBUMARTURL:https://example.test/cover.jpg",
-                        "../../external/External.m4a",
+                        str(external_path),
                         "#EXTINF:321,Tracked Metadata Ignored",
-                        "../music/01 Tracked.flac",
+                        str(tracked_path),
                         "#EXTINF:0,SomaFM: Deep Space One",
                         "https://ice6.somafm.com/deepspaceone-128-mp3",
                     )
-                ),
-                encoding="utf-8",
+                ).encode("utf-8"),
+                (TrackRecord(path=str(tracked_path.resolve()), track_id=7),),
             )
 
-            audio = SimpleNamespace(
-                tags={
-                    "ARTIST": ["Track Artist"],
-                    "ALBUMARTIST": ["Track Artist"],
-                    "ALBUM": ["Track Album"],
-                    "TITLE": ["Tracked Title"],
-                },
-                info=SimpleNamespace(length=321.0, bitrate=128000),
-            )
-
-            with patch("kukicha.scanner.MutagenFile", return_value=audio):
-                library = build_library([root])
-
-        self.assertEqual(len(library.tracks), 1)
-        self.assertEqual(len(library.playlists), 1)
-        playlist = library.playlists[0]
-        self.assertEqual(playlist.name, "Awesome Music Playlist!!!")
-        self.assertEqual(playlist.path, str(playlist_path.resolve()))
-        self.assertEqual(playlist.root_position, 0)
-        self.assertIn("Awesome Music Playlist", playlist.cover_svg)
-        self.assertEqual(len(playlist.items), 3)
-
-        external_item = playlist.items[0]
+        self.assertEqual(parsed.name, "Awesome Music Playlist!!!")
+        self.assertEqual(parsed.skipped_relative_paths, ())
+        self.assertEqual(len(parsed.items), 3)
+        external_item = parsed.items[0]
         self.assertEqual(external_item.path, str(external_path.resolve()))
         self.assertIsNone(external_item.track_id)
         self.assertEqual(external_item.title, "External Title")
@@ -978,13 +889,11 @@ class ScannerPlaylistTest(unittest.TestCase):
         self.assertFalse(external_item.duration_is_indeterminate)
         self.assertEqual(external_item.genre, "Electronic")
         self.assertEqual(external_item.cover_url, "https://example.test/cover.jpg")
-
-        tracked_item = playlist.items[1]
+        tracked_item = parsed.items[1]
         self.assertEqual(tracked_item.path, str(tracked_path.resolve()))
-        self.assertIsNone(tracked_item.track_id)
+        self.assertEqual(tracked_item.track_id, 7)
         self.assertIsNone(tracked_item.title)
-
-        url_item = playlist.items[2]
+        url_item = parsed.items[2]
         self.assertEqual(url_item.path, "https://ice6.somafm.com/deepspaceone-128-mp3")
         self.assertEqual(url_item.title, "SomaFM: Deep Space One")
         self.assertIsNone(url_item.duration_seconds)

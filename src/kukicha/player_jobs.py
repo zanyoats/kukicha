@@ -14,7 +14,6 @@ def job_kind_label(kind: str) -> str:
         "edit_album": "Edit Tags",
         "edit_album_musicbrainz": "Edit Tags",
         "upload_album_cover": "Upload Cover",
-        "update_playlist_file": "Update Playlist File",
         "rescan_library": "Rescan",
         "sync": "Sync",
     }
@@ -57,7 +56,6 @@ def humanize_job_context_key(key: str) -> str:
         "operation": "Operation",
         "path": "Root",
         "playlist": "Playlist",
-        "playlist_path": "Playlist File",
         "track": "Track",
         "root_position": "Root",
         "roots_configured": "Configured Roots",
@@ -74,7 +72,6 @@ def humanize_job_context_key(key: str) -> str:
         "remote_prefixes_pruned": "Remote Paths Removed",
         "tracks_scanned": "Tracks",
         "albums_scanned": "Albums",
-        "playlists_scanned": "Playlists",
         "audio_files_checked": "Audio Checked",
         "audio_files_read": "Audio Read",
         "audio_files_reused": "Audio Reused",
@@ -101,7 +98,6 @@ def format_job_context_value(key: str, value: object) -> str:
         "remote_prefixes_pruned",
         "tracks_scanned",
         "albums_scanned",
-        "playlists_scanned",
         "audio_files_checked",
         "audio_files_read",
         "audio_files_reused",
@@ -129,7 +125,6 @@ def format_job_context_value(key: str, value: object) -> str:
 def job_context_items(context: dict[str, object]) -> list[dict[str, str]]:
     preferred_order = (
         "path",
-        "playlist_path",
         "playlist",
         "track",
         "operation",
@@ -151,7 +146,6 @@ def job_context_items(context: dict[str, object]) -> list[dict[str, str]]:
         "remote_prefixes_pruned",
         "tracks_scanned",
         "albums_scanned",
-        "playlists_scanned",
         "audio_files_checked",
         "audio_files_read",
         "audio_files_reused",

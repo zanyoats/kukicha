@@ -20,7 +20,9 @@ from .use_case import (
     NATIVE_PLAYBACK_SOURCE,
     append_queue as append_queue_command,
     clear_cache_tables,
+    create_or_replace_manual_playlist,
     delete_album_musicbrainz_override,
+    import_playlist_file,
     mark_stale_player_jobs_canceled,
     pause_queue_for_document_load,
     playlist_audio_path,
@@ -97,6 +99,7 @@ from .static_assets import (
 BYTE_RANGE_RE = re.compile(r"bytes=(\d*)-(\d*)$")
 MAX_POST_BYTES = 1024 * 64
 MAX_COVER_UPLOAD_BYTES = 1024 * 1024 * 25
+MAX_PLAYLIST_UPLOAD_BYTES = 1024 * 1024 * 5
 FRAGMENT_HEADER = "X-Kukicha-Fragment"
 PLAYER_CONTEXT_KEY = "kukicha_player_context"
 
@@ -364,6 +367,44 @@ def create_player_app(options: PlayerServerOptions) -> Flask:
     @app.post("/api/roots/rescan")
     def rescan_library() -> Response:
         return json_response(start_rescan_library(player_context().runtime), status=202)
+
+    @app.post("/api/playlists")
+    def create_playlist() -> Response:
+        payload = read_json_body()
+        track_ids = payload.get("track_ids") or ()
+        if not isinstance(track_ids, list | tuple):
+            raise ValueError("track_ids must be a list")
+        playlist_id_value = payload.get("playlist_id")
+        playlist_id = int(playlist_id_value) if playlist_id_value not in (None, "") else None
+        result = create_or_replace_manual_playlist(
+            player_context().database,
+            name=str(payload.get("name") or ""),
+            track_ids=tuple(int(track_id) for track_id in track_ids),
+            playlist_id=playlist_id,
+        )
+        action = "updated" if playlist_id is not None else "created"
+        return json_response(
+            result.payload(message=f"Playlist {action}: {result.name}."),
+            status=200 if playlist_id is not None else 201,
+        )
+
+    @app.post("/api/playlists/import")
+    def import_playlist() -> Response:
+        filename, data, name = read_playlist_upload()
+        result = import_playlist_file(
+            player_context().database,
+            filename=filename,
+            data=data,
+            name=name,
+        )
+        skipped_count = len(result.skipped_relative_paths)
+        message = (
+            f"Imported {result.item_count} playlist item(s); "
+            f"skipped {skipped_count} relative path(s)."
+            if skipped_count
+            else f"Imported {result.item_count} playlist item(s)."
+        )
+        return json_response(result.payload(message=message), status=201)
 
     @app.post("/api/album-artist-mappings")
     def edit_album_artist_split_mapping() -> Response:
@@ -846,6 +887,24 @@ def read_cover_upload() -> tuple[str, bytes]:
     if not data:
         raise ValueError("cover file is empty")
     return filename, data
+
+
+def read_playlist_upload() -> tuple[str, bytes, str]:
+    length = request.content_length
+    if length is not None and length > MAX_PLAYLIST_UPLOAD_BYTES:
+        raise ValueError("playlist upload is too large")
+    uploaded = request.files.get("playlist")
+    if uploaded is None:
+        raise ValueError("playlist file is required")
+    filename = str(uploaded.filename or "").strip()
+    if not filename:
+        raise ValueError("playlist file must have a filename")
+    data = uploaded.stream.read(MAX_PLAYLIST_UPLOAD_BYTES + 1)
+    if len(data) > MAX_PLAYLIST_UPLOAD_BYTES:
+        raise ValueError("playlist upload is too large")
+    if not data:
+        raise ValueError("playlist file is empty")
+    return filename, data, str(request.form.get("name") or "")
 
 
 def audio_file_response(path: Path) -> Response:

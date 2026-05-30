@@ -50,8 +50,9 @@ from .player import (
     update_track_playlist_membership,
 )
 from .playlists import (
-    PlaylistFileUpdateJob,
     PlaylistMenuOption,
+    create_or_replace_manual_playlist,
+    import_playlist_file,
     playlist_menu_options_by_track_id,
     set_track_playlist_membership,
     set_track_playlist_membership_database,
@@ -80,8 +81,9 @@ __all__ = [
     "load_queue_state_database",
     "pause_queue_for_document_load",
     "playlist_audio_path",
-    "PlaylistFileUpdateJob",
     "PlaylistMenuOption",
+    "create_or_replace_manual_playlist",
+    "import_playlist_file",
     "playlist_menu_options_by_track_id",
     "create_player_job",
     "get_player_job",

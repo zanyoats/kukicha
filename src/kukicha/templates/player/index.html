@@ -99,6 +99,50 @@
     {% endif %}
   </header>
 
+  {% if show_playlist_create_controls %}
+    <section class="settings-panel playlist-create-panel">
+      <div class="playlist-create-methods">
+        <form class="playlist-create-form playlist-create-form-manual" action="{{ playlist_create_action_url }}" method="post" autocomplete="off" data-playlist-create-form>
+          <div class="playlist-create-heading">
+            <div class="playlist-create-title-group">
+              <h2>New Playlist</h2>
+              <div class="playlist-create-meta">Manual</div>
+            </div>
+          </div>
+          <div class="playlist-create-controls">
+            <label class="playlist-create-field">
+              <span class="visually-hidden">Playlist name</span>
+              <input class="settings-input" type="text" name="name" placeholder="Playlist name" data-playlist-name-input>
+            </label>
+            <button class="primary playlist-create-submit" type="submit" data-create-playlist>
+              <span>Create</span>
+            </button>
+          </div>
+          <div class="settings-status" data-playlist-create-status aria-live="polite"></div>
+        </form>
+        <form class="playlist-create-form playlist-create-form-import" action="{{ playlist_import_action_url }}" method="post" enctype="multipart/form-data" autocomplete="off" data-playlist-import-form>
+          <div class="playlist-create-heading">
+            <div class="playlist-create-title-group">
+              <h2>Import Playlist</h2>
+              <div class="playlist-create-meta">PLS / M3U / M3U8</div>
+            </div>
+          </div>
+          <div class="playlist-import-controls">
+            <input class="playlist-file-input" type="file" name="playlist" accept=".m3u,.m3u8,.pls" data-playlist-file-input>
+            <label class="playlist-create-field">
+              <span class="visually-hidden">Imported playlist name</span>
+              <input class="settings-input" type="text" name="name" placeholder="Override name">
+            </label>
+            <button class="playlist-create-submit playlist-import-submit" type="submit" data-import-playlist>
+              <span>Import</span>
+            </button>
+          </div>
+          <div class="settings-status" data-playlist-import-status aria-live="polite"></div>
+        </form>
+      </div>
+    </section>
+  {% endif %}
+
   <div data-library-results>
     {% if albums %}
       <div class="album-grid">

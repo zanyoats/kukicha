@@ -104,7 +104,6 @@ class PlayerRuntime:
         self.missing_artwork_keys: set[tuple[int, int]] = set()
         self.job_event_lock = Lock()
         self.job_event_subscribers: set[Queue[dict[str, object]]] = set()
-        self.playlist_file_lock = Lock()
         self.job_lock = Lock()
         self.job_queue: deque[QueuedPlayerJob] = deque()
         self.job_worker_thread: Thread | None = None

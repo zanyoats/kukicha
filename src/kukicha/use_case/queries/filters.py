@@ -222,10 +222,6 @@ def playlist_query_can_match(query: AlbumListQuery) -> bool:
 def playlist_where_clause(query: AlbumListQuery) -> tuple[str, list[object]]:
     clauses: list[str] = []
     params: list[object] = []
-    if query.root_positions:
-        placeholders = placeholders_for(query.root_positions)
-        clauses.append(f"playlists.root_position IN ({placeholders})")
-        params.extend(query.root_positions)
     if not clauses:
         return "", params
     return "WHERE " + " AND ".join(f"({clause})" for clause in clauses), params
@@ -234,7 +230,7 @@ def playlist_where_clause(query: AlbumListQuery) -> tuple[str, list[object]]:
 def playlist_matches_search(row: Row, value: str | None) -> bool:
     if not value:
         return True
-    haystack = f"{row['name']} {row['path']}".casefold()
+    haystack = f"{row['name']}".casefold()
     groups = parse_album_search_query(value)
     if not groups:
         return True

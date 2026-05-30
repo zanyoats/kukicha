@@ -1821,6 +1821,24 @@ document.addEventListener("dblclick", (event) => {
 });
 
 document.addEventListener("submit", (event) => {
+  const trackPlaylistCreateForm = event.target.closest("form[data-playlist-create-for-track]");
+  if (trackPlaylistCreateForm) {
+    event.preventDefault();
+    void submitTrackPlaylistCreateForm(trackPlaylistCreateForm);
+    return;
+  }
+  const playlistCreateForm = event.target.closest("form[data-playlist-create-form]");
+  if (playlistCreateForm) {
+    event.preventDefault();
+    void submitPlaylistCreateForm(playlistCreateForm);
+    return;
+  }
+  const playlistImportForm = event.target.closest("form[data-playlist-import-form]");
+  if (playlistImportForm) {
+    event.preventDefault();
+    void submitPlaylistImportForm(playlistImportForm);
+    return;
+  }
   const albumEditForm = event.target.closest("form[data-album-edit-form]");
   if (albumEditForm) {
     event.preventDefault();
@@ -2799,6 +2817,169 @@ async function toggleTrackPlaylist(input) {
   }
 }
 
+async function submitTrackPlaylistCreateForm(form) {
+  if (!(form instanceof HTMLFormElement)) {
+    return;
+  }
+  const trackId = Number(form.dataset.trackId || "");
+  const nameInput = form.querySelector("[data-playlist-create-track-name]");
+  const submitButton = form.querySelector("[data-create-track-playlist]");
+  if (
+    !Number.isInteger(trackId)
+    || trackId <= 0
+    || !(nameInput instanceof HTMLInputElement)
+    || !(submitButton instanceof HTMLButtonElement)
+  ) {
+    return;
+  }
+  const name = nameInput.value.trim();
+  if (!name) {
+    setTrackPlaylistCreateStatus(form, "Playlist name is required.", true);
+    return;
+  }
+
+  submitButton.disabled = true;
+  submitButton.setAttribute("aria-busy", "true");
+  nameInput.disabled = true;
+  setTrackPlaylistCreateStatus(form, "Creating playlist...");
+  try {
+    const response = await fetch(form.action, {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({name, track_ids: [trackId]}),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const message = responsePayloadError(payload, "Unable to create playlist.");
+      setTrackPlaylistCreateStatus(form, message, true);
+      showToast(message, {error: true});
+      return;
+    }
+    const playlistId = Number(payload.playlist_id || "");
+    if (!Number.isInteger(playlistId) || playlistId <= 0) {
+      throw new Error("Playlist was created without a playlist id.");
+    }
+    const playlistName = String(payload.name || name).trim() || `Playlist ${playlistId}`;
+    addCreatedPlaylistOptionToTrackMenus({
+      playlistId,
+      playlistName,
+      selectedTrackId: trackId,
+    });
+    nameInput.value = "";
+    const message = responsePayloadMessage(payload, "Playlist created.");
+    setTrackPlaylistCreateStatus(form, message);
+    showToast(message);
+  } catch (error) {
+    const message = error instanceof Error && error.message
+      ? error.message
+      : "Unable to create playlist.";
+    setTrackPlaylistCreateStatus(form, message, true);
+    showToast(message, {error: true});
+  } finally {
+    if (nameInput.isConnected) {
+      nameInput.disabled = false;
+    }
+    if (submitButton.isConnected) {
+      submitButton.disabled = false;
+      submitButton.removeAttribute("aria-busy");
+    }
+  }
+}
+
+function addCreatedPlaylistOptionToTrackMenus({playlistId, playlistName, selectedTrackId}) {
+  document.querySelectorAll("[data-playlist-options]:not([data-playlist-floating-options])").forEach((options) => {
+    if (!(options instanceof HTMLElement)) {
+      return;
+    }
+    const trackId = playlistOptionsTrackId(options);
+    if (!trackId) {
+      return;
+    }
+    appendPlaylistOption(options, {
+      playlistId,
+      playlistName,
+      trackId,
+      checked: trackId === selectedTrackId,
+    });
+    updatePlaylistBookmarkForOptions(options);
+  });
+  if (activePlaylistOptions instanceof HTMLElement) {
+    appendPlaylistOption(activePlaylistOptions, {
+      playlistId,
+      playlistName,
+      trackId: selectedTrackId,
+      checked: true,
+    });
+    updatePlaylistBookmarkForOptions(activePlaylistOptions);
+    positionActivePlaylistMenu();
+  }
+}
+
+function playlistOptionsTrackId(options) {
+  const createForm = options.querySelector("[data-playlist-create-for-track]");
+  if (createForm instanceof HTMLFormElement) {
+    const trackId = Number(createForm.dataset.trackId || "");
+    return Number.isInteger(trackId) && trackId > 0 ? trackId : 0;
+  }
+  const menu = options.closest("[data-playlist-menu]");
+  if (menu instanceof HTMLElement) {
+    const trackId = Number(menu.dataset.libraryTrackId || "");
+    return Number.isInteger(trackId) && trackId > 0 ? trackId : 0;
+  }
+  return 0;
+}
+
+function appendPlaylistOption(options, {playlistId, playlistName, trackId, checked}) {
+  if (!(options instanceof HTMLElement)) {
+    return;
+  }
+  const existingSelector = `[data-playlist-toggle][data-playlist-id="${cssEscape(playlistId)}"]`;
+  if (options.querySelector(existingSelector)) {
+    return;
+  }
+  options.querySelectorAll(".empty-small").forEach((empty) => {
+    if (empty.textContent.trim() === "No playlists found.") {
+      empty.remove();
+    }
+  });
+  const label = document.createElement("label");
+  label.className = "filter-option";
+  const input = document.createElement("input");
+  input.type = "checkbox";
+  input.dataset.playlistToggle = "";
+  input.dataset.trackId = String(trackId);
+  input.dataset.playlistId = String(playlistId);
+  input.checked = checked;
+  if (checked) {
+    input.setAttribute("checked", "");
+  }
+  const span = document.createElement("span");
+  span.textContent = playlistName || `Playlist ${playlistId}`;
+  label.append(input, span);
+  const createForm = options.querySelector("[data-playlist-create-for-track]");
+  if (createForm) {
+    createForm.before(label);
+  } else {
+    options.append(label);
+  }
+}
+
+function updatePlaylistBookmarkForOptions(options) {
+  if (!(options instanceof HTMLElement)) {
+    return;
+  }
+  const hasPlaylistMembership = Array.from(options.querySelectorAll("[data-playlist-toggle]"))
+    .some((element) => element instanceof HTMLInputElement && element.checked);
+  const menu = options === activePlaylistOptions
+    ? activePlaylistMenu
+    : options.closest("[data-playlist-menu]");
+  setPlaylistBookmarkState(menu, hasPlaylistMembership);
+}
+
+function setTrackPlaylistCreateStatus(formOrElement, message, isError = false) {
+  setStatusMessage(formOrElement, "[data-playlist-create-track-status]", message, isError);
+}
+
 function syncPlaylistToggleState(input) {
   const trackId = input.dataset.trackId || "";
   const playlistId = input.dataset.playlistId || "";
@@ -3428,6 +3609,120 @@ function albumCoverUploadExtension(filename) {
   return extension;
 }
 
+async function submitPlaylistCreateForm(form) {
+  if (!(form instanceof HTMLFormElement)) {
+    return;
+  }
+  const submitButton = form.querySelector("[data-create-playlist]");
+  const nameInput = form.querySelector("[data-playlist-name-input]");
+  if (!(submitButton instanceof HTMLButtonElement) || !(nameInput instanceof HTMLInputElement)) {
+    return;
+  }
+  const name = nameInput.value.trim();
+  if (!name) {
+    setPlaylistCreateStatus(form, "Playlist name is required.", true);
+    return;
+  }
+  submitButton.disabled = true;
+  submitButton.setAttribute("aria-busy", "true");
+  setPlaylistCreateStatus(form, "Creating playlist...");
+  try {
+    const response = await fetch(form.action, {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({name}),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const message = responsePayloadError(payload, "Unable to create playlist.");
+      setPlaylistCreateStatus(form, message, true);
+      showToast(message, {error: true});
+      return;
+    }
+    const message = responsePayloadMessage(payload, "Playlist created.");
+    setPlaylistCreateStatus(form, message);
+    showToast(message);
+    const playlistId = Number(payload.playlist_id || "");
+    if (Number.isInteger(playlistId) && playlistId > 0) {
+      navigate(`/playlists/${encodeURIComponent(playlistId)}`);
+    }
+  } catch {
+    setPlaylistCreateStatus(form, "Unable to create playlist.", true);
+    showToast("Unable to create playlist.", {error: true});
+  } finally {
+    if (submitButton.isConnected) {
+      submitButton.disabled = false;
+      submitButton.removeAttribute("aria-busy");
+    }
+  }
+}
+
+async function submitPlaylistImportForm(form) {
+  if (!(form instanceof HTMLFormElement)) {
+    return;
+  }
+  const submitButton = form.querySelector("[data-import-playlist]");
+  const fileInput = form.querySelector("[data-playlist-file-input]");
+  if (!(submitButton instanceof HTMLButtonElement) || !(fileInput instanceof HTMLInputElement)) {
+    return;
+  }
+  const file = fileInput.files && fileInput.files.length ? fileInput.files[0] : null;
+  if (!file) {
+    setPlaylistImportStatus(form, "Choose a playlist file first.", true);
+    return;
+  }
+  const body = new FormData(form);
+  body.delete("playlist");
+  body.append("playlist", file, file.name);
+  submitButton.disabled = true;
+  submitButton.setAttribute("aria-busy", "true");
+  fileInput.disabled = true;
+  setPlaylistImportStatus(form, "Importing playlist...");
+  try {
+    const response = await fetch(form.action, {
+      method: "POST",
+      body,
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const message = responsePayloadError(payload, "Unable to import playlist.");
+      setPlaylistImportStatus(form, message, true);
+      showToast(message, {error: true});
+      return;
+    }
+    const message = responsePayloadMessage(payload, "Playlist imported.");
+    setPlaylistImportStatus(form, message);
+    showToast(message);
+    const playlistId = Number(payload.playlist_id || "");
+    if (Number.isInteger(playlistId) && playlistId > 0) {
+      navigate(`/playlists/${encodeURIComponent(playlistId)}`);
+    }
+  } catch {
+    setPlaylistImportStatus(form, "Unable to import playlist.", true);
+    showToast("Unable to import playlist.", {error: true});
+  } finally {
+    if (fileInput.isConnected) {
+      fileInput.disabled = false;
+    }
+    if (submitButton.isConnected) {
+      submitButton.disabled = false;
+      submitButton.removeAttribute("aria-busy");
+    }
+  }
+}
+
+function responsePayloadError(payload, fallback) {
+  return payload && typeof payload.error === "string" && payload.error.trim()
+    ? payload.error
+    : fallback;
+}
+
+function responsePayloadMessage(payload, fallback) {
+  return payload && typeof payload.message === "string" && payload.message.trim()
+    ? payload.message
+    : fallback;
+}
+
 async function uploadAlbumCover(button) {
   if (!(button instanceof HTMLButtonElement) || button.disabled) {
     return;
@@ -3669,6 +3964,14 @@ function setAlbumDeleteStatus(formOrElement, message, isError = false) {
 
 function setAlbumCoverStatus(formOrElement, message, isError = false) {
   setStatusMessage(formOrElement, "[data-album-cover-status]", message, isError);
+}
+
+function setPlaylistCreateStatus(formOrElement, message, isError = false) {
+  setStatusMessage(formOrElement, "[data-playlist-create-status]", message, isError);
+}
+
+function setPlaylistImportStatus(formOrElement, message, isError = false) {
+  setStatusMessage(formOrElement, "[data-playlist-import-status]", message, isError);
 }
 
 function setAlbumArtistMappingStatus(formOrElement, message, isError = false) {
@@ -3946,7 +4249,7 @@ function closeJobToast(button) {
 }
 
 function isTemporaryBookmarkJobToast(job) {
-  return job.kind === "update_playlist_file" && job.status === "succeeded";
+  return false;
 }
 
 function removeJobToast(toastElement) {

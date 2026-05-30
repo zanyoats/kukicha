@@ -60,7 +60,6 @@ from ..models import (
     ALBUM_ARTWORK_HEIGHT,
     TRACK_ARTWORK_HEIGHT,
     MusicLibrary,
-    PlaylistItemRecord,
     PlaylistRecord,
     TrackArtwork,
     TrackRecord,
@@ -85,7 +84,7 @@ from .musicbrainz import (
     store_album_musicbrainz_release_group_if_missing,
 )
 from ..playlist_art import playlist_cover_svg
-from ..scanner import thumbnail_artworks
+from ..scanner import is_url_resource, thumbnail_artworks
 from ..text import normalize_slug_text, normalize_text
 
 FUZZY_TOKEN_EXPANSIONS = {
@@ -459,8 +458,7 @@ def save_library_with_options(
                 "SELECT path, track_id FROM library_tracks"
             )
         }
-        existing_playlist_ids_by_path = playlist_ids_by_path(connection)
-        existing_playlist_item_ids = playlist_item_ids_by_playlist_path(connection)
+        track_ids_by_path: dict[str, int] = {}
         for track in library.tracks:
             if track.track_id is None:
                 track.track_id = existing_track_ids_by_path.get(track.path)
@@ -641,7 +639,7 @@ def save_library_with_options(
                     """,
                     (track.track_id, *params),
                 )
-                track_id = int(track.track_id)
+            track_id = int(track.track_id)
             track_ids_by_path[track.path] = track_id
             replace_library_track_source(connection, track_id, track, root_position=root_position)
             for position, genre in enumerate(normalize_genre_values(track.genres)):
@@ -678,88 +676,9 @@ def save_library_with_options(
                         (track_id, height_px, artwork.mime_type, artwork.data),
                     )
 
-        playlist_item_occurrences: dict[tuple[str, str], int] = defaultdict(int)
-        for playlist in library.playlists:
-            root_position = playlist.root_position
-            if (
-                root_rows is not None
-                and root_position is not None
-                and 0 <= root_position < len(root_positions_by_index)
-            ):
-                root_position = root_positions_by_index[root_position]
-            elif root_position not in valid_root_positions:
-                root_position = library_root_position_for_path(
-                    playlist.path,
-                    [(root.position, root.path, root.kind) for root in library_roots],
-                )
-            existing_playlist_id = existing_playlist_ids_by_path.get(playlist.path)
-            cursor = connection.execute(
-                """
-                INSERT INTO library_playlists (
-                    playlist_id,
-                    root_position,
-                    path,
-                    name,
-                    cover_svg,
-                    file_created_at
-                ) VALUES (?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    existing_playlist_id,
-                    root_position,
-                    playlist.path,
-                    playlist.name,
-                    playlist.cover_svg or playlist_cover_svg(playlist.name),
-                    playlist.file_created_at,
-                ),
-            )
-            playlist_id = (
-                int(existing_playlist_id)
-                if existing_playlist_id is not None
-                else int(cursor.lastrowid)
-            )
-            playlist.playlist_id = playlist_id
-            for position, item in enumerate(playlist.items):
-                track_id = item.track_id or track_ids_by_path.get(item.path)
-                is_tracked = track_id is not None
-                occurrence_key = (playlist.path, item.path)
-                occurrence = playlist_item_occurrences[occurrence_key]
-                playlist_item_occurrences[occurrence_key] += 1
-                existing_playlist_item_id = existing_playlist_item_ids.get(
-                    (playlist.path, item.path, occurrence)
-                )
-                connection.execute(
-                    """
-                    INSERT INTO library_playlist_items (
-                        playlist_item_id,
-                        playlist_id,
-                        position,
-                        path,
-                        track_id,
-                        title,
-                        duration_seconds,
-                        duration_is_indeterminate,
-                        genre,
-                        cover_url
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                    """,
-                    (
-                        existing_playlist_item_id,
-                        playlist_id,
-                        position,
-                        item.path,
-                        track_id,
-                        None if is_tracked else item.title or item.path,
-                        (
-                            None
-                            if is_tracked or item.duration_is_indeterminate
-                            else item.duration_seconds
-                        ),
-                        0 if is_tracked else 1 if item.duration_is_indeterminate else 0,
-                        None if is_tracked else item.genre,
-                        None if is_tracked else item.cover_url,
-                    ),
-                )
+        if library.playlists:
+            save_explicit_library_playlists(connection, library.playlists, track_ids_by_path)
+        reconcile_playlist_item_track_ids(connection)
 
         set_metadata(connection, "library_generated_at", library.generated_at)
         set_metadata(
@@ -779,18 +698,6 @@ def save_library_with_options(
     finally:
         if owns_connection:
             connection.close()
-
-
-def playlist_ids_by_path(connection: sqlite3.Connection) -> dict[str, int]:
-    return {
-        str(row["path"]): int(row["playlist_id"])
-        for row in connection.execute(
-            """
-            SELECT path, playlist_id
-            FROM library_playlists
-            """
-        )
-    }
 
 
 def album_starred_at_by_album_id(connection: sqlite3.Connection) -> dict[str, str]:
@@ -944,36 +851,6 @@ def track_raw_album_identity_matches_row(
     )
 
 
-def playlist_item_ids_by_playlist_path(
-    connection: sqlite3.Connection,
-) -> dict[tuple[str, str, int], int]:
-    occurrences: dict[tuple[str, str], int] = defaultdict(int)
-    item_ids: dict[tuple[str, str, int], int] = {}
-    for row in connection.execute(
-        """
-        SELECT
-            playlists.path AS playlist_path,
-            items.path AS item_path,
-            items.playlist_item_id
-        FROM library_playlist_items AS items
-        JOIN library_playlists AS playlists
-            ON playlists.playlist_id = items.playlist_id
-        ORDER BY playlists.path, items.position, items.playlist_item_id
-        """
-    ):
-        occurrence_key = (str(row["playlist_path"]), str(row["item_path"]))
-        occurrence = occurrences[occurrence_key]
-        occurrences[occurrence_key] += 1
-        item_ids[
-            (
-                str(row["playlist_path"]),
-                str(row["item_path"]),
-                occurrence,
-            )
-        ] = int(row["playlist_item_id"])
-    return item_ids
-
-
 def save_rescanned_library_incremental(
     library: MusicLibrary,
     destination: Path,
@@ -1004,14 +881,6 @@ def save_rescanned_library_incremental(
             album_artist_split_patterns,
         )
         if not scanned_path_set and not stale_paths and not mapping_fingerprint_changed:
-            save_library_playlists_incremental(
-                connection,
-                library,
-                library_roots=library_roots,
-                valid_root_positions=valid_root_positions,
-                root_positions_by_index=root_positions_by_index,
-                track_ids_by_path=track_ids_by_path,
-            )
             set_metadata(connection, "library_generated_at", library.generated_at)
             set_metadata(
                 connection,
@@ -1126,14 +995,7 @@ def save_rescanned_library_incremental(
             rebuild_album_rollups(connection, affected_album_ids)
             rebuild_album_search_index(connection, affected_album_ids)
 
-        save_library_playlists_incremental(
-            connection,
-            library,
-            library_roots=library_roots,
-            valid_root_positions=valid_root_positions,
-            root_positions_by_index=root_positions_by_index,
-            track_ids_by_path=track_ids_by_path,
-        )
+        reconcile_playlist_item_track_ids(connection)
         set_metadata(connection, "library_generated_at", library.generated_at)
         set_metadata(
             connection,
@@ -1542,78 +1404,81 @@ def replace_library_track_source(
     )
 
 
-def save_library_playlists_incremental(
+def reconcile_playlist_item_track_ids(connection: sqlite3.Connection) -> None:
+    connection.execute(
+        """
+        UPDATE library_playlist_items
+        SET track_id = (
+            SELECT tracks.track_id
+            FROM library_tracks AS tracks
+            WHERE tracks.path = library_playlist_items.path
+        )
+        WHERE EXISTS (
+            SELECT 1
+            FROM library_tracks AS tracks
+            WHERE tracks.path = library_playlist_items.path
+        )
+        """
+    )
+    connection.execute(
+        """
+        UPDATE library_playlist_items
+        SET track_id = NULL
+        WHERE track_id IS NOT NULL
+            AND NOT EXISTS (
+                SELECT 1
+                FROM library_tracks AS tracks
+                WHERE tracks.track_id = library_playlist_items.track_id
+                    AND tracks.path = library_playlist_items.path
+            )
+        """
+    )
+
+
+def save_explicit_library_playlists(
     connection: sqlite3.Connection,
-    library: MusicLibrary,
-    *,
-    library_roots: list[LibraryRootSource],
-    valid_root_positions: set[int],
-    root_positions_by_index: list[int],
+    playlists: Iterable[PlaylistRecord],
     track_ids_by_path: dict[str, int],
 ) -> None:
-    existing_playlists_by_path = playlist_rows_by_path(connection)
-    current_playlist_paths = {playlist.path for playlist in library.playlists}
-    stale_playlist_paths = sorted(set(existing_playlists_by_path) - current_playlist_paths)
-    for batch in batched(stale_playlist_paths, size=500):
-        placeholders = ", ".join("?" for _value in batch)
-        connection.execute(
-            f"DELETE FROM library_playlists WHERE path IN ({placeholders})",
-            batch,
+    connection.execute("DELETE FROM library_playlist_items")
+    connection.execute("DELETE FROM library_playlists")
+    now = utc_now_iso()
+    for playlist in playlists:
+        name = playlist.name or "Playlist"
+        items = list(playlist.items)
+        kind = "remote" if any(is_url_resource(item.path) for item in items) else "local"
+        source = playlist.source or "file_import"
+        cursor = connection.execute(
+            """
+            INSERT INTO library_playlists (
+                playlist_id,
+                name,
+                kind,
+                source,
+                cover_svg,
+                created_at,
+                updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                playlist.playlist_id,
+                name,
+                kind if kind in {"local", "remote"} else "local",
+                source if source in {"manual", "file_import"} else "file_import",
+                playlist.cover_svg or playlist_cover_svg(name),
+                playlist.created_at or now,
+                playlist.updated_at or playlist.created_at or now,
+            ),
         )
-
-    for playlist in library.playlists:
-        root_position = resolved_library_item_root_position(
-            playlist.root_position,
-            playlist.path,
-            library_roots,
-            valid_root_positions=valid_root_positions,
-            root_positions_by_index=root_positions_by_index,
+        playlist_id = (
+            int(playlist.playlist_id)
+            if playlist.playlist_id is not None
+            else int(cursor.lastrowid)
         )
-        cover_svg = playlist.cover_svg or playlist_cover_svg(playlist.name)
-        existing_row = existing_playlists_by_path.get(playlist.path)
-        if existing_row is None:
-            cursor = connection.execute(
-                """
-                INSERT INTO library_playlists (
-                    root_position,
-                    path,
-                    name,
-                    cover_svg,
-                    file_created_at
-                ) VALUES (?, ?, ?, ?, ?)
-                """,
-                (root_position, playlist.path, playlist.name, cover_svg, playlist.file_created_at),
-            )
-            playlist_id = int(cursor.lastrowid)
-        else:
-            playlist_id = int(existing_row["playlist_id"])
-            playlist_changed = (
-                nullable_int(existing_row["root_position"]) != root_position
-                or str(existing_row["name"]) != playlist.name
-                or str(existing_row["cover_svg"] or "") != cover_svg
-                or nullable_text(existing_row["file_created_at"]) != playlist.file_created_at
-            )
-            if playlist_changed:
-                connection.execute(
-                    """
-                    UPDATE library_playlists
-                    SET root_position = ?,
-                        name = ?,
-                        cover_svg = ?,
-                        file_created_at = ?
-                    WHERE playlist_id = ?
-                    """,
-                    (root_position, playlist.name, cover_svg, playlist.file_created_at, playlist_id),
-                )
         playlist.playlist_id = playlist_id
-        desired_items = playlist_item_rows(playlist, track_ids_by_path)
-        if desired_items == existing_playlist_item_rows(connection, playlist_id):
-            continue
-        connection.execute(
-            "DELETE FROM library_playlist_items WHERE playlist_id = ?",
-            (playlist_id,),
-        )
-        for position, item in enumerate(desired_items):
+        for position, item in enumerate(items):
+            track_id = item.track_id or track_ids_by_path.get(item.path)
+            is_tracked = track_id is not None
             connection.execute(
                 """
                 INSERT INTO library_playlist_items (
@@ -1628,75 +1493,18 @@ def save_library_playlists_incremental(
                     cover_url
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (playlist_id, position, *item),
+                (
+                    playlist_id,
+                    position,
+                    item.path,
+                    track_id,
+                    None if is_tracked else item.title or item.path,
+                    None if is_tracked or item.duration_is_indeterminate else item.duration_seconds,
+                    0 if is_tracked else 1 if item.duration_is_indeterminate else 0,
+                    None if is_tracked else item.genre,
+                    None if is_tracked else item.cover_url,
+                ),
             )
-
-
-def playlist_rows_by_path(connection: sqlite3.Connection) -> dict[str, sqlite3.Row]:
-    return {
-        str(row["path"]): row
-        for row in connection.execute(
-            """
-            SELECT playlist_id, root_position, path, name, cover_svg, file_created_at
-            FROM library_playlists
-            """
-        )
-    }
-
-
-def playlist_item_rows(
-    playlist: PlaylistRecord,
-    track_ids_by_path: dict[str, int],
-) -> list[tuple[object, ...]]:
-    rows: list[tuple[object, ...]] = []
-    for item in playlist.items:
-        track_id = item.track_id or track_ids_by_path.get(item.path)
-        is_tracked = track_id is not None
-        rows.append(
-            (
-                item.path,
-                track_id,
-                None if is_tracked else item.title or item.path,
-                None if is_tracked or item.duration_is_indeterminate else item.duration_seconds,
-                0 if is_tracked else 1 if item.duration_is_indeterminate else 0,
-                None if is_tracked else item.genre,
-                None if is_tracked else item.cover_url,
-            )
-        )
-    return rows
-
-
-def existing_playlist_item_rows(
-    connection: sqlite3.Connection,
-    playlist_id: int,
-) -> list[tuple[object, ...]]:
-    return [
-        (
-            str(row["path"]),
-            nullable_int(row["track_id"]),
-            row["title"],
-            row["duration_seconds"],
-            int(row["duration_is_indeterminate"]),
-            row["genre"],
-            row["cover_url"],
-        )
-        for row in connection.execute(
-            """
-            SELECT
-                path,
-                track_id,
-                title,
-                duration_seconds,
-                duration_is_indeterminate,
-                genre,
-                cover_url
-            FROM library_playlist_items
-            WHERE playlist_id = ?
-            ORDER BY position
-            """,
-            (playlist_id,),
-        )
-    ]
 
 
 def copy_album_musicbrainz_links_from_legacy_album_ids(

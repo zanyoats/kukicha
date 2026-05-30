@@ -62,9 +62,9 @@
             </summary>
             <div class="filter-options playlist-track-options" data-playlist-options>
               {% if track.playlist_options is not none %}
-                {% if track.playlist_options %}
+                  {% if track.playlist_options %}
                   {% for playlist in track.playlist_options %}
-                    <label class="filter-option"{% if playlist.path %} title="{{ playlist.path }}"{% endif %}>
+                    <label class="filter-option">
                       <input type="checkbox" data-playlist-toggle data-track-id="{{ track.library_track_id }}" data-playlist-id="{{ playlist.playlist_id }}" {% if playlist.checked %}checked{% endif %}>
                       <span>{{ playlist.name or ("Playlist " ~ playlist.playlist_id) }}</span>
                     </label>
@@ -75,6 +75,14 @@
               {% else %}
                 <div class="empty-small">No playlists found.</div>
               {% endif %}
+              <form class="playlist-track-create-form" action="/api/playlists" method="post" autocomplete="off" data-playlist-create-for-track data-track-id="{{ track.library_track_id }}">
+                <label class="playlist-track-create-field">
+                  <span class="visually-hidden">New playlist name</span>
+                  <input type="text" name="name" placeholder="New playlist" data-playlist-create-track-name>
+                </label>
+                <button type="submit" data-create-track-playlist>Create</button>
+                <div class="playlist-track-create-status" data-playlist-create-track-status aria-live="polite"></div>
+              </form>
             </div>
           </details>
         {% else %}

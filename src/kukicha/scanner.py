@@ -41,14 +41,12 @@ from .models import (
     TRACK_ARTWORK_HEIGHT,
     MusicLibrary,
     PlaylistItemRecord,
-    PlaylistRecord,
     TrackArtwork,
     TrackRecord,
     TrackSourceRecord,
     UNKNOWN_METADATA_TAG,
     normalize_genre_values,
 )
-from .playlist_art import playlist_cover_svg
 
 SUPPORTED_EXTENSIONS = {
     ".flac",
@@ -164,10 +162,16 @@ class IncrementalLibraryBuild:
     reused_paths: frozenset[str]
 
 
+@dataclass(frozen=True, slots=True)
+class UploadedPlaylistParseResult:
+    name: str
+    items: tuple[PlaylistItemRecord, ...]
+    skipped_relative_paths: tuple[str, ...]
+
+
 @dataclass(slots=True)
 class IncrementalScanAccumulator:
     tracks: list[TrackRecord]
-    playlist_paths: list[tuple[int, Path]]
     scanned_paths: set[str]
     reused_paths: set[str]
     music_count: int = 0
@@ -230,7 +234,6 @@ def build_incremental_library(
     source_list = scan_sources_for_roots(roots)
     scan = IncrementalScanAccumulator(
         tracks=[],
-        playlist_paths=[],
         scanned_paths=set(),
         reused_paths=set(),
     )
@@ -266,14 +269,13 @@ def build_incremental_library(
 
     if progress and scan.music_count % progress_step:
         progress(f"scanned {scan.music_count} music files")
-    playlists = parse_playlists(scan.playlist_paths, scan.tracks)
     return IncrementalLibraryBuild(
         library=MusicLibrary(
             roots=[root_path_for_source(source) for source in source_list],
             tracks=scan.tracks,
             supported_extensions=sorted(SUPPORTED_EXTENSIONS),
             generated_at=datetime.now(UTC).isoformat(),
-            playlists=playlists,
+            playlists=[],
         ),
         scanned_paths=frozenset(scan.scanned_paths),
         reused_paths=frozenset(scan.reused_paths),
@@ -359,12 +361,7 @@ def scan_local_root(
     root_count = 0
     root_scanned = 0
     root_reused = 0
-    root_playlists = 0
-    for path in iter_library_files([root]):
-        if path.suffix.casefold() in PLAYLIST_EXTENSIONS:
-            scan.playlist_paths.append((root_position, path))
-            root_playlists += 1
-            continue
+    for path in iter_music_files([root]):
         scan.music_count += 1
         root_count += 1
         path_text = str(path)
@@ -408,7 +405,6 @@ def scan_local_root(
                 root_count,
                 read_count=root_scanned,
                 reused_count=root_reused,
-                playlist_count=root_playlists,
             )
         )
 
@@ -592,12 +588,11 @@ def root_scan_complete_message(
     *,
     read_count: int,
     reused_count: int,
-    playlist_count: int = 0,
 ) -> str:
     return (
         f"finished root {root_position + 1}/{root_total}: {label} "
         f"({music_count} music file(s), {read_count} read, "
-        f"{reused_count} reused, {playlist_count} playlist file(s))"
+        f"{reused_count} reused)"
     )
 
 
@@ -1029,11 +1024,6 @@ def optional_int_value(value: object) -> int | None:
         return None
 
 
-def iter_library_files(roots: Iterable[Path]) -> Iterable[Path]:
-    yield from iter_music_files(roots)
-    yield from iter_playlist_files(roots)
-
-
 def iter_music_files(roots: Iterable[Path]) -> Iterable[Path]:
     for root in roots:
         if root.is_file() and root.suffix.casefold() in SUPPORTED_EXTENSIONS:
@@ -1046,66 +1036,41 @@ def iter_music_files(roots: Iterable[Path]) -> Iterable[Path]:
                 yield path
 
 
-def iter_playlist_files(roots: Iterable[Path]) -> Iterable[Path]:
-    for root in roots:
-        if root.is_file() and root.suffix.casefold() in PLAYLIST_EXTENSIONS:
-            yield root
-            continue
-        if not root.exists():
-            continue
-        for path in root.rglob("*"):
-            if path.is_file() and path.suffix.casefold() in PLAYLIST_EXTENSIONS:
-                yield path
-
-
-def parse_playlists(
-    playlist_paths: Iterable[tuple[int | None, Path]],
+def parse_uploaded_playlist_file(
+    filename: str,
+    data: bytes,
     tracks: Iterable[TrackRecord],
-) -> list[PlaylistRecord]:
+) -> UploadedPlaylistParseResult:
+    upload_name = Path(str(filename or "playlist")).name
+    suffix = Path(upload_name).suffix.casefold()
+    if suffix not in PLAYLIST_EXTENSIONS:
+        allowed = ", ".join(sorted(PLAYLIST_EXTENSIONS))
+        raise ValueError(f"playlist file extension must be one of: {allowed}")
+    text = read_uploaded_playlist_text(upload_name, data)
     tracks_by_path = {
         normalize_local_playlist_path(track.path): track
         for track in tracks
     }
-    playlists: list[PlaylistRecord] = []
-    for root_position, path in playlist_paths:
-        playlist = parse_playlist(path, tracks_by_path, root_position=root_position)
-        if playlist is not None:
-            playlists.append(playlist)
-    return playlists
+    if suffix == ".pls":
+        return parse_uploaded_pls_playlist(upload_name, text, tracks_by_path)
+    return parse_uploaded_m3u_playlist(upload_name, text, tracks_by_path)
 
 
-def parse_playlist(
-    path: Path,
+def parse_uploaded_m3u_playlist(
+    filename: str,
+    text: str,
     tracks_by_path: dict[str, TrackRecord],
-    *,
-    root_position: int | None = None,
-) -> PlaylistRecord | None:
-    if path.suffix.casefold() == ".pls":
-        return parse_pls_playlist(path, tracks_by_path, root_position=root_position)
-    return parse_m3u_playlist(path, tracks_by_path, root_position=root_position)
-
-
-def parse_m3u_playlist(
-    path: Path,
-    tracks_by_path: dict[str, TrackRecord],
-    *,
-    root_position: int | None = None,
-) -> PlaylistRecord | None:
-    resolved_path = path.expanduser().resolve(strict=False)
-    name = resolved_path.stem
+) -> UploadedPlaylistParseResult:
+    name = Path(filename).stem or "Playlist"
     items: list[PlaylistItemRecord] = []
+    skipped: list[str] = []
     pending_title: str | None = None
     pending_duration: float | None = None
     pending_duration_is_indeterminate = False
     pending_genre: str | None = None
     pending_cover_url: str | None = None
 
-    text = read_playlist_text(resolved_path)
-    if text is None:
-        return None
-    lines = text.splitlines()
-
-    for raw_line in lines:
+    for raw_line in text.splitlines():
         line = raw_line.strip()
         if not line:
             continue
@@ -1131,73 +1096,68 @@ def parse_m3u_playlist(
                 continue
             continue
 
-        item_path = normalize_playlist_resource(line, resolved_path)
-        items.append(
-            playlist_item_record(
-                item_path,
-                tracks_by_path,
-                title=pending_title,
-                duration_seconds=pending_duration,
-                duration_is_indeterminate=pending_duration_is_indeterminate,
-                genre=pending_genre,
-                cover_url=pending_cover_url,
+        item_path = normalize_uploaded_playlist_resource(line)
+        if item_path is None:
+            skipped.append(line)
+        else:
+            items.append(
+                playlist_item_record(
+                    item_path,
+                    tracks_by_path,
+                    title=pending_title,
+                    duration_seconds=pending_duration,
+                    duration_is_indeterminate=pending_duration_is_indeterminate,
+                    genre=pending_genre,
+                    cover_url=pending_cover_url,
+                )
             )
-        )
         pending_title = None
         pending_duration = None
         pending_duration_is_indeterminate = False
         pending_genre = None
         pending_cover_url = None
 
-    return PlaylistRecord(
-        path=str(resolved_path),
+    return UploadedPlaylistParseResult(
         name=name,
-        root_position=root_position,
-        file_created_at=file_created_at(resolved_path),
-        cover_svg=playlist_cover_svg(name),
-        items=items,
+        items=tuple(items),
+        skipped_relative_paths=tuple(skipped),
     )
 
 
-def parse_pls_playlist(
-    path: Path,
+def parse_uploaded_pls_playlist(
+    filename: str,
+    text: str,
     tracks_by_path: dict[str, TrackRecord],
-    *,
-    root_position: int | None = None,
-) -> PlaylistRecord | None:
-    resolved_path = path.expanduser().resolve(strict=False)
-    name = resolved_path.stem
-    items: list[PlaylistItemRecord] = []
-
-    text = read_playlist_text(resolved_path)
-    if text is None:
-        return None
-
+) -> UploadedPlaylistParseResult:
+    name = Path(filename).stem or "Playlist"
     parser = configparser.ConfigParser(interpolation=None, strict=False)
     parser.optionxform = str.casefold
     try:
         parser.read_string(text)
-    except configparser.Error:
-        return None
-
+    except configparser.Error as error:
+        raise ValueError("playlist file is not valid PLS") from error
     section_name = pls_playlist_section_name(parser)
     if section_name is None:
-        return None
+        raise ValueError("playlist file is missing [playlist] section")
     section = parser[section_name]
-
     version = section.get("version", fallback=None)
     if version is not None and version.strip() and version.strip() != "2":
-        return None
+        raise ValueError("playlist file has unsupported PLS version")
 
+    items: list[PlaylistItemRecord] = []
+    skipped: list[str] = []
     for index in pls_playlist_indexes(section):
         resource = section.get(f"file{index}", fallback="").strip()
         if not resource:
+            continue
+        item_path = normalize_uploaded_playlist_resource(resource)
+        if item_path is None:
+            skipped.append(resource)
             continue
         title = section.get(f"title{index}", fallback="").strip() or None
         duration, duration_is_indeterminate = parse_pls_length(
             section.get(f"length{index}", fallback=None)
         )
-        item_path = normalize_playlist_resource(resource, resolved_path)
         items.append(
             playlist_item_record(
                 item_path,
@@ -1208,13 +1168,10 @@ def parse_pls_playlist(
             )
         )
 
-    return PlaylistRecord(
-        path=str(resolved_path),
+    return UploadedPlaylistParseResult(
         name=name,
-        root_position=root_position,
-        file_created_at=file_created_at(resolved_path),
-        cover_svg=playlist_cover_svg(name),
-        items=items,
+        items=tuple(items),
+        skipped_relative_paths=tuple(skipped),
     )
 
 
@@ -1287,16 +1244,14 @@ def parse_pls_length(value: str | None) -> tuple[float | None, bool]:
     return duration, False
 
 
-def read_playlist_text(path: Path) -> str | None:
-    try:
-        data = path.read_bytes()
-    except OSError:
-        return None
-    if path.suffix.casefold() == ".m3u":
+def read_uploaded_playlist_text(filename: str, data: bytes) -> str:
+    if not data:
+        raise ValueError("playlist file is empty")
+    if Path(filename).suffix.casefold() == ".m3u":
         try:
             return data.decode("utf-8-sig")
-        except UnicodeDecodeError:
-            return None
+        except UnicodeDecodeError as error:
+            raise ValueError("playlist file is not valid UTF-8") from error
     return data.decode("utf-8-sig", errors="replace")
 
 
@@ -1322,12 +1277,12 @@ def parse_playlist_duration(value: str) -> float | None:
         return None
 
 
-def normalize_playlist_resource(value: str, playlist_path: Path) -> str:
+def normalize_uploaded_playlist_resource(value: str) -> str | None:
     if is_url_resource(value):
         return value.strip()
     path = Path(value).expanduser()
     if not path.is_absolute():
-        path = playlist_path.parent / path
+        return None
     return normalize_local_playlist_path(str(path))
 
 

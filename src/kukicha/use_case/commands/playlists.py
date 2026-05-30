@@ -1,35 +1,54 @@
 from __future__ import annotations
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
+import logging
 from pathlib import Path
+import sqlite3
 
-from ..database import connect_database
+from ..database import connect_database, utc_now_iso
+from ...models import TrackRecord
 from ...player_common import placeholders_for
-from ...scanner import is_url_resource
+from ...playlist_art import playlist_cover_svg
+from ...scanner import is_url_resource, parse_uploaded_playlist_file
 from ..queries import PlaylistNotFoundError, TrackNotFoundError
+
+
+LOGGER = logging.getLogger("kukicha.player")
+PLAYLIST_KIND_LOCAL = "local"
+PLAYLIST_KIND_REMOTE = "remote"
+PLAYLIST_SOURCE_MANUAL = "manual"
+PLAYLIST_SOURCE_FILE_IMPORT = "file_import"
 
 
 @dataclass(frozen=True, slots=True)
 class PlaylistMenuOption:
     playlist_id: int
     name: str
-    path: str
     checked: bool
 
 
 @dataclass(frozen=True, slots=True)
-class PlaylistFileUpdateJob:
+class PlaylistMutationResult:
     playlist_id: int
-    playlist_name: str
-    playlist_path: str
-    track_id: int
-    track_path: str
-    artist: str
-    album_artist: str
-    title: str
-    duration_seconds: float | None
-    checked: bool
+    name: str
+    kind: str
+    source: str
+    item_count: int
+    skipped_relative_paths: tuple[str, ...] = ()
+
+    def payload(self, *, message: str | None = None) -> dict[str, object]:
+        result: dict[str, object] = {
+            "playlist_id": self.playlist_id,
+            "name": self.name,
+            "kind": self.kind,
+            "source": self.source,
+            "item_count": self.item_count,
+            "skipped_relative_paths": list(self.skipped_relative_paths),
+        }
+        if message:
+            result["message"] = message
+        return result
 
 
 def playlist_menu_options_by_track_id(
@@ -45,16 +64,13 @@ def playlist_menu_options_by_track_id(
                 """
                 SELECT
                     playlist_id,
-                    name,
-                    path
+                    name
                 FROM library_playlists
+                WHERE source = ?
                 ORDER BY name COLLATE NOCASE, playlist_id
-                """
+                """,
+                (PLAYLIST_SOURCE_MANUAL,),
             )
-        )
-        immutable_playlist_ids = url_only_playlist_ids(
-            connection,
-            (int(row["playlist_id"]) for row in playlist_rows),
         )
         membership_pairs: set[tuple[int, int]] = set()
         if playlist_rows:
@@ -75,14 +91,184 @@ def playlist_menu_options_by_track_id(
             PlaylistMenuOption(
                 playlist_id=int(row["playlist_id"]),
                 name=str(row["name"]),
-                path=str(row["path"]),
                 checked=(track_id, int(row["playlist_id"])) in membership_pairs,
             )
             for row in playlist_rows
-            if int(row["playlist_id"]) not in immutable_playlist_ids
         )
         for track_id in requested_ids
     }
+
+
+def create_or_replace_manual_playlist(
+    database: Path,
+    *,
+    name: str | None = None,
+    track_ids: Sequence[int] = (),
+    playlist_id: int | None = None,
+) -> PlaylistMutationResult:
+    if playlist_id is None:
+        return create_manual_playlist(database, name=name or "", track_ids=track_ids)
+    return replace_manual_playlist(
+        database,
+        playlist_id,
+        name=name,
+        track_ids=track_ids,
+    )
+
+
+def create_manual_playlist(
+    database: Path,
+    *,
+    name: str,
+    track_ids: Sequence[int] = (),
+) -> PlaylistMutationResult:
+    playlist_name = normalized_playlist_name(name)
+    now = utc_now_iso()
+    with connect_database(database, create=False) as connection:
+        track_rows = track_rows_for_playlist(connection, track_ids)
+        cursor = connection.execute(
+            """
+            INSERT INTO library_playlists (
+                name,
+                kind,
+                source,
+                cover_svg,
+                created_at,
+                updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                playlist_name,
+                PLAYLIST_KIND_LOCAL,
+                PLAYLIST_SOURCE_MANUAL,
+                playlist_cover_svg(playlist_name),
+                now,
+                now,
+            ),
+        )
+        playlist_id = int(cursor.lastrowid)
+        replace_playlist_items(connection, playlist_id, track_rows)
+        connection.commit()
+    return PlaylistMutationResult(
+        playlist_id=playlist_id,
+        name=playlist_name,
+        kind=PLAYLIST_KIND_LOCAL,
+        source=PLAYLIST_SOURCE_MANUAL,
+        item_count=len(track_rows),
+    )
+
+
+def replace_manual_playlist(
+    database: Path,
+    playlist_id: int,
+    *,
+    name: str | None = None,
+    track_ids: Sequence[int] = (),
+) -> PlaylistMutationResult:
+    now = utc_now_iso()
+    with connect_database(database, create=False) as connection:
+        playlist_row = editable_playlist_row(connection, playlist_id)
+        playlist_name = (
+            normalized_playlist_name(name)
+            if name is not None and str(name).strip()
+            else str(playlist_row["name"])
+        )
+        track_rows = track_rows_for_playlist(connection, track_ids)
+        connection.execute(
+            """
+            UPDATE library_playlists
+            SET name = ?,
+                kind = ?,
+                cover_svg = ?,
+                updated_at = ?
+            WHERE playlist_id = ?
+            """,
+            (
+                playlist_name,
+                PLAYLIST_KIND_LOCAL,
+                playlist_cover_svg(playlist_name),
+                now,
+                playlist_id,
+            ),
+        )
+        replace_playlist_items(connection, playlist_id, track_rows)
+        connection.commit()
+    return PlaylistMutationResult(
+        playlist_id=playlist_id,
+        name=playlist_name,
+        kind=PLAYLIST_KIND_LOCAL,
+        source=PLAYLIST_SOURCE_MANUAL,
+        item_count=len(track_rows),
+    )
+
+
+def import_playlist_file(
+    database: Path,
+    *,
+    filename: str,
+    data: bytes,
+    name: str | None = None,
+) -> PlaylistMutationResult:
+    uploaded_name = str(filename or "").strip()
+    if not uploaded_name:
+        raise ValueError("playlist file must have a filename")
+    with connect_database(database, create=False) as connection:
+        tracks = tuple(
+            TrackRecord(path=str(row["path"]), track_id=int(row["track_id"]))
+            for row in connection.execute(
+                """
+                SELECT track_id, path
+                FROM library_tracks
+                ORDER BY track_id
+                """
+            )
+        )
+        parsed = parse_uploaded_playlist_file(uploaded_name, data, tracks)
+        playlist_name = (
+            normalized_playlist_name(name, required=False)
+            or normalized_playlist_name(parsed.name, required=False)
+            or normalized_playlist_name(Path(uploaded_name).stem, required=False)
+            or "Playlist"
+        )
+        for skipped_path in parsed.skipped_relative_paths:
+            LOGGER.warning(
+                "Ignoring relative playlist item path in uploaded playlist %s: %s",
+                uploaded_name,
+                skipped_path,
+            )
+        now = utc_now_iso()
+        kind = playlist_kind_for_paths(item.path for item in parsed.items)
+        cursor = connection.execute(
+            """
+            INSERT INTO library_playlists (
+                name,
+                kind,
+                source,
+                cover_svg,
+                created_at,
+                updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                playlist_name,
+                kind,
+                PLAYLIST_SOURCE_FILE_IMPORT,
+                playlist_cover_svg(playlist_name),
+                now,
+                now,
+            ),
+        )
+        playlist_id = int(cursor.lastrowid)
+        replace_playlist_items(connection, playlist_id, parsed.items)
+        connection.commit()
+    return PlaylistMutationResult(
+        playlist_id=playlist_id,
+        name=playlist_name,
+        kind=kind,
+        source=PLAYLIST_SOURCE_FILE_IMPORT,
+        item_count=len(parsed.items),
+        skipped_relative_paths=parsed.skipped_relative_paths,
+    )
 
 
 def set_track_playlist_membership(
@@ -91,17 +277,12 @@ def set_track_playlist_membership(
     playlist_id: int,
     checked: bool,
 ) -> dict[str, object]:
-    from ...player_playlists import update_playlist_file_for_membership
-
-    response, job = set_track_playlist_membership_database(
+    return set_track_playlist_membership_database(
         database,
         track_id,
         playlist_id,
         checked,
     )
-    if job is not None:
-        update_playlist_file_for_membership(job)
-    return response
 
 
 def set_track_playlist_membership_database(
@@ -109,12 +290,11 @@ def set_track_playlist_membership_database(
     track_id: int,
     playlist_id: int,
     checked: bool,
-) -> tuple[dict[str, object], PlaylistFileUpdateJob | None]:
-    job: PlaylistFileUpdateJob | None = None
+) -> dict[str, object]:
     with connect_database(database, create=False) as connection:
         track_row = connection.execute(
             """
-            SELECT track_id, path, artist, album_artist, title, duration_seconds
+            SELECT track_id, path
             FROM library_tracks
             WHERE track_id = ?
             """,
@@ -122,14 +302,7 @@ def set_track_playlist_membership_database(
         ).fetchone()
         if track_row is None:
             raise TrackNotFoundError(track_id)
-        playlist_row = connection.execute(
-            "SELECT playlist_id, name, path FROM library_playlists WHERE playlist_id = ?",
-            (playlist_id,),
-        ).fetchone()
-        if playlist_row is None:
-            raise PlaylistNotFoundError(playlist_id)
-        if playlist_is_url_only(connection, playlist_id):
-            raise ValueError("URL-only playlists cannot be edited in the player")
+        playlist_row = editable_playlist_row(connection, playlist_id)
         existing_count = int(
             connection.execute(
                 """
@@ -170,60 +343,178 @@ def set_track_playlist_membership_database(
                 """,
                 (playlist_id, track_id),
             )
+            compact_playlist_positions(connection, playlist_id)
         if changed:
-            job = PlaylistFileUpdateJob(
-                playlist_id=playlist_id,
-                playlist_name=str(playlist_row["name"]),
-                playlist_path=str(playlist_row["path"]),
-                track_id=track_id,
-                track_path=str(track_row["path"]),
-                artist=str(track_row["artist"] or ""),
-                album_artist=str(track_row["album_artist"] or ""),
-                title=str(track_row["title"] or Path(str(track_row["path"])).stem),
-                duration_seconds=(
-                    float(track_row["duration_seconds"])
-                    if track_row["duration_seconds"] is not None
-                    else None
-                ),
-                checked=checked,
-            )
+            touch_playlist(connection, playlist_id)
         connection.commit()
 
     return {
         "track_id": track_id,
         "playlist_id": playlist_id,
         "name": str(playlist_row["name"]),
-        "path": str(playlist_row["path"]),
         "checked": checked,
-    }, job
-
-
-def url_only_playlist_ids(
-    connection,
-    playlist_ids: Iterable[int],
-) -> set[int]:
-    requested_ids = tuple(dict.fromkeys(int(playlist_id) for playlist_id in playlist_ids))
-    if not requested_ids:
-        return set()
-    placeholders = placeholders_for(requested_ids)
-    rows_by_playlist_id: dict[int, list[str]] = {
-        playlist_id: [] for playlist_id in requested_ids
     }
-    for row in connection.execute(
-        f"""
-        SELECT playlist_id, path
-        FROM library_playlist_items
-        WHERE playlist_id IN ({placeholders})
+
+
+def normalized_playlist_name(value: str | None, *, required: bool = True) -> str:
+    name = " ".join(str(value or "").split())
+    if required and not name:
+        raise ValueError("playlist name is required")
+    return name
+
+
+def editable_playlist_row(connection: sqlite3.Connection, playlist_id: int) -> sqlite3.Row:
+    row = connection.execute(
+        """
+        SELECT playlist_id, name, source
+        FROM library_playlists
+        WHERE playlist_id = ?
         """,
-        requested_ids,
-    ):
-        rows_by_playlist_id[int(row["playlist_id"])].append(str(row["path"]))
-    return {
-        playlist_id
-        for playlist_id, paths in rows_by_playlist_id.items()
-        if paths and all(is_url_resource(path) for path in paths)
+        (playlist_id,),
+    ).fetchone()
+    if row is None:
+        raise PlaylistNotFoundError(playlist_id)
+    if str(row["source"]) != PLAYLIST_SOURCE_MANUAL:
+        raise ValueError("file-import playlists are read-only")
+    return row
+
+
+def track_rows_for_playlist(
+    connection: sqlite3.Connection,
+    track_ids: Sequence[int],
+) -> tuple[sqlite3.Row, ...]:
+    requested_ids = [int(track_id) for track_id in track_ids]
+    if any(track_id <= 0 for track_id in requested_ids):
+        raise ValueError("playlist song ids must be positive track ids")
+    if not requested_ids:
+        return ()
+    unique_ids = tuple(dict.fromkeys(requested_ids))
+    placeholders = placeholders_for(unique_ids)
+    rows_by_id = {
+        int(row["track_id"]): row
+        for row in connection.execute(
+            f"""
+            SELECT track_id, path
+            FROM library_tracks
+            WHERE track_id IN ({placeholders})
+            """,
+            unique_ids,
+        )
     }
+    for track_id in requested_ids:
+        if track_id not in rows_by_id:
+            raise TrackNotFoundError(track_id)
+    return tuple(rows_by_id[track_id] for track_id in requested_ids)
 
 
-def playlist_is_url_only(connection, playlist_id: int) -> bool:
-    return playlist_id in url_only_playlist_ids(connection, (playlist_id,))
+def replace_playlist_items(
+    connection: sqlite3.Connection,
+    playlist_id: int,
+    items: Sequence[sqlite3.Row | TrackRecord | object],
+) -> None:
+    connection.execute(
+        "DELETE FROM library_playlist_items WHERE playlist_id = ?",
+        (playlist_id,),
+    )
+    for position, item in enumerate(items):
+        path = str(get_item_value(item, "path"))
+        track_id = get_item_value(item, "track_id")
+        is_tracked = track_id is not None
+        duration_is_indeterminate = bool(
+            get_item_value(item, "duration_is_indeterminate", False)
+        )
+        connection.execute(
+            """
+            INSERT INTO library_playlist_items (
+                playlist_id,
+                position,
+                path,
+                track_id,
+                title,
+                duration_seconds,
+                duration_is_indeterminate,
+                genre,
+                cover_url
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                playlist_id,
+                position,
+                path,
+                int(track_id) if track_id is not None else None,
+                None if is_tracked else get_item_value(item, "title", path),
+                (
+                    None
+                    if is_tracked or duration_is_indeterminate
+                    else get_item_value(item, "duration_seconds")
+                ),
+                0 if is_tracked else 1 if duration_is_indeterminate else 0,
+                None if is_tracked else get_item_value(item, "genre"),
+                None if is_tracked else get_item_value(item, "cover_url"),
+            ),
+        )
+
+
+def get_item_value(item: object, key: str, default: object = None) -> object:
+    if isinstance(item, sqlite3.Row):
+        return item[key] if key in item.keys() else default
+    return getattr(item, key, default)
+
+
+def compact_playlist_positions(connection: sqlite3.Connection, playlist_id: int) -> None:
+    rows = list(
+        connection.execute(
+            """
+            SELECT playlist_item_id
+            FROM library_playlist_items
+            WHERE playlist_id = ?
+            ORDER BY position, playlist_item_id
+            """,
+            (playlist_id,),
+        )
+    )
+    for position, row in enumerate(rows):
+        connection.execute(
+            """
+            UPDATE library_playlist_items
+            SET position = ?
+            WHERE playlist_item_id = ?
+            """,
+            (position, int(row["playlist_item_id"])),
+        )
+
+
+def touch_playlist(connection: sqlite3.Connection, playlist_id: int) -> None:
+    kind = playlist_kind(connection, playlist_id)
+    connection.execute(
+        """
+        UPDATE library_playlists
+        SET kind = ?,
+            updated_at = ?
+        WHERE playlist_id = ?
+        """,
+        (kind, utc_now_iso(), playlist_id),
+    )
+
+
+def playlist_kind(connection: sqlite3.Connection, playlist_id: int) -> str:
+    paths = (
+        str(row["path"])
+        for row in connection.execute(
+            """
+            SELECT path
+            FROM library_playlist_items
+            WHERE playlist_id = ?
+            """,
+            (playlist_id,),
+        )
+    )
+    return playlist_kind_for_paths(paths)
+
+
+def playlist_kind_for_paths(paths: Iterable[str]) -> str:
+    return (
+        PLAYLIST_KIND_REMOTE
+        if any(is_url_resource(path) for path in paths)
+        else PLAYLIST_KIND_LOCAL
+    )

@@ -7,6 +7,7 @@ from importlib.resources import files
 from pathlib import Path
 from types import TracebackType
 from typing import Iterable
+from urllib.parse import urlsplit
 
 from .._compat import UTC
 from ..file_metadata import file_created_at
@@ -27,8 +28,7 @@ ROOT_SCAN_STATS_ROOT_COUNT_METADATA_KEY = "root_scan_stats_root_count"
 ROOT_SCAN_STATS_TRACK_COUNT_METADATA_KEY = "root_scan_stats_track_count"
 ROOT_SCAN_STATS_ALBUM_COUNT_METADATA_KEY = "root_scan_stats_album_count"
 ROOT_SCAN_STATS_ALBUM_ROOT_COUNT_METADATA_KEY = "root_scan_stats_album_root_count"
-ROOT_SCAN_STATS_PLAYLIST_COUNT_METADATA_KEY = "root_scan_stats_playlist_count"
-ROOT_SCAN_STATS_VERSION = "5"
+ROOT_SCAN_STATS_VERSION = "6"
 
 LIBRARY_TRACK_ARTWORK_SCHEMA = """
 CREATE TABLE IF NOT EXISTS library_track_artwork (
@@ -39,6 +39,40 @@ CREATE TABLE IF NOT EXISTS library_track_artwork (
     PRIMARY KEY (track_id, height_px),
     FOREIGN KEY (track_id) REFERENCES library_tracks (track_id) ON DELETE CASCADE
 );
+"""
+
+LIBRARY_PLAYLIST_SCHEMA = """
+CREATE TABLE IF NOT EXISTS library_playlists (
+    playlist_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    kind TEXT NOT NULL DEFAULT 'local' CHECK (kind IN ('local', 'remote')),
+    source TEXT NOT NULL DEFAULT 'manual' CHECK (source IN ('manual', 'file_import')),
+    cover_svg TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT '',
+    updated_at TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_library_playlists_name
+    ON library_playlists (name);
+
+CREATE TABLE IF NOT EXISTS library_playlist_items (
+    playlist_item_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    playlist_id INTEGER NOT NULL,
+    position INTEGER NOT NULL,
+    path TEXT NOT NULL,
+    track_id INTEGER,
+    title TEXT,
+    duration_seconds REAL,
+    duration_is_indeterminate INTEGER NOT NULL DEFAULT 0,
+    genre TEXT,
+    cover_url TEXT,
+    UNIQUE (playlist_id, position),
+    FOREIGN KEY (playlist_id) REFERENCES library_playlists (playlist_id) ON DELETE CASCADE,
+    FOREIGN KEY (track_id) REFERENCES library_tracks (track_id) ON DELETE SET NULL
+);
+CREATE INDEX IF NOT EXISTS idx_library_playlist_items_playlist_id
+    ON library_playlist_items (playlist_id);
+CREATE INDEX IF NOT EXISTS idx_library_playlist_items_track_id
+    ON library_playlist_items (track_id);
 """
 
 DATABASE_SCHEMA = """
@@ -79,15 +113,13 @@ CREATE TABLE IF NOT EXISTS library_root_stats (
     root_position INTEGER PRIMARY KEY,
     tracks_scanned INTEGER NOT NULL DEFAULT 0,
     albums_scanned INTEGER NOT NULL DEFAULT 0,
-    playlists_scanned INTEGER NOT NULL DEFAULT 0,
     FOREIGN KEY (root_position) REFERENCES library_roots (position) ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS library_stats (
     stats_id INTEGER PRIMARY KEY CHECK (stats_id = 1),
     tracks_scanned INTEGER NOT NULL DEFAULT 0,
-    albums_scanned INTEGER NOT NULL DEFAULT 0,
-    playlists_scanned INTEGER NOT NULL DEFAULT 0
+    albums_scanned INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS library_root_album_artist_stats (
@@ -380,40 +412,6 @@ CREATE INDEX IF NOT EXISTS idx_album_musicbrainz_track_links_release
 CREATE INDEX IF NOT EXISTS idx_album_musicbrainz_track_links_release_group
     ON album_musicbrainz_track_links (release_group_mbid);
 
-CREATE TABLE IF NOT EXISTS library_playlists (
-    playlist_id INTEGER PRIMARY KEY AUTOINCREMENT,
-    root_position INTEGER,
-    path TEXT NOT NULL UNIQUE,
-    name TEXT NOT NULL,
-    cover_svg TEXT NOT NULL DEFAULT '',
-    file_created_at TEXT,
-    FOREIGN KEY (root_position) REFERENCES library_roots (position) ON DELETE SET NULL
-);
-CREATE INDEX IF NOT EXISTS idx_library_playlists_root_position
-    ON library_playlists (root_position);
-CREATE INDEX IF NOT EXISTS idx_library_playlists_name
-    ON library_playlists (name);
-
-CREATE TABLE IF NOT EXISTS library_playlist_items (
-    playlist_item_id INTEGER PRIMARY KEY AUTOINCREMENT,
-    playlist_id INTEGER NOT NULL,
-    position INTEGER NOT NULL,
-    path TEXT NOT NULL,
-    track_id INTEGER,
-    title TEXT,
-    duration_seconds REAL,
-    duration_is_indeterminate INTEGER NOT NULL DEFAULT 0,
-    genre TEXT,
-    cover_url TEXT,
-    UNIQUE (playlist_id, position),
-    FOREIGN KEY (playlist_id) REFERENCES library_playlists (playlist_id) ON DELETE CASCADE,
-    FOREIGN KEY (track_id) REFERENCES library_tracks (track_id) ON DELETE SET NULL
-);
-CREATE INDEX IF NOT EXISTS idx_library_playlist_items_playlist_id
-    ON library_playlist_items (playlist_id);
-CREATE INDEX IF NOT EXISTS idx_library_playlist_items_track_id
-    ON library_playlist_items (track_id);
-
 CREATE TABLE IF NOT EXISTS library_tracks (
     track_id INTEGER PRIMARY KEY AUTOINCREMENT,
     album_id TEXT,
@@ -569,6 +567,7 @@ def connect_database(
         connection.execute("PRAGMA journal_mode=WAL")
         connection.execute("PRAGMA synchronous=NORMAL")
         connection.executescript(DATABASE_SCHEMA)
+        connection.executescript(LIBRARY_PLAYLIST_SCHEMA)
         migrate_player_jobs_schema(connection)
         migrate_listening_schema(connection)
         migrate_library_schema(connection)
@@ -691,15 +690,7 @@ def migrate_library_schema(connection: sqlite3.Connection) -> None:
             "ALTER TABLE library_album_roots ADD COLUMN genre_sort_key TEXT NOT NULL DEFAULT ''"
         )
 
-    playlist_columns = table_columns(connection, "library_playlists")
-    created_playlist_file_created_at = False
-    if playlist_columns and "cover_svg" not in playlist_columns:
-        connection.execute(
-            "ALTER TABLE library_playlists ADD COLUMN cover_svg TEXT NOT NULL DEFAULT ''"
-        )
-    if playlist_columns and "file_created_at" not in playlist_columns:
-        connection.execute("ALTER TABLE library_playlists ADD COLUMN file_created_at TEXT")
-        created_playlist_file_created_at = True
+    ensure_library_playlist_schema(connection)
 
     playlist_item_columns = table_columns(connection, "library_playlist_items")
     if playlist_item_columns and "duration_is_indeterminate" not in playlist_item_columns:
@@ -720,7 +711,7 @@ def migrate_library_schema(connection: sqlite3.Connection) -> None:
             """
         )
 
-    if created_track_file_created_at or created_playlist_file_created_at:
+    if created_track_file_created_at:
         backfill_library_file_created_at(connection)
     if created_album_file_created_at or created_track_file_created_at:
         backfill_library_album_file_created_at(connection)
@@ -865,10 +856,11 @@ def migrate_library_schema(connection: sqlite3.Connection) -> None:
     connection.execute("DROP INDEX IF EXISTS idx_library_albums_has_cover")
     connection.execute("DROP INDEX IF EXISTS idx_library_albums_is_compilation")
     connection.execute("DROP INDEX IF EXISTS idx_library_albums_is_work")
+    connection.execute("DROP INDEX IF EXISTS idx_library_playlists_file_created_at")
     connection.execute(
         """
-        CREATE INDEX IF NOT EXISTS idx_library_playlists_file_created_at
-            ON library_playlists (file_created_at)
+        CREATE INDEX IF NOT EXISTS idx_library_playlists_created_at
+            ON library_playlists (created_at)
         """
     )
     ensure_library_album_artists_artist_index(connection)
@@ -876,6 +868,154 @@ def migrate_library_schema(connection: sqlite3.Connection) -> None:
     migrate_library_album_artist_column(connection)
     canonicalize_library_album_artists(connection)
     connection.execute("DROP TABLE IF EXISTS library_album_paths")
+
+
+def ensure_library_playlist_schema(connection: sqlite3.Connection) -> None:
+    columns = table_columns(connection, "library_playlists")
+    if not columns:
+        connection.executescript(LIBRARY_PLAYLIST_SCHEMA)
+        return
+    desired_columns = {
+        "playlist_id",
+        "name",
+        "kind",
+        "source",
+        "cover_svg",
+        "created_at",
+        "updated_at",
+    }
+    if desired_columns.issubset(columns) and "path" not in columns and "file_created_at" not in columns:
+        return
+
+    item_columns = table_columns(connection, "library_playlist_items")
+    item_rows = []
+    if item_columns:
+        item_rows = list(
+            connection.execute(
+                """
+                SELECT
+                    playlist_item_id,
+                    playlist_id,
+                    position,
+                    path,
+                    track_id,
+                    title,
+                    duration_seconds,
+                    duration_is_indeterminate,
+                    genre,
+                    cover_url
+                FROM library_playlist_items
+                ORDER BY playlist_id, position, playlist_item_id
+                """
+            )
+        )
+    playlist_rows = list(
+        connection.execute(
+            """
+            SELECT *
+            FROM library_playlists
+            ORDER BY playlist_id
+            """
+        )
+    )
+    remote_playlist_ids = {
+        int(row["playlist_id"])
+        for row in item_rows
+        if is_http_url(str(row["path"]))
+    }
+
+    connection.execute("DROP TABLE IF EXISTS library_playlist_items")
+    connection.execute("DROP TABLE IF EXISTS library_playlists")
+    connection.executescript(LIBRARY_PLAYLIST_SCHEMA)
+
+    now = utc_now_iso()
+    for row in playlist_rows:
+        keys = set(row.keys())
+        playlist_id = int(row["playlist_id"])
+        name = str(row["name"] or "Playlist")
+        created_at = (
+            str(row["created_at"])
+            if "created_at" in keys and row["created_at"]
+            else str(row["file_created_at"])
+            if "file_created_at" in keys and row["file_created_at"]
+            else now
+        )
+        updated_at = (
+            str(row["updated_at"])
+            if "updated_at" in keys and row["updated_at"]
+            else created_at
+        )
+        source = (
+            str(row["source"])
+            if "source" in keys and str(row["source"] or "") in {"manual", "file_import"}
+            else "file_import"
+            if "path" in keys
+            else "manual"
+        )
+        kind = (
+            str(row["kind"])
+            if "kind" in keys and str(row["kind"] or "") in {"local", "remote"}
+            else "remote"
+            if playlist_id in remote_playlist_ids
+            else "local"
+        )
+        connection.execute(
+            """
+            INSERT INTO library_playlists (
+                playlist_id,
+                name,
+                kind,
+                source,
+                cover_svg,
+                created_at,
+                updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                playlist_id,
+                name,
+                kind,
+                source,
+                str(row["cover_svg"] or "") if "cover_svg" in keys else "",
+                created_at,
+                updated_at,
+            ),
+        )
+
+    for row in item_rows:
+        connection.execute(
+            """
+            INSERT INTO library_playlist_items (
+                playlist_item_id,
+                playlist_id,
+                position,
+                path,
+                track_id,
+                title,
+                duration_seconds,
+                duration_is_indeterminate,
+                genre,
+                cover_url
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                int(row["playlist_item_id"]),
+                int(row["playlist_id"]),
+                int(row["position"]),
+                str(row["path"]),
+                int(row["track_id"]) if row["track_id"] is not None else None,
+                row["title"],
+                row["duration_seconds"],
+                int(row["duration_is_indeterminate"]),
+                row["genre"],
+                row["cover_url"],
+            ),
+        )
+
+
+def is_http_url(value: str) -> bool:
+    parsed = urlsplit(value.strip())
+    return parsed.scheme.casefold() in {"http", "https"} and bool(parsed.netloc)
 
 
 def migrate_album_user_state_schema(connection: sqlite3.Connection) -> None:
@@ -936,7 +1076,7 @@ def utc_now_iso() -> str:
 
 
 def backfill_library_file_created_at(connection: sqlite3.Connection) -> None:
-    for table_name in ("library_tracks", "library_playlists"):
+    for table_name in ("library_tracks",):
         rows = list(
             connection.execute(
                 f"""
@@ -1745,7 +1885,6 @@ def ensure_root_scan_stats(connection: sqlite3.Connection) -> None:
         "tracks": ROOT_SCAN_STATS_TRACK_COUNT_METADATA_KEY,
         "albums": ROOT_SCAN_STATS_ALBUM_COUNT_METADATA_KEY,
         "album_roots": ROOT_SCAN_STATS_ALBUM_ROOT_COUNT_METADATA_KEY,
-        "playlists": ROOT_SCAN_STATS_PLAYLIST_COUNT_METADATA_KEY,
     }
     if (
         get_metadata(connection, ROOT_SCAN_STATS_METADATA_KEY) != ROOT_SCAN_STATS_VERSION
@@ -1773,14 +1912,12 @@ def rebuild_root_scan_stats(
         INSERT INTO library_root_stats (
             root_position,
             tracks_scanned,
-            albums_scanned,
-            playlists_scanned
+            albums_scanned
         )
         SELECT
             roots.position,
             COALESCE(track_counts.tracks_scanned, 0) AS tracks_scanned,
-            COALESCE(album_counts.albums_scanned, 0) AS albums_scanned,
-            COALESCE(playlist_counts.playlists_scanned, 0) AS playlists_scanned
+            COALESCE(album_counts.albums_scanned, 0) AS albums_scanned
         FROM library_roots AS roots
         LEFT JOIN (
             SELECT root_position, COUNT(*) AS tracks_scanned
@@ -1796,13 +1933,6 @@ def rebuild_root_scan_stats(
             GROUP BY root_position
         ) AS album_counts
             ON album_counts.root_position = roots.position
-        LEFT JOIN (
-            SELECT root_position, COUNT(*) AS playlists_scanned
-            FROM library_playlists
-            WHERE root_position IS NOT NULL
-            GROUP BY root_position
-        ) AS playlist_counts
-            ON playlist_counts.root_position = roots.position
         ORDER BY roots.position
         """
     )
@@ -1835,8 +1965,7 @@ def rebuild_root_scan_stats(
         INSERT INTO library_stats (
             stats_id,
             tracks_scanned,
-            albums_scanned,
-            playlists_scanned
+            albums_scanned
         )
         SELECT
             1 AS stats_id,
@@ -1847,11 +1976,7 @@ def rebuild_root_scan_stats(
             (
                 SELECT COUNT(*)
                 FROM library_albums
-            ) AS albums_scanned,
-            (
-                SELECT COUNT(*)
-                FROM library_playlists
-            ) AS playlists_scanned
+            ) AS albums_scanned
         """
     )
     connection.execute(
@@ -1898,11 +2023,6 @@ def root_scan_stats_source_counts(connection: sqlite3.Connection) -> dict[str, i
                 "SELECT COUNT(*) AS count FROM library_album_roots"
             ).fetchone()["count"]
         ),
-        "playlists": int(
-            connection.execute(
-                "SELECT COUNT(*) AS count FROM library_playlists"
-            ).fetchone()["count"]
-        ),
     }
 
 
@@ -1934,11 +2054,6 @@ def set_root_scan_stats_metadata(
         ROOT_SCAN_STATS_ALBUM_ROOT_COUNT_METADATA_KEY,
         str(source_counts["album_roots"]),
     )
-    set_metadata(
-        connection,
-        ROOT_SCAN_STATS_PLAYLIST_COUNT_METADATA_KEY,
-        str(source_counts["playlists"]),
-    )
 
 
 def set_metadata(connection: sqlite3.Connection, key: str, value: str) -> None:
@@ -1954,8 +2069,6 @@ def get_metadata(connection: sqlite3.Connection, key: str, default: str = "") ->
 
 
 def clear_library(connection: sqlite3.Connection) -> None:
-    connection.execute("DELETE FROM library_playlist_items")
-    connection.execute("DELETE FROM library_playlists")
     connection.execute("DELETE FROM library_album_artist_stats")
     connection.execute("DELETE FROM library_stats")
     connection.execute("DELETE FROM library_root_album_artist_stats")

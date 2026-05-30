@@ -88,11 +88,14 @@ class PlaylistItemRecord:
 
 @dataclass(slots=True)
 class PlaylistRecord:
-    path: str
     name: str
+    path: str = ""
     root_position: int | None = None
     playlist_id: int | None = None
-    file_created_at: str | None = None
+    kind: str = "local"
+    source: str = "manual"
+    created_at: str | None = None
+    updated_at: str | None = None
     cover_svg: str = ""
     items: list[PlaylistItemRecord] = field(default_factory=list)
 

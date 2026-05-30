@@ -188,6 +188,9 @@ def build_playlist_index_context(runtime: PlayerRuntime, query_string: str) -> d
         empty_message="No playlists found.",
         pagination_label="Playlist pages",
         show_filter_form=False,
+        show_playlist_create_controls=True,
+        playlist_create_action_url="/api/playlists",
+        playlist_import_action_url="/api/playlists/import",
         show_pagination_controls=False,
     )
     context.update(player_page_context("playlists"))
@@ -634,7 +637,6 @@ def build_playlist_context(
         table_rows=track_table_rows(track_views),
         playlist_back_url=playlist_index_url(query),
         playlist_index_url=playlist_index_url(query),
-        playlist_path_text=playlist.path,
         playlist_track_meta=playlist_track_meta(playlist, track_views),
         playlist_cover_data_url=playlist_cover_url(playlist.cover_svg, playlist.name),
     )

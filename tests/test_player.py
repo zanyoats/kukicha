@@ -143,9 +143,6 @@ from kukicha.player_navigation import (
     playlist_index_url,
 )
 from kukicha.use_case import album_list_query_from_params
-from kukicha.player_playlists import (
-    update_playlist_file_for_membership,
-)
 from kukicha.scanner import ARTWORK_IMAGE_EXTENSIONS, SUPPORTED_EXTENSIONS
 from kukicha.player_presenters import (
     PlaylistMenuOption,
@@ -613,7 +610,15 @@ class PlayerRuntimeTest(unittest.TestCase):
                 },
             )
 
-            save_library(stream_library(), database)
+            save_library(
+                MusicLibrary(
+                    roots=[],
+                    tracks=[],
+                    supported_extensions=[".flac"],
+                    generated_at="2026-05-02T00:00:00+00:00",
+                ),
+                database,
+            )
             state = load_queue_state_database(database)
 
         self.assertEqual(state.track_ids, [-1])
@@ -1141,7 +1146,6 @@ class PlayerAlbumPlaybackTrackPayloadsTest(unittest.TestCase):
         )
         playlist = PlaylistDetails(
             playlist_id=3,
-            path="/music/streams.m3u8",
             name="Streams",
             root_position=0,
             items=(item,),
@@ -1292,7 +1296,7 @@ class PlayerPlaylistMembershipTest(unittest.TestCase):
         self.assertEqual([option.checked for option in options[1]], [False, True])
         self.assertEqual([option.checked for option in options[2]], [False, False])
 
-    def test_playlist_menu_options_exclude_url_only_playlists(self) -> None:
+    def test_playlist_menu_options_exclude_file_import_playlists(self) -> None:
         with TemporaryDirectory() as tempdir:
             root = Path(tempdir)
             database = root / "kukicha.sqlite"
@@ -1333,16 +1337,14 @@ class PlayerPlaylistMembershipTest(unittest.TestCase):
                             name="Mix",
                             items=[
                                 PlaylistItemRecord(path=str(first_track_path)),
-                                PlaylistItemRecord(
-                                    path="https://example.test/stream.mp3",
-                                    title="Stream",
-                                ),
                             ],
                         ),
                         PlaylistRecord(
                             path=str(root / "streams.m3u8"),
                             root_position=0,
                             name="Streams",
+                            kind="remote",
+                            source="file_import",
                             items=[
                                 PlaylistItemRecord(
                                     path="https://example.test/one.mp3",
@@ -1365,13 +1367,10 @@ class PlayerPlaylistMembershipTest(unittest.TestCase):
 
         self.assertEqual([option.name for option in options[1]], ["Empty", "Mix"])
 
-    def test_set_track_playlist_membership_updates_db_before_playlist_file_job(self) -> None:
+    def test_set_track_playlist_membership_updates_database_only(self) -> None:
         with TemporaryDirectory() as tempdir:
             root = Path(tempdir)
             database = root / "kukicha.sqlite"
-            playlist_path = root / "mix.m3u8"
-            original_playlist_text = "#EXTM3U\n#PLAYLIST:Mix\n"
-            playlist_path.write_text(original_playlist_text, encoding="utf-8")
             track_path = root / "Amon Tobin" / "Permutation" / "12 Nova.flac"
             save_library(
                 MusicLibrary(
@@ -1390,9 +1389,9 @@ class PlayerPlaylistMembershipTest(unittest.TestCase):
                     ],
                     playlists=[
                         PlaylistRecord(
-                            path=str(playlist_path),
-                            root_position=0,
                             name="Mix",
+                            created_at="2026-04-25T00:00:00+00:00",
+                            updated_at="2026-04-25T00:00:00+00:00",
                         )
                     ],
                     supported_extensions=[".flac"],
@@ -1402,35 +1401,48 @@ class PlayerPlaylistMembershipTest(unittest.TestCase):
             )
 
             initial_options = playlist_menu_options_by_track_id(database, [1])[1]
-            added, add_job = set_track_playlist_membership_database(database, 1, 1, True)
-            after_add_db_text = playlist_path.read_text(encoding="utf-8")
+            with patch(
+                "kukicha.use_case.commands.playlists.utc_now_iso",
+                return_value="2026-04-25T01:00:00+00:00",
+            ):
+                added = set_track_playlist_membership_database(database, 1, 1, True)
             with connect_database(database, create=False) as connection:
                 rows_after_add_db = list(connection.execute("SELECT * FROM library_playlist_items"))
-            self.assertIsNotNone(add_job)
-            update_playlist_file_for_membership(add_job)
-            after_add_job_text = playlist_path.read_text(encoding="utf-8")
-            removed, remove_job = set_track_playlist_membership_database(database, 1, 1, False)
-            after_remove_db_text = playlist_path.read_text(encoding="utf-8")
-            self.assertIsNotNone(remove_job)
-            update_playlist_file_for_membership(remove_job)
-            after_remove_job_text = playlist_path.read_text(encoding="utf-8")
+                playlist_after_add = connection.execute(
+                    """
+                    SELECT created_at, updated_at
+                    FROM library_playlists
+                    WHERE playlist_id = 1
+                    """
+                ).fetchone()
+            with patch(
+                "kukicha.use_case.commands.playlists.utc_now_iso",
+                return_value="2026-04-25T02:00:00+00:00",
+            ):
+                removed = set_track_playlist_membership_database(database, 1, 1, False)
             with connect_database(database, create=False) as connection:
                 rows = list(connection.execute("SELECT * FROM library_playlist_items"))
+                playlist_after_remove = connection.execute(
+                    """
+                    SELECT created_at, updated_at
+                    FROM library_playlists
+                    WHERE playlist_id = 1
+                    """
+                ).fetchone()
 
         self.assertFalse(initial_options[0].checked)
         self.assertTrue(added["checked"])
-        self.assertEqual(after_add_db_text, original_playlist_text)
         self.assertEqual(len(rows_after_add_db), 1)
-        self.assertIn(
-            f"#EXTINF:283,Amon Tobin - Nova (Permutation)\n{track_path}\n",
-            after_add_job_text,
-        )
+        self.assertEqual(str(rows_after_add_db[0]["path"]), str(track_path))
+        self.assertEqual(int(rows_after_add_db[0]["track_id"]), 1)
+        self.assertEqual(str(playlist_after_add["created_at"]), "2026-04-25T00:00:00+00:00")
+        self.assertEqual(str(playlist_after_add["updated_at"]), "2026-04-25T01:00:00+00:00")
         self.assertFalse(removed["checked"])
-        self.assertIn(str(track_path), after_remove_db_text)
-        self.assertEqual(after_remove_job_text, original_playlist_text)
         self.assertEqual(rows, [])
+        self.assertEqual(str(playlist_after_remove["created_at"]), "2026-04-25T00:00:00+00:00")
+        self.assertEqual(str(playlist_after_remove["updated_at"]), "2026-04-25T02:00:00+00:00")
 
-    def test_set_track_playlist_membership_rejects_url_only_playlist(self) -> None:
+    def test_set_track_playlist_membership_rejects_file_import_playlist(self) -> None:
         with TemporaryDirectory() as tempdir:
             root = Path(tempdir)
             database = root / "kukicha.sqlite"
@@ -1455,6 +1467,8 @@ class PlayerPlaylistMembershipTest(unittest.TestCase):
                             path=str(root / "streams.m3u8"),
                             root_position=0,
                             name="Streams",
+                            kind="remote",
+                            source="file_import",
                             items=[
                                 PlaylistItemRecord(
                                     path="https://example.test/one.mp3",
@@ -1469,7 +1483,7 @@ class PlayerPlaylistMembershipTest(unittest.TestCase):
                 database,
             )
 
-            with self.assertRaisesRegex(ValueError, "URL-only playlists"):
+            with self.assertRaisesRegex(ValueError, "file-import playlists are read-only"):
                 set_track_playlist_membership_database(database, 1, 1, True)
 
             with connect_database(database, create=False) as connection:
@@ -1484,120 +1498,6 @@ class PlayerPlaylistMembershipTest(unittest.TestCase):
                 )
 
         self.assertEqual(tracked_rows, [])
-
-    def test_set_track_playlist_membership_writes_utf8_m3u_for_unicode_track_path(self) -> None:
-        with TemporaryDirectory() as tempdir:
-            root = Path(tempdir)
-            database = root / "kukicha.sqlite"
-            playlist_path = root / "mix.m3u"
-            playlist_path.write_text("#EXTM3U\n#PLAYLIST:Mix\n", encoding="ascii")
-            track_path = (
-                root
-                / "Amon Tobin"
-                / "Chaos Theory_ The Soundtrack to Tom Clancy’s Splinter Cell_ Chaos Theory"
-                / "07 Ruthless (reprise).flac"
-            )
-            save_library(
-                MusicLibrary(
-                    roots=[str(root)],
-                    tracks=[
-                        TrackRecord(
-                            path=str(track_path),
-                            root_position=0,
-                            file_type="flac",
-                            artist="Amon Tobin",
-                            album_artist="Amon Tobin",
-                            album="Chaos Theory: The Soundtrack to Tom Clancy’s Splinter Cell: Chaos Theory",
-                            title="Ruthless (reprise)",
-                            duration_seconds=267.013,
-                        )
-                    ],
-                    playlists=[
-                        PlaylistRecord(
-                            path=str(playlist_path),
-                            root_position=0,
-                            name="Mix",
-                        )
-                    ],
-                    supported_extensions=[".flac"],
-                    generated_at="2026-04-25T00:00:00+00:00",
-                ),
-                database,
-            )
-
-            added, add_job = set_track_playlist_membership_database(database, 1, 1, True)
-            self.assertIsNotNone(add_job)
-            update_playlist_file_for_membership(add_job)
-            updated_bytes = playlist_path.read_bytes()
-            updated_text = updated_bytes.decode("utf-8")
-
-        self.assertTrue(added["checked"])
-        self.assertIn("#EXTINF:267,Amon Tobin - Ruthless (reprise)", updated_text)
-        self.assertIn(str(track_path), updated_text)
-        self.assertIn(b"\xe2\x80\x99", updated_bytes)
-
-    def test_set_track_playlist_membership_updates_pls_playlist_file(self) -> None:
-        with TemporaryDirectory() as tempdir:
-            root = Path(tempdir)
-            database = root / "kukicha.sqlite"
-            playlist_path = root / "mix.pls"
-            original_playlist_text = "\n".join(
-                (
-                    "[playlist]",
-                    "File1=https://example.test/live",
-                    "Title1=Live Stream",
-                    "Length1=-1",
-                    "NumberOfEntries=1",
-                    "Version=2",
-                    "",
-                )
-            )
-            playlist_path.write_text(original_playlist_text, encoding="utf-8")
-            track_path = root / "Amon Tobin" / "Permutation" / "12 Nova.flac"
-            save_library(
-                MusicLibrary(
-                    roots=[str(root)],
-                    tracks=[
-                        TrackRecord(
-                            path=str(track_path),
-                            root_position=0,
-                            file_type="flac",
-                            artist="Amon Tobin",
-                            album_artist="Amon Tobin",
-                            album="Permutation",
-                            title="Nova (Permutation)",
-                            duration_seconds=283.0,
-                        )
-                    ],
-                    playlists=[
-                        PlaylistRecord(
-                            path=str(playlist_path),
-                            root_position=0,
-                            name="Mix",
-                        )
-                    ],
-                    supported_extensions=[".flac"],
-                    generated_at="2026-04-25T00:00:00+00:00",
-                ),
-                database,
-            )
-
-            added, add_job = set_track_playlist_membership_database(database, 1, 1, True)
-            self.assertIsNotNone(add_job)
-            update_playlist_file_for_membership(add_job)
-            after_add_job_text = playlist_path.read_text(encoding="utf-8")
-            removed, remove_job = set_track_playlist_membership_database(database, 1, 1, False)
-            self.assertIsNotNone(remove_job)
-            update_playlist_file_for_membership(remove_job)
-            after_remove_job_text = playlist_path.read_text(encoding="utf-8")
-
-        self.assertTrue(added["checked"])
-        self.assertIn(f"File2={track_path}", after_add_job_text)
-        self.assertIn("Title2=Amon Tobin - Nova (Permutation)", after_add_job_text)
-        self.assertIn("Length2=283", after_add_job_text)
-        self.assertIn("NumberOfEntries=2", after_add_job_text)
-        self.assertFalse(removed["checked"])
-        self.assertEqual(after_remove_job_text, original_playlist_text)
 
     def test_track_table_uses_playlist_cover_only_without_real_thumbnail(self) -> None:
         environment = build_template_environment()
@@ -1705,13 +1605,11 @@ class PlayerPlaylistMembershipTest(unittest.TestCase):
                 PlaylistMenuOption(
                     playlist_id=3,
                     name="Morning",
-                    path="/music/morning.m3u8",
                     checked=True,
                 ),
                 PlaylistMenuOption(
                     playlist_id=4,
                     name="Night",
-                    path="/music/night.m3u8",
                     checked=False,
                 ),
             ),
@@ -1723,11 +1621,12 @@ class PlayerPlaylistMembershipTest(unittest.TestCase):
             queue_state=PlayerQueueState(track_ids=[]),
         )
 
-        self.assertIn('title="/music/morning.m3u8"', html)
         self.assertIn('data-track-id="7"', html)
         self.assertIn('data-playlist-id="3" checked', html)
         self.assertIn('data-playlist-id="4" ', html)
         self.assertIn("<span>Morning</span>", html)
+        self.assertIn('data-playlist-create-for-track data-track-id="7"', html)
+        self.assertIn('placeholder="New playlist"', html)
         self.assertNotIn("Loading playlists...", html)
 
     def test_track_table_renders_empty_preloaded_playlist_options(self) -> None:
@@ -1746,6 +1645,7 @@ class PlayerPlaylistMembershipTest(unittest.TestCase):
         )
 
         self.assertIn("No playlists found.", html)
+        self.assertIn('data-playlist-create-for-track data-track-id="7"', html)
         self.assertNotIn("Loading playlists...", html)
 
     def test_playlist_page_hides_playlist_bookmark_control(self) -> None:
@@ -1758,7 +1658,6 @@ class PlayerPlaylistMembershipTest(unittest.TestCase):
                 PlaylistMenuOption(
                     playlist_id=3,
                     name="Morning",
-                    path="/music/morning.m3u8",
                     checked=True,
                 ),
             ),
@@ -1767,7 +1666,6 @@ class PlayerPlaylistMembershipTest(unittest.TestCase):
         html = build_template_environment().get_template("player/playlist.html").render(
             playlist=PlaylistDetails(
                 playlist_id=3,
-                path="/music/morning.m3u8",
                 name="Morning",
                 root_position=0,
                 items=(PlaylistItem(playlist_item_id=1, playlist_id=3, position=0, path=view.path),),
@@ -1775,7 +1673,6 @@ class PlayerPlaylistMembershipTest(unittest.TestCase):
             playlist_back_url="/",
             playlist_index_url="/?is_playlist=1",
             playlist_cover_data_url="data:image/svg+xml,cover",
-            playlist_path_text="/music/morning.m3u8",
             table_rows=[{"track": view, "group_label": ""}],
             playlist_track_meta=(),
             queue_state=PlayerQueueState(track_ids=[]),
@@ -5413,6 +5310,7 @@ class PlayerWebAdapterTest(unittest.TestCase):
                         PlaylistRecord(
                             path=str(playlist_path),
                             root_position=0,
+                            playlist_id=1,
                             name="Mix",
                             items=[PlaylistItemRecord(path=str(rescanned_path))],
                         )
@@ -5438,10 +5336,10 @@ class PlayerWebAdapterTest(unittest.TestCase):
                 ]
 
         self.assertEqual(int(playlist_stats["play_count"]), 2)
-        self.assertEqual(playlist_stats["path"], str(playlist_path))
+        self.assertEqual(playlist_stats["path"], "")
         self.assertEqual(int(track_stats["play_count"]), 1)
         self.assertEqual(genre_stats, [("Downtempo", 1), ("Jazz", 1)])
-        self.assertEqual(dashboard.recent_playlists[0].playlist.path, str(playlist_path))
+        self.assertEqual(dashboard.recent_playlists[0].playlist.playlist_id, 1)
         self.assertEqual(dashboard.recent_albums[0].album.album, "Album")
         self.assertEqual(dashboard.recent_albums[0].play_count, 1)
         self.assertEqual(dashboard.recent_tracks[0].path, str(rescanned_path))
@@ -5528,7 +5426,7 @@ class PlayerWebAdapterTest(unittest.TestCase):
         self.assertEqual(event_count, 1)
         self.assertEqual(int(playlist_stats["play_count"]), 1)
         self.assertEqual(playlist_stats["last_played_at"], played_at.isoformat())
-        self.assertEqual(playlist_stats["path"], str(playlist_path))
+        self.assertEqual(playlist_stats["path"], "")
         self.assertEqual(genre_stats["genre"], "Ambient")
         self.assertEqual(int(genre_stats["play_count"]), 1)
         self.assertEqual(genre_stats["last_played_at"], played_at.isoformat())
@@ -6246,7 +6144,7 @@ class PlayerWebAdapterTest(unittest.TestCase):
                             path="/music/playlists/road.m3u8",
                             root_position=0,
                             name="Road Mix",
-                            file_created_at="2026-04-29T12:00:00+00:00",
+                            created_at="2026-04-29T12:00:00+00:00",
                             items=[
                                 PlaylistItemRecord(
                                     path="https://example.test/stream",
@@ -6258,7 +6156,7 @@ class PlayerWebAdapterTest(unittest.TestCase):
                             path="/music/playlists/alpha.m3u8",
                             root_position=0,
                             name="Alpha Mix",
-                            file_created_at="2026-04-28T12:00:00+00:00",
+                            created_at="2026-04-28T12:00:00+00:00",
                         )
                     ],
                     supported_extensions=[".flac"],
@@ -6666,7 +6564,7 @@ class PlayerWebAdapterTest(unittest.TestCase):
             self.assertIn(b"/music/a", roots_response.data)
             self.assertIn(b"Tracks scanned</dt>\n                <dd>3</dd>", roots_response.data)
             self.assertIn(b"Albums in root</dt>\n                <dd>2</dd>", roots_response.data)
-            self.assertIn(b"Playlists scanned</dt>\n                <dd>1</dd>", roots_response.data)
+            self.assertNotIn(b"Playlists scanned", roots_response.data)
             self.assertNotIn(b"<h2>Artists Split Rules</h2>", roots_response.data)
             self.assertNotIn(b"<h2>Cache</h2>", roots_response.data)
 
@@ -7524,6 +7422,61 @@ class PlayerWebAdapterTest(unittest.TestCase):
                 34,
                 {"checked": True},
             )
+
+    def test_create_playlist_route_seeds_playlist_with_track(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            database = temp_path / "kukicha.sqlite"
+            track_path = temp_path / "music" / "Artist" / "Album" / "01.flac"
+            save_library(
+                MusicLibrary(
+                    roots=[str(temp_path / "music")],
+                    tracks=[
+                        TrackRecord(
+                            path=str(track_path),
+                            root_position=0,
+                            file_type="flac",
+                            artist="Artist",
+                            album_artist="Artist",
+                            album="Album",
+                            title="Track",
+                        )
+                    ],
+                    supported_extensions=[".flac"],
+                    generated_at="2026-05-30T00:00:00+00:00",
+                ),
+                database,
+            )
+            app = create_player_app(self.make_options(temp_path))
+
+            response = app.test_client().post(
+                "/api/playlists",
+                json={"name": "Track Picks", "track_ids": [1]},
+            )
+
+            with connect_database(database, create=False) as connection:
+                playlist = connection.execute(
+                    """
+                    SELECT name, source, kind
+                    FROM library_playlists
+                    WHERE playlist_id = 1
+                    """
+                ).fetchone()
+                item = connection.execute(
+                    """
+                    SELECT track_id, path
+                    FROM library_playlist_items
+                    WHERE playlist_id = 1
+                    """
+                ).fetchone()
+
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.get_json()["playlist_id"], 1)
+        self.assertEqual(str(playlist["name"]), "Track Picks")
+        self.assertEqual(str(playlist["source"]), "manual")
+        self.assertEqual(str(playlist["kind"]), "local")
+        self.assertEqual(int(item["track_id"]), 1)
+        self.assertEqual(str(item["path"]), str(track_path))
 
     def test_static_file_and_favicon_are_served(self) -> None:
         with TemporaryDirectory() as tempdir:
@@ -8452,7 +8405,7 @@ class PlayerRootMutationTest(unittest.TestCase):
             finally:
                 connection.close()
 
-    def test_rescan_library_reparses_same_path_playlist_contents(self) -> None:
+    def test_rescan_library_preserves_existing_db_playlist_contents(self) -> None:
         with TemporaryDirectory() as tempdir:
             temp_path = Path(tempdir)
             database = temp_path / "kukicha.sqlite"
@@ -8504,16 +8457,14 @@ class PlayerRootMutationTest(unittest.TestCase):
                     """
                     SELECT items.path, items.track_id, items.title, items.duration_seconds
                     FROM library_playlist_items AS items
-                    JOIN library_playlists AS playlists
-                        ON playlists.playlist_id = items.playlist_id
-                    WHERE playlists.path = ?
+                    WHERE items.playlist_id = ?
                     """,
-                    (str(playlist_path),),
+                    (1,),
                 ).fetchone()
-                self.assertEqual(str(row["path"]), "https://example.test/stream.mp3")
-                self.assertIsNone(row["track_id"])
-                self.assertEqual(str(row["title"]), "Stream Title")
-                self.assertEqual(float(row["duration_seconds"]), 123.0)
+                self.assertEqual(str(row["path"]), str(track_path))
+                self.assertEqual(int(row["track_id"]), 1)
+                self.assertIsNone(row["title"])
+                self.assertIsNone(row["duration_seconds"])
             finally:
                 connection.close()
 
@@ -8622,10 +8573,18 @@ class PlayerRootMutationTest(unittest.TestCase):
                 connection.execute(
                     """
                     INSERT INTO library_playlists (
-                        root_position, path, name, cover_svg
-                    ) VALUES (?, ?, ?, ?)
+                        playlist_id, name, kind, source, cover_svg, created_at, updated_at
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
                     """,
-                    (2, "/music/b/root-b.m3u", "Root B Mix", ""),
+                    (
+                        1,
+                        "Root B Mix",
+                        "local",
+                        "manual",
+                        "",
+                        "2026-04-20T12:00:00+00:00",
+                        "2026-04-20T12:00:00+00:00",
+                    ),
                 )
                 connection.commit()
             finally:
@@ -8657,13 +8616,6 @@ class PlayerRootMutationTest(unittest.TestCase):
                         genres=["Electronic"],
                     ),
                 ],
-                playlists=[
-                    PlaylistRecord(
-                        path="/music/b/root-b.m3u",
-                        name="Root B Mix",
-                        root_position=1,
-                    )
-                ],
                 supported_extensions=[".flac"],
                 generated_at="2026-04-21T12:00:00+00:00",
             )
@@ -8686,7 +8638,6 @@ class PlayerRootMutationTest(unittest.TestCase):
             self.assertEqual(result.roots_scanned, 2)
             self.assertEqual(result.tracks_scanned, 2)
             self.assertEqual(result.albums_scanned, 2)
-            self.assertEqual(result.playlists_scanned, 1)
 
             connection = connect_database(database)
             try:
@@ -8736,10 +8687,21 @@ class PlayerRootMutationTest(unittest.TestCase):
                     int(connection.execute("SELECT COUNT(*) AS count FROM library_album_search").fetchone()["count"]),
                     2,
                 )
+                playlist = connection.execute(
+                    """
+                    SELECT name, source, created_at
+                    FROM library_playlists
+                    WHERE playlist_id = 1
+                    """
+                ).fetchone()
+                self.assertIsNotNone(playlist)
+                self.assertEqual(str(playlist["name"]), "Root B Mix")
+                self.assertEqual(str(playlist["source"]), "manual")
+                self.assertEqual(str(playlist["created_at"]), "2026-04-20T12:00:00+00:00")
                 stats = list(
                     connection.execute(
                         """
-                        SELECT root_position, tracks_scanned, albums_scanned, playlists_scanned
+                        SELECT root_position, tracks_scanned, albums_scanned
                         FROM library_root_stats
                         ORDER BY root_position
                         """
@@ -8751,18 +8713,17 @@ class PlayerRootMutationTest(unittest.TestCase):
                             int(row["root_position"]),
                             int(row["tracks_scanned"]),
                             int(row["albums_scanned"]),
-                            int(row["playlists_scanned"]),
                         )
                         for row in stats
                     ],
                     [
-                        (0, 1, 1, 0),
-                        (2, 1, 1, 1),
+                        (0, 1, 1),
+                        (2, 1, 1),
                     ],
                 )
                 total_stats = connection.execute(
                     """
-                    SELECT tracks_scanned, albums_scanned, playlists_scanned
+                    SELECT tracks_scanned, albums_scanned
                     FROM library_stats
                     WHERE stats_id = 1
                     """
@@ -8772,9 +8733,8 @@ class PlayerRootMutationTest(unittest.TestCase):
                     (
                         int(total_stats["tracks_scanned"]),
                         int(total_stats["albums_scanned"]),
-                        int(total_stats["playlists_scanned"]),
                     ),
-                    (2, 2, 1),
+                    (2, 2),
                 )
             finally:
                 connection.close()
@@ -8882,7 +8842,7 @@ class PlayerRootMutationTest(unittest.TestCase):
                 stats = list(
                     connection.execute(
                         """
-                        SELECT root_position, tracks_scanned, albums_scanned, playlists_scanned
+                        SELECT root_position, tracks_scanned, albums_scanned
                         FROM library_root_stats
                         ORDER BY root_position
                         """
@@ -8894,15 +8854,14 @@ class PlayerRootMutationTest(unittest.TestCase):
                             int(row["root_position"]),
                             int(row["tracks_scanned"]),
                             int(row["albums_scanned"]),
-                            int(row["playlists_scanned"]),
                         )
                         for row in stats
                     ],
-                    [(0, 1, 1, 0)],
+                    [(0, 1, 1)],
                 )
                 total_stats = connection.execute(
                     """
-                    SELECT tracks_scanned, albums_scanned, playlists_scanned
+                    SELECT tracks_scanned, albums_scanned
                     FROM library_stats
                     WHERE stats_id = 1
                     """
@@ -8912,9 +8871,8 @@ class PlayerRootMutationTest(unittest.TestCase):
                     (
                         int(total_stats["tracks_scanned"]),
                         int(total_stats["albums_scanned"]),
-                        int(total_stats["playlists_scanned"]),
                     ),
-                    (1, 1, 0),
+                    (1, 1),
                 )
             finally:
                 connection.close()
@@ -8938,10 +8896,9 @@ class PlayerJobLogTest(unittest.TestCase):
                 "/music/a",
                 tracks_scanned=12,
                 albums_scanned=3,
-                playlists_scanned=2,
                 duration_seconds=4.125,
             ),
-            "add and scan completed for /music/a (tracks=12, albums=3, playlists=2, duration=4.12s)",
+            "add and scan completed for /music/a (tracks=12, albums=3, duration=4.12s)",
         )
 
     def test_library_scan_progress_text_formats_progress_log_message(self) -> None:
@@ -8955,7 +8912,6 @@ class PlayerJobLogTest(unittest.TestCase):
             library_job_detail_lines(
                 tracks_scanned=12,
                 albums_scanned=3,
-                playlists_scanned=2,
                 genre_resolution=GenreResolutionStats(
                     exact_genre_matches=4,
                     exact_style_matches=5,
@@ -8987,7 +8943,6 @@ class PlayerJobLogTest(unittest.TestCase):
             (
                 "tracks in library: 12",
                 "albums in library: 3",
-                "playlists in library: 2",
                 "exact genre matches: 4",
                 "exact style matches: 5",
                 "fuzzy genre matches: 6",
@@ -9019,7 +8974,6 @@ class PlayerJobLogTest(unittest.TestCase):
             library_job_detail_lines(
                 tracks_scanned=5_475,
                 albums_scanned=407,
-                playlists_scanned=4,
                 audio_files_checked=5_475,
                 audio_files_read=0,
                 audio_files_reused=5_475,
@@ -9031,7 +8985,6 @@ class PlayerJobLogTest(unittest.TestCase):
             (
                 "tracks in library: 5475",
                 "albums in library: 407",
-                "playlists in library: 4",
                 "audio files checked: 5475",
                 "audio files read: 0",
                 "audio files reused: 5475",
@@ -9097,7 +9050,7 @@ class PlayerJobLogTest(unittest.TestCase):
                 ],
             )
 
-    def test_scan_job_payload_formats_playlist_count(self) -> None:
+    def test_scan_job_payload_formats_scan_counts(self) -> None:
         payload = job_payload(
             PlayerJobRecord(
                 job_id=1,
@@ -9114,7 +9067,6 @@ class PlayerJobLogTest(unittest.TestCase):
                     "roots_scanned": 2,
                     "tracks_scanned": 1_200,
                     "albums_scanned": 12_300,
-                    "playlists_scanned": 123_000_000,
                     "duration_seconds": 4.125,
                 },
             )
@@ -9128,7 +9080,6 @@ class PlayerJobLogTest(unittest.TestCase):
                 {"label": "Roots", "value": "2"},
                 {"label": "Tracks", "value": "1.2k"},
                 {"label": "Albums", "value": "12.3k"},
-                {"label": "Playlists", "value": "123M"},
                 {"label": "Duration", "value": "4.12 seconds"},
             ],
         )

@@ -147,8 +147,9 @@ class AlbumSummary:
     art_track_id: int | None = None
     is_playlist: bool = False
     playlist_id: int | None = None
-    path: str = ""
     cover_svg: str = ""
+    playlist_kind: str = "local"
+    playlist_source: str = "manual"
     sort_genre: str | None = None
 
 
@@ -211,10 +212,13 @@ class PlaylistItem:
 @dataclass(frozen=True, slots=True)
 class PlaylistDetails:
     playlist_id: int
-    path: str
     name: str
-    root_position: int | None
+    root_position: int | None = None
     cover_svg: str = ""
+    kind: str = "local"
+    source: str = "manual"
+    created_at: str = ""
+    updated_at: str = ""
     items: tuple[PlaylistItem, ...] = ()
 
     @property
@@ -297,7 +301,6 @@ class LibraryAlbumArtistStats:
 class LibraryStats:
     tracks_scanned: int
     albums_scanned: int
-    playlists_scanned: int
     album_artists: tuple[LibraryAlbumArtistStats, ...] = ()
 
 
@@ -306,7 +309,6 @@ class LibraryRootStats:
     root_position: int
     tracks_scanned: int
     albums_scanned: int
-    playlists_scanned: int
     album_artists: tuple[LibraryRootAlbumArtistStats, ...] = ()
 
 

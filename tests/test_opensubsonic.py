@@ -5,6 +5,7 @@ from datetime import datetime
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
+from unittest.mock import patch
 
 from kukicha._compat import UTC
 from kukicha.models import MusicLibrary, TrackArtwork, TrackRecord
@@ -724,6 +725,74 @@ class OpenSubsonicWebAdapterTest(unittest.TestCase):
         self.assertEqual(response.content_type, "text/xml; charset=utf-8")
         self.assertIn(b"<song ", response.data)
         self.assertIn(b'size="12345"', response.data)
+
+    def test_create_playlist_creates_and_replaces_manual_playlist(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            first, second = self.save_sample_library(temp_path)
+            app = create_player_app(self.make_options(temp_path))
+            client = app.test_client()
+
+            create_query = list(self.auth_params().items()) + [
+                ("name", "Road Mix"),
+                ("songId", str(first.track_id)),
+                ("songId", str(second.track_id)),
+            ]
+            with patch(
+                "kukicha.use_case.commands.playlists.utc_now_iso",
+                return_value="2026-05-08T12:00:00+00:00",
+            ):
+                create_response = client.get("/rest/createPlaylist", query_string=create_query)
+            replace_query = list(self.auth_params().items()) + [
+                ("playlistId", "1"),
+                ("name", "Road Mix Updated"),
+                ("songId", str(second.track_id)),
+            ]
+            with patch(
+                "kukicha.use_case.commands.playlists.utc_now_iso",
+                return_value="2026-05-08T13:00:00+00:00",
+            ):
+                replace_response = client.get("/rest/createPlaylist", query_string=replace_query)
+            playlists_response = client.get(
+                "/rest/getPlaylists",
+                query_string=self.auth_params(),
+            )
+            playlist_response = client.get(
+                "/rest/getPlaylist",
+                query_string={**self.auth_params(), "id": "1"},
+            )
+            cover_response = client.get(
+                "/rest/getCoverArt",
+                query_string={**self.auth_params(), "id": "playlist:1"},
+            )
+            with connect_database(temp_path / "kukicha.sqlite", create=False) as connection:
+                playlist_row = connection.execute(
+                    """
+                    SELECT name, source, kind, created_at, updated_at, cover_svg
+                    FROM library_playlists
+                    WHERE playlist_id = 1
+                    """
+                ).fetchone()
+
+        created = subsonic_payload(create_response)["playlist"]
+        replaced = subsonic_payload(replace_response)["playlist"]
+        playlists = subsonic_payload(playlists_response)["playlists"]["playlist"]
+        playlist = subsonic_payload(playlist_response)["playlist"]
+
+        self.assertEqual(created["id"], "1")
+        self.assertEqual(created["name"], "Road Mix")
+        self.assertEqual(replaced["id"], "1")
+        self.assertEqual(replaced["name"], "Road Mix Updated")
+        self.assertEqual(replaced["songCount"], 1)
+        self.assertEqual(playlists[0]["name"], "Road Mix Updated")
+        self.assertEqual(playlist["entry"][0]["id"], str(second.track_id))
+        self.assertEqual(str(playlist_row["source"]), "manual")
+        self.assertEqual(str(playlist_row["kind"]), "local")
+        self.assertEqual(str(playlist_row["created_at"]), "2026-05-08T12:00:00+00:00")
+        self.assertEqual(str(playlist_row["updated_at"]), "2026-05-08T13:00:00+00:00")
+        self.assertIn("Road Mix Updated", str(playlist_row["cover_svg"]))
+        self.assertEqual(cover_response.content_type, "image/svg+xml; charset=utf-8")
+        self.assertIn(b"Road Mix Updated", cover_response.data)
 
     def test_get_genres_returns_album_genre_and_style_counts(self) -> None:
         with TemporaryDirectory() as tempdir:

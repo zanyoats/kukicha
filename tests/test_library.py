@@ -1018,14 +1018,13 @@ class LibraryAlbumPathQueryTest(unittest.TestCase):
                     stat.root_position,
                     stat.tracks_scanned,
                     stat.albums_scanned,
-                    stat.playlists_scanned,
                 )
                 for stat in stats
             ],
             [
-                (0, 3, 2, 1),
-                (1, 1, 1, 1),
-                (2, 0, 0, 0),
+                (0, 3, 2),
+                (1, 1, 1),
+                (2, 0, 0),
             ],
         )
         self.assertEqual(
@@ -1056,7 +1055,6 @@ class LibraryAlbumPathQueryTest(unittest.TestCase):
         self.assertEqual(stats[2].album_artists, ())
         self.assertEqual(total_stats.tracks_scanned, 4)
         self.assertEqual(total_stats.albums_scanned, 3)
-        self.assertEqual(total_stats.playlists_scanned, 2)
         self.assertEqual(
             [
                 (
@@ -1221,18 +1219,16 @@ class LibraryAlbumPathQueryTest(unittest.TestCase):
                     stat.root_position,
                     stat.tracks_scanned,
                     stat.albums_scanned,
-                    stat.playlists_scanned,
                 )
                 for stat in root_stats
             ],
             [
-                (0, 1, 1, 0),
-                (1, 1, 1, 0),
+                (0, 1, 1),
+                (1, 1, 1),
             ],
         )
         self.assertEqual(total_stats.tracks_scanned, 2)
         self.assertEqual(total_stats.albums_scanned, 1)
-        self.assertEqual(total_stats.playlists_scanned, 0)
         self.assertEqual(
             [
                 (
@@ -3115,7 +3111,7 @@ class LibraryMusicBrainzPersistenceTest(unittest.TestCase):
             finally:
                 connection.close()
 
-    def test_connect_database_migrates_file_created_date_columns_and_backfills_from_filesystem(self) -> None:
+    def test_connect_database_migrates_file_created_date_columns_and_playlist_schema(self) -> None:
         with TemporaryDirectory() as tempdir:
             database = Path(tempdir) / "kukicha.sqlite"
             connection = sqlite3.connect(database)
@@ -3192,14 +3188,14 @@ class LibraryMusicBrainzPersistenceTest(unittest.TestCase):
             finally:
                 connection.close()
 
-            created_dates = {
-                "/music/Artist/Album/01.flac": "2026-04-20T12:00:00+00:00",
-                "/music/Mix.m3u8": "2026-04-21T12:00:00+00:00",
-            }
-
             with patch(
                 "kukicha.use_case.database.file_created_at",
-                side_effect=lambda path: created_dates.get(str(path)),
+                side_effect=lambda path: {
+                    "/music/Artist/Album/01.flac": "2026-04-20T12:00:00+00:00",
+                }.get(str(path)),
+            ), patch(
+                "kukicha.use_case.database.utc_now_iso",
+                return_value="2026-04-21T12:00:00+00:00",
             ):
                 connection = connect_database(database, create=False)
             try:
@@ -3221,19 +3217,31 @@ class LibraryMusicBrainzPersistenceTest(unittest.TestCase):
                 album_date = connection.execute(
                     "SELECT file_created_at FROM library_albums"
                 ).fetchone()["file_created_at"]
-                playlist_date = connection.execute(
-                    "SELECT file_created_at FROM library_playlists"
-                ).fetchone()["file_created_at"]
+                playlist = connection.execute(
+                    """
+                    SELECT name, kind, source, created_at, updated_at
+                    FROM library_playlists
+                    WHERE playlist_id = 1
+                    """
+                ).fetchone()
             finally:
                 connection.close()
 
         self.assertIn("file_created_at", track_columns)
         self.assertIn("file_created_at", album_columns)
         self.assertNotIn("artist", album_columns)
-        self.assertIn("file_created_at", playlist_columns)
+        self.assertNotIn("path", playlist_columns)
+        self.assertNotIn("file_created_at", playlist_columns)
+        self.assertIn("kind", playlist_columns)
+        self.assertIn("source", playlist_columns)
+        self.assertIn("created_at", playlist_columns)
         self.assertEqual(str(track_date), "2026-04-20T12:00:00+00:00")
         self.assertEqual(str(album_date), "2026-04-20T12:00:00+00:00")
-        self.assertEqual(str(playlist_date), "2026-04-21T12:00:00+00:00")
+        self.assertEqual(str(playlist["name"]), "Mix")
+        self.assertEqual(str(playlist["kind"]), "local")
+        self.assertEqual(str(playlist["source"]), "file_import")
+        self.assertEqual(str(playlist["created_at"]), "2026-04-21T12:00:00+00:00")
+        self.assertEqual(str(playlist["updated_at"]), "2026-04-21T12:00:00+00:00")
 
 
 class LibraryPlaylistPersistenceTest(unittest.TestCase):
@@ -3267,7 +3275,7 @@ class LibraryPlaylistPersistenceTest(unittest.TestCase):
                         PlaylistRecord(
                             path="/music/list.m3u8",
                             name="Mixed",
-                            file_created_at="2026-04-25T12:00:00+00:00",
+                            created_at="2026-04-25T12:00:00+00:00",
                         )
                     ],
                     supported_extensions=[".flac"],
@@ -3297,7 +3305,7 @@ class LibraryPlaylistPersistenceTest(unittest.TestCase):
                 )
                 playlist_row = connection.execute(
                     """
-                    SELECT file_created_at
+                    SELECT created_at, updated_at
                     FROM library_playlists
                     WHERE name = ?
                     """,
@@ -3319,10 +3327,8 @@ class LibraryPlaylistPersistenceTest(unittest.TestCase):
             ],
         )
         self.assertIsNotNone(playlist_row)
-        self.assertEqual(
-            str(playlist_row["file_created_at"]),
-            "2026-04-25T12:00:00+00:00",
-        )
+        self.assertEqual(str(playlist_row["created_at"]), "2026-04-25T12:00:00+00:00")
+        self.assertEqual(str(playlist_row["updated_at"]), "2026-04-25T12:00:00+00:00")
 
     def test_list_album_page_sorts_by_artist_by_default_and_can_sort_by_recently_added(self) -> None:
         with TemporaryDirectory() as tempdir:
@@ -3375,7 +3381,7 @@ class LibraryPlaylistPersistenceTest(unittest.TestCase):
                         PlaylistRecord(
                             path="/music/recent.m3u8",
                             name="Recent Mix",
-                            file_created_at="2026-04-25T12:00:00+00:00",
+                            created_at="2026-04-25T12:00:00+00:00",
                         )
                     ],
                     supported_extensions=[".flac"],
@@ -3852,7 +3858,7 @@ class LibraryPlaylistPersistenceTest(unittest.TestCase):
                         PlaylistRecord(
                             path="/music/mix.m3u8",
                             name="Mix",
-                            file_created_at="2026-04-25T12:00:00+00:00",
+                            created_at="2026-04-25T12:00:00+00:00",
                         )
                     ],
                     supported_extensions=[".flac"],
@@ -3971,7 +3977,6 @@ class LibraryPlaylistPersistenceTest(unittest.TestCase):
             playlist = LibraryQueries(database).get_playlist(1)
 
         self.assertEqual(playlist.name, "Mixed")
-        self.assertEqual(playlist.root_position, 0)
         self.assertIn("Mixed", playlist.cover_svg)
         self.assertEqual(len(playlist.items), 2)
         self.assertEqual(playlist.items[0].path, tracked_path)

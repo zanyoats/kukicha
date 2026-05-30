@@ -11,7 +11,7 @@ import re
 from typing import Any
 from xml.sax.saxutils import escape, quoteattr
 
-from flask import Flask, Response, current_app, request, stream_with_context
+from flask import Flask, Response, current_app, redirect, request, stream_with_context
 from werkzeug.datastructures import MultiDict
 
 from ._compat import UTC
@@ -23,6 +23,8 @@ from .player_errors import PlayerConfigError, PlayerNotFoundError
 from .media_resources import AudioResource, local_audio_resource
 from .player_media import audio_mime_type, audio_resource_head, iter_audio_resource_bytes
 from .player_runtime import PlayerRuntime
+from .playlist_art import playlist_cover_svg
+from .scanner import is_url_resource
 from .use_case import (
     ALBUM_LIST_SORT_ALBUMS,
     ALBUM_LIST_SORT_ARTIST,
@@ -39,7 +41,11 @@ from .use_case import (
     LibraryArtistSummary,
     LibraryGenre,
     LibraryQueries,
+    PlaylistItemNotFoundError,
+    PlaylistNotFoundError,
     TrackNotFoundError,
+    create_or_replace_manual_playlist,
+    playlist_audio_path,
     record_opensubsonic_client,
     record_playback,
     track_artwork,
@@ -136,11 +142,15 @@ def mount_open_subsonic(
         except (
             AlbumNotFoundError,
             ArtistNotFoundError,
+            PlaylistItemNotFoundError,
+            PlaylistNotFoundError,
             PlayerNotFoundError,
             TrackNotFoundError,
             FileNotFoundError,
         ):
             return subsonic_error_response(ERROR_NOT_FOUND, "The requested data was not found.")
+        except ValueError as error:
+            return subsonic_error_response(ERROR_GENERIC, str(error))
         if isinstance(result, Response):
             return result
         return subsonic_success_response(result)
@@ -178,6 +188,9 @@ def open_subsonic_handlers() -> dict[str, Any]:
         "getalbumlist2": handle_get_album_list2,
         "getalbum": handle_get_album,
         "getsong": handle_get_song,
+        "getplaylists": handle_get_playlists,
+        "getplaylist": handle_get_playlist,
+        "createplaylist": handle_create_playlist,
         "stream": handle_stream,
         "download": handle_download,
         "getcoverart": handle_get_cover_art,
@@ -403,12 +416,49 @@ def handle_get_album(params: Mapping[str, list[str]]) -> dict[str, object]:
 
 def handle_get_song(params: Mapping[str, list[str]]) -> dict[str, object]:
     track_id = int_required_param(params, "id")
+    if track_id < 0:
+        item = LibraryQueries(open_subsonic_context().database).get_playlist_item(-track_id)
+        return {"song": playlist_item_payload(item)}
     song = LibraryQueries(open_subsonic_context().database).get_track(track_id)
     return {"song": song_payload(song)}
 
 
+def handle_get_playlists(params: Mapping[str, list[str]]) -> dict[str, object]:
+    playlists = playlist_summaries(open_subsonic_context().database)
+    return {"playlists": {"playlist": [playlist_summary_payload(item) for item in playlists]}}
+
+
+def handle_get_playlist(params: Mapping[str, list[str]]) -> dict[str, object]:
+    playlist_id = int_required_param(params, "id")
+    playlist = LibraryQueries(open_subsonic_context().database).get_playlist(playlist_id)
+    payload = playlist_summary_payload(playlist)
+    payload["entry"] = [playlist_item_payload(item) for item in playlist.items]
+    return {"playlist": payload}
+
+
+def handle_create_playlist(params: Mapping[str, list[str]]) -> dict[str, object]:
+    playlist_id = optional_int_param(params, "playlistId")
+    name = first_param(params, "name")
+    song_ids = tuple(int_repeated_param(params, "songId"))
+    result = create_or_replace_manual_playlist(
+        open_subsonic_context().database,
+        playlist_id=playlist_id,
+        name=name,
+        track_ids=song_ids,
+    )
+    playlist = LibraryQueries(open_subsonic_context().database).get_playlist(result.playlist_id)
+    return {"playlist": playlist_summary_payload(playlist)}
+
+
 def handle_stream(params: Mapping[str, list[str]]) -> Response:
     track_id = int_required_param(params, "id")
+    if track_id < 0:
+        try:
+            path = playlist_audio_path(open_subsonic_context().runtime, -track_id)
+        except FileNotFoundError:
+            item = LibraryQueries(open_subsonic_context().database).get_playlist_item(-track_id)
+            return redirect(item.path, code=302)
+        return audio_file_response(path)
     try:
         resource = track_audio_resource(open_subsonic_context().runtime, track_id)
     except TrackNotFoundError:
@@ -419,6 +469,17 @@ def handle_stream(params: Mapping[str, list[str]]) -> Response:
 
 def handle_download(params: Mapping[str, list[str]]) -> Response:
     track_id = int_required_param(params, "id")
+    if track_id < 0:
+        try:
+            path = playlist_audio_path(open_subsonic_context().runtime, -track_id)
+        except FileNotFoundError:
+            item = LibraryQueries(open_subsonic_context().database).get_playlist_item(-track_id)
+            return redirect(item.path, code=302)
+        response = audio_file_response(path)
+        response.headers["Content-Disposition"] = (
+            f'attachment; filename="{content_disposition_filename(path.name)}"'
+        )
+        return response
     try:
         resource = track_audio_resource(open_subsonic_context().runtime, track_id)
     except TrackNotFoundError:
@@ -437,6 +498,13 @@ def handle_download(params: Mapping[str, list[str]]) -> Response:
 
 def handle_get_cover_art(params: Mapping[str, list[str]]) -> Response:
     cover_id = require_param(params, "id")
+    if cover_id.startswith("playlist:"):
+        playlist_id = cover_id[len("playlist:") :]
+        playlist = LibraryQueries(open_subsonic_context().database).get_playlist(int(playlist_id))
+        svg = playlist.cover_svg or playlist_cover_svg(playlist.name)
+        response = Response(svg.encode("utf-8"), content_type="image/svg+xml; charset=utf-8")
+        response.headers["Cache-Control"] = ARTWORK_CACHE_CONTROL
+        return response
     context = open_subsonic_context()
     track_ids = cover_art_track_ids(context.database, cover_id)
     for track_id in track_ids:
@@ -564,6 +632,20 @@ def optional_int_param(params: Mapping[str, list[str]], key: str) -> int | None:
             ERROR_REQUIRED_PARAMETER_MISSING,
             f"Required parameter is invalid: {key}",
         ) from error
+
+
+def int_repeated_param(params: Mapping[str, list[str]], key: str) -> list[int]:
+    values = params.get(key) or []
+    parsed: list[int] = []
+    for value in values:
+        try:
+            parsed.append(int(value))
+        except ValueError as error:
+            raise OpenSubsonicApiError(
+                ERROR_REQUIRED_PARAMETER_MISSING,
+                f"Required parameter is invalid: {key}",
+            ) from error
+    return parsed
 
 
 def bool_param(
@@ -868,6 +950,67 @@ def album_payload(album: Any, *, include_songs: bool = False) -> dict[str, objec
     return payload
 
 
+def playlist_summaries(database: Path) -> tuple[AlbumSummary, ...]:
+    return LibraryQueries(database).list_album_page(
+        AlbumListQuery(is_playlist=True)
+    ).items
+
+
+def playlist_summary_payload(playlist: Any) -> dict[str, object]:
+    playlist_id = int(playlist.playlist_id)
+    items = tuple(getattr(playlist, "items", ()) or ())
+    duration = sum(
+        int(
+            (
+                item.track.duration_seconds
+                if getattr(item, "track", None) is not None
+                else item.duration_seconds
+            )
+            or 0
+        )
+        for item in items
+    )
+    created = getattr(playlist, "created_at", "") or getattr(playlist, "file_created_at", "")
+    changed = getattr(playlist, "updated_at", "") or created
+    return without_none(
+        {
+            "id": str(playlist_id),
+            "name": getattr(playlist, "name", None) or getattr(playlist, "album", "Playlist"),
+            "songCount": getattr(playlist, "track_count", len(items)),
+            "duration": duration if items else None,
+            "created": created or None,
+            "changed": changed or None,
+            "coverArt": playlist_cover_art_id(playlist_id),
+        }
+    )
+
+
+def playlist_item_payload(item: Any) -> dict[str, object]:
+    if item.track is not None:
+        payload = song_payload(item.track)
+        payload["parent"] = str(item.playlist_id)
+        return payload
+
+    path = str(item.path)
+    suffix_path = Path(urlsplit(path).path) if is_url_resource(path) else Path(path)
+    return without_none(
+        {
+            "id": str(item.playback_id),
+            "parent": str(item.playlist_id),
+            "isDir": False,
+            "title": item.title or suffix_path.name or path,
+            "album": item.playlist_name,
+            "duration": int(item.duration_seconds) if item.duration_seconds else None,
+            "genre": item.genre,
+            "suffix": suffix_path.suffix.casefold().removeprefix(".") or None,
+            "contentType": audio_mime_type(suffix_path),
+            "path": path,
+            "type": "music",
+            "isVideo": False,
+        }
+    )
+
+
 def song_payload(track: Any) -> dict[str, object]:
     track_id = int(track.track_id) if track.track_id is not None else None
     artist = track.artist or track.album_artist or album_artist_display_text(track.album_artists)
@@ -1126,6 +1269,10 @@ def artist_id(artist: str | None) -> str | None:
 
 def album_cover_art_id(album_id: str | None) -> str | None:
     return f"album:{album_id}" if album_id else None
+
+
+def playlist_cover_art_id(playlist_id: int) -> str:
+    return f"playlist:{playlist_id}"
 
 
 def first_number(value: str | None) -> int | None:
