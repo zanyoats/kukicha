@@ -4883,6 +4883,8 @@ class PlayerWebAdapterTest(unittest.TestCase):
         self.assertEqual(int(track_stats["play_count"]), 1)
         self.assertEqual(track_stats["last_played_at"], expected_played)
         self.assertEqual(event_row["source"], NATIVE_PLAYBACK_SOURCE)
+        self.assertEqual(event_snapshot["track_path"], track.path)
+        self.assertNotIn("track_key", event_snapshot)
         self.assertEqual(event_snapshot["genres"], ["Ambient", "Electronic"])
         self.assertEqual(event_snapshot["styles"], ["Downtempo", "Minimal"])
         self.assertEqual(track_stats["title"], "Emerald and Lime")
@@ -4894,6 +4896,93 @@ class PlayerWebAdapterTest(unittest.TestCase):
             [("Brian Eno", 1), ("Jon Hopkins", 1), ("Leo Abrahams", 1)],
         )
         self.assertEqual(genre_stats, [("Ambient", 1), ("Electronic", 1)])
+
+    def test_track_listening_stats_use_path_when_metadata_collides(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            database = temp_path / "kukicha.sqlite"
+            first = TrackRecord(
+                path="/music/Copy A/Album/01.flac",
+                root_position=0,
+                file_type="flac",
+                artist="Artist",
+                album_artist="Artist",
+                album="Album",
+                title="Same Song",
+                track_number="1",
+                disc_number="1",
+            )
+            second = TrackRecord(
+                path="/music/Copy B/Album/01.flac",
+                root_position=0,
+                file_type="flac",
+                artist="Artist",
+                album_artist="Artist",
+                album="Album",
+                title="Same Song",
+                track_number="1",
+                disc_number="1",
+            )
+            save_library(
+                MusicLibrary(
+                    roots=["/music"],
+                    tracks=[first, second],
+                    supported_extensions=[".flac"],
+                    generated_at="2026-05-01T00:00:00+00:00",
+                ),
+                database,
+            )
+
+            record_playback(
+                database,
+                first.track_id or 1,
+                submission=True,
+                played_at=datetime(2026, 5, 11, 12, 0, tzinfo=UTC),
+                source="test",
+            )
+            record_playback(
+                database,
+                second.track_id or 2,
+                submission=True,
+                played_at=datetime(2026, 5, 11, 13, 0, tzinfo=UTC),
+                source="test",
+            )
+            record_playback(
+                database,
+                first.track_id or 1,
+                submission=True,
+                played_at=datetime(2026, 5, 11, 14, 0, tzinfo=UTC),
+                source="test",
+            )
+            dashboard = home_dashboard(database)
+            with connect_database(database, create=False) as connection:
+                stats = [
+                    (
+                        str(row["track_path"]),
+                        int(row["play_count"]),
+                        int(row["track_id"]),
+                        str(row["album_id"]),
+                    )
+                    for row in connection.execute(
+                        """
+                        SELECT track_path, play_count, track_id, album_id
+                        FROM play_track_stats
+                        ORDER BY track_path
+                        """
+                    )
+                ]
+
+        self.assertEqual(
+            stats,
+            [
+                (first.path, 2, first.track_id, "artist::album"),
+                (second.path, 1, second.track_id, "artist::album"),
+            ],
+        )
+        self.assertEqual(
+            [(track.path, track.play_count) for track in dashboard.recent_tracks],
+            [(first.path, 2), (second.path, 1)],
+        )
 
     def test_submitted_play_and_delayed_now_playing_do_not_replace_current_now_playing(
         self,
@@ -5208,7 +5297,7 @@ class PlayerWebAdapterTest(unittest.TestCase):
         self.assertNotIn("Recent Artists", html)
         self.assertIn("No listening history yet", html)
 
-    def test_playlist_play_history_survives_rescans_and_reattaches_tracks(self) -> None:
+    def test_playlist_play_history_hides_track_stats_for_missing_paths(self) -> None:
         with TemporaryDirectory() as tempdir:
             temp_path = Path(tempdir)
             database = temp_path / "kukicha.sqlite"
@@ -5323,7 +5412,7 @@ class PlayerWebAdapterTest(unittest.TestCase):
                     "SELECT play_count, path FROM play_playlist_stats"
                 ).fetchone()
                 track_stats = connection.execute(
-                    "SELECT play_count FROM play_track_stats"
+                    "SELECT track_path, play_count FROM play_track_stats"
                 ).fetchone()
                 genre_stats = [
                     (str(row["genre"]), int(row["play_count"]))
@@ -5334,13 +5423,13 @@ class PlayerWebAdapterTest(unittest.TestCase):
 
         self.assertEqual(int(playlist_stats["play_count"]), 2)
         self.assertEqual(playlist_stats["path"], "")
+        self.assertEqual(track_stats["track_path"], str(first_path))
         self.assertEqual(int(track_stats["play_count"]), 1)
         self.assertEqual(genre_stats, [("Downtempo", 1), ("Jazz", 1)])
         self.assertEqual(dashboard.recent_playlists[0].playlist.playlist_id, 1)
         self.assertEqual(dashboard.recent_albums[0].album.album, "Album")
         self.assertEqual(dashboard.recent_albums[0].play_count, 1)
-        self.assertEqual(dashboard.recent_tracks[0].path, str(rescanned_path))
-        self.assertEqual(dashboard.recent_tracks[0].play_count, 1)
+        self.assertEqual(dashboard.recent_tracks, ())
         self.assertEqual(
             [(artist.name, artist.play_count) for artist in dashboard.recent_artists],
             [("Artist", 1)],
@@ -5404,6 +5493,11 @@ class PlayerWebAdapterTest(unittest.TestCase):
                         "SELECT COUNT(*) AS count FROM play_events"
                     ).fetchone()["count"]
                 )
+                track_stats_count = int(
+                    connection.execute(
+                        "SELECT COUNT(*) AS count FROM play_track_stats"
+                    ).fetchone()["count"]
+                )
                 playlist_stats = connection.execute(
                     """
                     SELECT play_count, last_played_at, path
@@ -5421,6 +5515,7 @@ class PlayerWebAdapterTest(unittest.TestCase):
         self.assertEqual(now_playing["updated_at"], played_at.isoformat())
         self.assertEqual(now_playing["source"], NATIVE_PLAYBACK_SOURCE)
         self.assertEqual(event_count, 1)
+        self.assertEqual(track_stats_count, 0)
         self.assertEqual(int(playlist_stats["play_count"]), 1)
         self.assertEqual(playlist_stats["last_played_at"], played_at.isoformat())
         self.assertEqual(playlist_stats["path"], "")
@@ -9399,8 +9494,8 @@ class PlayerAlbumTagEditTest(unittest.TestCase):
             bucket="bucket",
             prefix="tracks/",
         )
-        track_key = object_key or "tracks/Album/01.flac"
-        track_path = canonical_s3_path(remote, track_key)
+        fallback_object_key = object_key or "tracks/Album/01.flac"
+        track_path = canonical_s3_path(remote, fallback_object_key)
         root_source_json = remote.source_json if source_json is None else source_json
         connection = connect_database(database)
         try:

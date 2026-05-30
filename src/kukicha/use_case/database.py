@@ -77,6 +77,100 @@ CREATE INDEX IF NOT EXISTS idx_library_playlist_items_track_id
     ON library_playlist_items (track_id);
 """
 
+LISTENING_SCHEMA = """
+CREATE TABLE IF NOT EXISTS play_events (
+    play_event_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    played_at TEXT NOT NULL,
+    source TEXT NOT NULL DEFAULT '',
+    playback_id INTEGER,
+    track_path TEXT,
+    album_id TEXT,
+    playlist_key TEXT,
+    snapshot_json TEXT NOT NULL DEFAULT '{}'
+);
+CREATE INDEX IF NOT EXISTS idx_play_events_played_at
+    ON play_events (played_at DESC, play_event_id DESC);
+CREATE INDEX IF NOT EXISTS idx_play_events_track_path
+    ON play_events (track_path, played_at DESC);
+CREATE INDEX IF NOT EXISTS idx_play_events_album_id
+    ON play_events (album_id, played_at DESC);
+CREATE INDEX IF NOT EXISTS idx_play_events_playlist_key
+    ON play_events (playlist_key, played_at DESC);
+
+CREATE TABLE IF NOT EXISTS play_now_playing (
+    session_key TEXT PRIMARY KEY,
+    updated_at TEXT NOT NULL,
+    source TEXT NOT NULL DEFAULT '',
+    playback_id INTEGER,
+    track_path TEXT,
+    album_id TEXT,
+    playlist_key TEXT,
+    snapshot_json TEXT NOT NULL DEFAULT '{}'
+);
+
+CREATE TABLE IF NOT EXISTS play_track_stats (
+    track_path TEXT PRIMARY KEY,
+    play_count INTEGER NOT NULL DEFAULT 0,
+    last_played_at TEXT NOT NULL,
+    track_id INTEGER,
+    album_id TEXT,
+    path TEXT NOT NULL DEFAULT '',
+    title TEXT NOT NULL DEFAULT '',
+    artist TEXT NOT NULL DEFAULT '',
+    album TEXT NOT NULL DEFAULT '',
+    snapshot_json TEXT NOT NULL DEFAULT '{}'
+);
+CREATE INDEX IF NOT EXISTS idx_play_track_stats_recent
+    ON play_track_stats (last_played_at DESC, play_count DESC, track_path);
+
+CREATE TABLE IF NOT EXISTS play_album_stats (
+    album_id TEXT PRIMARY KEY,
+    play_count INTEGER NOT NULL DEFAULT 0,
+    last_played_at TEXT NOT NULL,
+    album TEXT NOT NULL DEFAULT '',
+    artist TEXT NOT NULL DEFAULT '',
+    art_track_id INTEGER,
+    snapshot_json TEXT NOT NULL DEFAULT '{}'
+);
+CREATE INDEX IF NOT EXISTS idx_play_album_stats_recent
+    ON play_album_stats (last_played_at DESC, play_count DESC, album_id)
+    WHERE album_id IS NOT NULL AND album_id != '';
+CREATE INDEX IF NOT EXISTS idx_play_album_stats_frequent
+    ON play_album_stats (play_count DESC, last_played_at DESC, album_id)
+    WHERE album_id IS NOT NULL AND album_id != '';
+
+CREATE TABLE IF NOT EXISTS play_artist_stats (
+    artist_key TEXT PRIMARY KEY,
+    artist TEXT NOT NULL,
+    play_count INTEGER NOT NULL DEFAULT 0,
+    last_played_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_play_artist_stats_recent
+    ON play_artist_stats (last_played_at DESC, play_count DESC, artist_key);
+
+CREATE TABLE IF NOT EXISTS play_playlist_stats (
+    playlist_key TEXT PRIMARY KEY,
+    play_count INTEGER NOT NULL DEFAULT 0,
+    last_played_at TEXT NOT NULL,
+    playlist_id INTEGER,
+    path TEXT NOT NULL DEFAULT '',
+    name TEXT NOT NULL DEFAULT '',
+    cover_svg TEXT NOT NULL DEFAULT '',
+    snapshot_json TEXT NOT NULL DEFAULT '{}'
+);
+CREATE INDEX IF NOT EXISTS idx_play_playlist_stats_recent
+    ON play_playlist_stats (last_played_at DESC, play_count DESC, playlist_key);
+
+CREATE TABLE IF NOT EXISTS play_genre_stats (
+    genre_key TEXT PRIMARY KEY,
+    genre TEXT NOT NULL,
+    play_count INTEGER NOT NULL DEFAULT 0,
+    last_played_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_play_genre_stats_recent
+    ON play_genre_stats (last_played_at DESC, play_count DESC, genre_key);
+"""
+
 DATABASE_SCHEMA = """
 CREATE TABLE IF NOT EXISTS app_metadata (
     key TEXT PRIMARY KEY,
@@ -180,104 +274,12 @@ CREATE TABLE IF NOT EXISTS player_queue_items (
 CREATE INDEX IF NOT EXISTS idx_player_queue_items_playback_id
     ON player_queue_items (playback_id);
 
-CREATE TABLE IF NOT EXISTS play_events (
-    play_event_id INTEGER PRIMARY KEY AUTOINCREMENT,
-    played_at TEXT NOT NULL,
-    source TEXT NOT NULL DEFAULT '',
-    playback_id INTEGER,
-    track_key TEXT,
-    album_id TEXT,
-    playlist_key TEXT,
-    snapshot_json TEXT NOT NULL DEFAULT '{}'
-);
-CREATE INDEX IF NOT EXISTS idx_play_events_played_at
-    ON play_events (played_at DESC, play_event_id DESC);
-CREATE INDEX IF NOT EXISTS idx_play_events_track_key
-    ON play_events (track_key, played_at DESC);
-CREATE INDEX IF NOT EXISTS idx_play_events_album_id
-    ON play_events (album_id, played_at DESC);
-CREATE INDEX IF NOT EXISTS idx_play_events_playlist_key
-    ON play_events (playlist_key, played_at DESC);
-
-CREATE TABLE IF NOT EXISTS play_now_playing (
-    session_key TEXT PRIMARY KEY,
-    updated_at TEXT NOT NULL,
-    source TEXT NOT NULL DEFAULT '',
-    playback_id INTEGER,
-    track_key TEXT,
-    album_id TEXT,
-    playlist_key TEXT,
-    snapshot_json TEXT NOT NULL DEFAULT '{}'
-);
-
 CREATE TABLE IF NOT EXISTS opensubsonic_clients (
     client_name TEXT PRIMARY KEY,
     last_seen_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_opensubsonic_clients_last_seen
     ON opensubsonic_clients (last_seen_at DESC, client_name);
-
-CREATE TABLE IF NOT EXISTS play_track_stats (
-    track_key TEXT PRIMARY KEY,
-    play_count INTEGER NOT NULL DEFAULT 0,
-    last_played_at TEXT NOT NULL,
-    track_id INTEGER,
-    album_id TEXT,
-    path TEXT NOT NULL DEFAULT '',
-    title TEXT NOT NULL DEFAULT '',
-    artist TEXT NOT NULL DEFAULT '',
-    album TEXT NOT NULL DEFAULT '',
-    snapshot_json TEXT NOT NULL DEFAULT '{}'
-);
-CREATE INDEX IF NOT EXISTS idx_play_track_stats_recent
-    ON play_track_stats (last_played_at DESC, play_count DESC, track_key);
-
-CREATE TABLE IF NOT EXISTS play_album_stats (
-    album_id TEXT PRIMARY KEY,
-    play_count INTEGER NOT NULL DEFAULT 0,
-    last_played_at TEXT NOT NULL,
-    album TEXT NOT NULL DEFAULT '',
-    artist TEXT NOT NULL DEFAULT '',
-    art_track_id INTEGER,
-    snapshot_json TEXT NOT NULL DEFAULT '{}'
-);
-CREATE INDEX IF NOT EXISTS idx_play_album_stats_recent
-    ON play_album_stats (last_played_at DESC, play_count DESC, album_id)
-    WHERE album_id IS NOT NULL AND album_id != '';
-CREATE INDEX IF NOT EXISTS idx_play_album_stats_frequent
-    ON play_album_stats (play_count DESC, last_played_at DESC, album_id)
-    WHERE album_id IS NOT NULL AND album_id != '';
-
-CREATE TABLE IF NOT EXISTS play_artist_stats (
-    artist_key TEXT PRIMARY KEY,
-    artist TEXT NOT NULL,
-    play_count INTEGER NOT NULL DEFAULT 0,
-    last_played_at TEXT NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_play_artist_stats_recent
-    ON play_artist_stats (last_played_at DESC, play_count DESC, artist_key);
-
-CREATE TABLE IF NOT EXISTS play_playlist_stats (
-    playlist_key TEXT PRIMARY KEY,
-    play_count INTEGER NOT NULL DEFAULT 0,
-    last_played_at TEXT NOT NULL,
-    playlist_id INTEGER,
-    path TEXT NOT NULL DEFAULT '',
-    name TEXT NOT NULL DEFAULT '',
-    cover_svg TEXT NOT NULL DEFAULT '',
-    snapshot_json TEXT NOT NULL DEFAULT '{}'
-);
-CREATE INDEX IF NOT EXISTS idx_play_playlist_stats_recent
-    ON play_playlist_stats (last_played_at DESC, play_count DESC, playlist_key);
-
-CREATE TABLE IF NOT EXISTS play_genre_stats (
-    genre_key TEXT PRIMARY KEY,
-    genre TEXT NOT NULL,
-    play_count INTEGER NOT NULL DEFAULT 0,
-    last_played_at TEXT NOT NULL
-);
-CREATE INDEX IF NOT EXISTS idx_play_genre_stats_recent
-    ON play_genre_stats (last_played_at DESC, play_count DESC, genre_key);
 
 CREATE TABLE IF NOT EXISTS album_user_state (
     album_id TEXT PRIMARY KEY,
@@ -432,7 +434,6 @@ CREATE TABLE IF NOT EXISTS library_tracks (
     composer TEXT,
     album TEXT,
     title TEXT,
-    play_fingerprint TEXT,
     work TEXT,
     grouping TEXT,
     movement_name TEXT,
@@ -593,12 +594,45 @@ def migrate_player_jobs_schema(connection: sqlite3.Connection) -> None:
 
 
 def migrate_listening_schema(connection: sqlite3.Connection) -> None:
+    if legacy_listening_schema_detected(connection):
+        rebuild_listening_schema(connection)
+        return
+    connection.executescript(LISTENING_SCHEMA)
     for table_name in ("play_events", "play_now_playing"):
         columns = table_columns(connection, table_name)
         if columns and "source" not in columns:
             connection.execute(
                 f"ALTER TABLE {table_name} ADD COLUMN source TEXT NOT NULL DEFAULT ''"
             )
+
+
+def legacy_listening_schema_detected(connection: sqlite3.Connection) -> bool:
+    expected_identity_columns = {
+        "play_events": "track_path",
+        "play_now_playing": "track_path",
+        "play_track_stats": "track_path",
+    }
+    for table_name, identity_column in expected_identity_columns.items():
+        columns = table_columns(connection, table_name)
+        if "track_key" in columns:
+            return True
+        if columns and identity_column not in columns:
+            return True
+    return False
+
+
+def rebuild_listening_schema(connection: sqlite3.Connection) -> None:
+    for table_name in (
+        "play_events",
+        "play_now_playing",
+        "play_track_stats",
+        "play_album_stats",
+        "play_playlist_stats",
+        "play_artist_stats",
+        "play_genre_stats",
+    ):
+        connection.execute(f"DROP TABLE IF EXISTS {table_name}")
+    connection.executescript(LISTENING_SCHEMA)
 
 
 def migrate_library_schema(connection: sqlite3.Connection) -> None:
@@ -619,8 +653,6 @@ def migrate_library_schema(connection: sqlite3.Connection) -> None:
         backfill_library_track_roots(connection)
     if "composer" not in columns:
         connection.execute("ALTER TABLE library_tracks ADD COLUMN composer TEXT")
-    if "play_fingerprint" not in columns:
-        connection.execute("ALTER TABLE library_tracks ADD COLUMN play_fingerprint TEXT")
     if "work" not in columns:
         connection.execute("ALTER TABLE library_tracks ADD COLUMN work TEXT")
     if "grouping" not in columns:
@@ -753,12 +785,7 @@ def migrate_library_schema(connection: sqlite3.Connection) -> None:
             ON library_tracks (album_id, root_position)
         """
     )
-    connection.execute(
-        """
-        CREATE INDEX IF NOT EXISTS idx_library_tracks_play_fingerprint
-            ON library_tracks (play_fingerprint)
-        """
-    )
+    connection.execute("DROP INDEX IF EXISTS idx_library_tracks_play_fingerprint")
     connection.execute(
         """
         CREATE INDEX IF NOT EXISTS idx_library_tracks_file_created_at

@@ -141,8 +141,9 @@ class LibraryAlbumPathQueryTest(unittest.TestCase):
         self.assertEqual(str(source["content_type"]), "audio/flac")
         self.assertEqual(int(source["size_bytes"]), 12)
         self.assertNotIn("size_bytes", columns)
+        self.assertNotIn("play_fingerprint", columns)
 
-    def test_connect_database_migrates_legacy_listening_source_columns(self) -> None:
+    def test_connect_database_rebuilds_legacy_track_key_listening_schema(self) -> None:
         with TemporaryDirectory() as tempdir:
             database = Path(tempdir) / "kukicha.sqlite"
             legacy_connection = sqlite3.connect(database)
@@ -199,6 +200,41 @@ class LibraryAlbumPathQueryTest(unittest.TestCase):
                         '',
                         '{}'
                     );
+                    CREATE TABLE play_track_stats (
+                        track_key TEXT PRIMARY KEY,
+                        play_count INTEGER NOT NULL DEFAULT 0,
+                        last_played_at TEXT NOT NULL,
+                        track_id INTEGER,
+                        album_id TEXT,
+                        path TEXT NOT NULL DEFAULT '',
+                        title TEXT NOT NULL DEFAULT '',
+                        artist TEXT NOT NULL DEFAULT '',
+                        album TEXT NOT NULL DEFAULT '',
+                        snapshot_json TEXT NOT NULL DEFAULT '{}'
+                    );
+                    INSERT INTO play_track_stats (
+                        track_key,
+                        play_count,
+                        last_played_at,
+                        track_id,
+                        album_id,
+                        path,
+                        title,
+                        artist,
+                        album,
+                        snapshot_json
+                    ) VALUES (
+                        'track-key',
+                        1,
+                        '2026-05-11T12:00:00+00:00',
+                        1,
+                        'album-key',
+                        '/music/Artist/Album/01.flac',
+                        'Track',
+                        'Artist',
+                        'Album',
+                        '{}'
+                    );
                     """
                 )
                 legacy_connection.commit()
@@ -214,17 +250,39 @@ class LibraryAlbumPathQueryTest(unittest.TestCase):
                     str(row["name"])
                     for row in connection.execute("PRAGMA table_info(play_now_playing)")
                 }
-                play_event_source = connection.execute(
-                    "SELECT source FROM play_events"
-                ).fetchone()["source"]
-                now_playing_source = connection.execute(
-                    "SELECT source FROM play_now_playing"
-                ).fetchone()["source"]
+                track_stats_columns = {
+                    str(row["name"])
+                    for row in connection.execute("PRAGMA table_info(play_track_stats)")
+                }
+                counts = {
+                    table_name: int(
+                        connection.execute(
+                            f"SELECT COUNT(*) AS count FROM {table_name}"
+                        ).fetchone()["count"]
+                    )
+                    for table_name in (
+                        "play_events",
+                        "play_now_playing",
+                        "play_track_stats",
+                    )
+                }
 
         self.assertIn("source", play_event_columns)
         self.assertIn("source", now_playing_columns)
-        self.assertEqual(play_event_source, "")
-        self.assertEqual(now_playing_source, "")
+        self.assertIn("track_path", play_event_columns)
+        self.assertIn("track_path", now_playing_columns)
+        self.assertIn("track_path", track_stats_columns)
+        self.assertNotIn("track_key", play_event_columns)
+        self.assertNotIn("track_key", now_playing_columns)
+        self.assertNotIn("track_key", track_stats_columns)
+        self.assertEqual(
+            counts,
+            {
+                "play_events": 0,
+                "play_now_playing": 0,
+                "play_track_stats": 0,
+            },
+        )
 
     def test_migrates_album_artist_index_to_nocase(self) -> None:
         with TemporaryDirectory() as tempdir:

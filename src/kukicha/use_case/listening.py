@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 from collections.abc import Iterable
 from dataclasses import dataclass
@@ -49,7 +48,7 @@ class ListeningPlaylist:
 
 @dataclass(frozen=True, slots=True)
 class ListeningTrack:
-    track_key: str
+    track_path: str
     track_id: int | None
     art_track_id: int | None
     album_id: str
@@ -149,7 +148,7 @@ def record_playback(
                 played_at,
                 source,
                 playback_id,
-                track_key,
+                track_path,
                 album_id,
                 playlist_key,
                 snapshot_json
@@ -159,7 +158,7 @@ def record_playback(
                 timestamp,
                 source,
                 playback_id,
-                snapshot.get("track_key"),
+                snapshot.get("track_path"),
                 snapshot.get("album_id"),
                 snapshot.get("playlist_key"),
                 snapshot_json,
@@ -189,7 +188,7 @@ def update_now_playing(
             updated_at,
             source,
             playback_id,
-            track_key,
+            track_path,
             album_id,
             playlist_key,
             snapshot_json
@@ -198,7 +197,7 @@ def update_now_playing(
             updated_at = excluded.updated_at,
             source = excluded.source,
             playback_id = excluded.playback_id,
-            track_key = excluded.track_key,
+            track_path = excluded.track_path,
             album_id = excluded.album_id,
             playlist_key = excluded.playlist_key,
             snapshot_json = excluded.snapshot_json
@@ -209,7 +208,7 @@ def update_now_playing(
             timestamp,
             source,
             playback_id,
-            snapshot.get("track_key"),
+            snapshot.get("track_path"),
             snapshot.get("album_id"),
             snapshot.get("playlist_key"),
             snapshot_json,
@@ -337,15 +336,12 @@ def track_playback_snapshot(connection: Connection, track_id: int) -> dict[str, 
         """
         SELECT
             track_id,
-            play_fingerprint,
             album_id,
             path,
             artist,
             album_artist,
             album,
-            title,
-            track_number,
-            disc_number
+            title
         FROM library_tracks
         WHERE track_id = ?
         """,
@@ -416,18 +412,11 @@ def snapshot_from_track_row(connection: Connection, row: Row) -> dict[str, objec
     album_id = str(row["album_id"] or "")
     path = str(row["path"])
     title = str(row["title"] or Path(path).stem)
-    track_key = str(row["play_fingerprint"] or "") or track_play_fingerprint(
-        album_id=album_id,
-        disc_number=row["disc_number"],
-        track_number=row["track_number"],
-        title=title,
-        path=path,
-    )
     album_artists = album_artists_for_album(connection, album_id)
     artist = str(row["artist"] or row["album_artist"] or album_artist_text(album_artists))
     return {
         "track_id": track_id,
-        "track_key": track_key,
+        "track_path": path,
         "album_id": album_id,
         "path": path,
         "title": title,
@@ -446,13 +435,13 @@ def increment_track_stats(
     timestamp: str,
     snapshot_json: str,
 ) -> None:
-    track_key = text_value(snapshot.get("track_key"))
-    if not track_key:
+    track_path = text_value(snapshot.get("track_path"))
+    if not track_path:
         return
     connection.execute(
         """
         INSERT INTO play_track_stats (
-            track_key,
+            track_path,
             play_count,
             last_played_at,
             track_id,
@@ -463,7 +452,7 @@ def increment_track_stats(
             album,
             snapshot_json
         ) VALUES (?, 1, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(track_key) DO UPDATE SET
+        ON CONFLICT(track_path) DO UPDATE SET
             play_count = play_track_stats.play_count + 1,
             last_played_at = excluded.last_played_at,
             track_id = excluded.track_id,
@@ -475,7 +464,7 @@ def increment_track_stats(
             snapshot_json = excluded.snapshot_json
         """,
         (
-            track_key,
+            track_path,
             timestamp,
             int_value(snapshot.get("track_id")),
             text_value(snapshot.get("album_id")),
@@ -967,19 +956,26 @@ def recent_listening_tracks(
         connection.execute(
             """
             SELECT
-                stats.track_key,
+                stats.track_path,
                 stats.play_count,
                 stats.last_played_at,
-                stats.track_id,
-                stats.album_id,
-                stats.path,
-                stats.title,
-                stats.artist,
-                stats.album
+                stats.track_id AS snapshot_track_id,
+                stats.album_id AS snapshot_album_id,
+                stats.path AS snapshot_path,
+                stats.title AS snapshot_title,
+                stats.artist AS snapshot_artist,
+                stats.album AS snapshot_album,
+                tracks.track_id,
+                tracks.album_id,
+                tracks.path,
+                tracks.artist,
+                tracks.album_artist,
+                tracks.album,
+                tracks.title
             FROM play_track_stats AS stats
-            JOIN library_albums AS albums
-                ON albums.album_id = stats.album_id
-            ORDER BY stats.last_played_at DESC, stats.play_count DESC, stats.track_key
+            JOIN library_tracks AS tracks
+                ON tracks.path = stats.track_path
+            ORDER BY stats.last_played_at DESC, stats.play_count DESC, stats.track_path
             LIMIT ?
             """,
             (limit,),
@@ -987,43 +983,40 @@ def recent_listening_tracks(
     )
     tracks: list[ListeningTrack] = []
     for row in rows:
-        current = current_track_for_key(connection, str(row["track_key"]))
         album_id = (
-            str(current["album_id"])
-            if current is not None and current["album_id"] is not None
-            else str(row["album_id"] or "")
+            str(row["album_id"])
+            if row["album_id"] is not None
+            else str(row["snapshot_album_id"] or "")
         )
         tracks.append(
             ListeningTrack(
-                track_key=str(row["track_key"]),
+                track_path=str(row["track_path"]),
                 track_id=(
-                    int(current["track_id"])
-                    if current is not None and current["track_id"] is not None
-                    else int(row["track_id"])
+                    int(row["track_id"])
                     if row["track_id"] is not None
+                    else int(row["snapshot_track_id"])
+                    if row["snapshot_track_id"] is not None
                     else None
                 ),
                 art_track_id=album_art_track_id(connection, album_id) if album_id else None,
                 album_id=album_id,
                 title=(
-                    str(current["title"])
-                    if current is not None and current["title"] is not None
-                    else str(row["title"] or "")
+                    str(row["title"])
+                    if row["title"] is not None
+                    else str(row["snapshot_title"] or "")
                 ),
                 artist=(
-                    str(current["artist"] or current["album_artist"] or "")
-                    if current is not None
-                    else str(row["artist"] or "")
+                    str(row["artist"] or row["album_artist"] or row["snapshot_artist"] or "")
                 ),
                 album=(
-                    str(current["album"])
-                    if current is not None and current["album"] is not None
-                    else str(row["album"] or "")
+                    str(row["album"])
+                    if row["album"] is not None
+                    else str(row["snapshot_album"] or "")
                 ),
                 path=(
-                    str(current["path"])
-                    if current is not None and current["path"] is not None
-                    else str(row["path"] or "")
+                    str(row["path"])
+                    if row["path"] is not None
+                    else str(row["snapshot_path"] or "")
                 ),
                 play_count=int(row["play_count"]),
                 last_played_at=str(row["last_played_at"]),
@@ -1223,71 +1216,6 @@ def recently_starred_album_summaries(
     )
 
 
-def update_track_play_fingerprints(connection: Connection) -> None:
-    rows = list(
-        connection.execute(
-            """
-            SELECT track_id, album_id, path, title, track_number, disc_number
-            FROM library_tracks
-            """
-        )
-    )
-    for row in rows:
-        connection.execute(
-            """
-            UPDATE library_tracks
-            SET play_fingerprint = ?
-            WHERE track_id = ?
-            """,
-            (
-                track_play_fingerprint(
-                    album_id=str(row["album_id"] or ""),
-                    disc_number=row["disc_number"],
-                    track_number=row["track_number"],
-                    title=str(row["title"] or ""),
-                    path=str(row["path"]),
-                ),
-                int(row["track_id"]),
-            ),
-        )
-
-
-def track_play_fingerprint(
-    *,
-    album_id: str,
-    disc_number: object,
-    track_number: object,
-    title: str,
-    path: str,
-) -> str:
-    title_key = normalize_text(title) or normalize_text(Path(path).stem)
-    payload = json.dumps(
-        [
-            str(album_id or ""),
-            first_number(disc_number),
-            first_number(track_number),
-            title_key,
-        ],
-        separators=(",", ":"),
-        ensure_ascii=False,
-    )
-    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
-
-
-def first_number(value: object) -> int:
-    if value is None:
-        return 0
-    text = str(value).strip()
-    digits = []
-    for character in text:
-        if character.isdigit():
-            digits.append(character)
-            continue
-        if digits:
-            break
-    return int("".join(digits)) if digits else 0
-
-
 def album_artists_for_album(connection: Connection, album_id: str) -> tuple[str, ...]:
     if not album_id:
         return ()
@@ -1367,19 +1295,6 @@ def album_art_track_id(connection: Connection, album_id: str) -> int | None:
         (album_id,),
     ).fetchone()
     return int(row["art_track_id"]) if row is not None and row["art_track_id"] is not None else None
-
-
-def current_track_for_key(connection: Connection, track_key: str) -> Row | None:
-    return connection.execute(
-        """
-        SELECT track_id, album_id, path, artist, album_artist, album, title
-        FROM library_tracks
-        WHERE play_fingerprint = ?
-        ORDER BY track_id
-        LIMIT 1
-        """,
-        (track_key,),
-    ).fetchone()
 
 
 def album_artist_text(values: Iterable[str]) -> str:
