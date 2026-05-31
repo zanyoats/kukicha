@@ -798,8 +798,8 @@ class OpenSubsonicWebAdapterTest(unittest.TestCase):
         self.assertEqual(str(playlist_row["created_at"]), "2026-05-08T12:00:00+00:00")
         self.assertEqual(str(playlist_row["updated_at"]), "2026-05-08T13:00:00+00:00")
         self.assertIn("Road Mix Updated", str(playlist_row["cover_svg"]))
-        self.assertEqual(cover_response.content_type, "image/svg+xml; charset=utf-8")
-        self.assertIn(b"Road Mix Updated", cover_response.data)
+        self.assertEqual(cover_response.content_type, "image/png")
+        self.assertTrue(cover_response.data.startswith(b"\x89PNG\r\n\x1a\n"))
 
     def test_update_and_delete_playlist_mutate_manual_playlist(self) -> None:
         with TemporaryDirectory() as tempdir:
@@ -864,6 +864,39 @@ class OpenSubsonicWebAdapterTest(unittest.TestCase):
         )
         self.assertEqual(playlist_count, 0)
         self.assertEqual(item_count, 0)
+
+    def test_get_playlist_cover_art_supports_bare_playlist_id_fallback(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            save_library(
+                MusicLibrary(
+                    roots=[],
+                    tracks=[],
+                    supported_extensions=[".flac"],
+                    generated_at="2026-05-08T00:00:00+00:00",
+                ),
+                temp_path / "kukicha.sqlite",
+            )
+            app = create_player_app(self.make_options(temp_path))
+            client = app.test_client()
+            client.get(
+                "/rest/createPlaylist",
+                query_string={**self.auth_params(), "name": "Empty Road Mix"},
+            )
+
+            playlists_response = client.get(
+                "/rest/getPlaylists",
+                query_string=self.auth_params(),
+            )
+            cover_response = client.get(
+                "/rest/getCoverArt",
+                query_string={**self.auth_params(), "id": "1", "size": "512"},
+            )
+
+        playlist = subsonic_payload(playlists_response)["playlists"]["playlist"][0]
+        self.assertEqual(playlist["coverArt"], "playlist:1")
+        self.assertEqual(cover_response.content_type, "image/png")
+        self.assertTrue(cover_response.data.startswith(b"\x89PNG\r\n\x1a\n"))
 
     def test_get_internet_radio_stations_returns_external_http_items(self) -> None:
         with TemporaryDirectory() as tempdir:
@@ -963,7 +996,11 @@ class OpenSubsonicWebAdapterTest(unittest.TestCase):
         )
         self.assertEqual(
             [station["coverArt"] for station in stations],
-            ["playlist:1", "playlist:1", "playlist:2"],
+            [
+                "internetRadioStation:1",
+                "internetRadioStation:2",
+                "internetRadioStation:4",
+            ],
         )
 
     def test_internet_radio_station_create_update_and_delete(self) -> None:
@@ -1041,6 +1078,18 @@ class OpenSubsonicWebAdapterTest(unittest.TestCase):
                 "/rest/getInternetRadioStations",
                 query_string=self.auth_params(),
             )
+            cover_response = client.get(
+                "/rest/getCoverArt",
+                query_string={
+                    **self.auth_params(),
+                    "id": "internetRadioStation:1",
+                    "size": "512",
+                },
+            )
+            bare_station_cover_response = client.get(
+                "/rest/getCoverArt",
+                query_string={**self.auth_params(), "id": "1", "size": "512"},
+            )
             with connect_database(temp_path / "kukicha.sqlite", create=False) as connection:
                 updated_playlist = connection.execute(
                     """
@@ -1101,7 +1150,14 @@ class OpenSubsonicWebAdapterTest(unittest.TestCase):
             [station["streamUrl"] for station in stations],
             ["http://example.test/edited", "https://example.test/live"],
         )
-        self.assertEqual([station["coverArt"] for station in stations], ["playlist:1", "playlist:2"])
+        self.assertEqual(
+            [station["coverArt"] for station in stations],
+            ["internetRadioStation:1", "internetRadioStation:2"],
+        )
+        self.assertEqual(cover_response.content_type, "image/png")
+        self.assertTrue(cover_response.data.startswith(b"\x89PNG\r\n\x1a\n"))
+        self.assertEqual(bare_station_cover_response.content_type, "image/png")
+        self.assertTrue(bare_station_cover_response.data.startswith(b"\x89PNG\r\n\x1a\n"))
         self.assertEqual(str(updated_playlist["name"]), "A Deep Space Edited")
         self.assertEqual(str(updated_playlist["kind"]), "remote")
         self.assertEqual(str(updated_playlist["source"]), "manual")

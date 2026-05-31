@@ -24,7 +24,7 @@ from .player_errors import PlayerConfigError, PlayerNotFoundError
 from .media_resources import AudioResource, local_audio_resource
 from .player_media import audio_mime_type, audio_resource_head, iter_audio_resource_bytes
 from .player_runtime import PlayerRuntime
-from .playlist_art import playlist_cover_svg
+from .playlist_art import playlist_cover_png
 from .scanner import is_url_resource
 from .use_case import (
     ALBUM_LIST_SORT_ALBUMS,
@@ -75,6 +75,7 @@ ERROR_CONFLICTING_AUTHENTICATION = 43
 ERROR_NOT_FOUND = 70
 IGNORED_ARTICLES = ("The", "An", "A", "Die", "Das", "Ein", "Eine", "Les", "Le", "La")
 IGNORED_ARTICLES_TEXT = " ".join(IGNORED_ARTICLES)
+INTERNET_RADIO_STATION_COVER_ART_PREFIX = "internetRadioStation:"
 
 
 @dataclass(frozen=True, slots=True)
@@ -590,24 +591,45 @@ def handle_get_cover_art(params: Mapping[str, list[str]]) -> Response:
     cover_id = require_param(params, "id")
     if cover_id.startswith("playlist:"):
         playlist_id = cover_id[len("playlist:") :]
-        cover = playlist_cover(open_subsonic_context().database, int(playlist_id))
-        if cover.has_uploaded_cover:
-            response = Response(cover.cover_data or b"", content_type=cover.cover_mime_type)
-        else:
-            svg = cover.cover_svg or playlist_cover_svg(cover.name)
-            response = Response(svg.encode("utf-8"), content_type="image/svg+xml; charset=utf-8")
-        response.headers["Cache-Control"] = ARTWORK_CACHE_CONTROL
-        return response
+        return playlist_cover_art_response(
+            int(playlist_id),
+            size=cover_art_size(params),
+        )
+    if cover_id.startswith(INTERNET_RADIO_STATION_COVER_ART_PREFIX):
+        station_id = radio_station_cover_art_item_id(cover_id)
+        return internet_radio_station_cover_art_response(
+            station_id,
+            size=cover_art_size(params),
+        )
     context = open_subsonic_context()
     track_ids = cover_art_track_ids(context.database, cover_id)
     for track_id in track_ids:
-        artwork = track_artwork(context.runtime, ALBUM_ARTWORK_HEIGHT, track_id)
+        try:
+            artwork = track_artwork(context.runtime, ALBUM_ARTWORK_HEIGHT, track_id)
+        except TrackNotFoundError:
+            continue
         if artwork is None:
             artwork = track_artwork(context.runtime, TRACK_ARTWORK_HEIGHT, track_id)
         if artwork is not None:
             response = Response(artwork.data, content_type=artwork.mime_type)
             response.headers["Cache-Control"] = ARTWORK_CACHE_CONTROL
             return response
+    if cover_id.isdecimal():
+        cover_item_id = int(cover_id)
+        try:
+            return playlist_cover_art_response(
+                cover_item_id,
+                size=cover_art_size(params),
+            )
+        except PlaylistNotFoundError:
+            pass
+        try:
+            return internet_radio_station_cover_art_response(
+                cover_item_id,
+                size=cover_art_size(params),
+            )
+        except PlaylistItemNotFoundError:
+            pass
     raise OpenSubsonicApiError(ERROR_NOT_FOUND, "The requested data was not found.")
 
 
@@ -1110,7 +1132,7 @@ def internet_radio_station_payload(item: Any) -> dict[str, object]:
             "id": str(item.playlist_item_id),
             "name": item.title or item.playlist_name or item.path,
             "streamUrl": item.path,
-            "coverArt": playlist_cover_art_id(int(item.playlist_id)),
+            "coverArt": internet_radio_station_cover_art_id(int(item.playlist_item_id)),
         }
     )
 
@@ -1185,6 +1207,64 @@ def album_cover_art_track_ids(database: Path, album_id: str) -> tuple[int, ...]:
         )
         if track_id is not None
     )
+
+
+def playlist_cover_art_response(
+    playlist_id: int,
+    *,
+    size: int,
+) -> Response:
+    cover = playlist_cover(open_subsonic_context().database, playlist_id)
+    if cover.has_uploaded_cover:
+        response = Response(cover.cover_data or b"", content_type=cover.cover_mime_type)
+    else:
+        response = Response(
+            playlist_cover_png(cover.name, size=size),
+            content_type="image/png",
+        )
+    response.headers["Cache-Control"] = ARTWORK_CACHE_CONTROL
+    return response
+
+
+def internet_radio_station_cover_art_response(
+    station_id: int,
+    *,
+    size: int,
+) -> Response:
+    database = open_subsonic_context().database
+    item = LibraryQueries(database).get_internet_radio_station_item(station_id)
+    cover = playlist_cover(database, item.playlist_id)
+    if cover.has_uploaded_cover:
+        response = Response(cover.cover_data or b"", content_type=cover.cover_mime_type)
+    else:
+        name = item.title or item.playlist_name or cover.name
+        response = Response(
+            playlist_cover_png(name, size=size),
+            content_type="image/png",
+        )
+    response.headers["Cache-Control"] = ARTWORK_CACHE_CONTROL
+    return response
+
+
+def radio_station_cover_art_item_id(cover_id: str) -> int:
+    try:
+        return int(cover_id[len(INTERNET_RADIO_STATION_COVER_ART_PREFIX) :])
+    except ValueError as error:
+        raise OpenSubsonicApiError(
+            ERROR_NOT_FOUND,
+            "The requested data was not found.",
+        ) from error
+
+
+def cover_art_size(params: Mapping[str, list[str]]) -> int:
+    value = first_param(params, "size")
+    if value is None or value == "":
+        return 800
+    try:
+        size = int(value)
+    except ValueError:
+        return 800
+    return max(128, min(1200, size))
 
 
 def parse_byte_range(header: str | None, file_size: int) -> tuple[int, int] | None:
@@ -1377,6 +1457,10 @@ def album_cover_art_id(album_id: str | None) -> str | None:
 
 def playlist_cover_art_id(playlist_id: int) -> str:
     return f"playlist:{playlist_id}"
+
+
+def internet_radio_station_cover_art_id(station_id: int) -> str:
+    return f"{INTERNET_RADIO_STATION_COVER_ART_PREFIX}{station_id}"
 
 
 def first_number(value: str | None) -> int | None:

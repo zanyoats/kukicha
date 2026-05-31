@@ -518,6 +518,40 @@ class LibraryQueries:
             ]
             return tuple(self._playlist_items_from_rows(connection, station_rows))
 
+    def get_internet_radio_station_item(self, playlist_item_id: int) -> PlaylistItem:
+        with connect_database(self.database, create=False) as connection:
+            row = connection.execute(
+                """
+                SELECT
+                    items.playlist_item_id,
+                    items.playlist_id,
+                    items.position,
+                    items.path,
+                    items.track_id,
+                    items.title,
+                    items.duration_seconds,
+                    items.duration_is_indeterminate,
+                    items.genre,
+                    items.cover_url,
+                    playlists.name AS playlist_name,
+                    playlists.cover_svg AS playlist_cover_svg,
+                    playlists.cover_mime_type AS playlist_cover_mime_type
+                FROM library_playlist_items AS items
+                JOIN library_playlists AS playlists
+                    ON playlists.playlist_id = items.playlist_id
+                WHERE items.playlist_item_id = ?
+                    AND playlists.kind = 'remote'
+                    AND items.track_id IS NULL
+                """,
+                (playlist_item_id,),
+            ).fetchone()
+            if row is None or not is_http_url_resource(str(row["path"])):
+                raise PlaylistItemNotFoundError(playlist_item_id)
+            items = self._playlist_items_from_rows(connection, [row])
+        if not items:
+            raise PlaylistItemNotFoundError(playlist_item_id)
+        return items[0]
+
     def get_track(self, track_id: int) -> PlaylistTrack:
         with connect_database(self.database, create=False) as connection:
             row = connection.execute(
