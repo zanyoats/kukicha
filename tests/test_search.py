@@ -10,11 +10,14 @@ from kukicha.use_case import (
     ArtistNotFoundError,
     GenreStyleFilter,
     LibraryQueries,
+    LibrarySearchQuery,
     album_where_clause,
 )
 from kukicha.use_case import (
     ALBUM_SEARCH_METADATA_KEY,
     ALBUM_SEARCH_INDEX_VERSION,
+    LIBRARY_SEARCH_METADATA_KEY,
+    LIBRARY_SEARCH_INDEX_VERSION,
     UNKNOWN_GENRE_TAG,
     connect_database,
 )
@@ -260,6 +263,201 @@ class AlbumSearchIndexTest(unittest.TestCase):
         self.assertIn("composer", track_columns)
         self.assertEqual(search_columns, {"album_id", "artist", "album"})
         self.assertEqual(search_version, ALBUM_SEARCH_INDEX_VERSION)
+
+
+class LibrarySearchIndexTest(unittest.TestCase):
+    def build_database(self) -> Path:
+        tempdir = TemporaryDirectory()
+        self.addCleanup(tempdir.cleanup)
+        database = Path(tempdir.name) / "library.sqlite"
+        save_library(
+            MusicLibrary(
+                roots=[],
+                tracks=[
+                    TrackRecord(
+                        path="/music/jim-bill/01.flac",
+                        file_type="flac",
+                        artist="Jim Hall",
+                        album_artist="Jim Hall & Bill Evans",
+                        album="Undercurrent",
+                        title="My Funny Valentine",
+                    ),
+                    TrackRecord(
+                        path="/music/alice/01.flac",
+                        file_type="flac",
+                        artist="Alice Coltrane",
+                        album_artist="Alice Coltrane",
+                        album="Journey in Satchidananda",
+                        title="Journey in Satchidananda",
+                    ),
+                    TrackRecord(
+                        path="/music/bill/01.flac",
+                        file_type="flac",
+                        artist="Bill Evans",
+                        album_artist="Bill Evans",
+                        album="Moon Beams",
+                        title="Re: Person I Knew",
+                    ),
+                ],
+                supported_extensions=[".flac"],
+                generated_at="test",
+            ),
+            database,
+        )
+        return database
+
+    def test_search_uses_entity_scoped_fields_and_split_artists(self) -> None:
+        api = LibraryQueries(self.build_database())
+
+        artist_results = api.search(
+            LibrarySearchQuery(query="Bill", artist_count=10, album_count=10, song_count=10)
+        )
+        album_results = api.search(
+            LibrarySearchQuery(query="Undercurrent", artist_count=10, album_count=10, song_count=10)
+        )
+        track_results = api.search(
+            LibrarySearchQuery(query="Funny", artist_count=10, album_count=10, song_count=10)
+        )
+
+        self.assertEqual(
+            [artist.artist for artist in artist_results.artists.items],
+            ["Bill Evans"],
+        )
+        self.assertEqual([album.album for album in artist_results.albums.items], [])
+        self.assertEqual([track.title for track in artist_results.songs.items], [])
+        self.assertEqual(
+            [album.album for album in album_results.albums.items],
+            ["Undercurrent"],
+        )
+        self.assertEqual([track.title for track in album_results.songs.items], [])
+        self.assertEqual(
+            [track.title for track in track_results.songs.items],
+            ["My Funny Valentine"],
+        )
+        self.assertEqual([album.album for album in track_results.albums.items], [])
+
+    def test_empty_search_uses_raw_order_and_independent_pagination(self) -> None:
+        api = LibraryQueries(self.build_database())
+
+        first_page = api.search(
+            LibrarySearchQuery(
+                query="",
+                artist_count=2,
+                album_count=2,
+                song_count=2,
+            )
+        )
+        second_album_page = api.search(
+            LibrarySearchQuery(
+                query="",
+                artist_count=0,
+                album_count=2,
+                album_offset=2,
+                song_count=0,
+            )
+        )
+
+        self.assertEqual(
+            [artist.artist for artist in first_page.artists.items],
+            ["Jim Hall", "Bill Evans"],
+        )
+        self.assertTrue(first_page.artists.has_next)
+        self.assertEqual(
+            [album.album for album in first_page.albums.items],
+            ["Undercurrent", "Journey in Satchidananda"],
+        )
+        self.assertEqual(
+            [track.title for track in first_page.songs.items],
+            ["My Funny Valentine", "Journey in Satchidananda"],
+        )
+        self.assertEqual(
+            [album.album for album in second_album_page.albums.items],
+            ["Moon Beams"],
+        )
+        self.assertEqual(second_album_page.artists.items, ())
+        self.assertEqual(second_album_page.songs.items, ())
+
+    def test_non_empty_search_ranks_matches_by_relevance(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            database = Path(tempdir) / "library.sqlite"
+            save_library(
+                MusicLibrary(
+                    roots=[],
+                    tracks=[
+                        TrackRecord(
+                            path="/music/blue/01.flac",
+                            file_type="flac",
+                            album_artist="First Artist",
+                            album="First Album",
+                            title="Blue",
+                        ),
+                        TrackRecord(
+                            path="/music/deep-blue/01.flac",
+                            file_type="flac",
+                            album_artist="Second Artist",
+                            album="Second Album",
+                            title="Blue Blue Blue",
+                        ),
+                    ],
+                    supported_extensions=[".flac"],
+                    generated_at="test",
+                ),
+                database,
+            )
+
+            results = LibraryQueries(database).search(
+                LibrarySearchQuery(query="Blue", artist_count=0, album_count=0, song_count=10)
+            )
+
+        self.assertEqual(
+            [track.title for track in results.songs.items],
+            ["Blue Blue Blue", "Blue"],
+        )
+
+    def test_connect_database_migrates_library_search_schema(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            database = Path(tempdir) / "library.sqlite"
+            connection = sqlite3.connect(database)
+            try:
+                connection.execute(
+                    "CREATE TABLE app_metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL)"
+                )
+                connection.execute(
+                    """
+                    INSERT INTO app_metadata (key, value)
+                    VALUES (?, 'old')
+                    """,
+                    (LIBRARY_SEARCH_METADATA_KEY,),
+                )
+                connection.execute(
+                    """
+                    CREATE VIRTUAL TABLE library_search USING fts5(
+                        entity_type UNINDEXED,
+                        entity_id UNINDEXED,
+                        text,
+                        tokenize = 'unicode61'
+                    )
+                    """
+                )
+                connection.commit()
+            finally:
+                connection.close()
+
+            with connect_database(database, create=False) as connection:
+                search_columns = {
+                    str(row["name"])
+                    for row in connection.execute("PRAGMA table_info(library_search)")
+                }
+                search_version = connection.execute(
+                    "SELECT value FROM app_metadata WHERE key = ?",
+                    (LIBRARY_SEARCH_METADATA_KEY,),
+                ).fetchone()["value"]
+
+        self.assertEqual(
+            search_columns,
+            {"entity_type", "entity_id", "root_position", "sort_order", "text"},
+        )
+        self.assertEqual(search_version, LIBRARY_SEARCH_INDEX_VERSION)
 
 
 class AlbumFacetFilterSemanticsTest(unittest.TestCase):

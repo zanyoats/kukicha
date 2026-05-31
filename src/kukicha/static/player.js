@@ -23,6 +23,7 @@ const keyboardShortcutsClose = document.querySelector("[data-close-keyboard-shor
 const trackCache = new Map();
 const albumPlaybackCache = new Map();
 const dropdownMenuSelector = "details[data-dropdown-menu]";
+const trackRowSelector = "tr[data-track-id], .home-list-row[data-track-id]";
 const toastHideDelayMs = readToastDelayMs("toastTimeoutMs", 5000);
 const volumeIconPathData = [
   "M9.741.85a.75.75 0 0 1 .375.65v13a.75.75 0 0 1-1.125.65l-6.925-4a3.64 3.64 0 0 1-1.33-4.967 3.64 3.64 0 0 1 1.33-1.332l6.925-4a.75.75 0 0 1 .75 0zm-6.924 5.3a2.14 2.14 0 0 0 0 3.7l5.8 3.35V2.8zm8.683 4.29V5.56a2.75 2.75 0 0 1 0 4.88",
@@ -1006,7 +1007,7 @@ function renderFragment(html, url, options = {}) {
   } else if (options.scroll !== false) {
     scrollRestoreToken += 1;
     isRestoringScroll = false;
-    if (!scrollToUrlHash(url)) {
+    if (!scrollToUrlHash(url) && !scrollToSelectedTrack(url)) {
       window.scrollTo(0, 0);
     }
     saveCurrentScrollState({anchor: null});
@@ -1038,6 +1039,34 @@ function scrollToUrlHash(url) {
   }
   target.scrollIntoView({block: "start"});
   return true;
+}
+
+function scrollToSelectedTrack(url) {
+  const selectedTrackId = selectedTrackIdFromUrl(url);
+  if (selectedTrackId === null) {
+    return false;
+  }
+  const target = Array.from(view.querySelectorAll(trackRowSelector)).find((row) => (
+    row instanceof HTMLElement
+    && row.dataset.selectedTrack !== undefined
+    && Number(row.dataset.trackId) === selectedTrackId
+  ));
+  if (!(target instanceof HTMLElement)) {
+    return false;
+  }
+  target.scrollIntoView({block: "center"});
+  return true;
+}
+
+function selectedTrackIdFromUrl(url) {
+  let parsedUrl;
+  try {
+    parsedUrl = new URL(url, window.location.href);
+  } catch {
+    return null;
+  }
+  const trackId = Number(parsedUrl.searchParams.get("selectedTrackId"));
+  return Number.isFinite(trackId) && trackId > 0 ? trackId : null;
 }
 
 function patchLibraryView(nextPageRoot) {
@@ -1738,7 +1767,7 @@ document.addEventListener("click", (event) => {
   const queueTrack = event.target.closest("[data-queue-track]");
   if (queueTrack) {
     event.preventDefault();
-    const row = queueTrack.closest("tr[data-track-id]");
+    const row = closestTrackRow(queueTrack);
     if (row) {
       void appendTrackToQueue(trackFromRow(row));
     }
@@ -1770,7 +1799,7 @@ document.addEventListener("click", (event) => {
   const playTrack = event.target.closest("[data-play-track]");
   if (playTrack) {
     event.preventDefault();
-    const row = playTrack.closest("tr[data-track-id]");
+    const row = closestTrackRow(playTrack);
     if (row) {
       playFromRow(row);
     }
@@ -1810,7 +1839,7 @@ document.addEventListener("click", (event) => {
     ? scrollAnchorForLink(albumCardAnchor(link))
     : null;
   saveCurrentScrollState({anchor: scrollAnchor});
-  navigate(url);
+  navigate(url, link.hasAttribute("data-preserve-scroll") ? {scroll: false} : {});
 });
 
 document.addEventListener("keydown", (event) => {
@@ -1824,7 +1853,7 @@ document.addEventListener("dblclick", (event) => {
   if (event.target.closest("button, a, input, label, summary")) {
     return;
   }
-  const row = event.target.closest("tr[data-track-id]");
+  const row = closestTrackRow(event.target);
   if (!row) {
     return;
   }
@@ -1861,6 +1890,13 @@ document.addEventListener("submit", (event) => {
   if (albumArtistMappingForm) {
     event.preventDefault();
     submitAlbumArtistMappingForm(albumArtistMappingForm);
+    return;
+  }
+  const searchForm = event.target.closest("form[data-search-form]");
+  if (searchForm) {
+    event.preventDefault();
+    saveCurrentScrollState({anchor: null});
+    navigate(formUrl(searchForm));
     return;
   }
   const form = event.target.closest("form[data-filter-form]");
@@ -5062,8 +5098,15 @@ function shortcutInputTarget(target) {
   return target.closest("input, textarea, select, audio, [contenteditable='true']");
 }
 
+function closestTrackRow(element) {
+  if (!(element instanceof Element)) {
+    return null;
+  }
+  return element.closest(trackRowSelector);
+}
+
 function hydrateVisibleTracks() {
-  document.querySelectorAll("tr[data-track-id]").forEach((row) => {
+  document.querySelectorAll(trackRowSelector).forEach((row) => {
     const track = trackFromRow(row);
     if (track) {
       trackCache.set(track.trackId, track);
@@ -5124,13 +5167,20 @@ function trackById(trackId) {
 
 function playFromRow(row) {
   hydrateVisibleTracks();
-  const allRows = Array.from(view.querySelectorAll("tr[data-track-id]"));
+  const allRows = Array.from(view.querySelectorAll(trackRowSelector));
   const rowIndex = allRows.indexOf(row);
   if (rowIndex === -1) {
     return;
   }
   if (row.dataset.queuePosition !== undefined) {
     void playExistingQueuePosition(Number(row.dataset.queuePosition) || 0);
+    return;
+  }
+  if (row.dataset.playScope === "single") {
+    const trackId = Number(row.dataset.trackId);
+    if (Number.isFinite(trackId)) {
+      playQueue([trackId], 0);
+    }
     return;
   }
   const ids = allRows.slice(rowIndex).map((candidate) => Number(candidate.dataset.trackId)).filter(Number.isFinite);
@@ -5151,6 +5201,7 @@ async function playQueue(trackIds, position, options = {}) {
   });
   submittedIndeterminatePlayKeys.clear();
   queueState = requestedState;
+  updatePlaybackUi();
   const syncedState = await postQueue(requestedState);
   if (syncedState) {
     queueState = syncedState;
@@ -5188,6 +5239,7 @@ function playQueuePosition(position) {
     return;
   }
   queueState.loaded_track_id = trackId;
+  updatePlaybackUi();
   playTrack(trackById(trackId), {restart: true});
 }
 
@@ -6194,3 +6246,4 @@ nowPlaying.addEventListener("error", replaceBrokenImage, true);
 updateVolumeControl();
 hydrateVisibleTracks();
 updatePlaybackUi();
+scrollToSelectedTrack(window.location.href);

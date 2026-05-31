@@ -271,6 +271,10 @@ button:disabled,
   overflow-wrap: anywhere;
 }
 
+.page-title-row .back-link {
+  margin-bottom: 0;
+}
+
 .count {
   color: var(--muted);
   margin-top: 5px;
@@ -282,7 +286,88 @@ button:disabled,
 }
 
 .home-header {
+  align-items: flex-start;
+}
+
+.home-search-form,
+.search-page-form {
+  flex: 0 1 320px;
+  width: min(100%, 320px);
+  max-width: 320px;
+  margin-left: auto;
+}
+
+.search-page {
+  gap: 24px;
+}
+
+.search-section {
+  display: grid;
+  gap: 12px;
+}
+
+.search-section-pagination {
+  display: flex;
+  gap: 12px;
   align-items: center;
+  font-size: 0.92rem;
+}
+
+.home-track-row.search-result-row {
+  grid-template-columns: 64px minmax(0, 1fr);
+  gap: 12px;
+}
+
+.search-result-row .home-track-copy {
+  color: inherit;
+  text-decoration: none;
+}
+
+.search-result-row .home-track-title,
+.search-result-row .home-track-copy small {
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+}
+
+.search-result-cover-wrap {
+  width: 64px;
+  height: 64px;
+}
+
+.search-result-cover-link {
+  width: 100%;
+  height: 100%;
+}
+
+.search-result-cover-wrap .home-track-cover {
+  width: 100%;
+  height: 100%;
+}
+
+.search-result-cover-wrap .album-cover-actions {
+  right: 4px;
+  bottom: 4px;
+  gap: 4px;
+}
+
+.search-result-cover-wrap .album-cover-action,
+.search-result-cover-wrap .album-cover-action.play-icon-button,
+.search-result-cover-wrap .album-cover-action.queue-icon-button {
+  width: 24px;
+  min-width: 24px;
+  min-height: 24px;
+  height: 24px;
+}
+
+.search-result-cover-wrap .album-cover-action.play-icon-button .play-icon {
+  width: 11px;
+  height: 11px;
+}
+
+.search-result-cover-wrap .album-cover-action.queue-icon-button .queue-add-icon {
+  width: 14px;
+  height: 14px;
 }
 
 .home-empty,
@@ -2915,18 +3000,12 @@ tbody tr[data-track-id] {
   user-select: none;
 }
 
-tbody tr[data-track-id]:hover,
 tbody tr.current {
   background: var(--track-row-highlight);
   color: var(--track-row-highlight-text);
 }
 
-tbody tr.current {
-  outline: 1px solid var(--accent);
-  outline-offset: -1px;
-}
-
-tbody tr.playing {
+tbody tr.selected {
   outline: 1px solid var(--accent);
   outline-offset: -1px;
 }
@@ -3026,8 +3105,6 @@ tbody tr.playing {
 tr.queue-active {
   background: var(--track-row-highlight);
   color: var(--track-row-highlight-text);
-  outline: 1px solid var(--accent);
-  outline-offset: -1px;
 }
 
 tr.queue-played {
@@ -3159,6 +3236,23 @@ tr.queue-error .queue-status-label {
 
   .search-controls {
     gap: 6px;
+  }
+
+  .home-search-form,
+  .search-page-form {
+    flex-basis: auto;
+    width: 100%;
+    max-width: none;
+    margin-left: 0;
+  }
+
+  .home-track-row.search-result-row {
+    grid-template-columns: 56px minmax(0, 1fr);
+  }
+
+  .search-result-cover-wrap {
+    width: 56px;
+    height: 56px;
   }
 
   .settings-form {

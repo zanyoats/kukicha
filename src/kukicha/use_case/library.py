@@ -26,6 +26,7 @@ from .database import (
     library_root_position_for_path,
     rebuild_album_rollups,
     rebuild_album_search_index,
+    rebuild_library_search_index,
     rebuild_root_scan_stats,
     set_metadata,
     utc_now_iso,
@@ -679,6 +680,7 @@ def save_library_with_options(
         rebuild_album_rollups(connection)
         rebuild_root_scan_stats(connection)
         rebuild_album_search_index(connection)
+        rebuild_library_search_index(connection)
         set_album_artist_mapping_fingerprint_metadata(
             connection,
             album_artist_split_patterns,
@@ -984,6 +986,7 @@ def save_rescanned_library_incremental(
         if affected_album_ids:
             rebuild_album_rollups(connection, affected_album_ids)
             rebuild_album_search_index(connection, affected_album_ids)
+            rebuild_library_search_index(connection)
 
         reconcile_playlist_item_track_ids(connection)
         set_metadata(connection, "library_generated_at", library.generated_at)

@@ -66,6 +66,7 @@ class TrackView:
     genres: tuple[str, ...]
     styles: tuple[str, ...]
     library_track_id: int | None = None
+    art_track_id: int | None = None
     uses_playlist_cover: bool = False
     has_playlist_membership: bool = False
     playlist_options: tuple[PlaylistMenuOption, ...] | None = None
@@ -162,6 +163,7 @@ def track_playback_payload(track: TrackView) -> dict[str, object]:
         "albumId": track.album_id,
         "audioUrl": track.audio_url,
         "artUrl": track.art_url,
+        "artTrackId": track.art_track_id,
         "title": track.display_title,
         "albumArtist": track.album_artist,
         "albumArtists": track.album_artists,
@@ -285,6 +287,7 @@ def track_view_from_queue_snapshot(
         genres=(),
         styles=(),
         library_track_id=snapshot_optional_int(snapshot, "libraryTrackId"),
+        art_track_id=snapshot_optional_int(snapshot, "artTrackId"),
         uses_playlist_cover=snapshot_bool(snapshot, "usesPlaylistCover"),
     )
 
@@ -373,15 +376,17 @@ def track_view(track: PlaylistTrack) -> TrackView:
     album_artist = track.album_artist or track.artist or "<unknown artist>"
     title = track.title or path.name
     display_title = display_track_title(track)
+    art_track_id = track.art_track_id or track.track_id
     return TrackView(
         track_id=track.track_id,
         library_track_id=track.track_id,
+        art_track_id=track.art_track_id,
         album_id=track.album_id or "",
         root_position=track.root_position,
         path=track.path,
         audio_url=f"/audio/{track.track_id}",
-        art_url=f"/art/{TRACK_ARTWORK_HEIGHT}/{track.track_id}",
-        album_art_url=f"/art/{ALBUM_ARTWORK_HEIGHT}/{track.track_id}",
+        art_url=f"/art/{TRACK_ARTWORK_HEIGHT}/{art_track_id}",
+        album_art_url=f"/art/{ALBUM_ARTWORK_HEIGHT}/{art_track_id}",
         audio_codec=mpeg4_audio_codec_for_path(path),
         audio_mime_type=audio_mime_type(path),
         audio_unsupported_reason=audio_unsupported_reason_for_path(path),

@@ -20,6 +20,7 @@ from ...library_sources import (
 )
 from ...media_resources import AudioResource, local_audio_resource
 from ...models import ALBUM_ARTWORK_HEIGHT, TrackArtwork, normalize_genre_values
+from ...search import SearchFactor, parse_album_search_query
 from .filters import (
     album_where_clause,
     expanded_album_list_query,
@@ -52,6 +53,8 @@ from .models import (
     LibraryFilterOptions,
     LibraryAlbumArtistStats,
     LibraryGenre,
+    LibrarySearchQuery,
+    LibrarySearchResults,
     LibraryRootAlbumArtistStats,
     LibraryRootFilterOption,
     LibraryRootStats,
@@ -61,6 +64,9 @@ from .models import (
     PlaylistItemNotFoundError,
     PlaylistNotFoundError,
     PlaylistTrack,
+    SearchAlbumPage,
+    SearchArtistPage,
+    SearchSongPage,
     TrackNotFoundError,
     normalize_match,
     normalized_int_tuple,
@@ -591,6 +597,69 @@ class LibraryQueries:
             track
             for track_id in requested_ids
             if (track := tracks_by_id.get(track_id)) is not None
+        )
+
+    def search(self, query: LibrarySearchQuery) -> LibrarySearchResults:
+        with connect_database(self.database, create=False) as connection:
+            artist_ids, artist_has_next = search_entity_ids(
+                connection,
+                entity_type="artist",
+                query_text=query.query,
+                count=query.artist_count,
+                offset=query.artist_offset,
+                root_position=query.music_folder_id,
+            )
+            album_ids, album_has_next = search_entity_ids(
+                connection,
+                entity_type="album",
+                query_text=query.query,
+                count=query.album_count,
+                offset=query.album_offset,
+                root_position=query.music_folder_id,
+            )
+            song_ids, song_has_next = search_entity_ids(
+                connection,
+                entity_type="song",
+                query_text=query.query,
+                count=query.song_count,
+                offset=query.song_offset,
+                root_position=query.music_folder_id,
+            )
+            artists = self._artist_summaries_by_name(
+                connection,
+                artist_ids,
+                root_position=query.music_folder_id,
+            )
+            albums = self._album_summaries_by_id(
+                connection,
+                album_ids,
+                root_position=query.music_folder_id,
+            )
+            songs = self._tracks_by_id(connection, (int(track_id) for track_id in song_ids))
+
+        return LibrarySearchResults(
+            query=query,
+            artists=SearchArtistPage(
+                items=artists,
+                count=query.artist_count,
+                offset=query.artist_offset,
+                has_next=artist_has_next,
+                has_previous=query.artist_offset > 0,
+            ),
+            albums=SearchAlbumPage(
+                items=albums,
+                count=query.album_count,
+                offset=query.album_offset,
+                has_next=album_has_next,
+                has_previous=query.album_offset > 0,
+            ),
+            songs=SearchSongPage(
+                items=songs,
+                count=query.song_count,
+                offset=query.song_offset,
+                has_next=song_has_next,
+                has_previous=query.song_offset > 0,
+            ),
         )
 
     def get_track_audio_path(self, track_id: int) -> Path:
@@ -1340,6 +1409,155 @@ class LibraryQueries:
             )
         return tuple(summaries)
 
+    def _album_summaries_by_id(
+        self,
+        connection: Connection,
+        album_ids: Iterable[str],
+        *,
+        root_position: int | None = None,
+    ) -> tuple[AlbumSummary, ...]:
+        requested_ids = tuple(dict.fromkeys(album_id for album_id in album_ids if album_id))
+        if not requested_ids:
+            return ()
+        placeholders = placeholders_for(requested_ids)
+        if root_position is None:
+            rows = list(
+                connection.execute(
+                    f"""
+                    SELECT
+                        album_id,
+                        album,
+                        year,
+                        track_count,
+                        file_created_at,
+                        added_at,
+                        starred_at,
+                        art_track_id
+                    FROM library_albums
+                    WHERE album_id IN ({placeholders})
+                    """,
+                    requested_ids,
+                )
+            )
+            rows_by_id = {str(row["album_id"]): row for row in rows}
+            return self._album_summaries_from_rows(
+                connection,
+                (rows_by_id[album_id] for album_id in requested_ids if album_id in rows_by_id),
+            )
+
+        rows = list(
+            connection.execute(
+                f"""
+                SELECT
+                    albums.album_id,
+                    albums.album,
+                    albums.year,
+                    album_roots.track_count,
+                    albums.file_created_at,
+                    albums.added_at,
+                    albums.starred_at,
+                    album_roots.art_track_id
+                FROM library_albums AS albums
+                JOIN library_album_roots AS album_roots
+                    ON album_roots.album_id = albums.album_id
+                WHERE albums.album_id IN ({placeholders})
+                    AND album_roots.root_position = ?
+                """,
+                [*requested_ids, root_position],
+            )
+        )
+        rows_by_id = {str(row["album_id"]): row for row in rows}
+        return self._album_summaries_from_rows(
+            connection,
+            (rows_by_id[album_id] for album_id in requested_ids if album_id in rows_by_id),
+            root_positions=(root_position,),
+        )
+
+    def _artist_summaries_by_name(
+        self,
+        connection: Connection,
+        artists: Iterable[str],
+        *,
+        root_position: int | None = None,
+    ) -> tuple[LibraryArtistSummary, ...]:
+        requested_artists = tuple(dict.fromkeys(artist for artist in artists if artist))
+        if not requested_artists:
+            return ()
+        placeholders = placeholders_for(requested_artists)
+        if root_position is None:
+            rows = list(
+                connection.execute(
+                    f"""
+                    SELECT album_artist, albums_scanned
+                    FROM library_album_artist_stats
+                    WHERE album_artist COLLATE NOCASE IN ({placeholders})
+                    """,
+                    requested_artists,
+                )
+            )
+        else:
+            rows = list(
+                connection.execute(
+                    f"""
+                    SELECT album_artist, albums_scanned
+                    FROM library_root_album_artist_stats
+                    WHERE album_artist COLLATE NOCASE IN ({placeholders})
+                        AND root_position = ?
+                    """,
+                    [*requested_artists, root_position],
+                )
+            )
+        rows_by_artist = {str(row["album_artist"]).casefold(): row for row in rows}
+        cover_album_ids = album_artist_cover_album_ids(
+            connection,
+            requested_artists,
+            root_position=root_position,
+        )
+        summaries: list[LibraryArtistSummary] = []
+        for artist in requested_artists:
+            row = rows_by_artist.get(artist.casefold())
+            if row is None:
+                continue
+            artist_name = str(row["album_artist"])
+            summaries.append(
+                LibraryArtistSummary(
+                    artist=artist_name,
+                    album_count=int(row["albums_scanned"]),
+                    cover_album_id=cover_album_ids.get(artist_name.casefold()),
+                )
+            )
+        return tuple(summaries)
+
+    def _tracks_by_id(
+        self,
+        connection: Connection,
+        track_ids: Iterable[int],
+    ) -> tuple[PlaylistTrack, ...]:
+        requested_ids = tuple(dict.fromkeys(int(track_id) for track_id in track_ids))
+        if not requested_ids:
+            return ()
+        placeholders = placeholders_for(requested_ids)
+        rows = list(
+            connection.execute(
+                f"""
+                SELECT {TRACK_COLUMNS}
+                FROM library_tracks
+                WHERE track_id IN ({placeholders})
+                """,
+                requested_ids,
+            )
+        )
+        tracks_by_id = {
+            track.track_id: track
+            for track in self._playlist_tracks_from_rows(connection, rows)
+            if track.track_id is not None
+        }
+        return tuple(
+            track
+            for track_id in requested_ids
+            if (track := tracks_by_id.get(track_id)) is not None
+        )
+
     def _playlist_tracks_from_rows(
         self,
         connection: Connection,
@@ -1422,6 +1640,21 @@ class LibraryQueries:
             )
         elif album_ids_with_cover is None:
             album_ids_with_cover = set()
+        album_art_track_ids = {}
+        if album_ids_with_cover:
+            placeholders = placeholders_for(album_ids_with_cover)
+            album_art_track_ids = {
+                str(row["album_id"]): int(row["art_track_id"])
+                for row in connection.execute(
+                    f"""
+                    SELECT album_id, art_track_id
+                    FROM library_albums
+                    WHERE album_id IN ({placeholders})
+                        AND art_track_id IS NOT NULL
+                    """,
+                    tuple(album_ids_with_cover),
+                )
+            }
         tracks: list[PlaylistTrack] = []
         for row in track_rows:
             track_id = int(row["track_id"])
@@ -1467,6 +1700,7 @@ class LibraryQueries:
                         track_id in track_ids_with_cover
                         or bool(album_id and album_id in album_ids_with_cover)
                     ),
+                    art_track_id=album_art_track_ids.get(album_id or ""),
                     starred_at=starred_at_by_track_path.get(str(row["path"])),
                     is_compilation=bool(row["is_compilation"]),
                     duration_seconds=row["duration_seconds"],
@@ -1627,6 +1861,179 @@ def album_order_by_clause(
             direction = "DESC" if direction == "ASC" else "ASC"
         parts.append(f"{column.expression} {direction}")
     return "ORDER BY " + ", ".join(parts)
+
+
+def search_entity_ids(
+    connection: Connection,
+    *,
+    entity_type: str,
+    query_text: str,
+    count: int,
+    offset: int,
+    root_position: int | None = None,
+) -> tuple[tuple[str, ...], bool]:
+    if count <= 0:
+        return (), False
+
+    groups = parse_album_search_query(query_text)
+    limit = count + 1
+    root_sql = " AND root_position = ?" if root_position is not None else ""
+    root_params: list[object] = [root_position] if root_position is not None else []
+    if not groups:
+        rows = list(
+            connection.execute(
+                f"""
+                WITH candidates AS (
+                    SELECT
+                        entity_id,
+                        MIN(CAST(sort_order AS INTEGER)) AS sort_order
+                    FROM library_search
+                    WHERE entity_type = ?{root_sql}
+                    GROUP BY entity_id
+                )
+                SELECT entity_id
+                FROM candidates
+                ORDER BY sort_order, entity_id COLLATE NOCASE
+                LIMIT ? OFFSET ?
+                """,
+                [entity_type, *root_params, limit, offset],
+            )
+        )
+    else:
+        where_sql, where_params = search_match_clause(
+            groups,
+            entity_type=entity_type,
+            root_position=root_position,
+        )
+        rank_sql, rank_params = search_rank_expression(
+            groups,
+            entity_type=entity_type,
+            root_position=root_position,
+        )
+        rows = list(
+            connection.execute(
+                f"""
+                WITH candidates AS (
+                    SELECT
+                        entity_id,
+                        MIN(CAST(sort_order AS INTEGER)) AS sort_order
+                    FROM library_search
+                    WHERE entity_type = ?{root_sql}
+                    GROUP BY entity_id
+                )
+                SELECT entity_id
+                FROM candidates
+                WHERE {where_sql}
+                ORDER BY {rank_sql}, sort_order, entity_id COLLATE NOCASE
+                LIMIT ? OFFSET ?
+                """,
+                [
+                    entity_type,
+                    *root_params,
+                    *where_params,
+                    *rank_params,
+                    limit,
+                    offset,
+                ],
+            )
+        )
+
+    has_next = len(rows) > count
+    return tuple(str(row["entity_id"]) for row in rows[:count]), has_next
+
+
+def search_match_clause(
+    groups: tuple[tuple[SearchFactor, ...], ...],
+    *,
+    entity_type: str,
+    root_position: int | None,
+) -> tuple[str, list[object]]:
+    group_clauses: list[str] = []
+    params: list[object] = []
+    for group in groups:
+        factor_clauses: list[str] = []
+        for factor in group:
+            clause, clause_params = search_factor_clause(
+                factor,
+                entity_type=entity_type,
+                root_position=root_position,
+            )
+            factor_clauses.append(clause)
+            params.extend(clause_params)
+        if factor_clauses:
+            group_clauses.append(
+                " AND ".join(f"({clause})" for clause in factor_clauses)
+            )
+    if not group_clauses:
+        return "1 = 1", []
+    return " OR ".join(f"({clause})" for clause in group_clauses), params
+
+
+def search_factor_clause(
+    factor: SearchFactor,
+    *,
+    entity_type: str,
+    root_position: int | None,
+) -> tuple[str, list[object]]:
+    root_sql = " AND root_position = ?" if root_position is not None else ""
+    clause = f"""
+        EXISTS (
+            SELECT 1
+            FROM library_search
+            WHERE entity_type = ?
+                AND entity_id = candidates.entity_id
+                {root_sql}
+                AND library_search MATCH ?
+        )
+    """
+    params: list[object] = [entity_type]
+    if root_position is not None:
+        params.append(root_position)
+    params.append(factor.match_query)
+    return (f"NOT {clause}" if factor.negated else clause), params
+
+
+def search_rank_expression(
+    groups: tuple[tuple[SearchFactor, ...], ...],
+    *,
+    entity_type: str,
+    root_position: int | None,
+) -> tuple[str, list[object]]:
+    expressions = tuple(
+        search_rank_match_query(group)
+        for group in groups
+        if search_rank_match_query(group)
+    )
+    if not expressions:
+        return "0", []
+
+    root_sql = " AND root_position = ?" if root_position is not None else ""
+    params: list[object] = []
+    score_parts: list[str] = []
+    for expression in expressions:
+        score_parts.append(
+            f"""
+            COALESCE((
+                SELECT MIN(rank)
+                FROM library_search
+                WHERE entity_type = ?
+                    AND entity_id = candidates.entity_id
+                    {root_sql}
+                    AND library_search MATCH ?
+            ), 1000000000.0)
+            """
+        )
+        params.append(entity_type)
+        if root_position is not None:
+            params.append(root_position)
+        params.append(expression)
+    if len(score_parts) == 1:
+        return score_parts[0], params
+    return f"MIN({', '.join(score_parts)})", params
+
+
+def search_rank_match_query(group: tuple[SearchFactor, ...]) -> str:
+    return " ".join(factor.match_query for factor in group if not factor.negated)
 
 
 def album_artists_by_album(

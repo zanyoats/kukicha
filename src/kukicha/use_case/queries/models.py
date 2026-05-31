@@ -123,6 +123,7 @@ class PlaylistTrack:
     genres: tuple[str, ...] = ()
     styles: tuple[str, ...] = ()
     has_cover: bool = False
+    art_track_id: int | None = None
     starred_at: str | None = None
     is_compilation: bool = False
     duration_seconds: float | None = None
@@ -237,6 +238,64 @@ class AlbumPage:
     offset: int
     has_next: bool = False
     has_previous: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class LibrarySearchQuery:
+    query: str = ""
+    artist_count: int = 20
+    artist_offset: int = 0
+    album_count: int = 20
+    album_offset: int = 0
+    song_count: int = 20
+    song_offset: int = 0
+    music_folder_id: int | None = None
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "query", str(self.query or "").strip())
+        object.__setattr__(self, "artist_count", normalized_count(self.artist_count))
+        object.__setattr__(self, "artist_offset", max(0, int(self.artist_offset)))
+        object.__setattr__(self, "album_count", normalized_count(self.album_count))
+        object.__setattr__(self, "album_offset", max(0, int(self.album_offset)))
+        object.__setattr__(self, "song_count", normalized_count(self.song_count))
+        object.__setattr__(self, "song_offset", max(0, int(self.song_offset)))
+        if self.music_folder_id is not None:
+            object.__setattr__(self, "music_folder_id", max(0, int(self.music_folder_id)))
+
+
+@dataclass(frozen=True, slots=True)
+class SearchArtistPage:
+    items: tuple[LibraryArtistSummary, ...]
+    count: int
+    offset: int
+    has_next: bool = False
+    has_previous: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class SearchAlbumPage:
+    items: tuple[AlbumSummary, ...]
+    count: int
+    offset: int
+    has_next: bool = False
+    has_previous: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class SearchSongPage:
+    items: tuple[PlaylistTrack, ...]
+    count: int
+    offset: int
+    has_next: bool = False
+    has_previous: bool = False
+
+
+@dataclass(frozen=True, slots=True)
+class LibrarySearchResults:
+    query: LibrarySearchQuery
+    artists: SearchArtistPage
+    albums: SearchAlbumPage
+    songs: SearchSongPage
 
 
 @dataclass(frozen=True, slots=True)
@@ -379,6 +438,10 @@ def normalized_search(value: str | None) -> str | None:
         return None
     normalized = value.strip()
     return normalized or None
+
+
+def normalized_count(value: object) -> int:
+    return min(500, max(0, int(value)))
 
 
 def normalized_int_tuple(values: Iterable[object]) -> tuple[int, ...]:

@@ -20,6 +20,15 @@ UNKNOWN_GENRE_TAG = UNKNOWN_METADATA_TAG
 ALBUM_SEARCH_METADATA_KEY = "album_search_index_version"
 ALBUM_SEARCH_INDEX_VERSION = "5"
 ALBUM_SEARCH_COLUMNS = {"album_id", "artist", "album"}
+LIBRARY_SEARCH_METADATA_KEY = "library_search_index_version"
+LIBRARY_SEARCH_INDEX_VERSION = "1"
+LIBRARY_SEARCH_COLUMNS = {
+    "entity_type",
+    "entity_id",
+    "root_position",
+    "sort_order",
+    "text",
+}
 ALBUM_ROLLUP_METADATA_KEY = "album_rollup_version"
 ALBUM_ROLLUP_COUNT_METADATA_KEY = "album_rollup_album_count"
 ALBUM_ROLLUP_VERSION = "3"
@@ -517,6 +526,15 @@ CREATE VIRTUAL TABLE IF NOT EXISTS library_album_search USING fts5(
     tokenize = 'unicode61'
 );
 
+CREATE VIRTUAL TABLE IF NOT EXISTS library_search USING fts5(
+    entity_type UNINDEXED,
+    entity_id UNINDEXED,
+    root_position UNINDEXED,
+    sort_order UNINDEXED,
+    text,
+    tokenize = 'unicode61'
+);
+
 CREATE TABLE IF NOT EXISTS musicbrainz_entity_cache (
     entity_type TEXT NOT NULL CHECK (entity_type IN ('release', 'release-group')),
     mbid TEXT NOT NULL,
@@ -594,8 +612,10 @@ def connect_database(
         migrate_album_musicbrainz_link_key_schema(connection)
         migrate_album_musicbrainz_schema(connection)
         migrate_album_search_schema(connection)
+        migrate_library_search_schema(connection)
         migrate_itunes_lookup_cache_schema(connection)
         ensure_album_search_index(connection)
+        ensure_library_search_index(connection)
         ensure_album_rollups(connection)
         ensure_root_scan_stats(connection)
         seed_runtime_taxonomy(connection)
@@ -1404,6 +1424,29 @@ def migrate_album_search_schema(connection: sqlite3.Connection) -> None:
     )
 
 
+def migrate_library_search_schema(connection: sqlite3.Connection) -> None:
+    columns = table_columns(connection, "library_search")
+    if columns == LIBRARY_SEARCH_COLUMNS:
+        return
+    connection.execute("DROP TABLE IF EXISTS library_search")
+    connection.execute(
+        """
+        CREATE VIRTUAL TABLE library_search USING fts5(
+            entity_type UNINDEXED,
+            entity_id UNINDEXED,
+            root_position UNINDEXED,
+            sort_order UNINDEXED,
+            text,
+            tokenize = 'unicode61'
+        )
+        """
+    )
+    connection.execute(
+        "DELETE FROM app_metadata WHERE key = ?",
+        (LIBRARY_SEARCH_METADATA_KEY,),
+    )
+
+
 def migrate_itunes_lookup_cache_schema(connection: sqlite3.Connection) -> None:
     columns = table_columns(connection, "itunes_lookup_image_cache")
     if not columns or "result_kind" in columns:
@@ -1673,6 +1716,100 @@ def rebuild_album_search_index(
         connection,
         ALBUM_SEARCH_METADATA_KEY,
         ALBUM_SEARCH_INDEX_VERSION,
+    )
+
+
+def ensure_library_search_index(connection: sqlite3.Connection) -> None:
+    search_version = get_metadata(connection, LIBRARY_SEARCH_METADATA_KEY)
+    if search_version != LIBRARY_SEARCH_INDEX_VERSION:
+        rebuild_library_search_index(connection)
+
+
+def rebuild_library_search_index(connection: sqlite3.Connection) -> None:
+    connection.execute("DELETE FROM library_search")
+    connection.execute(
+        """
+        WITH artist_roots AS (
+            SELECT
+                album_artists.artist,
+                tracks.root_position,
+                MIN((tracks.track_id * 1000) + album_artists.position) AS sort_order
+            FROM library_album_artists AS album_artists
+            JOIN library_tracks AS tracks
+                ON tracks.album_id = album_artists.album_id
+            WHERE COALESCE(album_artists.artist, '') != ''
+            GROUP BY album_artists.artist, tracks.root_position
+        )
+        INSERT INTO library_search (
+            entity_type,
+            entity_id,
+            root_position,
+            sort_order,
+            text
+        )
+        SELECT
+            'artist',
+            artist,
+            root_position,
+            sort_order,
+            artist
+        FROM artist_roots
+        ORDER BY sort_order, artist COLLATE NOCASE
+        """
+    )
+    connection.execute(
+        """
+        WITH album_roots AS (
+            SELECT
+                albums.album_id,
+                tracks.root_position,
+                MIN(tracks.track_id) AS sort_order,
+                albums.album
+            FROM library_albums AS albums
+            LEFT JOIN library_tracks AS tracks
+                ON tracks.album_id = albums.album_id
+            GROUP BY albums.album_id, tracks.root_position
+        )
+        INSERT INTO library_search (
+            entity_type,
+            entity_id,
+            root_position,
+            sort_order,
+            text
+        )
+        SELECT
+            'album',
+            album_id,
+            root_position,
+            COALESCE(sort_order, 0),
+            album
+        FROM album_roots
+        ORDER BY COALESCE(sort_order, 0), album_id
+        """
+    )
+    connection.execute(
+        """
+        INSERT INTO library_search (
+            entity_type,
+            entity_id,
+            root_position,
+            sort_order,
+            text
+        )
+        SELECT
+            'song',
+            CAST(track_id AS TEXT),
+            root_position,
+            track_id,
+            COALESCE(title, '')
+        FROM library_tracks
+        ORDER BY track_id
+        """
+    )
+    set_metadata(
+        connection,
+        LIBRARY_SEARCH_METADATA_KEY,
+        LIBRARY_SEARCH_INDEX_VERSION,
     )
 
 
@@ -2200,4 +2337,5 @@ def clear_library(connection: sqlite3.Connection) -> None:
     connection.execute("DELETE FROM library_tracks")
     connection.execute("DELETE FROM library_albums")
     connection.execute("DELETE FROM library_album_search")
+    connection.execute("DELETE FROM library_search")
     connection.execute("DELETE FROM library_roots")

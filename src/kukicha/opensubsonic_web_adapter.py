@@ -40,6 +40,7 @@ from .use_case import (
     GenreStyleFilter,
     LibraryArtistDetails,
     LibraryArtistSummary,
+    LibrarySearchQuery,
     LibraryGenre,
     LibraryQueries,
     PlaylistItemNotFoundError,
@@ -196,6 +197,7 @@ def open_subsonic_handlers() -> dict[str, Any]:
         "getgenres": handle_get_genres,
         "getartists": handle_get_artists,
         "getartist": handle_get_artist,
+        "search3": handle_search3,
         "getalbumlist2": handle_get_album_list2,
         "getalbum": handle_get_album,
         "getsong": handle_get_song,
@@ -410,6 +412,38 @@ def handle_get_artists(params: Mapping[str, list[str]]) -> dict[str, object]:
 def handle_get_artist(params: Mapping[str, list[str]]) -> dict[str, object]:
     artist = require_param(params, "id")
     return {"artist": artist_payload(open_subsonic_context().database, artist)}
+
+
+def handle_search3(params: Mapping[str, list[str]]) -> dict[str, object]:
+    query = LibrarySearchQuery(
+        query=first_param(params, "query") or "",
+        artist_count=int_param(params, "artistCount", default=20, minimum=0, maximum=500),
+        artist_offset=int_param(params, "artistOffset", default=0, minimum=0),
+        album_count=int_param(params, "albumCount", default=20, minimum=0, maximum=500),
+        album_offset=int_param(params, "albumOffset", default=0, minimum=0),
+        song_count=int_param(params, "songCount", default=20, minimum=0, maximum=500),
+        song_offset=int_param(params, "songOffset", default=0, minimum=0),
+        music_folder_id=optional_int_param(params, "musicFolderId"),
+    )
+    database = open_subsonic_context().database
+    results = LibraryQueries(database).search(query)
+    starred_at_by_artist = artist_starred_at_by_artist(
+        database,
+        (artist.artist for artist in results.artists.items),
+    )
+    return {
+        "searchResult3": {
+            "artist": [
+                artist_summary_payload(
+                    artist,
+                    starred_at=starred_at_by_artist.get(artist.artist.casefold()),
+                )
+                for artist in results.artists.items
+            ],
+            "album": album_list2_payloads(results.albums.items),
+            "song": [song_payload(track) for track in results.songs.items],
+        }
+    }
 
 
 def handle_get_album_list2(params: Mapping[str, list[str]]) -> dict[str, object]:

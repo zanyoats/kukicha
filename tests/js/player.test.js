@@ -8,6 +8,7 @@ const playerScript = fs.readFileSync(
   path.join(__dirname, "..", "..", "src", "kukicha", "static", "player.js"),
   "utf8"
 );
+const trackRowSelector = "tr[data-track-id], .home-list-row[data-track-id]";
 
 class TestClassList {
   constructor(element) {
@@ -80,6 +81,7 @@ class TestElement {
     this.title = "";
     this.loading = "";
     this.open = false;
+    this.scrollIntoViewOptions = null;
     this.queryResults = new Map();
     this.parentNode = null;
   }
@@ -224,7 +226,9 @@ class TestElement {
     return false;
   }
 
-  scrollIntoView() {}
+  scrollIntoView(options) {
+    this.scrollIntoViewOptions = options || {};
+  }
 
   getBoundingClientRect() {
     return {top: 0};
@@ -661,6 +665,7 @@ function createHarness(initialQueueState, options = {}) {
   document.setQueryResult("[data-pause-icon]", new TestElement("svg"));
 
   const fetchCalls = [];
+  const scrollToCalls = [];
   const history = {
     state: {},
     scrollRestoration: "auto",
@@ -693,7 +698,9 @@ function createHarness(initialQueueState, options = {}) {
     cancelAnimationFrame: (id) => {
       animationCallbacks.delete(id);
     },
-    scrollTo() {},
+    scrollTo: (...args) => {
+      scrollToCalls.push(args);
+    },
     scrollBy() {},
     URL: HarnessURL,
   };
@@ -800,6 +807,7 @@ function createHarness(initialQueueState, options = {}) {
     playButton: elements.play,
     previousButton: elements.previous,
     revokedObjectUrls,
+    scrollToCalls,
     resolveAudioBuffer(url) {
       const deferred = deferredAudioBuffers.get(String(url));
       if (deferred) {
@@ -1100,6 +1108,258 @@ test("album filter form urls add genre search and sort params to current params"
   assert.equal(sortUrl.searchParams.get("artist"), "Amon Tobin");
   assert.equal(sortUrl.searchParams.get("search"), "out from");
   assert.equal(sortUrl.searchParams.has("sort"), false);
+});
+
+test("search form submit navigates by fragment", async () => {
+  const harness = createHarness({
+    track_ids: [],
+    position: 0,
+    loaded_track_id: null,
+    paused: true,
+    errored_track_ids: [],
+    unavailable_track_ids: [],
+  });
+  const document = harness.document;
+  const form = document.createElement("form");
+  form.action = "/search";
+  form.dataset.searchForm = "";
+  form.closest = (selector) => (
+    selector === "form[data-search-form]" ? form : null
+  );
+  form.append(
+    testInput(document, {name: "query", value: "amber"}),
+    testInput(document, {type: "hidden", name: "albumCount", value: "20"})
+  );
+  let prevented = false;
+
+  for (const listener of document.listeners.get("submit") || []) {
+    listener({
+      target: form,
+      preventDefault() {
+        prevented = true;
+      },
+    });
+  }
+  await harness.flush();
+
+  assert.equal(prevented, true);
+  assert.equal(String(harness.fetchCalls[0].url), "http://localhost/search?query=amber&albumCount=20");
+  assert.equal(harness.fetchCalls[0].request.headers["X-Kukicha-Fragment"], "1");
+  assert.equal(harness.context.window.location.href, "http://localhost/queue");
+});
+
+test("preserve scroll navigation links do not scroll after fragment render", async () => {
+  const pageUrl = "http://localhost/search?query=amber&albumOffset=20";
+  const harness = createHarness(
+    {
+      track_ids: [],
+      position: 0,
+      loaded_track_id: null,
+      paused: true,
+      errored_track_ids: [],
+      unavailable_track_ids: [],
+    },
+    {
+      fetchResponses: {
+        [pageUrl]: {
+          text: '<div class="view-page search-page" data-page="search"></div>',
+        },
+      },
+    }
+  );
+  const link = harness.document.createElement("a");
+  link.href = pageUrl;
+  link.setAttribute("href", pageUrl);
+  link.setAttribute("data-preserve-scroll", "");
+  link.closest = (selector) => (
+    selector === "a[data-nav]" ? link : null
+  );
+  harness.context.window.scrollY = 320;
+  let prevented = false;
+
+  harness.document.listeners.get("click")[0]({
+    target: link,
+    preventDefault() {
+      prevented = true;
+    },
+  });
+  await harness.flush();
+
+  assert.equal(prevented, true);
+  assert.equal(String(harness.fetchCalls[0].url), pageUrl);
+  assert.deepEqual(harness.scrollToCalls, []);
+  assert.equal(harness.context.history.state.kukichaScrollY, 320);
+});
+
+test("selected track url scrolls selected album row into view", () => {
+  const harness = createHarness({
+    track_ids: [],
+    position: 0,
+    loaded_track_id: null,
+    paused: true,
+    errored_track_ids: [],
+    unavailable_track_ids: [],
+  });
+  const row = harness.document.createElement("tr");
+  row.dataset.trackId = "7";
+  row.dataset.selectedTrack = "";
+  harness.view.setQueryResult(trackRowSelector, [row]);
+
+  assert.equal(
+    harness.context.scrollToSelectedTrack("http://localhost/albums/album?selectedTrackId=7"),
+    true
+  );
+  assert.equal(row.scrollIntoViewOptions.block, "center");
+});
+
+test("search result track rows play from div rows", async () => {
+  const harness = createHarness({
+    track_ids: [],
+    position: 0,
+    loaded_track_id: null,
+    paused: true,
+    errored_track_ids: [],
+    unavailable_track_ids: [],
+  });
+  const document = harness.document;
+  const firstRow = document.createElement("div");
+  firstRow.dataset.trackId = "7";
+  firstRow.dataset.playScope = "single";
+  firstRow.dataset.audioUrl = "/audio/7";
+  firstRow.dataset.title = "First";
+  const secondRow = document.createElement("div");
+  secondRow.dataset.trackId = "8";
+  secondRow.dataset.playScope = "single";
+  secondRow.dataset.audioUrl = "/audio/8";
+  secondRow.dataset.title = "Second";
+  document.setQueryResult(trackRowSelector, [firstRow, secondRow]);
+  harness.view.setQueryResult(trackRowSelector, [firstRow, secondRow]);
+
+  harness.context.playFromRow(firstRow);
+  await harness.flush();
+
+  const queueCall = harness.fetchCalls.find((call) => call.url === "/api/queue");
+  assert.deepEqual(queueCall.body.track_ids, [7]);
+  assert.equal(queueCall.body.loaded_track_id, 7);
+  assert.equal(queueCall.body.paused, false);
+});
+
+test("album track play ignores nested controls with track ids", async () => {
+  const harness = createHarness({
+    track_ids: [],
+    position: 0,
+    loaded_track_id: null,
+    paused: true,
+    errored_track_ids: [],
+    unavailable_track_ids: [],
+  });
+  const document = harness.document;
+  const firstRow = document.createElement("tr");
+  firstRow.dataset.trackId = "1";
+  firstRow.dataset.audioUrl = "/audio/1";
+  firstRow.dataset.title = "First";
+  const secondRow = document.createElement("tr");
+  secondRow.dataset.trackId = "2";
+  secondRow.dataset.audioUrl = "/audio/2";
+  secondRow.dataset.title = "Second";
+  const firstToggle = document.createElement("input");
+  firstToggle.dataset.trackId = "1";
+  const firstCreateForm = document.createElement("form");
+  firstCreateForm.dataset.trackId = "1";
+  const secondToggle = document.createElement("input");
+  secondToggle.dataset.trackId = "2";
+  const secondCreateForm = document.createElement("form");
+  secondCreateForm.dataset.trackId = "2";
+  const broadTrackIdElements = [
+    firstRow,
+    firstToggle,
+    firstCreateForm,
+    secondRow,
+    secondToggle,
+    secondCreateForm,
+  ];
+  document.setQueryResult("[data-track-id]", broadTrackIdElements);
+  harness.view.setQueryResult("[data-track-id]", broadTrackIdElements);
+  document.setQueryResult(trackRowSelector, [firstRow, secondRow]);
+  harness.view.setQueryResult(trackRowSelector, [firstRow, secondRow]);
+
+  harness.context.playFromRow(firstRow);
+  await harness.flush();
+
+  const queueCall = harness.fetchCalls.find((call) => call.url === "/api/queue");
+  assert.deepEqual(queueCall.body.track_ids, [1, 2]);
+  assert.equal(queueCall.body.loaded_track_id, 1);
+  assert.equal(queueCall.body.paused, false);
+});
+
+test("album track play highlights table row before queue request resolves", async () => {
+  const harness = createHarness({
+    track_ids: [1],
+    position: 0,
+    loaded_track_id: 1,
+    paused: false,
+    errored_track_ids: [],
+    unavailable_track_ids: [],
+  });
+  const document = harness.document;
+  const firstRow = document.createElement("tr");
+  firstRow.dataset.trackId = "1";
+  firstRow.dataset.audioUrl = "/audio/1";
+  firstRow.dataset.title = "First";
+  const secondRow = document.createElement("tr");
+  secondRow.dataset.trackId = "2";
+  secondRow.dataset.audioUrl = "/audio/2";
+  secondRow.dataset.title = "Second";
+  document.setQueryResult("tr[data-track-id]", [firstRow, secondRow]);
+  document.setQueryResult(trackRowSelector, [firstRow, secondRow]);
+  harness.view.setQueryResult(trackRowSelector, [firstRow, secondRow]);
+  harness.context.updatePlaybackUi();
+
+  assert.equal(firstRow.classList.contains("current"), true);
+  assert.equal(secondRow.classList.contains("current"), false);
+
+  harness.context.playFromRow(secondRow);
+
+  assert.equal(firstRow.classList.contains("current"), false);
+  assert.equal(secondRow.classList.contains("current"), true);
+
+  await harness.flush();
+});
+
+test("queue track play highlights table row before audio starts", async () => {
+  const harness = createHarness({
+    track_ids: [1, 2],
+    position: 0,
+    loaded_track_id: 1,
+    paused: false,
+    errored_track_ids: [],
+    unavailable_track_ids: [],
+  });
+  const document = harness.document;
+  const firstRow = document.createElement("tr");
+  firstRow.dataset.trackId = "1";
+  firstRow.dataset.queuePosition = "0";
+  firstRow.dataset.audioUrl = "/audio/1";
+  firstRow.dataset.title = "First";
+  const secondRow = document.createElement("tr");
+  secondRow.dataset.trackId = "2";
+  secondRow.dataset.queuePosition = "1";
+  secondRow.dataset.audioUrl = "/audio/2";
+  secondRow.dataset.title = "Second";
+  document.setQueryResult("tr[data-track-id]", [firstRow, secondRow]);
+  document.setQueryResult(trackRowSelector, [firstRow, secondRow]);
+  harness.view.setQueryResult(trackRowSelector, [firstRow, secondRow]);
+  harness.context.updatePlaybackUi();
+
+  assert.equal(firstRow.classList.contains("current"), true);
+  assert.equal(secondRow.classList.contains("current"), false);
+
+  harness.context.playFromRow(secondRow);
+
+  assert.equal(firstRow.classList.contains("current"), false);
+  assert.equal(secondRow.classList.contains("current"), true);
+
+  await harness.flush();
 });
 
 test("compact count formatting matches count label rules", () => {

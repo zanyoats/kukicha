@@ -99,6 +99,7 @@
 {% set show_track_artist = show_track_artist|default(false) %}
 {% set show_track_play_button = show_track_play_button|default(true) %}
 {% set show_playlist_track_menu = show_playlist_track_menu|default(true) %}
+{% set selected_track_id = selected_track_id|default(none) %}
 {% set column_count = (7 if show_track_artist else 6) if is_queue else (6 if show_track_artist else 5) %}
 
 <div class="table-wrap">
@@ -159,6 +160,7 @@
         {% else %}
           {% set track = row.track %}
           <tr
+            {% if selected_track_id == track.track_id %}class="selected" data-selected-track{% endif %}
             data-track-id="{{ track.track_id }}"
             data-library-track-id="{{ track.library_track_id if track.library_track_id is not none else '' }}"
             data-album-id="{{ track.album_id }}"

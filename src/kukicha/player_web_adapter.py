@@ -90,6 +90,7 @@ from .player_views import (
     build_playlist_index_context,
     build_queue_context,
     build_roots_page_context,
+    build_search_context,
     build_simple_page_context,
     playlist_playback_payload,
 )
@@ -240,6 +241,11 @@ def create_player_app(options: PlayerServerOptions) -> Flask:
     def index() -> Response:
         reset_playback_for_document_load()
         return rendered_response(build_index_context(player_context().runtime, query_string()))
+
+    @app.get("/search")
+    def search_page() -> Response:
+        reset_playback_for_document_load()
+        return rendered_response(build_search_context(player_context().runtime, query_string()))
 
     @app.get("/api/jobs/events")
     def job_events() -> Response:

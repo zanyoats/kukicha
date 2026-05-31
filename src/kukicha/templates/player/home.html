@@ -1,8 +1,20 @@
-{% from "player/_icons.html" import pause_icon, play_icon, queue_add_icon %}
+{% from "player/_icons.html" import pause_icon, play_icon, queue_add_icon, search_icon %}
 
 <div class="view-page home-page" data-page="{{ page_key }}">
   <header class="view-header home-header">
     {% include "player/_page_title.html" %}
+    <form class="home-search-form" action="/search" method="get" data-search-form>
+      <div class="search-submit-group">
+        <label class="search-field">
+          <span class="visually-hidden">Search</span>
+          <input type="search" name="query" value="" placeholder="Search library"
+            autocomplete="off" spellcheck="false" data-initial-focus>
+        </label>
+        <button class="search-button" type="submit" aria-label="Search" title="Search">
+          {{ search_icon("search-submit-icon") }}
+        </button>
+      </div>
+    </form>
   </header>
 
   {% if show_history_empty %}
@@ -219,7 +231,7 @@
           </div>
           <div class="home-list">
             {% for track in dashboard.recent_tracks %}
-              <a class="home-list-row home-track-row" href="{% if track.album_id %}/albums/{{ track.album_id }}{% else %}/albums{% endif %}" data-nav>
+              <a class="home-list-row home-track-row" href="{% if track.album_id and track.track_id %}/albums/{{ track.album_id }}?selectedTrackId={{ track.track_id }}{% elif track.album_id %}/albums/{{ track.album_id }}{% else %}/albums{% endif %}" data-nav>
                 {% if track.art_track_id %}
                   <img class="home-track-cover" src="/art/250/{{ track.art_track_id }}" alt="" loading="lazy">
                 {% else %}

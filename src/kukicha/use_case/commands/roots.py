@@ -14,6 +14,7 @@ from ..database import (
     canonicalize_library_album_artists,
     connect_database,
     rebuild_album_rollups,
+    rebuild_library_search_index,
     utc_now_iso,
 )
 from ...discogs import (
@@ -639,6 +640,7 @@ def reconcile_library_albums(
     if not surviving_album_ids:
         canonicalize_library_album_artists(connection)
         rebuild_album_rollups(connection, affected_album_ids)
+        rebuild_library_search_index(connection)
         return
 
     rows_by_album: dict[str, list[sqlite3.Row]] = {}
@@ -707,3 +709,4 @@ def reconcile_library_albums(
             )
     canonicalize_library_album_artists(connection)
     rebuild_album_rollups(connection, affected_album_ids)
+    rebuild_library_search_index(connection)

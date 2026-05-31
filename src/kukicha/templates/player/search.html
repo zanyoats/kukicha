@@ -1,0 +1,163 @@
+{% from "player/_icons.html" import play_icon, queue_add_icon, search_icon %}
+
+<div class="view-page search-page" data-page="{{ page_key }}">
+  <header class="view-header">
+    <div class="view-title-group">
+      <div class="page-title-row">
+        <a class="back-link" href="{{ search_back_url }}" data-history-back data-nav>&larr; back</a>
+      </div>
+      {% if count_text %}
+        <div class="count">{{ count_text }}</div>
+      {% endif %}
+    </div>
+    <form class="search-page-form" action="/search" method="get" data-search-form>
+      {% if query.music_folder_id is not none %}
+        <input type="hidden" name="musicFolderId" value="{{ query.music_folder_id }}">
+      {% endif %}
+      <input type="hidden" name="artistCount" value="{{ query.artist_count }}">
+      <input type="hidden" name="albumCount" value="{{ query.album_count }}">
+      <input type="hidden" name="songCount" value="{{ query.song_count }}">
+      <div class="search-submit-group">
+        <label class="search-field">
+          <span class="visually-hidden">Search</span>
+          <input type="search" name="query" value="{{ query.query }}"
+            placeholder="Search library" autocomplete="off" spellcheck="false"
+            data-initial-focus>
+        </label>
+        <button class="search-button" type="submit" aria-label="Search" title="Search">
+          {{ search_icon("search-submit-icon") }}
+        </button>
+      </div>
+    </form>
+  </header>
+
+  <section class="search-section" aria-labelledby="search-artists-title">
+    <div class="home-section-heading">
+      <h2 id="search-artists-title">Artists</h2>
+      {% if artist_previous_url or artist_next_url %}
+        <nav class="search-section-pagination" aria-label="Artist result pages">
+          {% if artist_previous_url %}<a href="{{ artist_previous_url }}" data-nav data-preserve-scroll>Previous</a>{% endif %}
+          {% if artist_next_url %}<a href="{{ artist_next_url }}" data-nav data-preserve-scroll>Next</a>{% endif %}
+        </nav>
+      {% endif %}
+    </div>
+    {% if artist_results %}
+      <div class="home-chip-list">
+        {% for item in artist_results %}
+          <a class="home-chip" href="{{ item.url }}" data-nav>
+            <span>{{ item.artist.artist }}</span>
+            <small>{{ item.artist.album_count }} album{% if item.artist.album_count != 1 %}s{% endif %}</small>
+          </a>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="empty">No artists found.</div>
+    {% endif %}
+  </section>
+
+  <section class="search-section" aria-labelledby="search-albums-title">
+    <div class="home-section-heading">
+      <h2 id="search-albums-title">Albums</h2>
+      {% if album_previous_url or album_next_url %}
+        <nav class="search-section-pagination" aria-label="Album result pages">
+          {% if album_previous_url %}<a href="{{ album_previous_url }}" data-nav data-preserve-scroll>Previous</a>{% endif %}
+          {% if album_next_url %}<a href="{{ album_next_url }}" data-nav data-preserve-scroll>Next</a>{% endif %}
+        </nav>
+      {% endif %}
+    </div>
+    {% if search_results.albums.items %}
+      <div class="home-list search-album-list">
+        {% for album in search_results.albums.items %}
+          <div class="home-list-row home-track-row search-result-row search-album-row"
+            data-album-playback-source data-album-id="{{ album.album_id }}">
+            <div class="album-cover-wrap search-result-cover-wrap">
+              <a class="album-card-cover search-result-cover-link" href="{{ album|album_url }}" data-nav data-album-nav>
+                {% set art_url = album|album_art_url %}
+                {% if art_url %}
+                  <img class="home-track-cover" src="{{ art_url }}" alt="" loading="lazy">
+                {% else %}
+                  <span class="home-track-cover album-cover-placeholder" aria-hidden="true"></span>
+                {% endif %}
+              </a>
+              {% if album.track_count %}
+                <div class="album-cover-actions">
+                  <button class="album-cover-action play-icon-button" type="button" data-play-album
+                    aria-label="Play {{ album.artist }} - {{ album.album|display_album_title }}"
+                    title="Play">{{ play_icon() }}</button>
+                  <button class="album-cover-action queue-icon-button" type="button" data-queue-album data-queue-append
+                    aria-label="Add {{ album.artist }} - {{ album.album|display_album_title }} to the queue"
+                  title="Add to queue">{{ queue_add_icon() }}</button>
+                </div>
+              {% endif %}
+            </div>
+            <a class="home-track-copy" href="{{ album|album_url }}" data-nav data-album-nav>
+              <span class="home-track-title" title="{{ album.album|display_album_title }}">{{ album.album|display_album_title }}</span>
+              <small>{{ album.artist }}{% if album.year %} - {{ album.year }}{% endif %}</small>
+            </a>
+          </div>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="empty">No albums found.</div>
+    {% endif %}
+  </section>
+
+  <section class="search-section" aria-labelledby="search-tracks-title">
+    <div class="home-section-heading">
+      <h2 id="search-tracks-title">Tracks</h2>
+      {% if song_previous_url or song_next_url %}
+        <nav class="search-section-pagination" aria-label="Track result pages">
+          {% if song_previous_url %}<a href="{{ song_previous_url }}" data-nav data-preserve-scroll>Previous</a>{% endif %}
+          {% if song_next_url %}<a href="{{ song_next_url }}" data-nav data-preserve-scroll>Next</a>{% endif %}
+        </nav>
+      {% endif %}
+    </div>
+    {% if track_views %}
+      <div class="home-list search-track-list">
+        {% for track in track_views %}
+          {% set selected_track_album_url = "/albums/" ~ track.album_id ~ "?selectedTrackId=" ~ track.track_id %}
+          <div class="home-list-row home-track-row search-result-row search-track-row"
+            data-track-id="{{ track.track_id }}"
+            data-play-scope="single"
+            data-library-track-id="{{ track.library_track_id if track.library_track_id is not none else '' }}"
+            data-album-id="{{ track.album_id }}"
+            data-audio-url="{{ track.audio_url }}"
+            data-art-url="{{ track.art_url }}"
+            data-title="{{ track.display_title }}"
+            data-album-artist="{{ track.album_artist }}"
+            data-album-artists="{{ track.album_artists|tojson|forceescape }}"
+            data-album="{{ track.display_album }}"
+            data-duration-seconds="{{ track.duration_seconds if track.duration_seconds is not none else '' }}"
+            data-duration-is-indeterminate="{{ '1' if track.duration_is_indeterminate else '' }}"
+            data-file-type="{{ track.file_type }}"
+            data-audio-mime-type="{{ track.audio_mime_type }}"
+            data-audio-codec="{{ track.audio_codec }}"
+            data-unsupported="{{ track.audio_unsupported_reason }}">
+            <div class="album-cover-wrap search-result-cover-wrap search-track-cover-wrap">
+              <a class="album-card-cover search-result-cover-link search-track-cover-link" href="{{ selected_track_album_url }}" data-nav>
+                {% if track.art_track_id %}
+                  <img class="home-track-cover" src="{{ track.album_art_url }}" alt="" loading="lazy">
+                {% else %}
+                  <span class="home-track-cover album-cover-placeholder" aria-hidden="true"></span>
+                {% endif %}
+              </a>
+              <div class="album-cover-actions">
+                <button class="album-cover-action play-icon-button" type="button" data-play-track="{{ track.track_id }}"
+                  aria-label="Play {{ track.display_title }}" title="Play">{{ play_icon() }}</button>
+                <button class="album-cover-action queue-icon-button" type="button" data-queue-track data-queue-append
+                  aria-label="Add {{ track.display_title }} to the queue"
+                  title="Add to queue">{{ queue_add_icon() }}</button>
+              </div>
+            </div>
+            <a class="home-track-copy" href="{{ selected_track_album_url }}" data-nav>
+              <span class="home-track-title">{{ track.display_title }}</span>
+              <small>{{ track.album_artist }}{% if track.display_album %} - {{ track.display_album }}{% endif %}</small>
+            </a>
+          </div>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="empty">No tracks found.</div>
+    {% endif %}
+  </section>
+</div>

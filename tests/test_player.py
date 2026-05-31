@@ -41,6 +41,7 @@ from kukicha.use_case import (
     LibraryFilterOptions,
     LibraryQueries,
     LibraryRootFilterOption,
+    LibrarySearchQuery,
     NATIVE_PLAYBACK_SOURCE,
     PlaylistDetails,
     PlaylistItem,
@@ -137,6 +138,7 @@ from kukicha.player_navigation import (
     player_page_heading,
     player_page_menu_items,
     playlist_index_url,
+    search_url,
 )
 from kukicha.use_case import album_list_query_from_params
 from kukicha.scanner import ARTWORK_IMAGE_EXTENSIONS, SUPPORTED_EXTENSIONS
@@ -2966,6 +2968,7 @@ class PlayerPageMenuTest(unittest.TestCase):
             [item.title for item in items if item.current],
             ["Jobs"],
         )
+        self.assertNotIn("Search", [item.title for item in items])
 
     def test_player_page_menu_template_groups_library_and_settings_links(self) -> None:
         template = build_template_environment().get_template("player/_page_title.html")
@@ -2990,6 +2993,7 @@ class PlayerPageMenuTest(unittest.TestCase):
         self.assertLess(html.index("MusicBrainz Overrides"), html.index("Listening Data"))
         self.assertLess(html.index("Listening Data"), html.index("Cache"))
         self.assertIn("data-open-keyboard-shortcuts", html)
+        self.assertNotIn('href="/search"', html)
         self.assertLess(html.index("Jobs"), html.index("Keyboard Shortcuts"))
         self.assertLess(html.index("Keyboard Shortcuts"), html.index("Help"))
 
@@ -3224,6 +3228,31 @@ class PlayerGenreFilterQueryParamsTest(unittest.TestCase):
             ),
             "/playlists",
         )
+
+    def test_search_url_preserves_unmodified_offsets(self) -> None:
+        query = LibrarySearchQuery(
+            query="",
+            artist_count=20,
+            artist_offset=0,
+            album_count=20,
+            album_offset=20,
+            song_count=20,
+            song_offset=0,
+        )
+
+        self.assertEqual(
+            search_url(query, album_offset=40),
+            "/search?query=&artistCount=20&artistOffset=0"
+            "&albumCount=20&albumOffset=40&songCount=20&songOffset=0",
+        )
+        self.assertEqual(
+            search_url(query, song_offset=20),
+            "/search?query=&artistCount=20&artistOffset=0"
+            "&albumCount=20&albumOffset=20&songCount=20&songOffset=20",
+        )
+        self.assertNotIn("object", search_url(query, artist_offset=20))
+        self.assertNotIn("object", search_url(query, album_offset=40))
+        self.assertNotIn("object", search_url(query, song_offset=20))
 
 
 class PlayerAlbumDetailLinksTest(unittest.TestCase):
@@ -4558,6 +4587,108 @@ class PlayerWebAdapterTest(unittest.TestCase):
         self.assertNotIn(b"Archive Album 07", response.data)
         self.assertNotIn(b"Archive Album 00", response.data)
 
+    def test_search_page_renders_entity_sections_and_home_search_form(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            database = temp_path / "kukicha.sqlite"
+            save_library(
+                MusicLibrary(
+                    roots=["/music"],
+                    tracks=[
+                        TrackRecord(
+                            path="/music/Jim Hall/Undercurrent/01.flac",
+                            root_position=0,
+                            file_type="flac",
+                            artist="Jim Hall",
+                            album_artist="Jim Hall & Bill Evans",
+                            album="Undercurrent",
+                            title="My Funny Valentine",
+                        ),
+                        TrackRecord(
+                            path="/music/Alice Coltrane/Journey/01.flac",
+                            root_position=0,
+                            file_type="flac",
+                            artist="Alice Coltrane",
+                            album_artist="Alice Coltrane",
+                            album="Journey in Satchidananda",
+                            title="Journey in Satchidananda",
+                        ),
+                    ],
+                    supported_extensions=[".flac"],
+                    generated_at="test",
+                ),
+                database,
+            )
+            with connect_database(database, create=False) as connection:
+                album_id = str(
+                    connection.execute(
+                        "SELECT album_id FROM library_albums WHERE album = ?",
+                        ("Undercurrent",),
+                    ).fetchone()["album_id"]
+                )
+            app = create_player_app(self.make_options(temp_path))
+            client = app.test_client()
+
+            home_response = client.get("/")
+            search_response = client.get(
+                "/search?query=Bill&artistCount=10&albumCount=10&songCount=10"
+            )
+            album_search_response = client.get(
+                "/search?query=Undercurrent&artistCount=0&albumCount=10&songCount=0"
+            )
+            track_search_response = client.get(
+                "/search?query=Funny&artistCount=0&albumCount=0&songCount=10"
+            )
+            selected_album_response = client.get(
+                f"/albums/{album_id}?selectedTrackId=1"
+            )
+            paginated_search_response = client.get(
+                "/search?query=&artistCount=1&albumCount=1&songCount=1"
+            )
+            album_paginated_search_response = client.get(
+                "/search?query=&artistCount=1&albumCount=1&albumOffset=1&songCount=1"
+            )
+
+        self.assertIn(b'action="/search"', home_response.data)
+        self.assertIn(b"data-search-form", home_response.data)
+        self.assertIn(b'name="query"', home_response.data)
+        self.assertIn(b"data-search-form", search_response.data)
+        self.assertIn(
+            b'<a class="back-link" href="/" data-history-back data-nav>&larr; back</a>',
+            search_response.data,
+        )
+        self.assertNotIn(b'filter-menu page-menu', search_response.data)
+        self.assertIn(b"<h2", search_response.data)
+        self.assertIn(b"Artists", search_response.data)
+        self.assertIn(b"Albums", search_response.data)
+        self.assertIn(b"Tracks", search_response.data)
+        self.assertIn(b"Bill Evans", search_response.data)
+        self.assertIn(b"No albums found.", search_response.data)
+        self.assertIn(b"No tracks found.", search_response.data)
+        self.assertIn(b"search-album-row", album_search_response.data)
+        self.assertIn(b"search-result-row", album_search_response.data)
+        self.assertIn(b"search-result-cover-wrap", album_search_response.data)
+        self.assertIn(b"data-album-playback-source", album_search_response.data)
+        self.assertNotIn(b"home-card-grid", album_search_response.data)
+        self.assertIn(b"?selectedTrackId=1", track_search_response.data)
+        self.assertIn(
+            b'<span class="home-track-cover album-cover-placeholder"',
+            track_search_response.data,
+        )
+        self.assertNotIn(
+            b'<img class="home-track-cover" src="/art/250/1"',
+            track_search_response.data,
+        )
+        self.assertIn(b'class="selected" data-selected-track', selected_album_response.data)
+        self.assertIn(b'data-track-id="1"', selected_album_response.data)
+        self.assertIn(b"data-preserve-scroll", paginated_search_response.data)
+        self.assertIn(
+            b"href=\"/search?query=&amp;artistCount=1&amp;artistOffset=0"
+            b"&amp;albumCount=1&amp;albumOffset=1"
+            b"&amp;songCount=1&amp;songOffset=1\"",
+            album_paginated_search_response.data,
+        )
+
     def test_home_shows_recently_favorited_albums_below_recently_added(self) -> None:
         with TemporaryDirectory() as tempdir:
             temp_path = Path(tempdir)
@@ -5187,6 +5318,10 @@ class PlayerWebAdapterTest(unittest.TestCase):
             track_section,
         )
         self.assertNotIn("play - 2026-05-11", track_section)
+        self.assertIn(
+            f'href="/albums/{dashboard.recent_tracks[0].album_id}?selectedTrackId={dashboard.recent_tracks[0].track_id}" data-nav',
+            track_section,
+        )
         self.assertIn('class="home-track-cover album-cover-placeholder"', track_section)
         self.assertNotIn(f'src="/art/250/{tracks[-1].track_id}"', track_section)
 

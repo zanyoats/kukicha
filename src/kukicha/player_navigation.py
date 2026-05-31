@@ -21,8 +21,9 @@ from .use_case import (
     GenreStyleFilter,
     LibraryAlbumArtistStats,
     LibraryFilterOptions,
+    LibrarySearchQuery,
 )
-from .use_case import album_query_params
+from .use_case import album_query_params, library_search_query_params
 from .models import ALBUM_ARTWORK_HEIGHT
 from .player_common import format_count_label
 from .playlist_art import playlist_cover_data_url, playlist_cover_svg
@@ -40,6 +41,7 @@ ALBUM_SORT_OPTIONS = (
 )
 PLAYER_PAGE_LINKS = (
     ("home", "Home", "/"),
+    ("search", "Search", "/search"),
     ("library", "Albums", "/albums"),
     ("artists", "Artists", "/artists"),
     ("playlists", "Playlists", "/playlists"),
@@ -152,6 +154,31 @@ def album_index_url(
 
 def playlist_index_url(_query: AlbumListQuery, *, offset: int | None = None) -> str:
     return "/playlists"
+
+
+def search_url(
+    query: LibrarySearchQuery,
+    *,
+    artist_offset: int | None | object = _URL_OFFSET_UNSET,
+    album_offset: int | None | object = _URL_OFFSET_UNSET,
+    song_offset: int | None | object = _URL_OFFSET_UNSET,
+) -> str:
+    offset_overrides = {}
+    if artist_offset is not _URL_OFFSET_UNSET:
+        offset_overrides["artist_offset"] = artist_offset
+    if album_offset is not _URL_OFFSET_UNSET:
+        offset_overrides["album_offset"] = album_offset
+    if song_offset is not _URL_OFFSET_UNSET:
+        offset_overrides["song_offset"] = song_offset
+    encoded = urlencode(
+        library_search_query_params(
+            query,
+            **offset_overrides,
+        ),
+        doseq=True,
+    )
+    return f"/search?{encoded}"
+
 
 def artist_cloud_links(
     stats: Iterable[LibraryAlbumArtistStats],

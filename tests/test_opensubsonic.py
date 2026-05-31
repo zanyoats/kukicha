@@ -120,6 +120,54 @@ class OpenSubsonicWebAdapterTest(unittest.TestCase):
         )
         return first, second
 
+    def save_search_library(self, temp_path: Path) -> None:
+        root = temp_path / "music"
+        paths = [
+            root / "Jim Hall" / "Undercurrent" / "01.flac",
+            root / "Alice Coltrane" / "Journey" / "01.flac",
+            root / "Bill Evans" / "Moon Beams" / "01.flac",
+        ]
+        for path in paths:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(b"track")
+        save_library(
+            MusicLibrary(
+                roots=[str(root)],
+                tracks=[
+                    TrackRecord(
+                        path=str(paths[0]),
+                        root_position=0,
+                        file_type="flac",
+                        artist="Jim Hall",
+                        album_artist="Jim Hall & Bill Evans",
+                        album="Undercurrent",
+                        title="My Funny Valentine",
+                    ),
+                    TrackRecord(
+                        path=str(paths[1]),
+                        root_position=0,
+                        file_type="flac",
+                        artist="Alice Coltrane",
+                        album_artist="Alice Coltrane",
+                        album="Journey in Satchidananda",
+                        title="Journey in Satchidananda",
+                    ),
+                    TrackRecord(
+                        path=str(paths[2]),
+                        root_position=0,
+                        file_type="flac",
+                        artist="Bill Evans",
+                        album_artist="Bill Evans",
+                        album="Moon Beams",
+                        title="Re: Person I Knew",
+                    ),
+                ],
+                supported_extensions=[".flac"],
+                generated_at="test",
+            ),
+            temp_path / "kukicha.sqlite",
+        )
+
     def save_artist_library(self, temp_path: Path) -> tuple[TrackRecord, TrackRecord, TrackRecord]:
         root_a = temp_path / "music-a"
         root_b = temp_path / "music-b"
@@ -652,7 +700,7 @@ class OpenSubsonicWebAdapterTest(unittest.TestCase):
                 query_string={**self.auth_params(), "f": "jsonp"},
             )
             endpoint_response = client.get(
-                "/rest/search3",
+                "/rest/notImplemented",
                 query_string=self.auth_params(),
             )
 
@@ -661,6 +709,52 @@ class OpenSubsonicWebAdapterTest(unittest.TestCase):
         self.assertEqual(subsonic_payload(jsonp_response)["error"]["code"], 0)
         self.assertEqual(subsonic_payload(endpoint_response)["status"], "failed")
         self.assertEqual(subsonic_payload(endpoint_response)["error"]["code"], 0)
+
+    def test_search3_returns_artists_albums_and_songs(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            self.save_search_library(temp_path)
+            app = create_player_app(self.make_options(temp_path))
+
+            response = app.test_client().get(
+                "/rest/search3",
+                query_string={
+                    **self.auth_params(),
+                    "query": "Bill",
+                    "artistCount": "10",
+                    "albumCount": "10",
+                    "songCount": "10",
+                },
+            )
+
+        result = subsonic_payload(response)["searchResult3"]
+        self.assertEqual([artist["name"] for artist in result["artist"]], ["Bill Evans"])
+        self.assertEqual(result["artist"][0]["roles"], ["albumartist"])
+        self.assertEqual(result["album"], [])
+        self.assertEqual(result["song"], [])
+
+    def test_search3_supports_empty_query_and_independent_pagination(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            self.save_search_library(temp_path)
+            app = create_player_app(self.make_options(temp_path))
+
+            response = app.test_client().get(
+                "/rest/search3",
+                query_string={
+                    **self.auth_params(),
+                    "query": "",
+                    "artistCount": "0",
+                    "albumCount": "2",
+                    "albumOffset": "2",
+                    "songCount": "0",
+                },
+            )
+
+        result = subsonic_payload(response)["searchResult3"]
+        self.assertEqual(result["artist"], [])
+        self.assertEqual([album["name"] for album in result["album"]], ["Moon Beams"])
+        self.assertEqual(result["song"], [])
 
     def test_browsing_endpoints_return_roots_albums_and_songs(self) -> None:
         with TemporaryDirectory() as tempdir:

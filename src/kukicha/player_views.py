@@ -8,7 +8,11 @@ from urllib.parse import parse_qs, quote
 
 from ._compat import UTC
 from .use_case import ALBUM_LIST_SORT_RECENTLY_ADDED, AlbumListQuery, LibraryQueries
-from .use_case import album_list_query_from_params, album_musicbrainz_link
+from .use_case import (
+    album_list_query_from_params,
+    album_musicbrainz_link,
+    library_search_query_from_params,
+)
 from .player_common import format_compact_count, format_count_label
 from .player_runtime import PlayerRuntime
 
@@ -171,6 +175,78 @@ def build_home_context(runtime: PlayerRuntime) -> dict[str, Any]:
     return context
 
 
+def build_search_context(runtime: PlayerRuntime, query_string: str) -> dict[str, Any]:
+    from .player_navigation import album_index_url, player_page_context, search_url
+    from .player_presenters import (
+        track_view,
+        track_views_with_playlist_options,
+    )
+
+    query = library_search_query_from_params(parse_qs(query_string, keep_blank_values=True))
+    results = LibraryQueries(runtime.database).search(query)
+    track_views = track_views_with_playlist_options(
+        runtime.database,
+        (track_view(track) for track in results.songs.items),
+    )
+    context = base_player_context(
+        runtime,
+        view_template="player/search.html",
+        search_results=results,
+        query=query,
+        artist_previous_url=(
+            search_url(
+                query,
+                artist_offset=max(0, query.artist_offset - query.artist_count),
+            )
+            if results.artists.has_previous and query.artist_count
+            else ""
+        ),
+        artist_next_url=(
+            search_url(query, artist_offset=query.artist_offset + query.artist_count)
+            if results.artists.has_next and query.artist_count
+            else ""
+        ),
+        album_previous_url=(
+            search_url(
+                query,
+                album_offset=max(0, query.album_offset - query.album_count),
+            )
+            if results.albums.has_previous and query.album_count
+            else ""
+        ),
+        album_next_url=(
+            search_url(query, album_offset=query.album_offset + query.album_count)
+            if results.albums.has_next and query.album_count
+            else ""
+        ),
+        song_previous_url=(
+            search_url(
+                query,
+                song_offset=max(0, query.song_offset - query.song_count),
+            )
+            if results.songs.has_previous and query.song_count
+            else ""
+        ),
+        song_next_url=(
+            search_url(query, song_offset=query.song_offset + query.song_count)
+            if results.songs.has_next and query.song_count
+            else ""
+        ),
+        artist_results=tuple(
+            {
+                "artist": artist,
+                "url": album_index_url(AlbumListQuery(artists=(artist.artist,))),
+            }
+            for artist in results.artists.items
+        ),
+        track_views=track_views,
+        count_text=search_count_text(results),
+        search_back_url="/",
+    )
+    context.update(player_page_context("search"))
+    return context
+
+
 def build_playlist_index_context(runtime: PlayerRuntime, query_string: str) -> dict[str, Any]:
     from .player_navigation import player_page_context
 
@@ -272,6 +348,16 @@ def home_recently_added_heading(since: str) -> str:
     if since:
         return f"Most Recently Added Since {since[:10]}"
     return "Added in the Last Month"
+
+
+def search_count_text(results: Any) -> str:
+    return " - ".join(
+        (
+            format_count_label(len(results.artists.items), "artist", "artists"),
+            format_count_label(len(results.albums.items), "album", "albums"),
+            format_count_label(len(results.songs.items), "track", "tracks"),
+        )
+    )
 
 
 def build_help_page_context(
@@ -557,7 +643,7 @@ def build_jobs_page_context(runtime: PlayerRuntime) -> dict[str, Any]:
 def build_album_context(
     runtime: PlayerRuntime,
     album_id: str,
-    _query_string: str,
+    query_string: str,
 ) -> dict[str, Any]:
     from .player_navigation import (
         album_artist_links,
@@ -598,7 +684,19 @@ def build_album_context(
         album_track_meta=album_track_meta(album, track_views),
         album_back_url=album_index_url(query),
         album_edit_page_url=album_edit_url(album, query),
+        selected_track_id=selected_track_id_from_query_string(query_string),
     )
+
+
+def selected_track_id_from_query_string(query_string: str) -> int | None:
+    values = parse_qs(query_string, keep_blank_values=True).get("selectedTrackId", ())
+    if not values:
+        return None
+    try:
+        track_id = int(values[0])
+    except (TypeError, ValueError):
+        return None
+    return track_id if track_id > 0 else None
 
 
 def build_playlist_context(
