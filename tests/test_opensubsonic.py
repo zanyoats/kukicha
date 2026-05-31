@@ -76,8 +76,8 @@ class OpenSubsonicWebAdapterTest(unittest.TestCase):
         root = temp_path / "music"
         first_path = root / "Artist" / "First Album" / "01.mp3"
         second_path = root / "Artist" / "Second Album" / "01.flac"
-        first_path.parent.mkdir(parents=True)
-        second_path.parent.mkdir(parents=True)
+        first_path.parent.mkdir(parents=True, exist_ok=True)
+        second_path.parent.mkdir(parents=True, exist_ok=True)
         first_path.write_bytes(b"0123456789")
         second_path.write_bytes(b"second track")
         first = TrackRecord(
@@ -329,6 +329,32 @@ class OpenSubsonicWebAdapterTest(unittest.TestCase):
                 WHERE album_id = ?
                 """,
                 (album_id,),
+            ).fetchone()
+        return str(row["starred_at"]) if row is not None and row["starred_at"] else None
+
+    def artist_starred_at(self, temp_path: Path, artist: str) -> str | None:
+        with connect_database(temp_path / "kukicha.sqlite", create=False) as connection:
+            row = connection.execute(
+                """
+                SELECT starred_at
+                FROM artist_user_state
+                WHERE artist = ?
+                """,
+                (artist,),
+            ).fetchone()
+        return str(row["starred_at"]) if row is not None and row["starred_at"] else None
+
+    def track_starred_at(self, temp_path: Path, track_id: int) -> str | None:
+        with connect_database(temp_path / "kukicha.sqlite", create=False) as connection:
+            row = connection.execute(
+                """
+                SELECT state.starred_at
+                FROM library_tracks AS tracks
+                JOIN track_user_state AS state
+                    ON state.track_path = tracks.path
+                WHERE tracks.track_id = ?
+                """,
+                (track_id,),
             ).fetchone()
         return str(row["starred_at"]) if row is not None and row["starred_at"] else None
 
@@ -1576,55 +1602,240 @@ class OpenSubsonicWebAdapterTest(unittest.TestCase):
         self.assertIsNone(first_unstarred_at)
         self.assertIsNone(second_unstarred_at)
 
-    def test_star_rejects_unsupported_targets_and_missing_album_ids(self) -> None:
+    def test_star_and_unstar_update_track_and_artist_ids(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            first, _second = self.save_sample_library(temp_path)
+            assert first.track_id is not None
+            app = create_player_app(self.make_options(temp_path))
+            client = app.test_client()
+
+            star_response = client.get(
+                "/rest/star",
+                query_string=[
+                    *self.auth_params().items(),
+                    ("id", str(first.track_id)),
+                    ("artistId", "artist:Artist"),
+                ],
+            )
+            track_starred_at = self.track_starred_at(temp_path, first.track_id)
+            artist_starred_at = self.artist_starred_at(temp_path, "Artist")
+            song_response = client.get(
+                "/rest/getSong",
+                query_string={**self.auth_params(), "id": str(first.track_id)},
+            )
+            artist_response = client.get(
+                "/rest/getArtist",
+                query_string={**self.auth_params(), "id": "artist:Artist"},
+            )
+
+            unstar_response = client.get(
+                "/rest/unstar",
+                query_string=[
+                    *self.auth_params().items(),
+                    ("id", str(first.track_id)),
+                    ("artistId", "Artist"),
+                ],
+            )
+            track_unstarred_at = self.track_starred_at(temp_path, first.track_id)
+            artist_unstarred_at = self.artist_starred_at(temp_path, "Artist")
+
+        self.assertEqual(subsonic_payload(star_response)["status"], "ok")
+        self.assertIsNotNone(track_starred_at)
+        self.assertIsNotNone(artist_starred_at)
+        self.assertEqual(subsonic_payload(song_response)["song"]["starred"], track_starred_at)
+        self.assertEqual(
+            subsonic_payload(artist_response)["artist"]["starred"],
+            artist_starred_at,
+        )
+        self.assertEqual(subsonic_payload(unstar_response)["status"], "ok")
+        self.assertIsNone(track_unstarred_at)
+        self.assertIsNone(artist_unstarred_at)
+
+    def test_track_star_survives_rescan_with_new_numeric_track_id(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            first, _second = self.save_sample_library(temp_path)
+            assert first.track_id is not None
+            app = create_player_app(self.make_options(temp_path))
+            client = app.test_client()
+
+            star_response = client.get(
+                "/rest/star",
+                query_string={**self.auth_params(), "id": str(first.track_id)},
+            )
+            first_starred_at = self.track_starred_at(temp_path, first.track_id)
+            save_library(
+                MusicLibrary(
+                    roots=[str(temp_path / "music")],
+                    tracks=[],
+                    supported_extensions=[".mp3", ".flac"],
+                    generated_at="2026-05-08T00:00:00+00:00",
+                ),
+                temp_path / "kukicha.sqlite",
+            )
+            rescanned_first, _rescanned_second = self.save_sample_library(temp_path)
+            assert rescanned_first.track_id is not None
+            song_response = client.get(
+                "/rest/getSong",
+                query_string={
+                    **self.auth_params(),
+                    "id": str(rescanned_first.track_id),
+                },
+            )
+
+        self.assertEqual(subsonic_payload(star_response)["status"], "ok")
+        self.assertIsNotNone(first_starred_at)
+        self.assertNotEqual(first.track_id, rescanned_first.track_id)
+        self.assertEqual(
+            subsonic_payload(song_response)["song"]["starred"],
+            first_starred_at,
+        )
+
+    def test_star_generic_id_updates_album_and_artist_folder_ids(self) -> None:
         with TemporaryDirectory() as tempdir:
             temp_path = Path(tempdir)
             self.save_sample_library(temp_path)
             app = create_player_app(self.make_options(temp_path))
             client = app.test_client()
 
-            id_response = client.get(
+            star_response = client.get(
                 "/rest/star",
+                query_string=[
+                    *self.auth_params().items(),
+                    ("id", "artist::first-album"),
+                    ("id", "artist:Artist"),
+                ],
+            )
+            album_starred_at = self.album_starred_at(temp_path, "artist::first-album")
+            artist_starred_at = self.artist_starred_at(temp_path, "Artist")
+            album_response = client.get(
+                "/rest/getAlbum",
                 query_string={
                     **self.auth_params(),
-                    "albumId": "artist::first-album",
-                    "id": "1",
+                    "id": "artist::first-album",
                 },
             )
-            artist_response = client.get(
+            artists_response = client.get("/rest/getArtists", query_string=self.auth_params())
+            unstar_response = client.get(
                 "/rest/unstar",
-                query_string={
-                    **self.auth_params(),
-                    "albumId": "artist::second-album",
-                    "artistId": "artist:Artist",
-                },
+                query_string=[
+                    *self.auth_params().items(),
+                    ("id", "artist::first-album"),
+                    ("id", "artist:Artist"),
+                ],
             )
+            album_unstarred_at = self.album_starred_at(temp_path, "artist::first-album")
+            artist_unstarred_at = self.artist_starred_at(temp_path, "Artist")
+
+        artists = subsonic_payload(artists_response)["artists"]["index"][0]["artist"]
+        self.assertEqual(subsonic_payload(star_response)["status"], "ok")
+        self.assertIsNotNone(album_starred_at)
+        self.assertIsNotNone(artist_starred_at)
+        self.assertEqual(subsonic_payload(album_response)["album"]["starred"], album_starred_at)
+        self.assertEqual(artists[0]["starred"], artist_starred_at)
+        self.assertEqual(subsonic_payload(unstar_response)["status"], "ok")
+        self.assertIsNone(album_unstarred_at)
+        self.assertIsNone(artist_unstarred_at)
+
+    def test_star_rejects_missing_and_unknown_targets(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            self.save_sample_library(temp_path)
+            app = create_player_app(self.make_options(temp_path))
+            client = app.test_client()
+
             missing_response = client.get(
                 "/rest/star",
                 query_string=self.auth_params(),
             )
-            unknown_response = client.get(
+            unknown_album_response = client.get(
                 "/rest/star",
                 query_string={
                     **self.auth_params(),
                     "albumId": "missing::album",
                 },
             )
+            unknown_artist_response = client.get(
+                "/rest/star",
+                query_string={
+                    **self.auth_params(),
+                    "artistId": "artist:Missing",
+                },
+            )
+            unknown_track_response = client.get(
+                "/rest/star",
+                query_string={
+                    **self.auth_params(),
+                    "id": "9999",
+                },
+            )
             first_starred_at = self.album_starred_at(temp_path, "artist::first-album")
             second_starred_at = self.album_starred_at(temp_path, "artist::second-album")
 
-        self.assertEqual(subsonic_payload(id_response)["status"], "failed")
-        self.assertEqual(subsonic_payload(id_response)["error"]["code"], 0)
-        self.assertIn("id", subsonic_payload(id_response)["error"]["message"])
-        self.assertEqual(subsonic_payload(artist_response)["status"], "failed")
-        self.assertEqual(subsonic_payload(artist_response)["error"]["code"], 0)
-        self.assertIn("artistId", subsonic_payload(artist_response)["error"]["message"])
         self.assertEqual(subsonic_payload(missing_response)["status"], "failed")
         self.assertEqual(subsonic_payload(missing_response)["error"]["code"], 10)
-        self.assertEqual(subsonic_payload(unknown_response)["status"], "failed")
-        self.assertEqual(subsonic_payload(unknown_response)["error"]["code"], 70)
+        self.assertEqual(subsonic_payload(unknown_album_response)["status"], "failed")
+        self.assertEqual(subsonic_payload(unknown_album_response)["error"]["code"], 70)
+        self.assertEqual(subsonic_payload(unknown_artist_response)["status"], "failed")
+        self.assertEqual(subsonic_payload(unknown_artist_response)["error"]["code"], 70)
+        self.assertEqual(subsonic_payload(unknown_track_response)["status"], "failed")
+        self.assertEqual(subsonic_payload(unknown_track_response)["error"]["code"], 70)
         self.assertIsNone(first_starred_at)
         self.assertIsNone(second_starred_at)
+
+    def test_get_starred2_returns_starred_items_and_filters_music_folder(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            apples, _ambient, green = self.save_artist_library(temp_path)
+            assert apples.track_id is not None
+            assert green.track_id is not None
+            app = create_player_app(self.make_options(temp_path))
+            client = app.test_client()
+
+            star_response = client.get(
+                "/rest/star",
+                query_string=[
+                    *self.auth_params().items(),
+                    ("artistId", "artist:The Apples"),
+                    ("albumId", "the-apples::red"),
+                    ("albumId", "brian-eno::another-green-world"),
+                    ("id", str(apples.track_id)),
+                    ("id", str(green.track_id)),
+                ],
+            )
+            all_response = client.get("/rest/getStarred2", query_string=self.auth_params())
+            root_zero_response = client.get(
+                "/rest/getStarred2",
+                query_string={**self.auth_params(), "musicFolderId": "0"},
+            )
+            root_one_response = client.get(
+                "/rest/getStarred2",
+                query_string={**self.auth_params(), "musicFolderId": "1"},
+            )
+
+        self.assertEqual(subsonic_payload(star_response)["status"], "ok")
+        starred = subsonic_payload(all_response)["starred2"]
+        self.assertEqual([artist["name"] for artist in starred["artist"]], ["The Apples"])
+        self.assertEqual(
+            {album["name"] for album in starred["album"]},
+            {"Red", "Another Green World"},
+        )
+        self.assertEqual(
+            {song["title"] for song in starred["song"]},
+            {"Red One", "Sky Saw"},
+        )
+        self.assertTrue(all("starred" in item for key in starred for item in starred[key]))
+
+        root_zero = subsonic_payload(root_zero_response)["starred2"]
+        self.assertEqual([artist["name"] for artist in root_zero["artist"]], ["The Apples"])
+        self.assertEqual([album["name"] for album in root_zero["album"]], ["Red"])
+        self.assertEqual([song["title"] for song in root_zero["song"]], ["Red One"])
+
+        root_one = subsonic_payload(root_one_response)["starred2"]
+        self.assertEqual(root_one["artist"], [])
+        self.assertEqual([album["name"] for album in root_one["album"]], ["Another Green World"])
+        self.assertEqual([song["title"] for song in root_one["song"]], ["Sky Saw"])
 
     def test_album_list_requires_type(self) -> None:
         with TemporaryDirectory() as tempdir:

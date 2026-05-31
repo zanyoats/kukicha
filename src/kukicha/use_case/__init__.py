@@ -60,8 +60,10 @@ from .commands import (
     upload_playlist_cover,
     update_playback,
     update_album_star,
+    update_artist_star,
     update_player_job,
     update_queue,
+    update_track_star,
     update_track_playlist_membership,
 )
 from .database import (
@@ -279,9 +281,11 @@ __all__ = [
     "UNKNOWN_METADATA_TAG",
     "update_playback",
     "update_album_star",
+    "update_artist_star",
     "update_internet_radio_station",
     "update_manual_playlist",
     "update_player_job",
     "update_queue",
+    "update_track_star",
     "update_track_playlist_membership",
 ]

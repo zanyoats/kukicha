@@ -49,6 +49,7 @@ from .use_case import (
     create_or_replace_manual_playlist,
     delete_internet_radio_station,
     delete_playlist,
+    connect_database,
     playlist_cover,
     playlist_audio_resource,
     record_opensubsonic_client,
@@ -59,6 +60,8 @@ from .use_case import (
     track_audio_resource,
     update_manual_playlist,
     update_album_star,
+    update_artist_star,
+    update_track_star,
 )
 from .use_case.queries.library import album_artist_display_text
 
@@ -196,6 +199,7 @@ def open_subsonic_handlers() -> dict[str, Any]:
         "getalbumlist2": handle_get_album_list2,
         "getalbum": handle_get_album,
         "getsong": handle_get_song,
+        "getstarred2": handle_get_starred2,
         "getplaylists": handle_get_playlists,
         "getplaylist": handle_get_playlist,
         "createplaylist": handle_create_playlist,
@@ -447,6 +451,18 @@ def handle_get_song(params: Mapping[str, list[str]]) -> dict[str, object]:
     return {"song": song_payload(song)}
 
 
+def handle_get_starred2(params: Mapping[str, list[str]]) -> dict[str, object]:
+    root_position = optional_int_param(params, "musicFolderId")
+    database = open_subsonic_context().database
+    return {
+        "starred2": {
+            "artist": starred_artist_payloads(database, root_position=root_position),
+            "album": starred_album_payloads(database, root_position=root_position),
+            "song": starred_song_payloads(database, root_position=root_position),
+        }
+    }
+
+
 def handle_get_playlists(params: Mapping[str, list[str]]) -> dict[str, object]:
     playlists = playlist_summaries(open_subsonic_context().database)
     return {"playlists": {"playlist": [playlist_summary_payload(item) for item in playlists]}}
@@ -667,36 +683,96 @@ def handle_scrobble(params: Mapping[str, list[str]]) -> dict[str, object]:
 
 
 def handle_star(params: Mapping[str, list[str]]) -> dict[str, object]:
-    return handle_album_star_update(params, starred=True)
+    return handle_star_update(params, starred=True)
 
 
 def handle_unstar(params: Mapping[str, list[str]]) -> dict[str, object]:
-    return handle_album_star_update(params, starred=False)
+    return handle_star_update(params, starred=False)
 
 
-def handle_album_star_update(
+def handle_star_update(
     params: Mapping[str, list[str]],
     *,
     starred: bool,
 ) -> dict[str, object]:
-    for unsupported_param in ("id", "artistId"):
-        if unsupported_param in params:
-            raise OpenSubsonicApiError(
-                ERROR_GENERIC,
-                f"Parameter is not implemented: {unsupported_param}",
-            )
-
-    album_ids = params.get("albumId") or []
-    if not album_ids or any(not album_id for album_id in album_ids):
+    target_values = [
+        value
+        for key in ("id", "albumId", "artistId")
+        for value in (params.get(key) or [])
+    ]
+    if not target_values or any(not value for value in target_values):
         raise OpenSubsonicApiError(
             ERROR_REQUIRED_PARAMETER_MISSING,
-            "Required parameter is missing: albumId",
+            "Required parameter is missing: id",
         )
 
     context = open_subsonic_context()
+    for item_id in params.get("id") or []:
+        update_star_id(context, item_id, starred=starred)
+    album_ids = params.get("albumId") or []
     for album_id in album_ids:
         update_album_star(context.runtime, album_id, {"starred": starred})
+    for artist_id_value in params.get("artistId") or []:
+        update_artist_star(
+            context.runtime,
+            artist_name_from_id(artist_id_value),
+            {"starred": starred},
+        )
     return {}
+
+
+def update_star_id(
+    context: OpenSubsonicWebContext,
+    item_id: str,
+    *,
+    starred: bool,
+) -> None:
+    try:
+        track_id = int(item_id)
+    except ValueError:
+        pass
+    else:
+        update_track_star(context.runtime, track_id, {"starred": starred})
+        return
+
+    if album_star_target_exists(context.database, item_id):
+        update_album_star(context.runtime, item_id, {"starred": starred})
+        return
+
+    artist = artist_star_target_name(context.database, artist_name_from_id(item_id))
+    if artist is not None:
+        update_artist_star(context.runtime, artist, {"starred": starred})
+        return
+
+    raise OpenSubsonicApiError(ERROR_NOT_FOUND, "The requested data was not found.")
+
+
+def album_star_target_exists(database: Path, album_id: str) -> bool:
+    with connect_database(database, create=False) as connection:
+        return (
+            connection.execute(
+                """
+                SELECT 1
+                FROM library_albums
+                WHERE album_id = ?
+                """,
+                (album_id,),
+            ).fetchone()
+            is not None
+        )
+
+
+def artist_star_target_name(database: Path, artist: str) -> str | None:
+    with connect_database(database, create=False) as connection:
+        row = connection.execute(
+            """
+            SELECT album_artist
+            FROM library_album_artist_stats
+            WHERE album_artist = ? COLLATE NOCASE
+            """,
+            (artist,),
+        ).fetchone()
+    return str(row["album_artist"]) if row is not None else None
 
 
 def int_required_param(params: Mapping[str, list[str]], key: str) -> int:
@@ -799,11 +875,19 @@ def artist_stats_payloads(
     *,
     root_position: int | None = None,
 ) -> list[dict[str, object]]:
+    artist_summaries = LibraryQueries(database).list_album_artists(
+        root_position=root_position,
+    )
+    starred_at_by_artist = artist_starred_at_by_artist(
+        database,
+        (artist.artist for artist in artist_summaries),
+    )
     artists = [
-        artist_summary_payload(artist)
-        for artist in LibraryQueries(database).list_album_artists(
-            root_position=root_position,
+        artist_summary_payload(
+            artist,
+            starred_at=starred_at_by_artist.get(artist.artist.casefold()),
         )
+        for artist in artist_summaries
     ]
     return artist_indexes(artists)
 
@@ -811,9 +895,36 @@ def artist_stats_payloads(
 def artist_payload(database: Path, artist_id_value: str) -> dict[str, object]:
     requested_artist = artist_name_from_id(artist_id_value)
     artist = LibraryQueries(database).get_album_artist(requested_artist)
-    payload = artist_summary_payload(artist)
+    starred_at_by_artist = artist_starred_at_by_artist(database, (artist.artist,))
+    payload = artist_summary_payload(
+        artist,
+        starred_at=starred_at_by_artist.get(artist.artist.casefold()),
+    )
     payload["album"] = artist_album_payloads(artist)
     return payload
+
+
+def artist_starred_at_by_artist(
+    database: Path,
+    artists: Iterable[str],
+) -> dict[str, str]:
+    artist_names = tuple(dict.fromkeys(artist for artist in artists if artist))
+    if not artist_names:
+        return {}
+    placeholders = ", ".join("?" for _artist in artist_names)
+    with connect_database(database, create=False) as connection:
+        return {
+            str(row["artist"]).casefold(): str(row["starred_at"])
+            for row in connection.execute(
+                f"""
+                SELECT artist, starred_at
+                FROM artist_user_state
+                WHERE artist IN ({placeholders})
+                    AND starred_at IS NOT NULL
+                """,
+                artist_names,
+            )
+        }
 
 
 def artist_album_payloads(artist: LibraryArtistDetails) -> list[dict[str, object]]:
@@ -831,6 +942,7 @@ def artist_album_payloads(artist: LibraryArtistDetails) -> list[dict[str, object
             created=row.file_created_at,
             has_cover=row.has_cover,
             art_track_id=row.art_track_id,
+            starred_at=row.starred_at,
         )
         album.update(
             without_none(
@@ -848,13 +960,18 @@ def artist_album_payloads(artist: LibraryArtistDetails) -> list[dict[str, object
     return albums
 
 
-def artist_summary_payload(artist: LibraryArtistSummary) -> dict[str, object]:
+def artist_summary_payload(
+    artist: LibraryArtistSummary,
+    *,
+    starred_at: str | None = None,
+) -> dict[str, object]:
     return without_none(
         {
             "id": artist_id(artist.artist),
             "name": artist.artist,
             "coverArt": album_cover_art_id(artist.cover_album_id),
             "albumCount": artist.album_count,
+            "starred": starred_at,
             "roles": ["albumartist"],
         }
     )
@@ -1000,9 +1117,132 @@ def album_list2_payloads(albums: Iterable[AlbumSummary]) -> list[dict[str, objec
             has_cover=False,
             art_track_id=album.art_track_id,
             genre=album.sort_genre,
+            starred_at=album.starred_at,
         )
         for album in albums
     ]
+
+
+def starred_artist_payloads(
+    database: Path,
+    *,
+    root_position: int | None = None,
+) -> list[dict[str, object]]:
+    artist_summaries = LibraryQueries(database).list_album_artists(
+        root_position=root_position,
+    )
+    summaries_by_key = {
+        artist.artist.casefold(): artist
+        for artist in artist_summaries
+    }
+    return [
+        artist_summary_payload(
+            artist,
+            starred_at=starred_at,
+        )
+        for artist_name, starred_at in starred_artist_state_rows(database)
+        if (artist := summaries_by_key.get(artist_name.casefold())) is not None
+    ]
+
+
+def starred_artist_state_rows(database: Path) -> tuple[tuple[str, str], ...]:
+    with connect_database(database, create=False) as connection:
+        return tuple(
+            (str(row["artist"]), str(row["starred_at"]))
+            for row in connection.execute(
+                """
+                SELECT artist, starred_at
+                FROM artist_user_state
+                WHERE starred_at IS NOT NULL
+                ORDER BY starred_at DESC, artist COLLATE NOCASE
+                """
+            )
+        )
+
+
+def starred_album_payloads(
+    database: Path,
+    *,
+    root_position: int | None = None,
+) -> list[dict[str, object]]:
+    root_positions = () if root_position is None else (root_position,)
+    return album_list2_payloads(
+        all_album_list2_summaries(
+            database,
+            query=AlbumListQuery(
+                root_positions=root_positions,
+                sort=ALBUM_LIST_SORT_STARRED,
+            ),
+        )
+    )
+
+
+def all_album_list2_summaries(
+    database: Path,
+    *,
+    query: AlbumListQuery,
+) -> list[AlbumSummary]:
+    api = LibraryQueries(database)
+    albums: list[AlbumSummary] = []
+    offset = query.offset
+    while True:
+        page = api.list_album_page(
+            AlbumListQuery(
+                artists=query.artists,
+                album=query.album,
+                root_positions=query.root_positions,
+                genres=query.genres,
+                styles=query.styles,
+                genre_filters=query.genre_filters,
+                is_playlist=query.is_playlist,
+                size=200,
+                offset=offset,
+                search=query.search,
+                sort=query.sort,
+            )
+        )
+        albums.extend(page.items)
+        if not page.has_next or not page.items:
+            break
+        offset += len(page.items)
+    return albums
+
+
+def starred_song_payloads(
+    database: Path,
+    *,
+    root_position: int | None = None,
+) -> list[dict[str, object]]:
+    track_ids = starred_song_track_ids(database, root_position=root_position)
+    return [
+        song_payload(track)
+        for track in LibraryQueries(database).get_tracks_by_ids(track_ids)
+    ]
+
+
+def starred_song_track_ids(
+    database: Path,
+    *,
+    root_position: int | None = None,
+) -> tuple[int, ...]:
+    root_sql = "" if root_position is None else "AND tracks.root_position = ?"
+    params: tuple[object, ...] = () if root_position is None else (root_position,)
+    with connect_database(database, create=False) as connection:
+        return tuple(
+            int(row["track_id"])
+            for row in connection.execute(
+                f"""
+                SELECT tracks.track_id
+                FROM track_user_state AS state
+                JOIN library_tracks AS tracks
+                    ON tracks.path = state.track_path
+                WHERE state.starred_at IS NOT NULL
+                    {root_sql}
+                ORDER BY state.starred_at DESC, tracks.track_id
+                """,
+                params,
+            )
+        )
 
 
 def album_summary_payload(
@@ -1018,6 +1258,7 @@ def album_summary_payload(
     has_cover: bool,
     art_track_id: int | None,
     genre: str | None = None,
+    starred_at: str | None = None,
 ) -> dict[str, object]:
     artist_values = tuple(artist for artist in album_artists if artist)
     display_artist = album_artist_display_text(artist_values) or artist
@@ -1033,6 +1274,7 @@ def album_summary_payload(
             "coverArt": album_cover_art_id(album_id) if has_cover or art_track_id else None,
             "songCount": song_count,
             "created": str(created) if created else None,
+            "starred": starred_at,
             "year": year,
             "genre": genre,
         }
@@ -1051,6 +1293,7 @@ def album_payload(album: Any, *, include_songs: bool = False) -> dict[str, objec
         created=album.file_created_at,
         has_cover=album.has_cover,
         art_track_id=album.art_track_id,
+        starred_at=album.starred_at,
     )
     payload.update(
         without_none(
@@ -1170,6 +1413,7 @@ def song_payload(track: Any) -> dict[str, object]:
             "year": first_number(track.date),
             "genre": track.genres[0] if track.genres else None,
             "created": None,
+            "starred": track.starred_at,
             "duration": int(track.duration_seconds) if track.duration_seconds else None,
             "bitRate": bit_rate_kbps(track.bitrate),
             "size": track_file_size(track, path),

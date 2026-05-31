@@ -1374,6 +1374,7 @@ class LibraryQueries:
             )
         taxonomy_genres, taxonomy_styles = taxonomy_sets(connection)
         track_ids_with_playlist_membership: set[int] = set()
+        starred_at_by_track_path: dict[str, str] = {}
         if track_ids:
             placeholders = placeholders_for(track_ids)
             track_ids_with_playlist_membership = set(
@@ -1387,6 +1388,21 @@ class LibraryQueries:
                     track_ids,
                 )
             )
+        track_paths = [str(row["path"]) for row in track_rows]
+        if track_paths:
+            path_placeholders = placeholders_for(track_paths)
+            starred_at_by_track_path = {
+                str(row["track_path"]): str(row["starred_at"])
+                for row in connection.execute(
+                    f"""
+                    SELECT track_path, starred_at
+                    FROM track_user_state
+                    WHERE track_path IN ({path_placeholders})
+                        AND starred_at IS NOT NULL
+                    """,
+                    track_paths,
+                )
+            }
         if track_ids_with_cover is None:
             track_ids_with_cover = track_ids_with_artwork(connection, track_ids)
         if album_ids_with_cover is None and album_ids:
@@ -1451,6 +1467,7 @@ class LibraryQueries:
                         track_id in track_ids_with_cover
                         or bool(album_id and album_id in album_ids_with_cover)
                     ),
+                    starred_at=starred_at_by_track_path.get(str(row["path"])),
                     is_compilation=bool(row["is_compilation"]),
                     duration_seconds=row["duration_seconds"],
                     bitrate=row["bitrate"],

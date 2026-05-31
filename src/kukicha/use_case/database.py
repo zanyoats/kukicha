@@ -289,6 +289,22 @@ CREATE INDEX IF NOT EXISTS idx_album_user_state_starred
     ON album_user_state (starred_at DESC, album_id)
     WHERE starred_at IS NOT NULL;
 
+CREATE TABLE IF NOT EXISTS artist_user_state (
+    artist TEXT PRIMARY KEY,
+    starred_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_artist_user_state_starred
+    ON artist_user_state (starred_at DESC, artist)
+    WHERE starred_at IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS track_user_state (
+    track_path TEXT PRIMARY KEY,
+    starred_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_track_user_state_starred
+    ON track_user_state (starred_at DESC, track_path)
+    WHERE starred_at IS NOT NULL;
+
 CREATE TABLE IF NOT EXISTS library_albums (
     album_id TEXT PRIMARY KEY,
     album TEXT NOT NULL,
@@ -574,7 +590,7 @@ def connect_database(
         migrate_player_jobs_schema(connection)
         migrate_listening_schema(connection)
         migrate_library_schema(connection)
-        migrate_album_user_state_schema(connection)
+        migrate_media_user_state_schema(connection)
         migrate_album_musicbrainz_link_key_schema(connection)
         migrate_album_musicbrainz_schema(connection)
         migrate_album_search_schema(connection)
@@ -1061,7 +1077,7 @@ def is_http_url(value: str) -> bool:
     return parsed.scheme.casefold() in {"http", "https"} and bool(parsed.netloc)
 
 
-def migrate_album_user_state_schema(connection: sqlite3.Connection) -> None:
+def migrate_media_user_state_schema(connection: sqlite3.Connection) -> None:
     connection.execute(
         """
         CREATE TABLE IF NOT EXISTS album_user_state (
@@ -1082,6 +1098,64 @@ def migrate_album_user_state_schema(connection: sqlite3.Connection) -> None:
         """
         CREATE INDEX IF NOT EXISTS idx_album_user_state_starred
             ON album_user_state (starred_at DESC, album_id)
+            WHERE starred_at IS NOT NULL
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS artist_user_state (
+            artist TEXT PRIMARY KEY,
+            starred_at TEXT
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_artist_user_state_starred
+            ON artist_user_state (starred_at DESC, artist)
+            WHERE starred_at IS NOT NULL
+        """
+    )
+    track_user_state_columns = table_columns(connection, "track_user_state")
+    if (
+        track_user_state_columns
+        and "track_id" in track_user_state_columns
+        and "track_path" not in track_user_state_columns
+    ):
+        connection.execute("DROP INDEX IF EXISTS idx_track_user_state_starred")
+        connection.execute("ALTER TABLE track_user_state RENAME TO track_user_state_old")
+        connection.execute(
+            """
+            CREATE TABLE track_user_state (
+                track_path TEXT PRIMARY KEY,
+                starred_at TEXT
+            )
+            """
+        )
+        connection.execute(
+            """
+            INSERT OR IGNORE INTO track_user_state (track_path, starred_at)
+            SELECT tracks.path, state.starred_at
+            FROM track_user_state_old AS state
+            JOIN library_tracks AS tracks
+                ON tracks.track_id = state.track_id
+            WHERE state.starred_at IS NOT NULL
+            """
+        )
+        connection.execute("DROP TABLE track_user_state_old")
+    else:
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS track_user_state (
+                track_path TEXT PRIMARY KEY,
+                starred_at TEXT
+            )
+            """
+        )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_track_user_state_starred
+            ON track_user_state (starred_at DESC, track_path)
             WHERE starred_at IS NOT NULL
         """
     )

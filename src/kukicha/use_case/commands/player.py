@@ -752,6 +752,106 @@ def update_album_star(
     }
 
 
+def update_artist_star(
+    runtime: PlayerRuntime,
+    artist: str,
+    payload: dict[str, Any],
+) -> dict[str, object]:
+    from ...player_errors import PlayerNotFoundError
+    from .jobs import utc_now_iso
+
+    requested_artist = str(artist or "").strip()
+    if not requested_artist:
+        raise ValueError("artist is required")
+    starred = payload.get("starred") is True
+    starred_at = utc_now_iso() if starred else None
+
+    with connect_database(runtime.database) as connection:
+        row = connection.execute(
+            """
+            SELECT album_artist
+            FROM library_album_artist_stats
+            WHERE album_artist = ? COLLATE NOCASE
+            """,
+            (requested_artist,),
+        ).fetchone()
+        if row is None:
+            raise PlayerNotFoundError(f"artist does not exist: {requested_artist}")
+        artist = str(row["album_artist"])
+        if starred_at is None:
+            connection.execute(
+                "DELETE FROM artist_user_state WHERE artist = ?",
+                (artist,),
+            )
+        else:
+            connection.execute(
+                """
+                INSERT INTO artist_user_state (artist, starred_at)
+                VALUES (?, ?)
+                ON CONFLICT(artist) DO UPDATE SET
+                    starred_at = excluded.starred_at
+                """,
+                (artist, starred_at),
+            )
+
+    return {
+        "artist": artist,
+        "starred": starred,
+        "starred_at": starred_at,
+    }
+
+
+def update_track_star(
+    runtime: PlayerRuntime,
+    track_id: int,
+    payload: dict[str, Any],
+) -> dict[str, object]:
+    from ...player_errors import PlayerNotFoundError
+    from .jobs import utc_now_iso
+
+    try:
+        track_id = int(track_id)
+    except (TypeError, ValueError) as error:
+        raise ValueError("track id is required") from error
+    starred = payload.get("starred") is True
+    starred_at = utc_now_iso() if starred else None
+
+    with connect_database(runtime.database) as connection:
+        row = connection.execute(
+            """
+            SELECT path
+            FROM library_tracks
+            WHERE track_id = ?
+            """,
+            (track_id,),
+        ).fetchone()
+        if row is None:
+            raise PlayerNotFoundError(f"track does not exist: {track_id}")
+        track_path = str(row["path"])
+        if starred_at is None:
+            connection.execute(
+                "DELETE FROM track_user_state WHERE track_path = ?",
+                (track_path,),
+            )
+        else:
+            connection.execute(
+                """
+                INSERT INTO track_user_state (track_path, starred_at)
+                VALUES (?, ?)
+                ON CONFLICT(track_path) DO UPDATE SET
+                    starred_at = excluded.starred_at
+                """,
+                (track_path, starred_at),
+            )
+
+    return {
+        "track_id": track_id,
+        "track_path": track_path,
+        "starred": starred,
+        "starred_at": starred_at,
+    }
+
+
 def mapped_artists_text_from_payload(value: object) -> str:
     if isinstance(value, list):
         lines = (str(item).strip() for item in value)

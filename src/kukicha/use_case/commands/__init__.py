@@ -46,8 +46,10 @@ from .player import (
     track_audio_path,
     track_audio_resource,
     update_album_star,
+    update_artist_star,
     update_playback,
     update_queue,
+    update_track_star,
     update_track_playlist_membership,
 )
 from .playlists import (
@@ -136,8 +138,10 @@ __all__ = [
     "update_manual_playlist",
     "upload_playlist_cover",
     "update_album_star",
+    "update_artist_star",
     "update_playback",
     "update_player_job",
     "update_queue",
+    "update_track_star",
     "update_track_playlist_membership",
 ]

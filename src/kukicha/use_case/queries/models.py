@@ -123,6 +123,7 @@ class PlaylistTrack:
     genres: tuple[str, ...] = ()
     styles: tuple[str, ...] = ()
     has_cover: bool = False
+    starred_at: str | None = None
     is_compilation: bool = False
     duration_seconds: float | None = None
     bitrate: int | None = None
