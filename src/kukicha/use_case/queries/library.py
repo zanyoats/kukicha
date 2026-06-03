@@ -6,7 +6,7 @@ from pathlib import Path
 from sqlite3 import Connection, Row
 
 from ..cache import CACHE_TABLE_GROUPS
-from ..database import connect_database
+from ..database import connect_existing_database
 from ..library import split_genres_and_styles
 from ...library_sources import (
     SOURCE_KIND_LOCAL,
@@ -98,14 +98,14 @@ class LibraryQueries:
         self.database = Path(database)
 
     def expand_album_list_query(self, query: AlbumListQuery) -> AlbumListQuery:
-        with connect_database(self.database, create=False) as connection:
+        with connect_existing_database(self.database) as connection:
             return expanded_album_list_query(connection, query)
 
     def list_album_page(
         self,
         query: AlbumListQuery,
     ) -> AlbumPage:
-        with connect_database(self.database, create=False) as connection:
+        with connect_existing_database(self.database) as connection:
             query = expanded_album_list_query(connection, query)
             if query.is_playlist is True:
                 return self._playlist_list_page(connection, query)
@@ -297,7 +297,7 @@ class LibraryQueries:
         root_positions: Iterable[int] = (),
     ) -> AlbumDetails:
         root_positions = normalized_int_tuple(root_positions)
-        with connect_database(self.database, create=False) as connection:
+        with connect_existing_database(self.database) as connection:
             row = connection.execute(
                 """
                 SELECT album_id, album, year, track_count, file_created_at, added_at, starred_at
@@ -400,7 +400,7 @@ class LibraryQueries:
         )
 
     def get_playlist(self, playlist_id: int) -> PlaylistDetails:
-        with connect_database(self.database, create=False) as connection:
+        with connect_existing_database(self.database) as connection:
             row = connection.execute(
                 """
                 SELECT
@@ -451,7 +451,7 @@ class LibraryQueries:
         requested_ids = [int(item_id) for item_id in playlist_item_ids]
         if not requested_ids:
             return ()
-        with connect_database(self.database, create=False) as connection:
+        with connect_existing_database(self.database) as connection:
             placeholders = placeholders_for(requested_ids)
             rows = list(
                 connection.execute(
@@ -487,7 +487,7 @@ class LibraryQueries:
         )
 
     def list_internet_radio_station_items(self) -> tuple[PlaylistItem, ...]:
-        with connect_database(self.database, create=False) as connection:
+        with connect_existing_database(self.database) as connection:
             rows = list(
                 connection.execute(
                     """
@@ -525,7 +525,7 @@ class LibraryQueries:
             return tuple(self._playlist_items_from_rows(connection, station_rows))
 
     def get_internet_radio_station_item(self, playlist_item_id: int) -> PlaylistItem:
-        with connect_database(self.database, create=False) as connection:
+        with connect_existing_database(self.database) as connection:
             row = connection.execute(
                 """
                 SELECT
@@ -559,7 +559,7 @@ class LibraryQueries:
         return items[0]
 
     def get_track(self, track_id: int) -> PlaylistTrack:
-        with connect_database(self.database, create=False) as connection:
+        with connect_existing_database(self.database) as connection:
             row = connection.execute(
                 f"""
                 SELECT {TRACK_COLUMNS}
@@ -576,7 +576,7 @@ class LibraryQueries:
         requested_ids = [int(track_id) for track_id in track_ids]
         if not requested_ids:
             return ()
-        with connect_database(self.database, create=False) as connection:
+        with connect_existing_database(self.database) as connection:
             placeholders = placeholders_for(requested_ids)
             rows = list(
                 connection.execute(
@@ -600,7 +600,7 @@ class LibraryQueries:
         )
 
     def search(self, query: LibrarySearchQuery) -> LibrarySearchResults:
-        with connect_database(self.database, create=False) as connection:
+        with connect_existing_database(self.database) as connection:
             artist_ids, artist_has_next = search_entity_ids(
                 connection,
                 entity_type="artist",
@@ -663,7 +663,7 @@ class LibraryQueries:
         )
 
     def get_track_audio_path(self, track_id: int) -> Path:
-        with connect_database(self.database, create=False) as connection:
+        with connect_existing_database(self.database) as connection:
             row = connection.execute(
                 "SELECT path FROM library_tracks WHERE track_id = ?",
                 (track_id,),
@@ -673,7 +673,7 @@ class LibraryQueries:
         return Path(str(row["path"]))
 
     def get_track_audio_resource(self, track_id: int) -> AudioResource:
-        with connect_database(self.database, create=False) as connection:
+        with connect_existing_database(self.database) as connection:
             row = connection.execute(
                 """
                 SELECT
@@ -712,7 +712,7 @@ class LibraryQueries:
 
     def get_playlist_item_audio_resource(self, playlist_item_id: int) -> AudioResource:
         remote_resource: AudioResource | None = None
-        with connect_database(self.database, create=False) as connection:
+        with connect_existing_database(self.database) as connection:
             row = connection.execute(
                 """
                 SELECT playlist_item_id, path, track_id
@@ -736,7 +736,7 @@ class LibraryQueries:
         return local_audio_resource(path)
 
     def get_track_artwork(self, track_id: int, *, height_px: int) -> TrackArtwork | None:
-        with connect_database(self.database, create=False) as connection:
+        with connect_existing_database(self.database) as connection:
             row = connection.execute(
                 """
                 SELECT mime_type, data
@@ -753,7 +753,7 @@ class LibraryQueries:
         )
 
     def filter_options(self) -> LibraryFilterOptions:
-        with connect_database(self.database, create=False) as connection:
+        with connect_existing_database(self.database) as connection:
             roots = library_root_options(connection)
             artists = unique_sorted(
                 str(row["artist"])
@@ -819,11 +819,11 @@ class LibraryQueries:
         )
 
     def library_roots(self) -> tuple[LibraryRootFilterOption, ...]:
-        with connect_database(self.database, create=False) as connection:
+        with connect_existing_database(self.database) as connection:
             return library_root_options(connection)
 
     def list_genres(self) -> tuple[LibraryGenre, ...]:
-        with connect_database(self.database, create=False) as connection:
+        with connect_existing_database(self.database) as connection:
             rows = list(
                 connection.execute(
                     """
@@ -869,7 +869,7 @@ class LibraryQueries:
         *,
         root_position: int | None = None,
     ) -> tuple[LibraryArtistSummary, ...]:
-        with connect_database(self.database, create=False) as connection:
+        with connect_existing_database(self.database) as connection:
             if root_position is None:
                 rows = list(
                     connection.execute(
@@ -909,7 +909,7 @@ class LibraryQueries:
         )
 
     def get_album_artist(self, artist: str) -> LibraryArtistDetails:
-        with connect_database(self.database, create=False) as connection:
+        with connect_existing_database(self.database) as connection:
             artist_row = connection.execute(
                 """
                 SELECT album_artist, albums_scanned
@@ -997,7 +997,7 @@ class LibraryQueries:
         )
 
     def album_artist_split_mappings(self) -> tuple[AlbumArtistSplitMapping, ...]:
-        with connect_database(self.database, create=False) as connection:
+        with connect_existing_database(self.database) as connection:
             rows = list(
                 connection.execute(
                     """
@@ -1016,7 +1016,7 @@ class LibraryQueries:
         )
 
     def album_metadata_overrides(self) -> tuple[AlbumMusicBrainzOverride, ...]:
-        with connect_database(self.database, create=False) as connection:
+        with connect_existing_database(self.database) as connection:
             rows = list(
                 connection.execute(
                     """
@@ -1133,7 +1133,7 @@ class LibraryQueries:
         return self.album_metadata_overrides()
 
     def cache_stats(self) -> tuple[CacheStat, ...]:
-        with connect_database(self.database, create=False) as connection:
+        with connect_existing_database(self.database) as connection:
             return tuple(
                 CacheStat(
                     key=group.key,
@@ -1148,7 +1148,7 @@ class LibraryQueries:
             )
 
     def library_stats(self) -> LibraryStats:
-        with connect_database(self.database, create=False) as connection:
+        with connect_existing_database(self.database) as connection:
             stats_row = connection.execute(
                 """
                 SELECT
@@ -1192,7 +1192,7 @@ class LibraryQueries:
         )
 
     def library_root_stats(self) -> tuple[LibraryRootStats, ...]:
-        with connect_database(self.database, create=False) as connection:
+        with connect_existing_database(self.database) as connection:
             stats_rows = list(
                 connection.execute(
                     """

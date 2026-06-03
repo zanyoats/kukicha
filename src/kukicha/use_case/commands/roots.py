@@ -12,7 +12,7 @@ from ..._compat import UTC
 from ..queries import LibraryQueries
 from ..database import (
     canonicalize_library_album_artists,
-    connect_database,
+    connect_existing_database,
     rebuild_album_rollups,
     rebuild_library_search_index,
     utc_now_iso,
@@ -54,7 +54,7 @@ from ...scanner import (
 LOGGER = logging.getLogger("kukicha.player")
 
 def library_root_count(database: Path) -> int:
-    connection = connect_database(database)
+    connection = connect_existing_database(database)
     try:
         return int(connection.execute("SELECT COUNT(*) AS count FROM library_roots").fetchone()["count"])
     finally:
@@ -235,7 +235,7 @@ def rescan_library(
     metadata_resolution_skipped = not track_library_changed
     if cancel_check is not None:
         cancel_check()
-    connection = connect_database(database, create=False)
+    connection = connect_existing_database(database)
     try:
         connection.execute("SAVEPOINT rescan_library")
         try:
@@ -393,7 +393,7 @@ def sync_library_roots(
 
     if cancel_check is not None:
         cancel_check()
-    connection = connect_database(database, create=False)
+    connection = connect_existing_database(database)
     try:
         connection.execute("SAVEPOINT sync_roots")
         try:

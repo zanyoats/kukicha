@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 import sqlite3
 
-from ..database import connect_database
+from ..database import connect_existing_database
 from ...player_runtime import PlayerJobRecord
 
 
@@ -70,7 +70,7 @@ def create_player_job(
 ) -> PlayerJobRecord:
     created_at = utc_now_iso()
     job_context = normalize_job_context(context)
-    connection = connect_database(database)
+    connection = connect_existing_database(database)
     try:
         cursor = connection.execute(
             """
@@ -98,7 +98,7 @@ def create_player_job(
 
 
 def get_player_job(database: Path, job_id: int) -> PlayerJobRecord:
-    connection = connect_database(database)
+    connection = connect_existing_database(database)
     try:
         return get_player_job_from_connection(connection, job_id)
     finally:
@@ -171,7 +171,7 @@ def update_player_job(
         values.append(cancel_requested_at)
     values.append(job_id)
 
-    connection = connect_database(database, create=False)
+    connection = connect_existing_database(database)
     try:
         connection.execute(
             f"""
@@ -195,7 +195,7 @@ def request_cancel_player_job(
     message: str | None = None,
 ) -> PlayerJobRecord:
     requested_at = utc_now_iso()
-    connection = connect_database(database, create=False)
+    connection = connect_existing_database(database)
     try:
         job = get_player_job_from_connection(connection, job_id)
         if job.status in TERMINAL_JOB_STATUSES:
@@ -244,7 +244,7 @@ def mark_stale_player_jobs_canceled(
     reason: str = "Canceled because the player restarted.",
 ) -> tuple[PlayerJobRecord, ...]:
     canceled_at = utc_now_iso()
-    connection = connect_database(database)
+    connection = connect_existing_database(database)
     try:
         rows = list(
             connection.execute(
@@ -290,7 +290,7 @@ def mark_stale_player_jobs_canceled(
 
 
 def list_player_jobs(database: Path) -> tuple[PlayerJobRecord, ...]:
-    connection = connect_database(database, create=False)
+    connection = connect_existing_database(database)
     try:
         rows = list(
             connection.execute(
@@ -319,7 +319,7 @@ def list_player_jobs(database: Path) -> tuple[PlayerJobRecord, ...]:
 
 
 def list_active_player_jobs(database: Path) -> tuple[PlayerJobRecord, ...]:
-    connection = connect_database(database, create=False)
+    connection = connect_existing_database(database)
     try:
         rows = list(
             connection.execute(

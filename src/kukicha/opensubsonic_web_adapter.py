@@ -50,7 +50,7 @@ from .use_case import (
     create_or_replace_manual_playlist,
     delete_internet_radio_station,
     delete_playlist,
-    connect_database,
+    connect_existing_database,
     playlist_cover,
     playlist_audio_resource,
     record_opensubsonic_client,
@@ -782,7 +782,7 @@ def update_star_id(
 
 
 def album_star_target_exists(database: Path, album_id: str) -> bool:
-    with connect_database(database, create=False) as connection:
+    with connect_existing_database(database) as connection:
         return (
             connection.execute(
                 """
@@ -797,7 +797,7 @@ def album_star_target_exists(database: Path, album_id: str) -> bool:
 
 
 def artist_star_target_name(database: Path, artist: str) -> str | None:
-    with connect_database(database, create=False) as connection:
+    with connect_existing_database(database) as connection:
         row = connection.execute(
             """
             SELECT album_artist
@@ -946,7 +946,7 @@ def artist_starred_at_by_artist(
     if not artist_names:
         return {}
     placeholders = ", ".join("?" for _artist in artist_names)
-    with connect_database(database, create=False) as connection:
+    with connect_existing_database(database) as connection:
         return {
             str(row["artist"]).casefold(): str(row["starred_at"])
             for row in connection.execute(
@@ -1180,7 +1180,7 @@ def starred_artist_payloads(
 
 
 def starred_artist_state_rows(database: Path) -> tuple[tuple[str, str], ...]:
-    with connect_database(database, create=False) as connection:
+    with connect_existing_database(database) as connection:
         return tuple(
             (str(row["artist"]), str(row["starred_at"]))
             for row in connection.execute(
@@ -1261,7 +1261,7 @@ def starred_song_track_ids(
 ) -> tuple[int, ...]:
     root_sql = "" if root_position is None else "AND tracks.root_position = ?"
     params: tuple[object, ...] = () if root_position is None else (root_position,)
-    with connect_database(database, create=False) as connection:
+    with connect_existing_database(database) as connection:
         return tuple(
             int(row["track_id"])
             for row in connection.execute(

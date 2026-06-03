@@ -2794,6 +2794,43 @@ test("web audio prefetch errors mark the failed next track", async () => {
   });
 });
 
+test("web audio prefetch errors include the audio response body", async () => {
+  const harness = createHarness(
+    {
+      track_ids: [1, 2],
+      position: 0,
+      loaded_track_id: 1,
+      paused: true,
+      errored_track_ids: [],
+      unavailable_track_ids: [],
+      track_snapshots: [
+        {trackId: 1, audioUrl: "/audio/1", title: "One", durationSeconds: 90},
+        {trackId: 2, audioUrl: "/audio/2", title: "Two", durationSeconds: 120},
+      ],
+    },
+    {
+      gapless: true,
+      fetchResponses: {
+        "http://localhost/audio/2": {
+          status: 500,
+          ok: false,
+          text: "trigger album_musicbrainz_track_links_insert already exists",
+        },
+      },
+    },
+  );
+
+  harness.playButton.click();
+  await harness.flush();
+  await harness.flush();
+
+  const toastCopy = harness.document.elements.toast.querySelector(".toast-copy");
+  assert.equal(
+    toastCopy.textContent,
+    'Could not play "Two". audio fetch failed: 500: trigger album_musicbrainz_track_links_insert already exists',
+  );
+});
+
 test("ios safari and non-gapless tracks keep the native audio engine", async () => {
   const iosHarness = createHarness(
     {

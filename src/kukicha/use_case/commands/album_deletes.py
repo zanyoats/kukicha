@@ -17,7 +17,7 @@ from ...library_sources import (
 )
 from ...player_common import placeholders_for
 from ...player_runtime import PlayerJobCancelToken, PlayerJobResult, PlayerRuntime
-from ..database import connect_database
+from ..database import connect_existing_database
 from ..queries import AlbumNotFoundError
 from .album_edits import album_artist_display_text, album_display_label, row_text
 
@@ -69,7 +69,7 @@ def prepare_album_delete_job(database: Path, album_id: str) -> AlbumDeleteJob:
     if not cleaned_album_id:
         raise ValueError("album id is required")
 
-    connection = connect_database(database, create=False)
+    connection = connect_existing_database(database)
     try:
         album_row = connection.execute(
             """

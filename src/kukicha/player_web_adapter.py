@@ -28,6 +28,7 @@ from .use_case import (
     pause_queue_for_document_load,
     playlist_cover as playlist_cover_command,
     playlist_audio_resource,
+    prepare_player_database,
     record_playback,
     remove_queue_item as remove_queue_item_command,
     reset_listening_data,
@@ -152,6 +153,7 @@ def create_player_app(options: PlayerServerOptions) -> Flask:
     app.jinja_env.filters.update(template_environment.filters)
     app.jinja_env.globals.update(template_environment.globals)
     runtime = PlayerRuntime(options)
+    prepare_player_database(runtime.database)
     mark_stale_player_jobs_canceled(runtime.database)
     if type(runtime) is PlayerRuntime:
         runtime.library_filter_options()

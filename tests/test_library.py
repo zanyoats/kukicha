@@ -3292,6 +3292,21 @@ class LibraryMusicBrainzPersistenceTest(unittest.TestCase):
             finally:
                 connection.close()
 
+    def test_connect_database_keeps_current_musicbrainz_compat_views_stable(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            database = Path(tempdir) / "kukicha.sqlite"
+            connection = connect_database(database)
+            connection.close()
+
+            with patch(
+                "kukicha.use_case.database.rebuild_musicbrainz_compat_views"
+            ) as rebuild:
+                connection = connect_database(database, create=False)
+                try:
+                    rebuild.assert_not_called()
+                finally:
+                    connection.close()
+
     def test_connect_database_drops_legacy_library_album_paths_table(self) -> None:
         with TemporaryDirectory() as tempdir:
             database = Path(tempdir) / "kukicha.sqlite"

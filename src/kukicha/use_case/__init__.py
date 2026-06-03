@@ -75,6 +75,7 @@ from .database import (
     UNKNOWN_GENRE_TAG,
     UNKNOWN_METADATA_TAG,
     connect_database,
+    connect_existing_database,
 )
 from .itunes import (
     ItunesLookupCandidate,
@@ -200,6 +201,7 @@ __all__ = [
     "edit_library_album_musicbrainz",
     "edit_library_album_tags",
     "connect_database",
+    "connect_existing_database",
     "CoverArtResolutionStats",
     "GenreFilterGroup",
     "GenreStyleFilter",

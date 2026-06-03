@@ -9,7 +9,7 @@ from urllib.parse import urlsplit
 
 from ...discogs import file_album_id_from_album_id
 from ..cache import CACHE_TABLE_GROUP_BY_KEY
-from ..database import connect_database
+from ..database import connect_existing_database
 from ..queries import LibraryQueries
 from ..queries.sql import placeholders_for
 
@@ -23,11 +23,11 @@ QUEUE_STATE_ID = 1
 
 
 def load_queue_state_database(database: Path) -> PlayerQueueState:
-    with connect_database(database) as connection:
+    with connect_existing_database(database) as connection:
         state = load_queue_state_connection(connection)
     refreshed_snapshots = refreshed_queue_snapshots(database, state)
     if refreshed_snapshots != state.snapshots:
-        with connect_database(database) as connection:
+        with connect_existing_database(database) as connection:
             state = write_queue_connection(
                 connection,
                 list(state.track_ids),
@@ -43,7 +43,7 @@ def load_queue_state_database(database: Path) -> PlayerQueueState:
 def clear_queue_database(database: Path) -> PlayerQueueState:
     from ...player_presenters import normalized_queue_state
 
-    with connect_database(database) as connection:
+    with connect_existing_database(database) as connection:
         connection.execute("DELETE FROM player_queue_items")
         connection.execute("DELETE FROM player_queue_state")
     return normalized_queue_state([])
@@ -203,7 +203,7 @@ def write_queue_database(
     errored_track_ids: object = (),
     unavailable_track_ids: object | None = None,
 ) -> PlayerQueueState:
-    with connect_database(database) as connection:
+    with connect_existing_database(database) as connection:
         return write_queue_connection(
             connection,
             track_ids,
@@ -592,7 +592,7 @@ def save_album_artist_split_mapping(
     if not mapped_artists:
         raise ValueError("at least one mapped artist is required")
 
-    with connect_database(runtime.database) as connection:
+    with connect_existing_database(runtime.database) as connection:
         row = connection.execute(
             """
             SELECT 1
@@ -635,7 +635,7 @@ def delete_album_metadata_override(
     if not file_album_id:
         raise ValueError("album id is required")
 
-    with connect_database(runtime.database) as connection:
+    with connect_existing_database(runtime.database) as connection:
         override = connection.execute(
             """
             SELECT 1
@@ -684,7 +684,7 @@ def clear_cache_tables(
         raise PlayerNotFoundError(f"cache target does not exist: {cache_key}")
 
     cleared_entries = 0
-    with connect_database(runtime.database) as connection:
+    with connect_existing_database(runtime.database) as connection:
         for table_name in group.table_names:
             row = connection.execute(
                 f"SELECT COUNT(*) AS count FROM {table_name}"
@@ -714,7 +714,7 @@ def update_album_star(
     starred = payload.get("starred") is True
     starred_at = utc_now_iso() if starred else None
 
-    with connect_database(runtime.database) as connection:
+    with connect_existing_database(runtime.database) as connection:
         row = connection.execute(
             """
             SELECT 1
@@ -770,7 +770,7 @@ def update_artist_star(
     starred = payload.get("starred") is True
     starred_at = utc_now_iso() if starred else None
 
-    with connect_database(runtime.database) as connection:
+    with connect_existing_database(runtime.database) as connection:
         row = connection.execute(
             """
             SELECT album_artist
@@ -820,7 +820,7 @@ def update_track_star(
     starred = payload.get("starred") is True
     starred_at = utc_now_iso() if starred else None
 
-    with connect_database(runtime.database) as connection:
+    with connect_existing_database(runtime.database) as connection:
         row = connection.execute(
             """
             SELECT path

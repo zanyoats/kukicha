@@ -646,6 +646,7 @@ def connect_database(
     path: Path,
     *,
     create: bool = True,
+    migrate: bool = True,
 ) -> sqlite3.Connection:
     if not create and not path.exists():
         raise FileNotFoundError(path)
@@ -655,8 +656,11 @@ def connect_database(
     try:
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA foreign_keys = ON")
-        connection.execute("PRAGMA journal_mode=WAL")
         connection.execute("PRAGMA synchronous=NORMAL")
+        if not migrate:
+            return connection
+
+        connection.execute("PRAGMA journal_mode=WAL")
         connection.executescript(DATABASE_SCHEMA)
         connection.executescript(LIBRARY_PLAYLIST_SCHEMA)
         migrate_player_jobs_schema(connection)
@@ -676,6 +680,10 @@ def connect_database(
         connection.close()
         raise
     return connection
+
+
+def connect_existing_database(path: Path) -> sqlite3.Connection:
+    return connect_database(path, create=False, migrate=False)
 
 
 def migrate_player_jobs_schema(connection: sqlite3.Connection) -> None:
@@ -1522,6 +1530,22 @@ def ensure_album_metadata_link_indexes(connection: sqlite3.Connection) -> None:
 
 
 def ensure_musicbrainz_compat_views(connection: sqlite3.Connection) -> None:
+    if musicbrainz_compat_views_current(connection):
+        return
+
+    connection.commit()
+    connection.execute("BEGIN IMMEDIATE")
+    try:
+        if not musicbrainz_compat_views_current(connection):
+            rebuild_musicbrainz_compat_views(connection)
+    except Exception:
+        connection.rollback()
+        raise
+    else:
+        connection.commit()
+
+
+def rebuild_musicbrainz_compat_views(connection: sqlite3.Connection) -> None:
     connection.execute("DROP TRIGGER IF EXISTS album_musicbrainz_links_insert")
     connection.execute("DROP TRIGGER IF EXISTS album_musicbrainz_links_delete")
     connection.execute("DROP TRIGGER IF EXISTS album_musicbrainz_track_links_insert")
@@ -1688,6 +1712,44 @@ def ensure_musicbrainz_compat_views(connection: sqlite3.Connection) -> None:
         END;
         """
     )
+
+
+def musicbrainz_compat_views_current(connection: sqlite3.Connection) -> bool:
+    rows = connection.execute(
+        """
+        SELECT type, name, tbl_name
+        FROM sqlite_master
+        WHERE name IN (
+            'album_musicbrainz_links',
+            'album_musicbrainz_track_links',
+            'album_musicbrainz_links_insert',
+            'album_musicbrainz_links_delete',
+            'album_musicbrainz_track_links_insert',
+            'album_musicbrainz_track_links_delete'
+        )
+        """
+    ).fetchall()
+    objects = {str(row["name"]): row for row in rows}
+    expected_views = ("album_musicbrainz_links", "album_musicbrainz_track_links")
+    expected_triggers = {
+        "album_musicbrainz_links_insert": "album_musicbrainz_links",
+        "album_musicbrainz_links_delete": "album_musicbrainz_links",
+        "album_musicbrainz_track_links_insert": "album_musicbrainz_track_links",
+        "album_musicbrainz_track_links_delete": "album_musicbrainz_track_links",
+    }
+    for name in expected_views:
+        row = objects.get(name)
+        if row is None or str(row["type"]) != "view":
+            return False
+    for name, table_name in expected_triggers.items():
+        row = objects.get(name)
+        if (
+            row is None
+            or str(row["type"]) != "trigger"
+            or str(row["tbl_name"]) != table_name
+        ):
+            return False
+    return True
 
 
 def database_object_type(connection: sqlite3.Connection, name: str) -> str | None:

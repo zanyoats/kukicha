@@ -13,7 +13,7 @@ from ..models import normalize_genre_values
 from ..playlist_art import playlist_cover_svg
 from ..scanner import is_url_resource
 from ..text import normalize_text
-from .database import connect_database
+from .database import connect_existing_database
 from .queries.models import (
     AlbumSummary,
     PlaylistItemNotFoundError,
@@ -124,7 +124,7 @@ def record_playback(
     session_key: str = "default",
 ) -> None:
     timestamp = (played_at or datetime.now(UTC)).astimezone(UTC).isoformat()
-    with connect_database(database, create=False) as connection:
+    with connect_existing_database(database) as connection:
         snapshot = playback_snapshot(connection, playback_id)
         snapshot_json = json.dumps(snapshot, sort_keys=True)
         is_stream = snapshot_is_stream(snapshot)
@@ -227,7 +227,7 @@ def record_opensubsonic_client(
         return
     timestamp = (seen_at or datetime.now(UTC)).astimezone(UTC)
     timestamp_text = timestamp.isoformat()
-    with connect_database(database, create=False) as connection:
+    with connect_existing_database(database) as connection:
         row = connection.execute(
             """
             SELECT last_seen_at
@@ -263,7 +263,7 @@ def record_opensubsonic_client(
 
 
 def opensubsonic_clients(database: Path) -> tuple[OpenSubsonicClient, ...]:
-    with connect_database(database, create=False) as connection:
+    with connect_existing_database(database) as connection:
         return tuple(
             OpenSubsonicClient(
                 client_name=str(row["client_name"]),
@@ -280,7 +280,7 @@ def opensubsonic_clients(database: Path) -> tuple[OpenSubsonicClient, ...]:
 
 
 def listening_data_stats(database: Path) -> tuple[ListeningDataStat, ...]:
-    with connect_database(database, create=False) as connection:
+    with connect_existing_database(database) as connection:
         return tuple(
             ListeningDataStat(
                 section=section,
@@ -293,7 +293,7 @@ def listening_data_stats(database: Path) -> tuple[ListeningDataStat, ...]:
 
 def reset_listening_data(database: Path) -> dict[str, object]:
     cleared_entries = 0
-    with connect_database(database, create=False) as connection:
+    with connect_existing_database(database) as connection:
         for _section, _label, table_name in LISTENING_DATA_TABLES:
             cleared_entries += listening_table_count(connection, table_name)
         for _section, _label, table_name in LISTENING_DATA_TABLES:
@@ -625,7 +625,7 @@ def home_dashboard(
     genre_limit: int = 6,
     recently_added_days: int = 30,
 ) -> HomeDashboard:
-    with connect_database(database, create=False) as connection:
+    with connect_existing_database(database) as connection:
         recently_added_albums = recently_added_album_summaries(
             connection,
             days=recently_added_days,

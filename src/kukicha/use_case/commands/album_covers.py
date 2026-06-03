@@ -19,7 +19,7 @@ from ...library_sources import (
 )
 from ...models import UNKNOWN_METADATA_TAG
 from ...player_runtime import PlayerJobCancelToken, PlayerJobResult, PlayerRuntime
-from ..database import connect_database
+from ..database import connect_existing_database
 from ..queries import AlbumNotFoundError
 from .album_edits import album_artist_display_text, album_display_label, row_text
 
@@ -90,7 +90,7 @@ def prepare_album_cover_upload_job(
     if not data:
         raise ValueError("cover file is empty")
 
-    connection = connect_database(database, create=False)
+    connection = connect_existing_database(database)
     try:
         album_row = connection.execute(
             """

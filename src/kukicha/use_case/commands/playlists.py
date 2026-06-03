@@ -7,7 +7,7 @@ from pathlib import Path
 import sqlite3
 
 from ...audio_types import KNOWN_IMAGE_MIME_TYPES, content_type_for_name
-from ..database import connect_database, utc_now_iso
+from ..database import connect_existing_database, utc_now_iso
 from ...models import TrackRecord
 from ...player_common import placeholders_for
 from ...playlist_art import playlist_cover_svg
@@ -103,7 +103,7 @@ def playlist_menu_options_by_track_id(
     requested_ids = tuple(dict.fromkeys(int(track_id) for track_id in track_ids if int(track_id) > 0))
     if not requested_ids:
         return {}
-    with connect_database(database, create=False) as connection:
+    with connect_existing_database(database) as connection:
         playlist_rows = list(
             connection.execute(
                 """
@@ -169,7 +169,7 @@ def create_manual_playlist(
 ) -> PlaylistMutationResult:
     playlist_name = normalized_playlist_name(name)
     now = utc_now_iso()
-    with connect_database(database, create=False) as connection:
+    with connect_existing_database(database) as connection:
         track_rows = track_rows_for_playlist(connection, track_ids)
         cursor = connection.execute(
             """
@@ -211,7 +211,7 @@ def replace_manual_playlist(
     track_ids: Sequence[int] = (),
 ) -> PlaylistMutationResult:
     now = utc_now_iso()
-    with connect_database(database, create=False) as connection:
+    with connect_existing_database(database) as connection:
         playlist_row = editable_playlist_row(connection, playlist_id)
         playlist_name = (
             normalized_playlist_name(name)
@@ -256,7 +256,7 @@ def update_manual_playlist(
     item_indexes_to_remove: Sequence[int] = (),
 ) -> PlaylistMutationResult:
     now = utc_now_iso()
-    with connect_database(database, create=False) as connection:
+    with connect_existing_database(database) as connection:
         playlist_row = editable_playlist_row(connection, playlist_id)
         playlist_name = (
             normalized_playlist_name(name)
@@ -345,7 +345,7 @@ def import_playlist_file(
     uploaded_name = str(filename or "").strip()
     if not uploaded_name:
         raise ValueError("playlist file must have a filename")
-    with connect_database(database, create=False) as connection:
+    with connect_existing_database(database) as connection:
         tracks = tuple(
             TrackRecord(path=str(row["path"]), track_id=int(row["track_id"]))
             for row in connection.execute(
@@ -413,7 +413,7 @@ def create_internet_radio_station(
     station_name = normalized_playlist_name(name)
     station_url = normalized_internet_radio_stream_url(stream_url)
     now = utc_now_iso()
-    with connect_database(database, create=False) as connection:
+    with connect_existing_database(database) as connection:
         cursor = connection.execute(
             """
             INSERT INTO library_playlists (
@@ -467,7 +467,7 @@ def update_internet_radio_station(
     station_name = normalized_playlist_name(name)
     station_url = normalized_internet_radio_stream_url(stream_url)
     now = utc_now_iso()
-    with connect_database(database, create=False) as connection:
+    with connect_existing_database(database) as connection:
         row = internet_radio_station_row(connection, station_id)
         ensure_internet_radio_station_editable(row)
         playlist_id = int(row["playlist_id"])
@@ -521,7 +521,7 @@ def delete_internet_radio_station(
     database: Path,
     station_id: int,
 ) -> InternetRadioStationMutationResult:
-    with connect_database(database, create=False) as connection:
+    with connect_existing_database(database) as connection:
         row = internet_radio_station_row(connection, station_id)
         ensure_internet_radio_station_editable(row)
         playlist_id = int(row["playlist_id"])
@@ -558,7 +558,7 @@ def delete_internet_radio_station(
 
 
 def delete_playlist(database: Path, playlist_id: int) -> PlaylistMutationResult:
-    with connect_database(database, create=False) as connection:
+    with connect_existing_database(database) as connection:
         row = playlist_row(connection, playlist_id)
         item_count = int(
             connection.execute(
@@ -609,7 +609,7 @@ def upload_playlist_cover(
     if mime_type not in set(KNOWN_IMAGE_MIME_TYPES.values()):
         raise ValueError("cover must be a GIF, JPEG, PNG, or WebP image")
     now = utc_now_iso()
-    with connect_database(database, create=False) as connection:
+    with connect_existing_database(database) as connection:
         row = playlist_row(connection, playlist_id)
         connection.execute(
             """
@@ -630,7 +630,7 @@ def upload_playlist_cover(
 
 
 def playlist_cover(database: Path, playlist_id: int) -> PlaylistCover:
-    with connect_database(database, create=False) as connection:
+    with connect_existing_database(database) as connection:
         row = connection.execute(
             """
             SELECT playlist_id, name, cover_svg, cover_mime_type, cover_data
@@ -671,7 +671,7 @@ def set_track_playlist_membership_database(
     playlist_id: int,
     checked: bool,
 ) -> dict[str, object]:
-    with connect_database(database, create=False) as connection:
+    with connect_existing_database(database) as connection:
         track_row = connection.execute(
             """
             SELECT track_id, path

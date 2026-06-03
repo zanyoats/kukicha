@@ -960,6 +960,8 @@ class PlayerRuntimeTest(unittest.TestCase):
     def test_stale_queued_and_running_jobs_are_canceled_on_startup(self) -> None:
         with TemporaryDirectory() as tempdir:
             database = Path(tempdir) / "kukicha.sqlite"
+            connection = connect_database(database)
+            connection.close()
             queued = create_player_job(
                 database,
                 kind="add_root",
@@ -5027,6 +5029,56 @@ class PlayerWebAdapterTest(unittest.TestCase):
             [("Brian Eno", 1), ("Jon Hopkins", 1), ("Leo Abrahams", 1)],
         )
         self.assertEqual(genre_stats, [("Ambient", 1), ("Electronic", 1)])
+
+    def test_runtime_audio_and_scrobble_skip_schema_preparation(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            database = temp_path / "kukicha.sqlite"
+            audio_path = temp_path / "track.mp3"
+            audio_path.write_bytes(b"0123456789")
+            track = TrackRecord(
+                path=str(audio_path),
+                root_position=0,
+                file_type="mp3",
+                artist="Brian Eno",
+                album_artist="Brian Eno",
+                album="Ambient 1",
+                title="1/1",
+                track_number="1/1",
+                disc_number="1/1",
+                duration_seconds=10,
+            )
+            save_library(
+                MusicLibrary(
+                    roots=[str(temp_path)],
+                    tracks=[track],
+                    supported_extensions=[".mp3"],
+                    generated_at="2026-05-01T00:00:00+00:00",
+                ),
+                database,
+            )
+            runtime = self.make_runtime(database)
+            with patch("kukicha.player_web_adapter.PlayerRuntime", return_value=runtime):
+                app = create_player_app(self.make_options(temp_path))
+
+            with patch(
+                "kukicha.use_case.database.migrate_player_jobs_schema",
+                side_effect=AssertionError("schema preparation should run at startup only"),
+            ):
+                client = app.test_client()
+                scrobble_response = client.post(
+                    "/api/scrobble",
+                    json={
+                        "playback_id": track.track_id,
+                        "submission": False,
+                        "time": 1770000000000,
+                    },
+                )
+                audio_response = client.get(f"/audio/{track.track_id}")
+
+            self.assertEqual(scrobble_response.status_code, 200)
+            self.assertEqual(audio_response.status_code, 200)
+            self.assertEqual(audio_response.data, b"0123456789")
 
     def test_track_listening_stats_use_path_when_metadata_collides(self) -> None:
         with TemporaryDirectory() as tempdir:

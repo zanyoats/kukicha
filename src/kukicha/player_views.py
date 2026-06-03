@@ -864,7 +864,7 @@ def album_musicbrainz_edit_sections(
     roots: tuple[Any, ...],
 ) -> list[Any]:
     from .player_presenters import album_tag_edit_sections
-    from .use_case.database import connect_database
+    from .use_case.database import connect_existing_database
     from .use_case.metadata import load_album_metadata_track_links
 
     sections = album_tag_edit_sections(track_views, roots)
@@ -874,7 +874,7 @@ def album_musicbrainz_edit_sections(
         for item in section.tracks
         if item.track.path
     )
-    with connect_database(database, create=False) as connection:
+    with connect_existing_database(database) as connection:
         track_links = load_album_metadata_track_links(connection, paths)
 
     fallback_url = ""

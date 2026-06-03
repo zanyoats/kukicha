@@ -12,7 +12,7 @@ import urllib.parse
 
 from ...audio_types import content_type_for_name
 from ..queries import AlbumNotFoundError, TrackNotFoundError
-from ..database import connect_database
+from ..database import connect_existing_database
 from ...album_artists import (
     DEFAULT_ALBUM_ARTIST_SPLIT_PATTERNS,
     album_artist_has_mapping_pattern,
@@ -312,7 +312,7 @@ def prepare_album_musicbrainz_edit_request(
 ) -> AlbumMusicBrainzEditRequest:
     groups = parse_album_musicbrainz_group_requests(payload)
 
-    connection = connect_database(database, create=False)
+    connection = connect_existing_database(database)
     try:
         album_row = connection.execute(
             """
@@ -472,7 +472,7 @@ def prepare_album_musicbrainz_edit_job(
     payload: dict[str, Any],
 ) -> AlbumMusicBrainzEditJob:
     request = prepare_album_musicbrainz_edit_request(database, album_id, payload)
-    connection = connect_database(database, create=False)
+    connection = connect_existing_database(database)
     try:
         requested_track_ids = list(request.track_ids)
         if not requested_track_ids and len(request.groups) == 1:
@@ -673,7 +673,7 @@ def prepare_album_tag_edit_job(
 ) -> AlbumTagEditJob:
     request = parse_album_tag_edit_request(album_id, payload)
     requested_track_ids = [item.track_id for item in request.tracks]
-    connection = connect_database(database, create=False)
+    connection = connect_existing_database(database)
     try:
         album_row = connection.execute(
             """
@@ -965,7 +965,7 @@ def edit_library_album_musicbrainz(
     prefer_musicbrainz_english_aliases: bool = True,
     cancel_check: Callable[[], None] | None = None,
 ) -> AlbumMusicBrainzEditResult:
-    connection = connect_database(database, create=False)
+    connection = connect_existing_database(database)
     try:
         connection.execute("SAVEPOINT edit_album_musicbrainz")
         try:

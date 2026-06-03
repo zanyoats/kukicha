@@ -22,6 +22,7 @@ from .database import (
     canonicalize_library_album_artists,
     clear_library,
     connect_database,
+    connect_existing_database,
     get_metadata,
     library_root_position_for_path,
     rebuild_album_rollups,
@@ -877,7 +878,7 @@ def save_rescanned_library_incremental(
     scanned_path_set = set(scanned_paths)
     owns_connection = connection is None
     if connection is None:
-        connection = connect_database(destination, create=False)
+        connection = connect_existing_database(destination)
     try:
         existing_tracks_by_path = library_track_rows_by_path(connection)
         current_paths = {track.path for track in library.tracks}
@@ -2040,7 +2041,7 @@ def resolve_library_genres(
 ) -> GenreResolutionStats:
     owns_connection = connection is None
     if connection is None:
-        connection = connect_database(source, create=False)
+        connection = connect_existing_database(source)
     try:
         matcher = load_taxonomy_genre_matcher_from_connection(connection)
         stats = GenreResolutionStats()
@@ -2317,7 +2318,7 @@ def resolve_library_cover_art(
     itunes_stats = ItunesLookupStats()
     owns_connection = connection is None
     if connection is None:
-        connection = connect_database(source, create=False)
+        connection = connect_existing_database(source)
     try:
         apply_album_artist_mappings(
             connection,
@@ -2630,7 +2631,7 @@ def cover_art_archive_artworks_for_album(
 
 
 def load_rescan_tracks_by_path(source: Path) -> dict[str, TrackRecord]:
-    with connect_database(source, create=False) as connection:
+    with connect_existing_database(source) as connection:
         return {track.path: track for track in _load_rescan_track_records(connection)}
 
 
@@ -2822,7 +2823,7 @@ def store_track_artwork_by_path(
     if not artwork.data:
         return
 
-    with connect_database(source, create=False) as connection:
+    with connect_existing_database(source) as connection:
         row = connection.execute(
             "SELECT track_id FROM library_tracks WHERE path = ?",
             (path,),
@@ -2889,7 +2890,7 @@ def album_lookup_key(
 
 
 def load_taxonomy_genre_matcher(source: Path) -> TaxonomyGenreMatcher:
-    with connect_database(source, create=False) as connection:
+    with connect_existing_database(source) as connection:
         return load_taxonomy_genre_matcher_from_connection(connection)
 
 

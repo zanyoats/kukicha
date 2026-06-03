@@ -5301,9 +5301,9 @@ function fetchAudioBuffer(sourcePath, context) {
     return existing;
   }
   const promise = fetch(sourcePath)
-    .then((response) => {
+    .then(async (response) => {
       if (!response.ok) {
-        throw new Error(`audio fetch failed: ${response.status}`);
+        throw new Error(await audioFetchFailureMessage(response));
       }
       return response.arrayBuffer();
     })
@@ -5313,6 +5313,30 @@ function fetchAudioBuffer(sourcePath, context) {
   });
   audioBufferLoads.set(sourcePath, promise);
   return promise;
+}
+
+async function audioFetchFailureMessage(response) {
+  const status = Number(response && response.status);
+  const prefix = Number.isFinite(status) && status > 0
+    ? `audio fetch failed: ${status}`
+    : "audio fetch failed";
+  const detail = await responseTextDetail(response);
+  return detail ? `${prefix}: ${detail}` : prefix;
+}
+
+async function responseTextDetail(response) {
+  if (!response || typeof response.text !== "function") {
+    return "";
+  }
+  try {
+    return compactErrorDetail(await response.text());
+  } catch {
+    return "";
+  }
+}
+
+function compactErrorDetail(value) {
+  return String(value || "").replace(/\s+/g, " ").trim().slice(0, 240);
 }
 
 function decodeAudioBuffer(context, arrayBuffer) {
