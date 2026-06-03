@@ -1522,6 +1522,10 @@ def ensure_album_metadata_link_indexes(connection: sqlite3.Connection) -> None:
 
 
 def ensure_musicbrainz_compat_views(connection: sqlite3.Connection) -> None:
+    connection.execute("DROP TRIGGER IF EXISTS album_musicbrainz_links_insert")
+    connection.execute("DROP TRIGGER IF EXISTS album_musicbrainz_links_delete")
+    connection.execute("DROP TRIGGER IF EXISTS album_musicbrainz_track_links_insert")
+    connection.execute("DROP TRIGGER IF EXISTS album_musicbrainz_track_links_delete")
     if database_object_type(connection, "album_musicbrainz_links") == "view":
         connection.execute("DROP VIEW album_musicbrainz_links")
     if database_object_type(connection, "album_musicbrainz_track_links") == "view":

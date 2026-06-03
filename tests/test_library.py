@@ -3225,6 +3225,73 @@ class LibraryMusicBrainzPersistenceTest(unittest.TestCase):
             finally:
                 connection.close()
 
+    def test_connect_database_rebuilds_musicbrainz_compat_views_with_stale_trigger(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            database = Path(tempdir) / "kukicha.sqlite"
+            connection = sqlite3.connect(database)
+            try:
+                connection.execute("CREATE TABLE stale_target (id INTEGER)")
+                connection.execute(
+                    """
+                    CREATE TRIGGER album_musicbrainz_track_links_insert
+                    AFTER INSERT ON stale_target
+                    BEGIN
+                        SELECT 1;
+                    END
+                    """
+                )
+                connection.commit()
+            finally:
+                connection.close()
+
+            connection = connect_database(database, create=False)
+            try:
+                trigger_row = connection.execute(
+                    """
+                    SELECT tbl_name
+                    FROM sqlite_master
+                    WHERE type = 'trigger'
+                        AND name = 'album_musicbrainz_track_links_insert'
+                    """
+                ).fetchone()
+                self.assertIsNotNone(trigger_row)
+                self.assertEqual(
+                    str(trigger_row["tbl_name"]),
+                    "album_musicbrainz_track_links",
+                )
+                connection.execute(
+                    """
+                    INSERT INTO album_musicbrainz_track_links (
+                        path,
+                        file_album_id,
+                        release_mbid,
+                        release_group_mbid
+                    ) VALUES (?, ?, ?, ?)
+                    """,
+                    ("/music/Album/01.flac", "artist::album", "release-1", "group-1"),
+                )
+                row = connection.execute(
+                    """
+                    SELECT
+                        provider,
+                        entity_type,
+                        entity_id,
+                        related_entity_type,
+                        related_entity_id
+                    FROM album_metadata_track_links
+                    WHERE path = ?
+                    """,
+                    ("/music/Album/01.flac",),
+                ).fetchone()
+                self.assertIsNotNone(row)
+                self.assertEqual(str(row["provider"]), "musicbrainz")
+                self.assertEqual(str(row["entity_type"]), "release")
+                self.assertEqual(str(row["entity_id"]), "release-1")
+                self.assertEqual(str(row["related_entity_type"]), "release-group")
+                self.assertEqual(str(row["related_entity_id"]), "group-1")
+            finally:
+                connection.close()
+
     def test_connect_database_drops_legacy_library_album_paths_table(self) -> None:
         with TemporaryDirectory() as tempdir:
             database = Path(tempdir) / "kukicha.sqlite"
