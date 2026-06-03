@@ -97,10 +97,15 @@ class CoverArtArchiveClient:
 
         return payload, url
 
-    def fetch_image(self, image_url: str) -> TrackArtwork | None:
+    def fetch_image(
+        self,
+        image_url: str,
+        *,
+        user_agent: str = MUSICBRAINZ_USER_AGENT,
+    ) -> TrackArtwork | None:
         request = urllib.request.Request(
             image_url,
-            headers={"User-Agent": MUSICBRAINZ_USER_AGENT},
+            headers={"User-Agent": user_agent},
         )
         self.stats.image_downloads += 1
         try:
@@ -176,13 +181,14 @@ def get_cover_art_archive_image(
     client: CoverArtArchiveClient,
     *,
     image_url: str,
+    user_agent: str = MUSICBRAINZ_USER_AGENT,
 ) -> TrackArtwork | None:
     cached_artwork = load_cached_cover_art_archive_image(connection, image_url=image_url)
     if cached_artwork is not None:
         client.stats.image_cached_calls += 1
         return cached_artwork
 
-    artwork = client.fetch_image(image_url)
+    artwork = client.fetch_image(image_url, user_agent=user_agent)
     if artwork is None:
         return None
 

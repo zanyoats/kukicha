@@ -10,7 +10,7 @@ from ._compat import UTC
 from .use_case import ALBUM_LIST_SORT_RECENTLY_ADDED, AlbumListQuery, LibraryQueries
 from .use_case import (
     album_list_query_from_params,
-    album_musicbrainz_link,
+    album_metadata_link,
     library_search_query_from_params,
 )
 from .player_common import format_compact_count, format_count_label
@@ -516,21 +516,39 @@ def build_artist_split_rules_page_context(runtime: PlayerRuntime) -> dict[str, A
     return context
 
 
-def build_musicbrainz_overrides_page_context(runtime: PlayerRuntime) -> dict[str, Any]:
+def build_metadata_overrides_page_context(runtime: PlayerRuntime) -> dict[str, Any]:
     from .player_navigation import player_page_context
 
-    overrides = LibraryQueries(runtime.database).album_musicbrainz_overrides()
+    overrides = LibraryQueries(runtime.database).album_metadata_overrides()
     context = base_player_context(
         runtime,
-        view_template="player/musicbrainz_overrides.html",
-        musicbrainz_overrides=tuple(
+        view_template="player/metadata_overrides.html",
+        metadata_overrides=tuple(
             {
                 "album_id": override.album_id,
                 "album": override.album,
                 "artist": override.artist,
                 "year": override.year,
-                "release_mbid": override.release_mbid,
-                "release_group_mbid": override.release_group_mbid,
+                "provider": override.provider,
+                "provider_label": metadata_provider_label(override.provider),
+                "entity_type": override.entity_type,
+                "entity_label": metadata_entity_label(override.entity_type),
+                "entity_id": override.entity_id,
+                "entity_url": metadata_url_for_entity(
+                    override.provider,
+                    override.entity_type,
+                    override.entity_id,
+                ),
+                "related_entity_type": override.related_entity_type,
+                "related_entity_label": metadata_entity_label(
+                    override.related_entity_type
+                ),
+                "related_entity_id": override.related_entity_id,
+                "related_entity_url": metadata_url_for_entity(
+                    override.provider,
+                    override.related_entity_type,
+                    override.related_entity_id,
+                ),
                 "is_current_album": override.is_current_album,
                 "album_url": f"/albums/{quote(override.album_id, safe=':')}"
                 if override.is_current_album
@@ -539,15 +557,19 @@ def build_musicbrainz_overrides_page_context(runtime: PlayerRuntime) -> dict[str
                 if override.is_current_album
                 else "",
                 "delete_url": (
-                    f"/api/musicbrainz-overrides/{quote(override.album_id, safe=':')}/delete"
+                    f"/api/metadata-overrides/{quote(override.album_id, safe=':')}/delete"
                 ),
             }
             for override in overrides
         ),
         count_text=format_count_label(len(overrides), "override", "overrides"),
     )
-    context.update(player_page_context("musicbrainz-overrides"))
+    context.update(player_page_context("metadata-overrides"))
     return context
+
+
+def build_musicbrainz_overrides_page_context(runtime: PlayerRuntime) -> dict[str, Any]:
+    return build_metadata_overrides_page_context(runtime)
 
 
 def build_cache_page_context(runtime: PlayerRuntime) -> dict[str, Any]:
@@ -799,7 +821,7 @@ def build_album_edit_context(
     album = api.get_album(album_id)
     album_artist_part_values = album_artist_parts(album)
     track_views = [track_view(track) for track in album.tracks]
-    musicbrainz_link = album_musicbrainz_link(runtime.database, album.album_id)
+    metadata_link = album_metadata_link(runtime.database, album.album_id)
     roots = api.library_roots()
     musicbrainz_sections = album_musicbrainz_edit_sections(
         runtime.database,
@@ -831,12 +853,7 @@ def build_album_edit_context(
             )
         ),
         album_delete_action_url=f"/api/albums/{quote(album.album_id, safe=':')}/delete",
-        album_musicbrainz_release_mbid=(
-            musicbrainz_link.release_mbid if musicbrainz_link is not None else ""
-        ),
-        album_musicbrainz_release_group_mbid=(
-            musicbrainz_link.release_group_mbid if musicbrainz_link is not None else ""
-        ),
+        album_metadata_url=metadata_url_for_link(metadata_link),
     )
 
 
@@ -848,7 +865,7 @@ def album_musicbrainz_edit_sections(
 ) -> list[Any]:
     from .player_presenters import album_tag_edit_sections
     from .use_case.database import connect_database
-    from .use_case.musicbrainz import load_album_musicbrainz_track_links
+    from .use_case.metadata import load_album_metadata_track_links
 
     sections = album_tag_edit_sections(track_views, roots)
     paths = tuple(
@@ -858,27 +875,28 @@ def album_musicbrainz_edit_sections(
         if item.track.path
     )
     with connect_database(database, create=False) as connection:
-        track_links = load_album_musicbrainz_track_links(connection, paths)
+        track_links = load_album_metadata_track_links(connection, paths)
 
     fallback_url = ""
     if len(sections) == 1:
-        fallback_url = musicbrainz_url_for_album_link(album_musicbrainz_link(database, album_id))
+        fallback_url = metadata_url_for_link(album_metadata_link(database, album_id))
 
     resolved_sections = []
     for section in sections:
         link_values = tuple(
             dict.fromkeys(
                 (
-                    link.release_mbid or "",
-                    link.release_group_mbid or "",
+                    link.provider,
+                    link.entity_type,
+                    link.entity_id,
                 )
                 for item in section.tracks
                 for link in (track_links.get(item.track.path),)
-                if link is not None and (link.release_mbid or link.release_group_mbid)
+                if link is not None and link.provider and link.entity_id
             )
         )
         section_url = (
-            musicbrainz_url_for_link(*link_values[0])
+            metadata_url_for_entity(*link_values[0])
             if len(link_values) == 1
             else ""
         )
@@ -891,7 +909,7 @@ def album_musicbrainz_edit_sections(
 def musicbrainz_url_for_album_link(link: Any) -> str:
     if link is None:
         return ""
-    return musicbrainz_url_for_link(link.release_mbid, link.release_group_mbid)
+    return metadata_url_for_link(link)
 
 
 def musicbrainz_url_for_link(
@@ -903,6 +921,57 @@ def musicbrainz_url_for_link(
     if release_group_mbid:
         return f"https://musicbrainz.org/release-group/{release_group_mbid}"
     return ""
+
+
+def metadata_url_for_link(link: Any) -> str:
+    if link is None:
+        return ""
+    return metadata_url_for_entity(
+        getattr(link, "provider", None),
+        getattr(link, "entity_type", None),
+        getattr(link, "entity_id", None),
+    )
+
+
+def metadata_url_for_entity(
+    provider: object,
+    entity_type: object,
+    entity_id: object,
+) -> str:
+    provider_text = str(provider or "")
+    entity_type_text = str(entity_type or "")
+    entity_id_text = str(entity_id or "")
+    if not provider_text or not entity_type_text or not entity_id_text:
+        return ""
+    if provider_text == "musicbrainz":
+        if entity_type_text == "release":
+            return f"https://musicbrainz.org/release/{entity_id_text}"
+        if entity_type_text == "release-group":
+            return f"https://musicbrainz.org/release-group/{entity_id_text}"
+    if provider_text == "discogs":
+        if entity_type_text == "release":
+            return f"https://www.discogs.com/release/{entity_id_text}"
+        if entity_type_text == "master":
+            return f"https://www.discogs.com/master/{entity_id_text}"
+    return ""
+
+
+def metadata_provider_label(provider: object) -> str:
+    if provider == "musicbrainz":
+        return "MusicBrainz"
+    if provider == "discogs":
+        return "Discogs"
+    return str(provider or "")
+
+
+def metadata_entity_label(entity_type: object) -> str:
+    if entity_type == "release-group":
+        return "Release group"
+    if entity_type == "release":
+        return "Release"
+    if entity_type == "master":
+        return "Master"
+    return str(entity_type or "")
 
 
 def build_queue_context(runtime: PlayerRuntime) -> dict[str, Any]:

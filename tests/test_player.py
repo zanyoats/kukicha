@@ -2955,7 +2955,7 @@ class PlayerPageMenuTest(unittest.TestCase):
                 ("heading", "SETTINGS", ""),
                 ("link", "Roots", "/roots"),
                 ("link", "Artists Split Rules", "/artist-split-rules"),
-                ("link", "MusicBrainz Overrides", "/musicbrainz-overrides"),
+                ("link", "Metadata Overrides", "/metadata-overrides"),
                 ("link", "Listening Data", "/listening-data"),
                 ("link", "Cache", "/cache"),
                 ("divider", "", ""),
@@ -2989,8 +2989,8 @@ class PlayerPageMenuTest(unittest.TestCase):
         self.assertLess(html.index("Playlists"), html.index('class="page-menu-divider"'))
         self.assertLess(html.index("SETTINGS"), html.index("Roots"))
         self.assertLess(html.index("Roots"), html.index("Artists Split Rules"))
-        self.assertLess(html.index("Artists Split Rules"), html.index("MusicBrainz Overrides"))
-        self.assertLess(html.index("MusicBrainz Overrides"), html.index("Listening Data"))
+        self.assertLess(html.index("Artists Split Rules"), html.index("Metadata Overrides"))
+        self.assertLess(html.index("Metadata Overrides"), html.index("Listening Data"))
         self.assertLess(html.index("Listening Data"), html.index("Cache"))
         self.assertIn("data-open-keyboard-shortcuts", html)
         self.assertNotIn('href="/search"', html)
@@ -3654,9 +3654,9 @@ class PlayerAlbumDetailLinksTest(unittest.TestCase):
         self.assertNotIn("data-album-musicbrainz-status", html)
         self.assertIn("album-edit-notice-icon", html)
         self.assertIn('fill="currentColor"', html)
-        self.assertIn("Tag / MusicBrainz Edits", html)
+        self.assertIn("Tag / Metadata Edits", html)
         delete_index = html.index("data-album-delete-form")
-        tags_index = html.index("Tag / MusicBrainz Edits")
+        tags_index = html.index("Tag / Metadata Edits")
         notice_index = html.index("album-edit-notice-icon")
         form_index = html.index("data-album-edit-form")
         self.assertLess(delete_index, tags_index)
@@ -3668,20 +3668,20 @@ class PlayerAlbumDetailLinksTest(unittest.TestCase):
         )
         self.assertIn("On rescan", html)
         self.assertIn("extract the updated metadata into Kukicha's library database", html)
-        self.assertIn("fetches the MusicBrainz", normalized_html)
+        self.assertIn("Saves a MusicBrainz release or release-group URL", normalized_html)
         self.assertIn("album artist, album, and genres", normalized_html)
         self.assertIn("resolves genres against Kukicha's taxonomy", normalized_html)
-        self.assertIn("writes MusicBrainz-derived album artist", normalized_html)
+        self.assertIn("writes provider-derived album artist", normalized_html)
         self.assertIn("Track titles", normalized_html)
         self.assertIn("track numbers are not changed", normalized_html)
-        self.assertIn("Clearing the URL removes the saved IDs without", html)
+        self.assertIn("Clearing the URL removes the saved metadata override without", html)
         self.assertNotIn(
             "Writes the album, album artist, genre, track artist, track number, and title fields",
             html,
         )
-        self.assertEqual(html.count("data-musicbrainz-group"), 2)
+        self.assertEqual(html.count("data-metadata-group"), 2)
         self.assertIn('action="/api/albums/unknown::unknown/edit"', html)
-        self.assertEqual(html.count("data-musicbrainz-url-input"), 2)
+        self.assertEqual(html.count("data-metadata-url-input"), 2)
         self.assertNotIn("data-musicbrainz-release-mbid-input", html)
         self.assertNotIn("data-musicbrainz-release-group-mbid-input", html)
         self.assertEqual(html.count('data-server-value=""'), 2)
@@ -3689,7 +3689,7 @@ class PlayerAlbumDetailLinksTest(unittest.TestCase):
             html.count('class="album-edit-panel settings-panel album-edit-section'),
             2,
         )
-        self.assertEqual(html.count("data-musicbrainz-track-id"), 2)
+        self.assertEqual(html.count("data-metadata-track-id"), 2)
         self.assertIn(".../downloads/Unknown/", html)
         self.assertIn(".../downloads/Artist/Album/", html)
         self.assertNotIn("data-track-id=", html)
@@ -3700,9 +3700,9 @@ class PlayerAlbumDetailLinksTest(unittest.TestCase):
         self.assertNotIn("data-track-number-input", html)
         self.assertNotIn("data-track-title-input", html)
         first_section_start = html.index(".../downloads/Unknown/")
-        first_musicbrainz_input = html.index("data-musicbrainz-url-input", first_section_start)
+        first_musicbrainz_input = html.index("data-metadata-url-input", first_section_start)
         second_section_start = html.index(".../downloads/Artist/Album/")
-        second_musicbrainz_input = html.index("data-musicbrainz-url-input", second_section_start)
+        second_musicbrainz_input = html.index("data-metadata-url-input", second_section_start)
         self.assertLess(first_section_start, first_musicbrainz_input)
         self.assertLess(first_musicbrainz_input, second_section_start)
         self.assertLess(second_section_start, second_musicbrainz_input)
@@ -3771,12 +3771,12 @@ class PlayerAlbumDetailLinksTest(unittest.TestCase):
         self.assertIn('action="/api/albums/brian-eno::ambient-1/edit"', html)
         self.assertIn('data-delete-url="/api/albums/brian-eno::ambient-1/delete"', html)
         self.assertIn('data-upload-url="/api/albums/brian-eno::ambient-1/cover"', html)
-        self.assertEqual(html.count("data-musicbrainz-group"), 1)
+        self.assertEqual(html.count("data-metadata-group"), 1)
         self.assertIn("Update Audio Tags", html)
         notice_index = html.index("album-edit-notice-icon")
         delete_index = html.index("data-album-delete-form")
         cover_index = html.index("data-album-cover-form")
-        tags_index = html.index("Tag / MusicBrainz Edits")
+        tags_index = html.index("Tag / Metadata Edits")
         apply_index = html.index("data-apply-album-edit")
         self.assertLess(delete_index, cover_index)
         self.assertLess(cover_index, tags_index)
@@ -3795,7 +3795,7 @@ class PlayerAlbumDetailLinksTest(unittest.TestCase):
         self.assertNotIn("data-album-input disabled", html)
         self.assertNotIn("data-album-artist-input disabled", html)
         self.assertNotIn("data-album-genre-input disabled", html)
-        note_start = html.index("data-album-level-musicbrainz-note")
+        note_start = html.index("data-album-level-metadata-note")
         note_end = html.index(">", note_start)
         self.assertIn("hidden", html[note_start:note_end])
 
@@ -3857,12 +3857,12 @@ class PlayerAlbumDetailLinksTest(unittest.TestCase):
         self.assertIn("data-track-artist-input", html)
         self.assertIn("data-track-number-input", html)
         self.assertIn("data-track-title-input", html)
-        note_start = html.index("data-album-level-musicbrainz-note")
+        note_start = html.index("data-album-level-metadata-note")
         note_end = html.index(">", note_start)
         self.assertNotIn("hidden", html[note_start:note_end])
         normalized_html = " ".join(html.split())
         self.assertIn(
-            "Album, album artist, and genre are locked while a MusicBrainz URL is set",
+            "Album, album artist, and genre are locked while a metadata URL is set",
             normalized_html,
         )
         self.assertIn("Clear the URL to edit them manually.", normalized_html)
@@ -6776,7 +6776,7 @@ class PlayerWebAdapterTest(unittest.TestCase):
                 client = app.test_client()
                 roots_response = client.get("/roots")
                 split_rules_response = client.get("/artist-split-rules")
-                musicbrainz_response = client.get("/musicbrainz-overrides")
+                musicbrainz_response = client.get("/metadata-overrides")
                 listening_data_response = client.get("/listening-data")
                 cache_response = client.get("/cache")
 
@@ -6806,8 +6806,8 @@ class PlayerWebAdapterTest(unittest.TestCase):
             self.assertNotIn(b"<h2>Add Root</h2>", split_rules_response.data)
 
             self.assertEqual(musicbrainz_response.status_code, 200)
-            self.assertIn(b"<h1>MusicBrainz Overrides</h1>", musicbrainz_response.data)
-            self.assertIn(b"<h2>MusicBrainz Overrides</h2>", musicbrainz_response.data)
+            self.assertIn(b"<h1>Metadata Overrides</h1>", musicbrainz_response.data)
+            self.assertIn(b"<h2>Metadata Overrides</h2>", musicbrainz_response.data)
             self.assertIn(b"3 overrides", musicbrainz_response.data)
             self.assertIn(b"Ambient 1", musicbrainz_response.data)
             self.assertIn(b"Brian Eno", musicbrainz_response.data)
@@ -6825,22 +6825,14 @@ class PlayerWebAdapterTest(unittest.TestCase):
                 b"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
                 musicbrainz_response.data,
             )
-            self.assertLess(
-                musicbrainz_response.data.index(b"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"),
-                musicbrainz_response.data.index(b"bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"),
-            )
-            self.assertLess(
-                musicbrainz_response.data.index(b"bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"),
-                musicbrainz_response.data.index(b"11111111-1111-1111-1111-111111111111"),
-            )
             self.assertIn(b"Not set", musicbrainz_response.data)
-            self.assertIn(b"data-delete-musicbrainz-override", musicbrainz_response.data)
+            self.assertIn(b"data-delete-metadata-override", musicbrainz_response.data)
             self.assertIn(
-                b'data-delete-url="/api/musicbrainz-overrides/stale-album-id/delete"',
+                b'data-delete-url="/api/metadata-overrides/stale-album-id/delete"',
                 musicbrainz_response.data,
             )
             self.assertIn(
-                f'data-delete-url="/api/musicbrainz-overrides/{ambient_album_id}/delete"'.encode(),
+                f'data-delete-url="/api/metadata-overrides/{ambient_album_id}/delete"'.encode(),
                 musicbrainz_response.data,
             )
             self.assertIn(b'class="delete-icon-button"', musicbrainz_response.data)
@@ -7410,10 +7402,10 @@ class PlayerWebAdapterTest(unittest.TestCase):
                 app = create_player_app(self.make_options(temp_path))
                 client = app.test_client()
                 stale_response = client.post(
-                    "/api/musicbrainz-overrides/stale-album-id/delete"
+                    "/api/metadata-overrides/stale-album-id/delete"
                 )
                 current_response = client.post(
-                    f"/api/musicbrainz-overrides/{current_album_id}/delete"
+                    f"/api/metadata-overrides/{current_album_id}/delete"
                 )
 
             self.assertEqual(stale_response.status_code, 200)
@@ -7421,7 +7413,7 @@ class PlayerWebAdapterTest(unittest.TestCase):
                 stale_response.get_json(),
                 {
                     "album_id": "stale-album-id",
-                    "message": "Deleted MusicBrainz override for stale-album-id.",
+                    "message": "Deleted metadata override for stale-album-id.",
                 },
             )
             self.assertEqual(current_response.status_code, 200)
@@ -7429,7 +7421,7 @@ class PlayerWebAdapterTest(unittest.TestCase):
                 current_response.get_json(),
                 {
                     "album_id": current_album_id,
-                    "message": f"Deleted MusicBrainz override for {current_album_id}.",
+                    "message": f"Deleted metadata override for {current_album_id}.",
                 },
             )
             runtime.enqueue_job.assert_not_called()
@@ -10311,7 +10303,8 @@ class PlayerAlbumTagEditTest(unittest.TestCase):
                 database,
                 "old-artist::album",
                 {
-                    "musicbrainz_release_mbid": (
+                    "metadata_url": (
+                        "https://musicbrainz.org/release/"
                         "11111111-1111-1111-1111-111111111111"
                     ),
                 },
@@ -10427,7 +10420,10 @@ class PlayerAlbumTagEditTest(unittest.TestCase):
                 database,
                 "old-artist::album",
                 {
-                    "musicbrainz_release_group_mbid": "22222222-2222-2222-2222-222222222222",
+                    "metadata_url": (
+                        "https://musicbrainz.org/release-group/"
+                        "22222222-2222-2222-2222-222222222222"
+                    ),
                     "track_ids": [2],
                 },
             )
@@ -10501,7 +10497,10 @@ class PlayerAlbumTagEditTest(unittest.TestCase):
                     database,
                     "old-artist::album",
                     {
-                        "musicbrainz_release_group_mbid": "22222222-2222-2222-2222-222222222222",
+                        "metadata_url": (
+                            "https://musicbrainz.org/release-group/"
+                            "22222222-2222-2222-2222-222222222222"
+                        ),
                         "track_ids": [3],
                     },
                 )
@@ -10521,7 +10520,10 @@ class PlayerAlbumTagEditTest(unittest.TestCase):
                     database,
                     "old-artist::album",
                     {
-                        "musicbrainz_release_group_mbid": "22222222-2222-2222-2222-222222222222",
+                        "metadata_url": (
+                            "https://musicbrainz.org/release-group/"
+                            "22222222-2222-2222-2222-222222222222"
+                        ),
                         "track_ids": [1, 1],
                     },
                 )
@@ -10584,7 +10586,10 @@ class PlayerAlbumTagEditTest(unittest.TestCase):
                 database,
                 "old-artist::album",
                 {
-                    "musicbrainz_release_mbid": "11111111-1111-1111-1111-111111111111",
+                    "metadata_url": (
+                        "https://musicbrainz.org/release/"
+                        "11111111-1111-1111-1111-111111111111"
+                    ),
                 },
             )
 
@@ -10749,6 +10754,122 @@ class PlayerAlbumTagEditTest(unittest.TestCase):
                 self.assertIsNotNone(artwork_row)
                 self.assertEqual(str(artwork_row["mime_type"]), "image/jpeg")
                 self.assertEqual(bytes(artwork_row["data"]), b"artwork-bytes")
+            finally:
+                connection.close()
+
+    def test_edit_library_album_metadata_writes_discogs_tags_and_stores_link(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            database = temp_path / "kukicha.sqlite"
+            paths = (
+                temp_path / "Album" / "01.mp3",
+                temp_path / "Album" / "02.mp3",
+            )
+            self.seed_album(database, paths)
+
+            job = prepare_album_musicbrainz_edit_job(
+                database,
+                "old-artist::album",
+                {
+                    "metadata_url": (
+                        "https://www.discogs.com/release/"
+                        "35645122-Sun-Ra-And-His-Arkestra-Super-Sonic-Jazz-Expanded-Edition"
+                    ),
+                },
+            )
+
+            release_payload = {
+                "title": "Super-Sonic Jazz (Expanded Edition)",
+                "artists": [
+                    {
+                        "name": "The Sun Ra Arkestra",
+                        "anv": "Sun Ra And His Arkestra",
+                        "join": "",
+                    },
+                ],
+                "genres": ["Jazz"],
+                "styles": ["Bop"],
+                "master_id": 143615,
+            }
+            master_payload = {
+                "title": "Super-Sonic Jazz",
+                "artists": [
+                    {
+                        "name": "The Sun Ra Arkestra",
+                        "anv": "Le Sun Ra And His Arkestra",
+                        "join": "",
+                    },
+                ],
+                "genres": ["Jazz"],
+                "styles": ["Avant-garde Jazz"],
+            }
+
+            def fake_get_discogs_entity(
+                _connection: object,
+                _client: object,
+                *,
+                entity_type: str,
+                entity_id: str,
+            ) -> dict[str, object]:
+                if entity_type == "release":
+                    self.assertEqual(entity_id, "35645122")
+                    return release_payload
+                self.assertEqual(entity_type, "master")
+                self.assertEqual(entity_id, "143615")
+                return master_payload
+
+            with (
+                patch(
+                    "kukicha.use_case.commands.album_edits.get_discogs_entity",
+                    side_effect=fake_get_discogs_entity,
+                ),
+                patch("kukicha.use_case.commands.album_edits.write_album_audio_tags") as write_album_tags,
+            ):
+                result = edit_library_album_musicbrainz(database, job)
+
+            self.assertEqual(
+                write_album_tags.call_args_list,
+                [
+                    call(
+                        paths[0],
+                        album_artist="Sun Ra And His Arkestra",
+                        album="Super-Sonic Jazz (Expanded Edition)",
+                        genre="Jazz; Bop; Avant-garde Jazz",
+                    ),
+                    call(
+                        paths[1],
+                        album_artist="Sun Ra And His Arkestra",
+                        album="Super-Sonic Jazz (Expanded Edition)",
+                        genre="Jazz; Bop; Avant-garde Jazz",
+                    ),
+                ],
+            )
+            self.assertEqual(result.album, "Super-Sonic Jazz (Expanded Edition)")
+            self.assertEqual(result.album_artist, "Sun Ra And His Arkestra")
+            self.assertEqual(result.genre, "Jazz; Bop; Avant-garde Jazz")
+            self.assertEqual(result.tracks_updated, 2)
+
+            connection = connect_database(database, create=False)
+            try:
+                row = connection.execute(
+                    """
+                    SELECT
+                        provider,
+                        entity_type,
+                        entity_id,
+                        related_entity_type,
+                        related_entity_id
+                    FROM album_metadata_links
+                    WHERE file_album_id = ?
+                    """,
+                    ("sun-ra-and-his-arkestra::super-sonic-jazz-expanded-edition",),
+                ).fetchone()
+                self.assertIsNotNone(row)
+                self.assertEqual(str(row["provider"]), "discogs")
+                self.assertEqual(str(row["entity_type"]), "release")
+                self.assertEqual(str(row["entity_id"]), "35645122")
+                self.assertEqual(str(row["related_entity_type"]), "master")
+                self.assertEqual(str(row["related_entity_id"]), "143615")
             finally:
                 connection.close()
 
@@ -10950,11 +11071,17 @@ class PlayerAlbumTagEditTest(unittest.TestCase):
                 {
                     "groups": [
                         {
-                            "musicbrainz_release_mbid": "11111111-1111-1111-1111-111111111111",
+                            "metadata_url": (
+                                "https://musicbrainz.org/release/"
+                                "11111111-1111-1111-1111-111111111111"
+                            ),
                             "track_ids": [1],
                         },
                         {
-                            "musicbrainz_release_mbid": "22222222-2222-2222-2222-222222222222",
+                            "metadata_url": (
+                                "https://musicbrainz.org/release/"
+                                "22222222-2222-2222-2222-222222222222"
+                            ),
                             "track_ids": [2],
                         },
                     ],
@@ -11209,7 +11336,7 @@ class PlayerAlbumTagEditTest(unittest.TestCase):
             job = prepare_album_musicbrainz_edit_job(
                 database,
                 f"{base_album_id}::a8b",
-                {"musicbrainz_release_mbid": second_release_mbid},
+                {"metadata_url": f"https://musicbrainz.org/release/{second_release_mbid}"},
             )
             release_payload = {
                 "title": "Selected Ambient Works, Volume II",
@@ -11291,7 +11418,10 @@ class PlayerAlbumTagEditTest(unittest.TestCase):
                 database,
                 "old-artist::album",
                 {
-                    "musicbrainz_release_mbid": "11111111-1111-1111-1111-111111111111",
+                    "metadata_url": (
+                        "https://musicbrainz.org/release/"
+                        "11111111-1111-1111-1111-111111111111"
+                    ),
                 },
             )
             runtime = Mock()
@@ -12143,7 +12273,7 @@ class PlayerAlbumTagEditTest(unittest.TestCase):
             finally:
                 connection.close()
 
-    def test_prepare_album_musicbrainz_edit_request_rejects_non_string_ids(self) -> None:
+    def test_prepare_album_musicbrainz_edit_request_rejects_non_string_metadata_url(self) -> None:
         with TemporaryDirectory() as tempdir:
             temp_path = Path(tempdir)
             database = temp_path / "kukicha.sqlite"
@@ -12153,12 +12283,12 @@ class PlayerAlbumTagEditTest(unittest.TestCase):
             )
             self.seed_album(database, paths)
 
-            with self.assertRaisesRegex(ValueError, "MusicBrainz release ID must be a string"):
+            with self.assertRaisesRegex(ValueError, "Metadata URL must be a string"):
                 prepare_album_musicbrainz_edit_request(
                     database,
                     "old-artist::album",
                     {
-                        "musicbrainz_release_mbid": 123,
+                        "metadata_url": 123,
                     },
                 )
 

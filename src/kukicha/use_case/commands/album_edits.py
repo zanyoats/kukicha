@@ -36,6 +36,30 @@ from ..library import (
     load_taxonomy_genre_matcher_from_connection,
     update_genre_resolution_stats,
 )
+from ..discogs import (
+    DISCOGS_ENTITY_MASTER,
+    DISCOGS_ENTITY_RELEASE,
+    DiscogsClient,
+    DiscogsLookupStats,
+    discogs_artist_tag_value,
+    discogs_genre_style_values,
+    discogs_master_id,
+    discogs_title,
+    get_discogs_entity,
+    parse_discogs_album_url,
+)
+from ..metadata import (
+    METADATA_ENTITY_MASTER,
+    METADATA_ENTITY_RELEASE,
+    METADATA_ENTITY_RELEASE_GROUP,
+    METADATA_PROVIDER_DISCOGS,
+    METADATA_PROVIDER_MUSICBRAINZ,
+    album_metadata_link_for_album_id,
+    delete_album_metadata_track_links,
+    load_album_metadata_track_links,
+    store_album_metadata_link,
+    store_album_metadata_track_link,
+)
 from ...models import (
     ALBUM_ARTWORK_HEIGHT,
     TRACK_ARTWORK_HEIGHT,
@@ -45,15 +69,10 @@ from ...models import (
 from ..musicbrainz import (
     MusicBrainzClient,
     MusicBrainzLookupStats,
-    album_musicbrainz_link_for_album_id,
-    delete_album_musicbrainz_track_links,
     get_musicbrainz_entity,
-    load_album_musicbrainz_track_links,
     musicbrainz_genres,
     musicbrainz_release_group_mbid,
     normalize_musicbrainz_mbid,
-    store_album_musicbrainz_link,
-    store_album_musicbrainz_track_link,
 )
 from ...player_common import optional_int, placeholders_for
 from ...player_runtime import PlayerJobCancelToken, PlayerJobResult, PlayerRuntime
@@ -77,9 +96,28 @@ class AlbumTrackTagEdit:
 
 @dataclass(frozen=True, slots=True)
 class AlbumMusicBrainzEditGroupRequest:
-    musicbrainz_release_mbid: str | None
-    musicbrainz_release_group_mbid: str | None
+    provider: str
+    entity_type: str
+    entity_id: str
+    related_entity_type: str | None = None
+    related_entity_id: str | None = None
     track_ids: tuple[int, ...] = ()
+
+    @property
+    def musicbrainz_release_mbid(self) -> str | None:
+        if self.provider == METADATA_PROVIDER_MUSICBRAINZ and self.entity_type == METADATA_ENTITY_RELEASE:
+            return self.entity_id
+        return None
+
+    @property
+    def musicbrainz_release_group_mbid(self) -> str | None:
+        if self.provider != METADATA_PROVIDER_MUSICBRAINZ:
+            return None
+        if self.entity_type == METADATA_ENTITY_RELEASE_GROUP:
+            return self.entity_id
+        if self.related_entity_type == METADATA_ENTITY_RELEASE_GROUP:
+            return self.related_entity_id
+        return None
 
 
 @dataclass(frozen=True, slots=True)
@@ -121,11 +159,33 @@ class AlbumMusicBrainzEditResult:
     genre_resolution: GenreResolutionStats
 
 
-@dataclass(frozen=True, slots=True)
-class MusicBrainzPayload:
+@dataclass(frozen=True, slots=True, init=False)
+class MetadataPayload:
+    provider: str
     entity_type: str
-    mbid: str
+    entity_id: str
     payload: dict[str, object]
+
+    def __init__(
+        self,
+        *,
+        entity_type: str,
+        payload: dict[str, object],
+        provider: str = METADATA_PROVIDER_MUSICBRAINZ,
+        entity_id: str | None = None,
+        mbid: str | None = None,
+    ) -> None:
+        object.__setattr__(self, "provider", provider)
+        object.__setattr__(self, "entity_type", entity_type)
+        object.__setattr__(self, "entity_id", entity_id or mbid or "")
+        object.__setattr__(self, "payload", payload)
+
+    @property
+    def mbid(self) -> str:
+        return self.entity_id
+
+
+MusicBrainzPayload = MetadataPayload
 
 
 @dataclass(frozen=True, slots=True)
@@ -228,16 +288,16 @@ def prepare_album_edit_job(
 
 
 def combined_album_musicbrainz_payload(payload: dict[str, Any]) -> dict[str, Any] | None:
-    raw_musicbrainz = payload.get("musicbrainz")
+    raw_musicbrainz = payload.get("metadata", payload.get("musicbrainz"))
     if raw_musicbrainz is None:
         return None
     if not isinstance(raw_musicbrainz, dict):
-        raise ValueError("MusicBrainz edit payload must be an object")
+        raise ValueError("Metadata edit payload must be an object")
 
     raw_groups = raw_musicbrainz.get("groups")
     if raw_groups is not None:
         if not isinstance(raw_groups, list):
-            raise ValueError("MusicBrainz groups must be a list")
+            raise ValueError("Metadata groups must be a list")
         if not raw_groups:
             return None
         return raw_musicbrainz
@@ -289,13 +349,13 @@ def parse_album_musicbrainz_group_requests(
         return (parse_album_musicbrainz_group_request(payload, require_tracks=False),)
 
     if not isinstance(raw_groups, list) or not raw_groups:
-        raise ValueError("at least one MusicBrainz group is required")
+        raise ValueError("at least one metadata group is required")
 
     groups: list[AlbumMusicBrainzEditGroupRequest] = []
     seen_track_ids: set[int] = set()
     for item in raw_groups:
         if not isinstance(item, dict):
-            raise ValueError("invalid MusicBrainz group payload")
+            raise ValueError("invalid metadata group payload")
         group = parse_album_musicbrainz_group_request(item, require_tracks=True)
         for track_id in group.track_ids:
             if track_id in seen_track_ids:
@@ -310,43 +370,59 @@ def parse_album_musicbrainz_group_request(
     *,
     require_tracks: bool,
 ) -> AlbumMusicBrainzEditGroupRequest:
-    raw_musicbrainz_url = payload.get("musicbrainz_url")
-    if raw_musicbrainz_url is not None and not isinstance(raw_musicbrainz_url, str):
-        raise ValueError("MusicBrainz URL must be a string")
+    raw_metadata_url = payload.get("metadata_url", payload.get("musicbrainz_url"))
+    if raw_metadata_url is not None and not isinstance(raw_metadata_url, str):
+        raise ValueError("Metadata URL must be a string")
+    if payload.get("musicbrainz_release_mbid") or payload.get("musicbrainz_release_group_mbid"):
+        raise ValueError("Use a MusicBrainz or Discogs URL instead of separate IDs")
 
-    raw_release_mbid = payload.get("musicbrainz_release_mbid")
-    if raw_release_mbid is not None and not isinstance(raw_release_mbid, str):
-        raise ValueError("MusicBrainz release ID must be a string")
-    raw_release_group_mbid = payload.get("musicbrainz_release_group_mbid")
-    if raw_release_group_mbid is not None and not isinstance(raw_release_group_mbid, str):
-        raise ValueError("MusicBrainz release group ID must be a string")
-
-    if raw_musicbrainz_url and raw_musicbrainz_url.strip():
-        if (raw_release_mbid and raw_release_mbid.strip()) or (
-            raw_release_group_mbid and raw_release_group_mbid.strip()
-        ):
-            raise ValueError("MusicBrainz URL cannot be combined with separate IDs")
-        release_mbid, release_group_mbid = parse_musicbrainz_album_url(
-            raw_musicbrainz_url
-        )
-    else:
-        release_mbid = normalize_musicbrainz_mbid(
-            raw_release_mbid or "",
-            entity_type="release",
-        )
-        release_group_mbid = normalize_musicbrainz_mbid(
-            raw_release_group_mbid or "",
-            entity_type="release-group",
-        )
+    provider = ""
+    entity_type = ""
+    entity_id = ""
+    if raw_metadata_url and raw_metadata_url.strip():
+        provider, entity_type, entity_id = parse_album_metadata_url(raw_metadata_url)
     track_ids = parse_album_musicbrainz_track_ids(payload.get("track_ids"))
     if require_tracks and not track_ids:
         raise ValueError("at least one track is required")
 
     return AlbumMusicBrainzEditGroupRequest(
-        musicbrainz_release_mbid=release_mbid,
-        musicbrainz_release_group_mbid=release_group_mbid,
+        provider=provider,
+        entity_type=entity_type,
+        entity_id=entity_id,
         track_ids=track_ids,
     )
+
+
+def parse_album_metadata_url(value: str) -> tuple[str, str, str]:
+    text = value.strip()
+    if not text:
+        return "", "", ""
+
+    parts = urllib.parse.urlsplit(text)
+    if not parts.scheme or not parts.netloc:
+        raise ValueError("Expected a MusicBrainz or Discogs URL.")
+
+    host = parts.netloc.casefold()
+    if host in {"musicbrainz.org", "www.musicbrainz.org"}:
+        release_mbid, release_group_mbid = parse_musicbrainz_album_url(text)
+        if release_mbid:
+            return METADATA_PROVIDER_MUSICBRAINZ, METADATA_ENTITY_RELEASE, release_mbid
+        if release_group_mbid:
+            return (
+                METADATA_PROVIDER_MUSICBRAINZ,
+                METADATA_ENTITY_RELEASE_GROUP,
+                release_group_mbid,
+            )
+    if host in {"discogs.com", "www.discogs.com"}:
+        reference = parse_discogs_album_url(text)
+        entity_type = (
+            METADATA_ENTITY_RELEASE
+            if reference.entity_type == DISCOGS_ENTITY_RELEASE
+            else METADATA_ENTITY_MASTER
+        )
+        return METADATA_PROVIDER_DISCOGS, entity_type, reference.entity_id
+
+    raise ValueError("Expected a MusicBrainz or Discogs URL.")
 
 
 def parse_musicbrainz_album_url(value: str) -> tuple[str | None, str | None]:
@@ -355,7 +431,9 @@ def parse_musicbrainz_album_url(value: str) -> tuple[str | None, str | None]:
         return None, None
 
     parts = urllib.parse.urlsplit(text)
-    if not parts.scheme and not parts.netloc:
+    if not parts.scheme or not parts.netloc:
+        raise ValueError("Expected a MusicBrainz release or release group URL.")
+    if parts.netloc.casefold() not in {"musicbrainz.org", "www.musicbrainz.org"}:
         raise ValueError("Expected a MusicBrainz release or release group URL.")
     path_parts = [part for part in parts.path.split("/") if part]
     if len(path_parts) < 2:
@@ -431,8 +509,11 @@ def prepare_album_musicbrainz_edit_job(
             }
             request_groups = (
                 AlbumMusicBrainzEditGroupRequest(
-                    musicbrainz_release_mbid=request.groups[0].musicbrainz_release_mbid,
-                    musicbrainz_release_group_mbid=request.groups[0].musicbrainz_release_group_mbid,
+                    provider=request.groups[0].provider,
+                    entity_type=request.groups[0].entity_type,
+                    entity_id=request.groups[0].entity_id,
+                    related_entity_type=request.groups[0].related_entity_type,
+                    related_entity_id=request.groups[0].related_entity_id,
                     track_ids=tuple(rows_by_id),
                 ),
             )
@@ -891,8 +972,8 @@ def edit_library_album_musicbrainz(
             if cancel_check is not None:
                 cancel_check()
 
-            delete_album_musicbrainz_links_for_job(connection, job)
-            delete_album_musicbrainz_track_links(
+            delete_album_metadata_links_for_job(connection, job)
+            delete_album_metadata_track_links(
                 connection,
                 (snapshot.path for snapshot in job.tracks),
             )
@@ -900,10 +981,7 @@ def edit_library_album_musicbrainz(
             pending_groups = [
                 group
                 for group in job.groups
-                if (
-                    group.request.musicbrainz_release_mbid is not None
-                    or group.request.musicbrainz_release_group_mbid is not None
-                )
+                if group.request.provider and group.request.entity_id
             ]
             if not pending_groups:
                 connection.execute("RELEASE SAVEPOINT edit_album_musicbrainz")
@@ -926,8 +1004,12 @@ def edit_library_album_musicbrainz(
                 if cancel_check is not None:
                     cancel_check()
 
-                lookup_stats = MusicBrainzLookupStats()
-                payloads, release_group_mbid = load_album_musicbrainz_edit_payloads(
+                lookup_stats = (
+                    DiscogsLookupStats()
+                    if group.request.provider == METADATA_PROVIDER_DISCOGS
+                    else MusicBrainzLookupStats()
+                )
+                payloads, related_entity_type, related_entity_id = load_album_metadata_edit_payloads(
                     connection,
                     group.request,
                     lookup_stats,
@@ -963,19 +1045,25 @@ def edit_library_album_musicbrainz(
                     tag_values,
                     split_patterns=album_artist_split_patterns,
                 )
-                store_album_musicbrainz_link(
+                store_album_metadata_link(
                     connection,
                     target_file_album_id,
-                    release_mbid=group.request.musicbrainz_release_mbid,
-                    release_group_mbid=release_group_mbid,
+                    provider=group.request.provider,
+                    entity_type=group.request.entity_type,
+                    entity_id=group.request.entity_id,
+                    related_entity_type=related_entity_type,
+                    related_entity_id=related_entity_id,
                 )
                 for snapshot in group.tracks:
-                    store_album_musicbrainz_track_link(
+                    store_album_metadata_track_link(
                         connection,
                         snapshot.path,
                         target_file_album_id,
-                        release_mbid=group.request.musicbrainz_release_mbid,
-                        release_group_mbid=release_group_mbid,
+                        provider=group.request.provider,
+                        entity_type=group.request.entity_type,
+                        entity_id=group.request.entity_id,
+                        related_entity_type=related_entity_type,
+                        related_entity_id=related_entity_id,
                     )
             if cancel_check is not None:
                 cancel_check()
@@ -1000,12 +1088,12 @@ def edit_library_album_musicbrainz(
     )
 
 
-def delete_album_musicbrainz_links_for_job(
+def delete_album_metadata_links_for_job(
     connection: sqlite3.Connection,
     job: AlbumMusicBrainzEditJob,
 ) -> None:
     request_file_album_id = file_album_id_from_album_id(job.request.album_id)
-    existing_track_links = load_album_musicbrainz_track_links(
+    existing_track_links = load_album_metadata_track_links(
         connection,
         (snapshot.path for snapshot in job.tracks),
     )
@@ -1013,14 +1101,17 @@ def delete_album_musicbrainz_links_for_job(
     link_keys = {
         (
             link.file_album_id,
-            link.release_mbid or "",
-            link.release_group_mbid or "",
+            link.provider,
+            link.entity_type,
+            link.entity_id,
+            link.related_entity_type or "",
+            link.related_entity_id or "",
         )
         for link in existing_track_links.values()
-        if link.file_album_id and (link.release_mbid or link.release_group_mbid)
+        if link.file_album_id and link.provider and link.entity_id
     }
     if not link_keys:
-        current_link = album_musicbrainz_link_for_album_id(
+        current_link = album_metadata_link_for_album_id(
             connection,
             job.request.album_id,
         )
@@ -1028,41 +1119,64 @@ def delete_album_musicbrainz_links_for_job(
             link_keys.add(
                 (
                     current_link.file_album_id,
-                    current_link.release_mbid or "",
-                    current_link.release_group_mbid or "",
+                    current_link.provider,
+                    current_link.entity_type,
+                    current_link.entity_id,
+                    current_link.related_entity_type or "",
+                    current_link.related_entity_id or "",
                 )
             )
 
     if request_file_album_id == job.request.album_id and not link_keys:
         connection.execute(
-            "DELETE FROM album_musicbrainz_links WHERE file_album_id = ?",
+            "DELETE FROM album_metadata_links WHERE file_album_id = ?",
             (request_file_album_id,),
         )
         return
 
     if request_file_album_id != job.request.album_id:
         connection.execute(
-            "DELETE FROM album_musicbrainz_links WHERE file_album_id = ?",
+            "DELETE FROM album_metadata_links WHERE file_album_id = ?",
             (job.request.album_id,),
         )
 
-    for file_album_id, release_mbid, release_group_mbid in link_keys:
+    for file_album_id, provider, entity_type, entity_id, related_entity_type, related_entity_id in link_keys:
         connection.execute(
             """
-            DELETE FROM album_musicbrainz_links
+            DELETE FROM album_metadata_links
             WHERE file_album_id = ?
-                AND COALESCE(release_mbid, '') = ?
-                AND COALESCE(release_group_mbid, '') = ?
+                AND provider = ?
+                AND entity_type = ?
+                AND entity_id = ?
+                AND COALESCE(related_entity_type, '') = ?
+                AND COALESCE(related_entity_id, '') = ?
             """,
-            (file_album_id, release_mbid, release_group_mbid),
+            (
+                file_album_id,
+                provider,
+                entity_type,
+                entity_id,
+                related_entity_type,
+                related_entity_id,
+            ),
         )
+
+
+def load_album_metadata_edit_payloads(
+    connection: sqlite3.Connection,
+    request: AlbumMusicBrainzEditGroupRequest,
+    stats: MusicBrainzLookupStats | DiscogsLookupStats,
+) -> tuple[tuple[MusicBrainzPayload, ...], str | None, str | None]:
+    if request.provider == METADATA_PROVIDER_DISCOGS:
+        return load_album_discogs_edit_payloads(connection, request, stats)
+    return load_album_musicbrainz_edit_payloads(connection, request, stats)
 
 
 def load_album_musicbrainz_edit_payloads(
     connection: sqlite3.Connection,
     request: AlbumMusicBrainzEditGroupRequest,
-    stats: MusicBrainzLookupStats,
-) -> tuple[tuple[MusicBrainzPayload, ...], str | None]:
+    stats: MusicBrainzLookupStats | DiscogsLookupStats,
+) -> tuple[tuple[MusicBrainzPayload, ...], str | None, str | None]:
     client = MusicBrainzClient(stats=stats)
     payloads: list[MusicBrainzPayload] = []
     release_group_mbid = request.musicbrainz_release_group_mbid
@@ -1077,8 +1191,9 @@ def load_album_musicbrainz_edit_payloads(
         if release_payload is not None:
             payloads.append(
                 MusicBrainzPayload(
+                    provider=METADATA_PROVIDER_MUSICBRAINZ,
                     entity_type="release",
-                    mbid=request.musicbrainz_release_mbid,
+                    entity_id=request.musicbrainz_release_mbid,
                     payload=release_payload,
                 )
             )
@@ -1095,16 +1210,83 @@ def load_album_musicbrainz_edit_payloads(
         if release_group_payload is not None:
             payloads.append(
                 MusicBrainzPayload(
+                    provider=METADATA_PROVIDER_MUSICBRAINZ,
                     entity_type="release-group",
-                    mbid=release_group_mbid,
+                    entity_id=release_group_mbid,
                     payload=release_group_payload,
                 )
             )
 
     if not payloads:
-        raise ValueError("No MusicBrainz data available for the saved IDs.")
+        raise ValueError("No MusicBrainz data available for the saved URL.")
 
-    return tuple(payloads), release_group_mbid
+    related_entity_type = (
+        METADATA_ENTITY_RELEASE_GROUP
+        if request.entity_type == METADATA_ENTITY_RELEASE and release_group_mbid
+        else None
+    )
+    related_entity_id = release_group_mbid if related_entity_type else None
+    return tuple(payloads), related_entity_type, related_entity_id
+
+
+def load_album_discogs_edit_payloads(
+    connection: sqlite3.Connection,
+    request: AlbumMusicBrainzEditGroupRequest,
+    stats: MusicBrainzLookupStats | DiscogsLookupStats,
+) -> tuple[tuple[MusicBrainzPayload, ...], str | None, str | None]:
+    client = DiscogsClient(stats=stats)
+    payloads: list[MusicBrainzPayload] = []
+    master_id = request.related_entity_id if request.related_entity_type == METADATA_ENTITY_MASTER else None
+
+    if request.entity_type == METADATA_ENTITY_RELEASE:
+        release_payload = get_discogs_entity(
+            connection,
+            client,
+            entity_type=DISCOGS_ENTITY_RELEASE,
+            entity_id=request.entity_id,
+        )
+        if release_payload is not None:
+            payloads.append(
+                MusicBrainzPayload(
+                    provider=METADATA_PROVIDER_DISCOGS,
+                    entity_type=METADATA_ENTITY_RELEASE,
+                    entity_id=request.entity_id,
+                    payload=release_payload,
+                )
+            )
+            if master_id is None:
+                master_id = discogs_master_id(release_payload)
+
+    if request.entity_type == METADATA_ENTITY_MASTER:
+        master_id = request.entity_id
+
+    if master_id:
+        master_payload = get_discogs_entity(
+            connection,
+            client,
+            entity_type=DISCOGS_ENTITY_MASTER,
+            entity_id=master_id,
+        )
+        if master_payload is not None:
+            payloads.append(
+                MusicBrainzPayload(
+                    provider=METADATA_PROVIDER_DISCOGS,
+                    entity_type=METADATA_ENTITY_MASTER,
+                    entity_id=master_id,
+                    payload=master_payload,
+                )
+            )
+
+    if not payloads:
+        raise ValueError("No Discogs data available for the saved URL.")
+
+    related_entity_type = (
+        METADATA_ENTITY_MASTER
+        if request.entity_type == METADATA_ENTITY_RELEASE and master_id
+        else None
+    )
+    related_entity_id = master_id if related_entity_type else None
+    return tuple(payloads), related_entity_type, related_entity_id
 
 
 def add_genre_resolution_stats(
@@ -1125,12 +1307,12 @@ def album_musicbrainz_audio_tags(
     *,
     prefer_musicbrainz_english_aliases: bool = True,
 ) -> tuple[AlbumMusicBrainzAudioTags, GenreResolutionStats]:
-    tag_payload = preferred_musicbrainz_tag_payload(payloads)
-    genres, stats = musicbrainz_audio_genre_values(connection, payloads)
+    tag_payload = preferred_metadata_tag_payload(payloads)
+    genres, stats = metadata_audio_genre_values(connection, payloads)
     return (
         AlbumMusicBrainzAudioTags(
-            album=musicbrainz_album_tag_title(tag_payload),
-            album_artist=musicbrainz_album_artist_tag_value(
+            album=metadata_album_tag_title(tag_payload),
+            album_artist=metadata_album_artist_tag_value(
                 tag_payload,
                 prefer_english_aliases=prefer_musicbrainz_english_aliases,
             ),
@@ -1140,7 +1322,7 @@ def album_musicbrainz_audio_tags(
     )
 
 
-def preferred_musicbrainz_tag_payload(
+def preferred_metadata_tag_payload(
     payloads: tuple[MusicBrainzPayload, ...],
 ) -> MusicBrainzPayload:
     for payload in payloads:
@@ -1149,11 +1331,30 @@ def preferred_musicbrainz_tag_payload(
     return payloads[0]
 
 
+def metadata_album_tag_title(payload: MusicBrainzPayload) -> str:
+    if payload.provider == METADATA_PROVIDER_DISCOGS:
+        return discogs_title(payload.payload, entity_type=payload.entity_type)
+    return musicbrainz_album_tag_title(payload)
+
+
 def musicbrainz_album_tag_title(payload: MusicBrainzPayload) -> str:
     title = payload.payload.get("title")
     if not isinstance(title, str) or not title.strip():
         raise ValueError(f"MusicBrainz {payload.entity_type} payload is missing a title.")
     return title.strip()
+
+
+def metadata_album_artist_tag_value(
+    payload: MusicBrainzPayload,
+    *,
+    prefer_english_aliases: bool = True,
+) -> str:
+    if payload.provider == METADATA_PROVIDER_DISCOGS:
+        return discogs_artist_tag_value(payload.payload, entity_type=payload.entity_type)
+    return musicbrainz_album_artist_tag_value(
+        payload,
+        prefer_english_aliases=prefer_english_aliases,
+    )
 
 
 def musicbrainz_album_artist_tag_value(
@@ -1229,24 +1430,24 @@ def first_musicbrainz_artist_alias(
     return ""
 
 
-def musicbrainz_audio_genre_values(
+def metadata_audio_genre_values(
     connection: sqlite3.Connection,
     payloads: tuple[MusicBrainzPayload, ...],
 ) -> tuple[tuple[str, ...], GenreResolutionStats]:
     matcher = load_taxonomy_genre_matcher_from_connection(connection)
     if not matcher.candidates:
-        raise ValueError("No taxonomy genres are available for MusicBrainz genre matching.")
+        raise ValueError("No taxonomy genres are available for metadata genre matching.")
 
     source_genres: dict[str, tuple[str, str, str]] = {}
     for payload in payloads:
-        for genre in musicbrainz_genres(payload.payload):
+        for genre in metadata_source_genres(payload):
             source_genres.setdefault(
                 genre.casefold(),
-                (genre, payload.entity_type, payload.mbid),
+                (genre, payload.entity_type, payload.entity_id),
             )
 
     if not source_genres:
-        raise ValueError("MusicBrainz returned no genres for the saved IDs.")
+        raise ValueError("Metadata provider returned no genres for the saved URL.")
 
     stats = GenreResolutionStats(musicbrainz_album_overrides=1)
     resolved_genres: list[str] = []
@@ -1262,8 +1463,14 @@ def musicbrainz_audio_genre_values(
 
     genre_values = tuple(normalize_genre_values((*resolved_genres, *resolved_styles)))
     if not genre_values:
-        raise ValueError("No MusicBrainz genres matched the taxonomy for the saved IDs.")
+        raise ValueError("No metadata genres matched the taxonomy for the saved URL.")
     return genre_values, stats
+
+
+def metadata_source_genres(payload: MusicBrainzPayload) -> tuple[str, ...]:
+    if payload.provider == METADATA_PROVIDER_DISCOGS:
+        return discogs_genre_style_values(payload.payload)
+    return tuple(musicbrainz_genres(payload.payload))
 
 
 def musicbrainz_audio_tag_file_album_id(
@@ -1490,12 +1697,12 @@ def run_edit_album_musicbrainz_job(
     duration_seconds = perf_counter() - started_at
     if result.ids_cleared:
         LOGGER.info(
-            "MusicBrainz IDs cleared for %s (duration=%.2fs)",
+            "Metadata override cleared for %s (duration=%.2fs)",
             result.album_label,
             duration_seconds,
         )
         return PlayerJobResult(
-            message=f"MusicBrainz IDs cleared for {job.request.album_label}.",
+            message=f"Metadata override cleared for {job.request.album_label}.",
             context={
                 "album": job.request.album_name,
                 "duration_seconds": duration_seconds,

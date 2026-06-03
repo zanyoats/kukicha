@@ -22,7 +22,7 @@ from .use_case import (
     clear_cache_tables,
     create_or_replace_manual_playlist,
     delete_playlist as delete_playlist_command,
-    delete_album_musicbrainz_override,
+    delete_album_metadata_override,
     import_playlist_file,
     mark_stale_player_jobs_canceled,
     pause_queue_for_document_load,
@@ -83,7 +83,7 @@ from .player_views import (
     build_index_context,
     build_jobs_page_context,
     build_listening_data_page_context,
-    build_musicbrainz_overrides_page_context,
+    build_metadata_overrides_page_context,
     build_not_found_context,
     build_playlist_context,
     build_playlist_edit_context,
@@ -340,10 +340,10 @@ def create_player_app(options: PlayerServerOptions) -> Flask:
     def favicon() -> Response:
         return static_response("favicon.svg")
 
-    @app.post("/api/musicbrainz-overrides/<path:album_id>/delete")
-    def delete_musicbrainz_override(album_id: str) -> Response:
+    @app.post("/api/metadata-overrides/<path:album_id>/delete")
+    def delete_metadata_override(album_id: str) -> Response:
         return json_response(
-            delete_album_musicbrainz_override(player_context().runtime, album_id)
+            delete_album_metadata_override(player_context().runtime, album_id)
         )
 
     @app.post("/api/cache/<cache_key>/clear")
@@ -540,11 +540,11 @@ def create_player_app(options: PlayerServerOptions) -> Flask:
                 lambda page_key=page_key: render_listening_data_page(),
                 methods=["GET"],
             )
-        elif page_key == "musicbrainz-overrides":
+        elif page_key == "metadata-overrides":
             app.add_url_rule(
                 route,
                 endpoint,
-                lambda page_key=page_key: render_musicbrainz_overrides_page(),
+                lambda page_key=page_key: render_metadata_overrides_page(),
                 methods=["GET"],
             )
         elif page_key == "artists":
@@ -792,10 +792,10 @@ def render_listening_data_page() -> Response:
     return rendered_response(build_listening_data_page_context(player_context().runtime))
 
 
-def render_musicbrainz_overrides_page() -> Response:
+def render_metadata_overrides_page() -> Response:
     reset_playback_for_document_load()
     return rendered_response(
-        build_musicbrainz_overrides_page_context(player_context().runtime)
+        build_metadata_overrides_page_context(player_context().runtime)
     )
 
 

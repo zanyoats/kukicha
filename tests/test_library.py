@@ -43,6 +43,7 @@ from kukicha.use_case.coverartarchive import (
     front_image_url,
     get_cover_art_archive_entity,
 )
+from kukicha.use_case.discogs import DISCOGS_USER_AGENT, discogs_release_fingerprint
 from kukicha.models import (
     MusicLibrary,
     PlaylistItemRecord,
@@ -2255,6 +2256,101 @@ class LibraryMusicBrainzPersistenceTest(unittest.TestCase):
             finally:
                 connection.close()
 
+    def test_save_library_uses_track_discogs_links_to_split_untagged_rescan(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            database = Path(tempdir) / "kukicha.sqlite"
+            release_ids = ("35645122", "35645123")
+            master_id = "143615"
+            connection = connect_database(database)
+            try:
+                for path, release_id in (
+                    ("/music/expanded/01.flac", release_ids[0]),
+                    ("/music/original/01.flac", release_ids[1]),
+                ):
+                    connection.execute(
+                        """
+                        INSERT INTO album_metadata_track_links (
+                            path,
+                            file_album_id,
+                            provider,
+                            entity_type,
+                            entity_id,
+                            related_entity_type,
+                            related_entity_id
+                        ) VALUES (?, ?, 'discogs', 'release', ?, 'master', ?)
+                        """,
+                        (
+                            path,
+                            "sun-ra-and-his-arkestra::super-sonic-jazz",
+                            release_id,
+                            master_id,
+                        ),
+                    )
+                connection.commit()
+            finally:
+                connection.close()
+
+            library = MusicLibrary(
+                roots=[],
+                tracks=[
+                    TrackRecord(
+                        path="/music/expanded/01.flac",
+                        artist="Sun Ra And His Arkestra",
+                        album_artist="Sun Ra And His Arkestra",
+                        album="Super-Sonic Jazz",
+                        title="India",
+                    ),
+                    TrackRecord(
+                        path="/music/original/01.flac",
+                        artist="Sun Ra And His Arkestra",
+                        album_artist="Sun Ra And His Arkestra",
+                        album="Super-Sonic Jazz",
+                        title="India",
+                    ),
+                ],
+                supported_extensions=[],
+                generated_at="2026-04-22T00:00:00+00:00",
+            )
+
+            save_library(library, database)
+
+            expected_album_ids = {
+                (
+                    "sun-ra-and-his-arkestra::super-sonic-jazz::"
+                    f"{discogs_release_fingerprint(release_id)}"
+                )
+                for release_id in release_ids
+            }
+            connection = connect_database(database, create=False)
+            try:
+                album_ids = {
+                    str(row["album_id"])
+                    for row in connection.execute("SELECT album_id FROM library_albums")
+                }
+                self.assertEqual(album_ids, expected_album_ids)
+
+                track_rows = {
+                    str(row["path"]): str(row["album_id"])
+                    for row in connection.execute(
+                        "SELECT path, album_id FROM library_tracks"
+                    )
+                }
+                self.assertEqual(
+                    track_rows,
+                    {
+                        "/music/expanded/01.flac": (
+                            "sun-ra-and-his-arkestra::super-sonic-jazz::"
+                            f"{discogs_release_fingerprint(release_ids[0])}"
+                        ),
+                        "/music/original/01.flac": (
+                            "sun-ra-and-his-arkestra::super-sonic-jazz::"
+                            f"{discogs_release_fingerprint(release_ids[1])}"
+                        ),
+                    },
+                )
+            finally:
+                connection.close()
+
     def test_save_library_does_not_overwrite_track_links_with_single_album_link(self) -> None:
         with TemporaryDirectory() as tempdir:
             database = Path(tempdir) / "kukicha.sqlite"
@@ -3122,10 +3218,10 @@ class LibraryMusicBrainzPersistenceTest(unittest.TestCase):
                 self.assertEqual(str(row["release_group_mbid"]), "group-1")
                 index_names = {
                     str(row["name"])
-                    for row in connection.execute("PRAGMA index_list(album_musicbrainz_links)")
+                    for row in connection.execute("PRAGMA index_list(album_metadata_links)")
                 }
-                self.assertIn("idx_album_musicbrainz_links_unique", index_names)
-                self.assertIn("idx_album_musicbrainz_links_file_album", index_names)
+                self.assertIn("idx_album_metadata_links_unique", index_names)
+                self.assertIn("idx_album_metadata_links_file_album", index_names)
             finally:
                 connection.close()
 
@@ -5214,6 +5310,204 @@ class LibraryCoverArtResolutionTest(unittest.TestCase):
                 self.assertEqual(stats.album_cover_overrides, 1)
                 self.assertEqual(stats.tracks_updated, 1)
                 caa_lookup.assert_called_once()
+            finally:
+                connection.close()
+
+    def test_resolve_library_cover_art_uses_discogs_release_artwork(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            database = Path(tempdir) / "kukicha.sqlite"
+            connection = connect_database(database)
+            try:
+                connection.execute(
+                    """
+                    INSERT INTO album_metadata_links (
+                        file_album_id,
+                        provider,
+                        entity_type,
+                        entity_id,
+                        related_entity_type,
+                        related_entity_id
+                    ) VALUES (?, 'discogs', 'release', ?, 'master', ?)
+                    """,
+                    ("artist::album", "35645122", "143615"),
+                )
+                connection.commit()
+
+                library = MusicLibrary(
+                    roots=[],
+                    tracks=[
+                        TrackRecord(
+                            path="/music/Artist/Album/01.flac",
+                            file_type="flac",
+                            album_artist="Artist",
+                            album="Album",
+                            title="Track",
+                        )
+                    ],
+                    supported_extensions=[],
+                    generated_at="2026-04-23T00:00:00+00:00",
+                )
+                discogs_artwork = TrackArtwork(
+                    mime_type="image/jpeg",
+                    data=b"discogs-art",
+                )
+                artwork_by_height = {
+                    32: TrackArtwork(mime_type="image/jpeg", data=b"track-art"),
+                    250: TrackArtwork(mime_type="image/jpeg", data=b"album-art"),
+                }
+
+                def fake_get_discogs_entity(
+                    _connection: sqlite3.Connection,
+                    _client: object,
+                    *,
+                    entity_type: str,
+                    entity_id: str,
+                ) -> dict[str, object] | None:
+                    self.assertEqual(entity_type, "release")
+                    self.assertEqual(entity_id, "35645122")
+                    return {
+                        "master_id": 143615,
+                        "images": [
+                            {
+                                "type": "secondary",
+                                "uri": "https://img.discogs.test/secondary.jpg",
+                            },
+                            {
+                                "type": "primary",
+                                "uri": "https://img.discogs.test/release.jpg",
+                            },
+                        ],
+                    }
+
+                with (
+                    patch(
+                        "kukicha.use_case.library.get_discogs_entity",
+                        side_effect=fake_get_discogs_entity,
+                    ) as discogs_lookup,
+                    patch(
+                        "kukicha.use_case.library.get_cover_art_archive_image",
+                        return_value=discogs_artwork,
+                    ) as image_lookup,
+                    patch(
+                        "kukicha.use_case.library.thumbnail_artworks",
+                        return_value=artwork_by_height,
+                    ),
+                    patch(
+                        "kukicha.use_case.library.cover_art_archive_artworks_for_album",
+                        side_effect=AssertionError("unexpected MusicBrainz artwork lookup"),
+                    ),
+                ):
+                    stats = resolve_library_cover_art(
+                        library,
+                        database,
+                        connection=connection,
+                    )
+
+                self.assertEqual(library.tracks[0].artwork, artwork_by_height[32])
+                self.assertEqual(library.tracks[0].album_artwork, artwork_by_height[250])
+                self.assertEqual(stats.album_cover_overrides, 1)
+                self.assertEqual(stats.tracks_updated, 1)
+                discogs_lookup.assert_called_once()
+                image_lookup.assert_called_once()
+                self.assertEqual(
+                    image_lookup.call_args.kwargs["image_url"],
+                    "https://img.discogs.test/release.jpg",
+                )
+                self.assertEqual(
+                    image_lookup.call_args.kwargs["user_agent"],
+                    DISCOGS_USER_AGENT,
+                )
+            finally:
+                connection.close()
+
+    def test_resolve_library_cover_art_falls_back_to_discogs_master_artwork(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            database = Path(tempdir) / "kukicha.sqlite"
+            connection = connect_database(database)
+            try:
+                connection.execute(
+                    """
+                    INSERT INTO album_metadata_links (
+                        file_album_id,
+                        provider,
+                        entity_type,
+                        entity_id,
+                        related_entity_type,
+                        related_entity_id
+                    ) VALUES (?, 'discogs', 'release', ?, 'master', ?)
+                    """,
+                    ("artist::album", "35645122", "143615"),
+                )
+                connection.commit()
+
+                library = MusicLibrary(
+                    roots=[],
+                    tracks=[
+                        TrackRecord(
+                            path="/music/Artist/Album/01.flac",
+                            file_type="flac",
+                            album_artist="Artist",
+                            album="Album",
+                            title="Track",
+                        )
+                    ],
+                    supported_extensions=[],
+                    generated_at="2026-04-23T00:00:00+00:00",
+                )
+                artwork_by_height = {
+                    32: TrackArtwork(mime_type="image/jpeg", data=b"track-art"),
+                    250: TrackArtwork(mime_type="image/jpeg", data=b"album-art"),
+                }
+
+                def fake_get_discogs_entity(
+                    _connection: sqlite3.Connection,
+                    _client: object,
+                    *,
+                    entity_type: str,
+                    entity_id: str,
+                ) -> dict[str, object] | None:
+                    if entity_type == "release":
+                        self.assertEqual(entity_id, "35645122")
+                        return {"master_id": 143615, "images": []}
+                    self.assertEqual(entity_type, "master")
+                    self.assertEqual(entity_id, "143615")
+                    return {
+                        "images": [
+                            {
+                                "type": "primary",
+                                "uri": "https://img.discogs.test/master.jpg",
+                            }
+                        ]
+                    }
+
+                with (
+                    patch(
+                        "kukicha.use_case.library.get_discogs_entity",
+                        side_effect=fake_get_discogs_entity,
+                    ) as discogs_lookup,
+                    patch(
+                        "kukicha.use_case.library.get_cover_art_archive_image",
+                        return_value=TrackArtwork(
+                            mime_type="image/jpeg",
+                            data=b"discogs-master-art",
+                        ),
+                    ) as image_lookup,
+                    patch(
+                        "kukicha.use_case.library.thumbnail_artworks",
+                        return_value=artwork_by_height,
+                    ),
+                ):
+                    resolve_library_cover_art(
+                        library,
+                        database,
+                        connection=connection,
+                    )
+
+                self.assertEqual(discogs_lookup.call_count, 2)
+                self.assertEqual(
+                    image_lookup.call_args.kwargs["image_url"],
+                    "https://img.discogs.test/master.jpg",
+                )
             finally:
                 connection.close()
 

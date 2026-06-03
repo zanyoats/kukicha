@@ -14,6 +14,7 @@ from .models import (
     ALBUM_LIST_SORT_RECENTLY_ADDED,
     ALBUM_LIST_SORT_STARRED,
     AlbumArtistSplitMapping,
+    AlbumMetadataOverride,
     AlbumMusicBrainzOverride,
     AlbumDetails,
     AlbumListQuery,
@@ -56,7 +57,7 @@ from .params import (
     library_search_query_from_params,
     library_search_query_params,
 )
-from .musicbrainz import album_musicbrainz_link
+from .musicbrainz import album_metadata_link, album_musicbrainz_link
 
 __all__ = [
     "ALBUM_LIST_SORT_ALBUMS",
@@ -67,6 +68,7 @@ __all__ = [
     "ALBUM_LIST_SORT_RECENTLY_ADDED",
     "ALBUM_LIST_SORT_STARRED",
     "AlbumArtistSplitMapping",
+    "AlbumMetadataOverride",
     "AlbumMusicBrainzOverride",
     "AlbumDetails",
     "AlbumListQuery",
@@ -103,6 +105,7 @@ __all__ = [
     "SearchSongPage",
     "TrackNotFoundError",
     "album_list_query_from_params",
+    "album_metadata_link",
     "album_musicbrainz_link",
     "album_query_params",
     "album_where_clause",

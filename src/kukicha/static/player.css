@@ -1616,6 +1616,7 @@ button:disabled,
   color: var(--accent);
 }
 
+.metadata-overrides-table code,
 .musicbrainz-overrides-table code {
   overflow-wrap: anywhere;
   word-break: break-all;

@@ -7,22 +7,23 @@
 
   <section class="settings-panel">
     <div class="settings-panel-header">
-      <h2>MusicBrainz Overrides</h2>
+      <h2>Metadata Overrides</h2>
     </div>
 
-    <div class="config-table-wrap" {% if not musicbrainz_overrides %}hidden{% endif %}>
-      <table class="config-table musicbrainz-overrides-table">
+    <div class="config-table-wrap" {% if not metadata_overrides %}hidden{% endif %}>
+      <table class="config-table metadata-overrides-table">
         <thead>
           <tr>
             <th scope="col">Album</th>
-            <th scope="col">Release ID</th>
-            <th scope="col">Release Group ID</th>
+            <th scope="col">Provider</th>
+            <th scope="col">Entity</th>
+            <th scope="col">Related Entity</th>
             <th scope="col">Actions</th>
           </tr>
         </thead>
         <tbody>
-          {% for override in musicbrainz_overrides %}
-            <tr data-musicbrainz-override-row data-album-id="{{ override.album_id }}">
+          {% for override in metadata_overrides %}
+            <tr data-metadata-override-row data-album-id="{{ override.album_id }}">
               <td>
                 <div class="musicbrainz-override-album">
                   {% if override.is_current_album %}
@@ -37,16 +38,23 @@
                   <div class="musicbrainz-override-id"><code>{{ override.album_id }}</code></div>
                 </div>
               </td>
+              <td>{{ override.provider_label }}</td>
               <td>
-                {% if override.release_mbid %}
-                  <code>{{ override.release_mbid }}</code>
+                <div>{{ override.entity_label }}</div>
+                {% if override.entity_url %}
+                  <a class="settings-link" href="{{ override.entity_url }}" target="_blank" rel="noreferrer"><code>{{ override.entity_id }}</code></a>
                 {% else %}
-                  <span class="musicbrainz-id-empty">Not set</span>
+                  <code>{{ override.entity_id }}</code>
                 {% endif %}
               </td>
               <td>
-                {% if override.release_group_mbid %}
-                  <code>{{ override.release_group_mbid }}</code>
+                {% if override.related_entity_id %}
+                  <div>{{ override.related_entity_label }}</div>
+                  {% if override.related_entity_url %}
+                    <a class="settings-link" href="{{ override.related_entity_url }}" target="_blank" rel="noreferrer"><code>{{ override.related_entity_id }}</code></a>
+                  {% else %}
+                    <code>{{ override.related_entity_id }}</code>
+                  {% endif %}
                 {% else %}
                   <span class="musicbrainz-id-empty">Not set</span>
                 {% endif %}
@@ -55,17 +63,17 @@
                 <div class="musicbrainz-override-actions">
                   {% if override.album_edit_url %}
                     <a class="button-link" href="{{ override.album_edit_url }}" data-nav
-                      aria-label="Edit MusicBrainz IDs for {{ override.album }}">Edit</a>
+                      aria-label="Edit metadata override for {{ override.album }}">Edit</a>
                   {% endif %}
                   {% if override.delete_url %}
                     <button
                       class="delete-icon-button"
                       type="button"
-                      data-delete-musicbrainz-override
+                      data-delete-metadata-override
                       data-album-id="{{ override.album_id }}"
                       data-delete-url="{{ override.delete_url }}"
-                      aria-label="Delete MusicBrainz override for {{ override.album if override.is_current_album else override.album_id }}"
-                      title="Delete MusicBrainz override"
+                      aria-label="Delete metadata override for {{ override.album if override.is_current_album else override.album_id }}"
+                      title="Delete metadata override"
                     >{{ delete_icon() }}</button>
                   {% endif %}
                 </div>
@@ -75,6 +83,6 @@
         </tbody>
       </table>
     </div>
-    <div class="empty" {% if musicbrainz_overrides %}hidden{% endif %}>No MusicBrainz overrides saved.</div>
+    <div class="empty" {% if metadata_overrides %}hidden{% endif %}>No metadata overrides saved.</div>
   </section>
 </div>

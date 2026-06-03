@@ -410,36 +410,81 @@ CREATE TABLE IF NOT EXISTS library_album_root_genre_styles (
 CREATE INDEX IF NOT EXISTS idx_library_album_root_genre_styles_genre_style
     ON library_album_root_genre_styles (root_position, genre, style, album_id);
 
-CREATE TABLE IF NOT EXISTS album_musicbrainz_links (
+CREATE TABLE IF NOT EXISTS album_metadata_links (
     file_album_id TEXT NOT NULL,
-    release_mbid TEXT,
-    release_group_mbid TEXT,
+    provider TEXT NOT NULL CHECK (provider IN ('musicbrainz', 'discogs')),
+    entity_type TEXT NOT NULL CHECK (entity_type IN ('release', 'release-group', 'master')),
+    entity_id TEXT NOT NULL,
+    related_entity_type TEXT CHECK (
+        related_entity_type IS NULL
+        OR related_entity_type IN ('release', 'release-group', 'master')
+    ),
+    related_entity_id TEXT,
     CHECK (
-        COALESCE(release_mbid, '') != ''
-        OR COALESCE(release_group_mbid, '') != ''
+        TRIM(entity_id) != ''
+        AND (
+            related_entity_type IS NOT NULL
+            OR related_entity_id IS NULL
+            OR TRIM(related_entity_id) = ''
+        )
+        AND (
+            related_entity_type IS NULL
+            OR (
+                related_entity_id IS NOT NULL
+                AND TRIM(related_entity_id) != ''
+            )
+        )
     )
 );
-CREATE INDEX IF NOT EXISTS idx_album_musicbrainz_links_release
-    ON album_musicbrainz_links (release_mbid);
-CREATE INDEX IF NOT EXISTS idx_album_musicbrainz_links_release_group
-    ON album_musicbrainz_links (release_group_mbid);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_album_metadata_links_unique
+    ON album_metadata_links (
+        file_album_id,
+        provider,
+        entity_type,
+        entity_id,
+        COALESCE(related_entity_type, ''),
+        COALESCE(related_entity_id, '')
+    );
+CREATE INDEX IF NOT EXISTS idx_album_metadata_links_file_album
+    ON album_metadata_links (file_album_id);
+CREATE INDEX IF NOT EXISTS idx_album_metadata_links_entity
+    ON album_metadata_links (provider, entity_type, entity_id);
+CREATE INDEX IF NOT EXISTS idx_album_metadata_links_related_entity
+    ON album_metadata_links (provider, related_entity_type, related_entity_id);
 
-CREATE TABLE IF NOT EXISTS album_musicbrainz_track_links (
+CREATE TABLE IF NOT EXISTS album_metadata_track_links (
     path TEXT PRIMARY KEY,
     file_album_id TEXT NOT NULL,
-    release_mbid TEXT,
-    release_group_mbid TEXT,
+    provider TEXT NOT NULL CHECK (provider IN ('musicbrainz', 'discogs')),
+    entity_type TEXT NOT NULL CHECK (entity_type IN ('release', 'release-group', 'master')),
+    entity_id TEXT NOT NULL,
+    related_entity_type TEXT CHECK (
+        related_entity_type IS NULL
+        OR related_entity_type IN ('release', 'release-group', 'master')
+    ),
+    related_entity_id TEXT,
     CHECK (
-        COALESCE(release_mbid, '') != ''
-        OR COALESCE(release_group_mbid, '') != ''
+        TRIM(entity_id) != ''
+        AND (
+            related_entity_type IS NOT NULL
+            OR related_entity_id IS NULL
+            OR TRIM(related_entity_id) = ''
+        )
+        AND (
+            related_entity_type IS NULL
+            OR (
+                related_entity_id IS NOT NULL
+                AND TRIM(related_entity_id) != ''
+            )
+        )
     )
 );
-CREATE INDEX IF NOT EXISTS idx_album_musicbrainz_track_links_file_album
-    ON album_musicbrainz_track_links (file_album_id);
-CREATE INDEX IF NOT EXISTS idx_album_musicbrainz_track_links_release
-    ON album_musicbrainz_track_links (release_mbid);
-CREATE INDEX IF NOT EXISTS idx_album_musicbrainz_track_links_release_group
-    ON album_musicbrainz_track_links (release_group_mbid);
+CREATE INDEX IF NOT EXISTS idx_album_metadata_track_links_file_album
+    ON album_metadata_track_links (file_album_id);
+CREATE INDEX IF NOT EXISTS idx_album_metadata_track_links_entity
+    ON album_metadata_track_links (provider, entity_type, entity_id);
+CREATE INDEX IF NOT EXISTS idx_album_metadata_track_links_related_entity
+    ON album_metadata_track_links (provider, related_entity_type, related_entity_id);
 
 CREATE TABLE IF NOT EXISTS library_tracks (
     track_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -544,6 +589,15 @@ CREATE TABLE IF NOT EXISTS musicbrainz_entity_cache (
     PRIMARY KEY (entity_type, mbid)
 );
 
+CREATE TABLE IF NOT EXISTS discogs_entity_cache (
+    entity_type TEXT NOT NULL CHECK (entity_type IN ('release', 'master')),
+    entity_id TEXT NOT NULL,
+    fetched_at TEXT NOT NULL,
+    endpoint_url TEXT NOT NULL,
+    response_json TEXT NOT NULL,
+    PRIMARY KEY (entity_type, entity_id)
+);
+
 CREATE TABLE IF NOT EXISTS cover_art_archive_entity_cache (
     entity_type TEXT NOT NULL CHECK (entity_type IN ('release', 'release-group')),
     mbid TEXT NOT NULL,
@@ -609,8 +663,7 @@ def connect_database(
         migrate_listening_schema(connection)
         migrate_library_schema(connection)
         migrate_media_user_state_schema(connection)
-        migrate_album_musicbrainz_link_key_schema(connection)
-        migrate_album_musicbrainz_schema(connection)
+        migrate_album_metadata_schema(connection)
         migrate_album_search_schema(connection)
         migrate_library_search_schema(connection)
         migrate_itunes_lookup_cache_schema(connection)
@@ -1287,7 +1340,14 @@ def migrate_library_album_artist_column(connection: sqlite3.Connection) -> None:
     connection.execute("ALTER TABLE library_albums DROP COLUMN artist")
 
 
-def migrate_album_musicbrainz_schema(connection: sqlite3.Connection) -> None:
+def migrate_album_metadata_schema(connection: sqlite3.Connection) -> None:
+    migrate_library_album_musicbrainz_columns_to_metadata(connection)
+    migrate_album_musicbrainz_link_tables_to_metadata(connection)
+    ensure_album_metadata_link_indexes(connection)
+    ensure_musicbrainz_compat_views(connection)
+
+
+def migrate_library_album_musicbrainz_columns_to_metadata(connection: sqlite3.Connection) -> None:
     columns = table_columns(connection, "library_albums")
     has_release_mbid = "musicbrainz_release_mbid" in columns
     has_release_group_mbid = "musicbrainz_release_group_mbid" in columns
@@ -1305,15 +1365,32 @@ def migrate_album_musicbrainz_schema(connection: sqlite3.Connection) -> None:
         where_clauses.append("COALESCE(TRIM(musicbrainz_release_group_mbid), '') != ''")
     connection.execute(
         f"""
-        INSERT OR IGNORE INTO album_musicbrainz_links (
+        INSERT OR IGNORE INTO album_metadata_links (
             file_album_id,
-            release_mbid,
-            release_group_mbid
+            provider,
+            entity_type,
+            entity_id,
+            related_entity_type,
+            related_entity_id
         )
         SELECT
             album_id,
-            {release_select},
-            {release_group_select}
+            'musicbrainz',
+            CASE
+                WHEN {release_select} IS NOT NULL THEN 'release'
+                ELSE 'release-group'
+            END,
+            COALESCE({release_select}, {release_group_select}),
+            CASE
+                WHEN {release_select} IS NOT NULL AND {release_group_select} IS NOT NULL
+                    THEN 'release-group'
+                ELSE NULL
+            END,
+            CASE
+                WHEN {release_select} IS NOT NULL AND {release_group_select} IS NOT NULL
+                    THEN {release_group_select}
+                ELSE NULL
+            END
         FROM library_albums
         WHERE {" OR ".join(where_clauses)}
         """
@@ -1324,83 +1401,302 @@ def migrate_album_musicbrainz_schema(connection: sqlite3.Connection) -> None:
         connection.execute("ALTER TABLE library_albums DROP COLUMN musicbrainz_release_mbid")
     if has_release_group_mbid:
         connection.execute("ALTER TABLE library_albums DROP COLUMN musicbrainz_release_group_mbid")
-
-
-def migrate_album_musicbrainz_link_key_schema(connection: sqlite3.Connection) -> None:
-    table_info = list(connection.execute("PRAGMA table_info(album_musicbrainz_links)"))
-    columns = {str(row["name"]) for row in table_info}
-    if "album_id" not in columns:
-        ensure_album_musicbrainz_link_indexes(connection)
-        return
-    connection.execute("DROP INDEX IF EXISTS idx_album_musicbrainz_links_unique")
-    connection.execute("DROP INDEX IF EXISTS idx_album_musicbrainz_links_release")
-    connection.execute("DROP INDEX IF EXISTS idx_album_musicbrainz_links_release_group")
-    connection.execute("DROP INDEX IF EXISTS idx_album_musicbrainz_links_file_album")
-    connection.execute("ALTER TABLE album_musicbrainz_links RENAME TO album_musicbrainz_links_old")
-    connection.execute(
-        """
-        CREATE TABLE album_musicbrainz_links (
-            file_album_id TEXT NOT NULL,
-            release_mbid TEXT,
-            release_group_mbid TEXT,
-            CHECK (
-                COALESCE(release_mbid, '') != ''
-                OR COALESCE(release_group_mbid, '') != ''
-            )
-        )
-        """
-    )
-    old_columns = table_columns(connection, "album_musicbrainz_links_old")
-    old_file_album_column = "file_album_id" if "file_album_id" in old_columns else "album_id"
-    connection.execute(
-        f"""
-        INSERT OR IGNORE INTO album_musicbrainz_links (
-            file_album_id,
-            release_mbid,
-            release_group_mbid
-        )
-        SELECT
-            {old_file_album_column},
-            NULLIF(TRIM(release_mbid), ''),
-            NULLIF(TRIM(release_group_mbid), '')
-        FROM album_musicbrainz_links_old
-        WHERE COALESCE(TRIM(release_mbid), '') != ''
-            OR COALESCE(TRIM(release_group_mbid), '') != ''
-        """
-    )
-    connection.execute("DROP TABLE album_musicbrainz_links_old")
-    ensure_album_musicbrainz_link_indexes(connection)
-
-
-def ensure_album_musicbrainz_link_indexes(connection: sqlite3.Connection) -> None:
-    connection.execute(
-        """
-        CREATE UNIQUE INDEX IF NOT EXISTS idx_album_musicbrainz_links_unique
-            ON album_musicbrainz_links (
+def migrate_album_musicbrainz_link_tables_to_metadata(connection: sqlite3.Connection) -> None:
+    if database_object_type(connection, "album_musicbrainz_links") == "table":
+        columns = table_columns(connection, "album_musicbrainz_links")
+        file_album_column = "file_album_id" if "file_album_id" in columns else "album_id"
+        connection.execute(
+            f"""
+            INSERT OR IGNORE INTO album_metadata_links (
                 file_album_id,
-                COALESCE(release_mbid, ''),
-                COALESCE(release_group_mbid, '')
+                provider,
+                entity_type,
+                entity_id,
+                related_entity_type,
+                related_entity_id
+            )
+            SELECT
+                {file_album_column},
+                'musicbrainz',
+                CASE
+                    WHEN NULLIF(TRIM(release_mbid), '') IS NOT NULL THEN 'release'
+                    ELSE 'release-group'
+                END,
+                COALESCE(NULLIF(TRIM(release_mbid), ''), NULLIF(TRIM(release_group_mbid), '')),
+                CASE
+                    WHEN NULLIF(TRIM(release_mbid), '') IS NOT NULL
+                        AND NULLIF(TRIM(release_group_mbid), '') IS NOT NULL
+                        THEN 'release-group'
+                    ELSE NULL
+                END,
+                CASE
+                    WHEN NULLIF(TRIM(release_mbid), '') IS NOT NULL
+                        AND NULLIF(TRIM(release_group_mbid), '') IS NOT NULL
+                        THEN NULLIF(TRIM(release_group_mbid), '')
+                    ELSE NULL
+                END
+            FROM album_musicbrainz_links
+            WHERE COALESCE(TRIM(release_mbid), '') != ''
+                OR COALESCE(TRIM(release_group_mbid), '') != ''
+            """
+        )
+        connection.execute("DROP TABLE album_musicbrainz_links")
+
+    if database_object_type(connection, "album_musicbrainz_track_links") == "table":
+        connection.execute(
+            """
+            INSERT OR IGNORE INTO album_metadata_track_links (
+                path,
+                file_album_id,
+                provider,
+                entity_type,
+                entity_id,
+                related_entity_type,
+                related_entity_id
+            )
+            SELECT
+                path,
+                file_album_id,
+                'musicbrainz',
+                CASE
+                    WHEN NULLIF(TRIM(release_mbid), '') IS NOT NULL THEN 'release'
+                    ELSE 'release-group'
+                END,
+                COALESCE(NULLIF(TRIM(release_mbid), ''), NULLIF(TRIM(release_group_mbid), '')),
+                CASE
+                    WHEN NULLIF(TRIM(release_mbid), '') IS NOT NULL
+                        AND NULLIF(TRIM(release_group_mbid), '') IS NOT NULL
+                        THEN 'release-group'
+                    ELSE NULL
+                END,
+                CASE
+                    WHEN NULLIF(TRIM(release_mbid), '') IS NOT NULL
+                        AND NULLIF(TRIM(release_group_mbid), '') IS NOT NULL
+                        THEN NULLIF(TRIM(release_group_mbid), '')
+                    ELSE NULL
+                END
+            FROM album_musicbrainz_track_links
+            WHERE COALESCE(TRIM(path), '') != ''
+                AND COALESCE(TRIM(file_album_id), '') != ''
+                AND (
+                    COALESCE(TRIM(release_mbid), '') != ''
+                    OR COALESCE(TRIM(release_group_mbid), '') != ''
+                )
+            """
+        )
+        connection.execute("DROP TABLE album_musicbrainz_track_links")
+
+
+def ensure_album_metadata_link_indexes(connection: sqlite3.Connection) -> None:
+    connection.execute(
+        """
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_album_metadata_links_unique
+            ON album_metadata_links (
+                file_album_id,
+                provider,
+                entity_type,
+                entity_id,
+                COALESCE(related_entity_type, ''),
+                COALESCE(related_entity_id, '')
             )
         """
     )
     connection.execute(
         """
-        CREATE INDEX IF NOT EXISTS idx_album_musicbrainz_links_file_album
-            ON album_musicbrainz_links (file_album_id)
+        CREATE INDEX IF NOT EXISTS idx_album_metadata_links_file_album
+            ON album_metadata_links (file_album_id)
         """
     )
     connection.execute(
         """
-        CREATE INDEX IF NOT EXISTS idx_album_musicbrainz_links_release
-            ON album_musicbrainz_links (release_mbid)
+        CREATE INDEX IF NOT EXISTS idx_album_metadata_links_entity
+            ON album_metadata_links (provider, entity_type, entity_id)
         """
     )
     connection.execute(
         """
-        CREATE INDEX IF NOT EXISTS idx_album_musicbrainz_links_release_group
-            ON album_musicbrainz_links (release_group_mbid)
+        CREATE INDEX IF NOT EXISTS idx_album_metadata_links_related_entity
+            ON album_metadata_links (provider, related_entity_type, related_entity_id)
         """
     )
+
+
+def ensure_musicbrainz_compat_views(connection: sqlite3.Connection) -> None:
+    if database_object_type(connection, "album_musicbrainz_links") == "view":
+        connection.execute("DROP VIEW album_musicbrainz_links")
+    if database_object_type(connection, "album_musicbrainz_track_links") == "view":
+        connection.execute("DROP VIEW album_musicbrainz_track_links")
+    connection.executescript(
+        """
+        CREATE VIEW album_musicbrainz_links AS
+        SELECT
+            file_album_id,
+            CASE
+                WHEN entity_type = 'release' THEN entity_id
+                ELSE NULL
+            END AS release_mbid,
+            CASE
+                WHEN entity_type = 'release-group' THEN entity_id
+                WHEN related_entity_type = 'release-group' THEN related_entity_id
+                ELSE NULL
+            END AS release_group_mbid
+        FROM album_metadata_links
+        WHERE provider = 'musicbrainz';
+
+        CREATE TRIGGER album_musicbrainz_links_insert
+        INSTEAD OF INSERT ON album_musicbrainz_links
+        BEGIN
+            INSERT OR IGNORE INTO album_metadata_links (
+                file_album_id,
+                provider,
+                entity_type,
+                entity_id,
+                related_entity_type,
+                related_entity_id
+            )
+            SELECT
+                TRIM(NEW.file_album_id),
+                'musicbrainz',
+                CASE
+                    WHEN TRIM(COALESCE(NEW.release_mbid, '')) != '' THEN 'release'
+                    ELSE 'release-group'
+                END,
+                CASE
+                    WHEN TRIM(COALESCE(NEW.release_mbid, '')) != ''
+                        THEN TRIM(NEW.release_mbid)
+                    ELSE TRIM(NEW.release_group_mbid)
+                END,
+                CASE
+                    WHEN TRIM(COALESCE(NEW.release_mbid, '')) != ''
+                        AND TRIM(COALESCE(NEW.release_group_mbid, '')) != ''
+                        THEN 'release-group'
+                    ELSE NULL
+                END,
+                CASE
+                    WHEN TRIM(COALESCE(NEW.release_mbid, '')) != ''
+                        AND TRIM(COALESCE(NEW.release_group_mbid, '')) != ''
+                        THEN TRIM(NEW.release_group_mbid)
+                    ELSE NULL
+                END
+            WHERE TRIM(COALESCE(NEW.file_album_id, '')) != ''
+                AND (
+                    TRIM(COALESCE(NEW.release_mbid, '')) != ''
+                    OR TRIM(COALESCE(NEW.release_group_mbid, '')) != ''
+                );
+        END;
+
+        CREATE TRIGGER album_musicbrainz_links_delete
+        INSTEAD OF DELETE ON album_musicbrainz_links
+        BEGIN
+            DELETE FROM album_metadata_links
+            WHERE provider = 'musicbrainz'
+                AND file_album_id = OLD.file_album_id
+                AND entity_type = CASE
+                    WHEN TRIM(COALESCE(OLD.release_mbid, '')) != '' THEN 'release'
+                    ELSE 'release-group'
+                END
+                AND entity_id = CASE
+                    WHEN TRIM(COALESCE(OLD.release_mbid, '')) != ''
+                        THEN TRIM(OLD.release_mbid)
+                    ELSE TRIM(OLD.release_group_mbid)
+                END
+                AND COALESCE(related_entity_type, '') = CASE
+                    WHEN TRIM(COALESCE(OLD.release_mbid, '')) != ''
+                        AND TRIM(COALESCE(OLD.release_group_mbid, '')) != ''
+                        THEN 'release-group'
+                    ELSE ''
+                END
+                AND COALESCE(related_entity_id, '') = CASE
+                    WHEN TRIM(COALESCE(OLD.release_mbid, '')) != ''
+                        AND TRIM(COALESCE(OLD.release_group_mbid, '')) != ''
+                        THEN TRIM(OLD.release_group_mbid)
+                    ELSE ''
+                END;
+        END;
+
+        CREATE VIEW album_musicbrainz_track_links AS
+        SELECT
+            path,
+            file_album_id,
+            CASE
+                WHEN entity_type = 'release' THEN entity_id
+                ELSE NULL
+            END AS release_mbid,
+            CASE
+                WHEN entity_type = 'release-group' THEN entity_id
+                WHEN related_entity_type = 'release-group' THEN related_entity_id
+                ELSE NULL
+            END AS release_group_mbid
+        FROM album_metadata_track_links
+        WHERE provider = 'musicbrainz';
+
+        CREATE TRIGGER album_musicbrainz_track_links_insert
+        INSTEAD OF INSERT ON album_musicbrainz_track_links
+        BEGIN
+            INSERT OR REPLACE INTO album_metadata_track_links (
+                path,
+                file_album_id,
+                provider,
+                entity_type,
+                entity_id,
+                related_entity_type,
+                related_entity_id
+            )
+            SELECT
+                TRIM(NEW.path),
+                TRIM(NEW.file_album_id),
+                'musicbrainz',
+                CASE
+                    WHEN TRIM(COALESCE(NEW.release_mbid, '')) != '' THEN 'release'
+                    ELSE 'release-group'
+                END,
+                CASE
+                    WHEN TRIM(COALESCE(NEW.release_mbid, '')) != ''
+                        THEN TRIM(NEW.release_mbid)
+                    ELSE TRIM(NEW.release_group_mbid)
+                END,
+                CASE
+                    WHEN TRIM(COALESCE(NEW.release_mbid, '')) != ''
+                        AND TRIM(COALESCE(NEW.release_group_mbid, '')) != ''
+                        THEN 'release-group'
+                    ELSE NULL
+                END,
+                CASE
+                    WHEN TRIM(COALESCE(NEW.release_mbid, '')) != ''
+                        AND TRIM(COALESCE(NEW.release_group_mbid, '')) != ''
+                        THEN TRIM(NEW.release_group_mbid)
+                    ELSE NULL
+                END
+            WHERE TRIM(COALESCE(NEW.path, '')) != ''
+                AND TRIM(COALESCE(NEW.file_album_id, '')) != ''
+                AND (
+                    TRIM(COALESCE(NEW.release_mbid, '')) != ''
+                    OR TRIM(COALESCE(NEW.release_group_mbid, '')) != ''
+                );
+        END;
+
+        CREATE TRIGGER album_musicbrainz_track_links_delete
+        INSTEAD OF DELETE ON album_musicbrainz_track_links
+        BEGIN
+            DELETE FROM album_metadata_track_links
+            WHERE provider = 'musicbrainz'
+                AND path = OLD.path;
+        END;
+        """
+    )
+
+
+def database_object_type(connection: sqlite3.Connection, name: str) -> str | None:
+    row = connection.execute(
+        """
+        SELECT type
+        FROM sqlite_master
+        WHERE name = ?
+            AND type IN ('table', 'view')
+        """,
+        (name,),
+    ).fetchone()
+    return str(row["type"]) if row is not None else None
 
 
 def migrate_album_search_schema(connection: sqlite3.Connection) -> None:

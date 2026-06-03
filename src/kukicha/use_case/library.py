@@ -56,6 +56,25 @@ from .itunes import (
     ItunesLookupStats,
     get_itunes_lookup_image,
 )
+from .discogs import (
+    DISCOGS_USER_AGENT,
+    DiscogsClient,
+    DiscogsLookupStats,
+    discogs_master_id,
+    discogs_primary_image_url,
+    discogs_release_fingerprint,
+    get_discogs_entity,
+)
+from .metadata import (
+    AlbumMetadataLink,
+    AlbumMetadataTrackLink,
+    METADATA_ENTITY_MASTER,
+    METADATA_ENTITY_RELEASE,
+    METADATA_PROVIDER_DISCOGS,
+    load_album_metadata_links,
+    load_album_metadata_track_links,
+    store_album_metadata_track_link,
+)
 from ..models import (
     ALBUM_ARTWORK_HEIGHT,
     TRACK_ARTWORK_HEIGHT,
@@ -1673,6 +1692,7 @@ def apply_musicbrainz_release_variants(
         track_list,
         tracks_by_release,
     )
+    apply_discogs_track_links_to_tracks(connection, track_list)
     apply_musicbrainz_link_variants_to_tracks(
         connection,
         track_list,
@@ -1738,6 +1758,56 @@ def apply_musicbrainz_track_links_to_tracks(
                 release_mbid=link.release_mbid,
                 release_group_mbid=link.release_group_mbid,
             )
+
+
+def apply_discogs_track_links_to_tracks(
+    connection: sqlite3.Connection,
+    tracks: Iterable[TrackRecord],
+) -> None:
+    track_list = list(tracks)
+    links_by_path = load_album_metadata_track_links(
+        connection,
+        (track.path for track in track_list),
+        provider=METADATA_PROVIDER_DISCOGS,
+    )
+    if not links_by_path:
+        return
+
+    for track in track_list:
+        if normalize_release_variant(track.musicbrainz_release_variant):
+            continue
+        link = links_by_path.get(track.path)
+        if link is None:
+            continue
+        release_variant = discogs_release_variant_from_track_link(link)
+        if not release_variant:
+            continue
+        base_album_id = track_base_album_id(track)
+        if not base_album_id:
+            continue
+
+        track.musicbrainz_release_variant = release_variant
+        if link.file_album_id != base_album_id:
+            store_album_metadata_track_link(
+                connection,
+                track.path,
+                base_album_id,
+                provider=link.provider,
+                entity_type=link.entity_type,
+                entity_id=link.entity_id,
+                related_entity_type=link.related_entity_type,
+                related_entity_id=link.related_entity_id,
+            )
+
+
+def discogs_release_variant_from_track_link(
+    link: AlbumMetadataTrackLink,
+) -> str | None:
+    if link.provider != METADATA_PROVIDER_DISCOGS:
+        return None
+    if link.entity_type != METADATA_ENTITY_RELEASE:
+        return None
+    return discogs_release_fingerprint(link.entity_id)
 
 
 def apply_musicbrainz_link_variants_to_tracks(
@@ -2272,16 +2342,42 @@ def resolve_library_cover_art(
             albums,
         )
         musicbrainz_links = load_album_musicbrainz_links(connection)
+        discogs_links = load_album_metadata_links(
+            connection,
+            provider=METADATA_PROVIDER_DISCOGS,
+        )
+        discogs_track_links = load_album_metadata_track_links(
+            connection,
+            (track.path for track in library.tracks),
+            provider=METADATA_PROVIDER_DISCOGS,
+        )
         caa_client = CoverArtArchiveClient(stats=caa_stats, log=log)
         itunes_client = ItunesLookupClient(stats=itunes_stats, log=log)
+        discogs_stats = DiscogsLookupStats()
+        discogs_client = DiscogsClient(stats=discogs_stats, log=log)
 
         for tracks in genre_resolution_groups(library.tracks):
             musicbrainz_link = musicbrainz_link_for_track(musicbrainz_links, tracks[0])
+            discogs_link = discogs_link_for_tracks(
+                discogs_links,
+                discogs_track_links,
+                tracks,
+            )
             chosen_artwork = itunes_artwork_for_album(
                 connection,
                 tracks,
                 itunes_client,
             )
+            if chosen_artwork is None and discogs_link is not None:
+                artwork_by_source = discogs_artworks_for_album(
+                    connection,
+                    discogs_link,
+                    discogs_client,
+                    caa_client,
+                )
+                chosen_artwork = artwork_by_source.get("release") or artwork_by_source.get(
+                    "master"
+                )
             if chosen_artwork is None and musicbrainz_link is not None and musicbrainz_link.has_identifier:
                 artwork_by_source = cover_art_archive_artworks_for_album(
                     connection,
@@ -2322,13 +2418,141 @@ def resolve_library_cover_art(
 
     stats.itunes_lookup_api_calls = itunes_stats.lookup_api_calls
     stats.itunes_lookup_cached_calls = itunes_stats.lookup_cached_calls
-    stats.metadata_api_calls = caa_stats.metadata_api_calls
-    stats.metadata_cached_calls = caa_stats.metadata_cached_calls
+    stats.metadata_api_calls = caa_stats.metadata_api_calls + discogs_stats.api_calls
+    stats.metadata_cached_calls = caa_stats.metadata_cached_calls + discogs_stats.cached_calls
     stats.image_downloads = caa_stats.image_downloads
     stats.image_cached_calls = caa_stats.image_cached_calls
-    stats.fetch_failures = itunes_stats.fetch_failures + caa_stats.fetch_failures
+    stats.fetch_failures = (
+        itunes_stats.fetch_failures
+        + caa_stats.fetch_failures
+        + discogs_stats.fetch_failures
+    )
     stats.missing_art = itunes_stats.missing_art + caa_stats.missing_art
     return stats
+
+
+def discogs_link_for_tracks(
+    discogs_links: dict[str, tuple[AlbumMetadataLink, ...]],
+    discogs_track_links: dict[str, AlbumMetadataTrackLink],
+    tracks: list[TrackRecord],
+) -> AlbumMetadataLink | AlbumMetadataTrackLink | None:
+    track_candidates = [
+        link
+        for link in unique_metadata_links(
+            discogs_track_links.get(track.path)
+            for track in tracks
+        )
+        if link.provider == METADATA_PROVIDER_DISCOGS
+    ]
+    if track_candidates:
+        return track_candidates[0] if len(track_candidates) == 1 else None
+
+    album_candidates: list[AlbumMetadataLink] = []
+    for track in tracks:
+        for album_id in metadata_album_id_candidates_for_track(track):
+            album_candidates.extend(discogs_links.get(album_id, ()))
+
+    unique_candidates = [
+        link
+        for link in unique_metadata_links(album_candidates)
+        if link.provider == METADATA_PROVIDER_DISCOGS
+    ]
+    return unique_candidates[0] if len(unique_candidates) == 1 else None
+
+
+def metadata_album_id_candidates_for_track(track: TrackRecord) -> tuple[str, ...]:
+    candidates: list[str] = []
+    release_variant = normalize_release_variant(track.musicbrainz_release_variant)
+    for base_album_id in track_base_album_id_candidates(track):
+        candidates.append(base_album_id)
+        if release_variant:
+            candidates.append(f"{base_album_id}::{release_variant}")
+    return tuple(dict.fromkeys(candidates))
+
+
+def unique_metadata_links(
+    links: Iterable[AlbumMetadataLink | AlbumMetadataTrackLink | None],
+) -> tuple[AlbumMetadataLink | AlbumMetadataTrackLink, ...]:
+    candidates: list[AlbumMetadataLink | AlbumMetadataTrackLink] = []
+    seen: set[tuple[str, str, str, str, str, str]] = set()
+    for link in links:
+        if link is None:
+            continue
+        key = metadata_link_identity(link)
+        if key in seen:
+            continue
+        seen.add(key)
+        candidates.append(link)
+    return tuple(candidates)
+
+
+def metadata_link_identity(
+    link: AlbumMetadataLink | AlbumMetadataTrackLink,
+) -> tuple[str, str, str, str, str, str]:
+    return (
+        link.file_album_id,
+        link.provider,
+        link.entity_type,
+        link.entity_id,
+        link.related_entity_type or "",
+        link.related_entity_id or "",
+    )
+
+
+def discogs_artworks_for_album(
+    connection: sqlite3.Connection,
+    metadata_link: AlbumMetadataLink | AlbumMetadataTrackLink,
+    discogs_client: DiscogsClient,
+    image_client: CoverArtArchiveClient,
+) -> dict[str, TrackArtwork]:
+    image_urls_by_source: dict[str, str] = {}
+    master_id = (
+        metadata_link.related_entity_id
+        if metadata_link.related_entity_type == METADATA_ENTITY_MASTER
+        else None
+    )
+
+    if metadata_link.entity_type == METADATA_ENTITY_RELEASE:
+        payload = get_discogs_entity(
+            connection,
+            discogs_client,
+            entity_type=METADATA_ENTITY_RELEASE,
+            entity_id=metadata_link.entity_id,
+        )
+        if payload is not None:
+            image_url = discogs_primary_image_url(payload)
+            if image_url is not None:
+                image_urls_by_source[METADATA_ENTITY_RELEASE] = image_url
+            if master_id is None:
+                master_id = discogs_master_id(payload)
+    elif metadata_link.entity_type == METADATA_ENTITY_MASTER:
+        master_id = metadata_link.entity_id
+
+    if master_id and METADATA_ENTITY_RELEASE not in image_urls_by_source:
+        payload = get_discogs_entity(
+            connection,
+            discogs_client,
+            entity_type=METADATA_ENTITY_MASTER,
+            entity_id=master_id,
+        )
+        if payload is not None:
+            image_url = discogs_primary_image_url(payload)
+            if image_url is not None:
+                image_urls_by_source[METADATA_ENTITY_MASTER] = image_url
+
+    for entity_type in (METADATA_ENTITY_RELEASE, METADATA_ENTITY_MASTER):
+        image_url = image_urls_by_source.get(entity_type)
+        if image_url is None:
+            continue
+        artwork = get_cover_art_archive_image(
+            connection,
+            image_client,
+            image_url=image_url,
+            user_agent=DISCOGS_USER_AGENT,
+        )
+        if artwork is not None:
+            return {entity_type: artwork}
+    return {}
 
 
 def itunes_artwork_for_album(

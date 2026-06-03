@@ -47,7 +47,7 @@ PLAYER_PAGE_LINKS = (
     ("playlists", "Playlists", "/playlists"),
     ("roots", "Roots", "/roots"),
     ("artist-split-rules", "Artists Split Rules", "/artist-split-rules"),
-    ("musicbrainz-overrides", "MusicBrainz Overrides", "/musicbrainz-overrides"),
+    ("metadata-overrides", "Metadata Overrides", "/metadata-overrides"),
     ("listening-data", "Listening Data", "/listening-data"),
     ("cache", "Cache", "/cache"),
     ("jobs", "Jobs", "/jobs"),
@@ -83,9 +83,9 @@ PLAYER_PAGE_MENU_ITEMS = (
     ),
     PlayerPageLink(
         kind="link",
-        key="musicbrainz-overrides",
-        title="MusicBrainz Overrides",
-        url="/musicbrainz-overrides",
+        key="metadata-overrides",
+        title="Metadata Overrides",
+        url="/metadata-overrides",
     ),
     PlayerPageLink(
         kind="link",

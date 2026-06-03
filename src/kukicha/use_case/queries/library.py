@@ -1015,7 +1015,7 @@ class LibraryQueries:
             for row in rows
         )
 
-    def album_musicbrainz_overrides(self) -> tuple[AlbumMusicBrainzOverride, ...]:
+    def album_metadata_overrides(self) -> tuple[AlbumMusicBrainzOverride, ...]:
         with connect_database(self.database, create=False) as connection:
             rows = list(
                 connection.execute(
@@ -1023,17 +1023,25 @@ class LibraryQueries:
                     WITH resolved_links AS (
                         SELECT
                             links.file_album_id,
+                            links.provider,
+                            links.entity_type,
+                            links.entity_id,
+                            links.related_entity_type,
+                            links.related_entity_id,
                             COALESCE(
                                 (
                                     SELECT tracks.album_id
-                                    FROM album_musicbrainz_track_links AS track_links
+                                    FROM album_metadata_track_links AS track_links
                                     JOIN library_tracks AS tracks
                                         ON tracks.path = track_links.path
                                     WHERE track_links.file_album_id = links.file_album_id
-                                        AND COALESCE(track_links.release_mbid, '') =
-                                            COALESCE(NULLIF(TRIM(links.release_mbid), ''), '')
-                                        AND COALESCE(track_links.release_group_mbid, '') =
-                                            COALESCE(NULLIF(TRIM(links.release_group_mbid), ''), '')
+                                        AND track_links.provider = links.provider
+                                        AND track_links.entity_type = links.entity_type
+                                        AND track_links.entity_id = links.entity_id
+                                        AND COALESCE(track_links.related_entity_type, '') =
+                                            COALESCE(links.related_entity_type, '')
+                                        AND COALESCE(track_links.related_entity_id, '') =
+                                            COALESCE(links.related_entity_id, '')
                                         AND COALESCE(tracks.album_id, '') != ''
                                     GROUP BY tracks.album_id
                                     ORDER BY COUNT(*) DESC, tracks.album_id
@@ -1050,18 +1058,18 @@ class LibraryQueries:
                                 ),
                                 links.file_album_id
                             ) AS album_id,
-                            NULLIF(TRIM(links.release_mbid), '') AS release_mbid,
-                            NULLIF(TRIM(links.release_group_mbid), '') AS release_group_mbid
-                        FROM album_musicbrainz_links AS links
-                        WHERE
-                            COALESCE(TRIM(links.release_mbid), '') != ''
-                            OR COALESCE(TRIM(links.release_group_mbid), '') != ''
+                            NULLIF(TRIM(links.entity_id), '') AS entity_id
+                        FROM album_metadata_links AS links
+                        WHERE COALESCE(TRIM(links.entity_id), '') != ''
                     )
                     SELECT
                         resolved_links.file_album_id,
                         resolved_links.album_id,
-                        resolved_links.release_mbid,
-                        resolved_links.release_group_mbid,
+                        resolved_links.provider,
+                        resolved_links.entity_type,
+                        resolved_links.entity_id,
+                        resolved_links.related_entity_type,
+                        resolved_links.related_entity_id,
                         albums.album,
                         albums.year
                     FROM resolved_links
@@ -1089,14 +1097,17 @@ class LibraryQueries:
                     else ""
                 ),
                 year=int(row["year"]) if row["year"] is not None else None,
-                release_mbid=(
-                    str(row["release_mbid"])
-                    if row["release_mbid"] is not None
+                provider=str(row["provider"]),
+                entity_type=str(row["entity_type"]),
+                entity_id=str(row["entity_id"]),
+                related_entity_type=(
+                    str(row["related_entity_type"])
+                    if row["related_entity_type"] is not None
                     else None
                 ),
-                release_group_mbid=(
-                    str(row["release_group_mbid"])
-                    if row["release_group_mbid"] is not None
+                related_entity_id=(
+                    str(row["related_entity_id"])
+                    if row["related_entity_id"] is not None
                     else None
                 ),
                 is_current_album=row["album"] is not None,
@@ -1108,14 +1119,18 @@ class LibraryQueries:
             sorted(
                 overrides,
                 key=lambda item: (
-                    item.release_group_mbid is None,
-                    item.release_group_mbid or "",
-                    item.release_mbid is None,
-                    item.release_mbid or "",
+                    item.provider,
+                    item.related_entity_id is None,
+                    item.related_entity_id or "",
+                    item.entity_type,
+                    item.entity_id,
                     item.album_id.casefold(),
                 ),
             )
         )
+
+    def album_musicbrainz_overrides(self) -> tuple[AlbumMusicBrainzOverride, ...]:
+        return self.album_metadata_overrides()
 
     def cache_stats(self) -> tuple[CacheStat, ...]:
         with connect_database(self.database, create=False) as connection:

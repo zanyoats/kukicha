@@ -327,14 +327,36 @@ class AlbumArtistSplitMapping:
 
 
 @dataclass(frozen=True, slots=True)
-class AlbumMusicBrainzOverride:
+class AlbumMetadataOverride:
     album_id: str
     album: str
     artist: str
     year: int | None
-    release_mbid: str | None = None
-    release_group_mbid: str | None = None
+    provider: str
+    entity_type: str
+    entity_id: str
+    related_entity_type: str | None = None
+    related_entity_id: str | None = None
     is_current_album: bool = False
+
+    @property
+    def release_mbid(self) -> str | None:
+        if self.provider != "musicbrainz" or self.entity_type != "release":
+            return None
+        return self.entity_id
+
+    @property
+    def release_group_mbid(self) -> str | None:
+        if self.provider != "musicbrainz":
+            return None
+        if self.entity_type == "release-group":
+            return self.entity_id
+        if self.related_entity_type == "release-group":
+            return self.related_entity_id
+        return None
+
+
+AlbumMusicBrainzOverride = AlbumMetadataOverride
 
 
 @dataclass(frozen=True, slots=True)

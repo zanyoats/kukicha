@@ -882,7 +882,7 @@ function emptyQueueState() {
 
 function syncAlbumMusicBrainzFormValues() {
   view.querySelectorAll(
-    "[data-musicbrainz-url-input], [data-musicbrainz-release-mbid-input], [data-musicbrainz-release-group-mbid-input]"
+    "[data-metadata-url-input], [data-musicbrainz-url-input], [data-musicbrainz-release-mbid-input], [data-musicbrainz-release-group-mbid-input]"
   ).forEach((input) => {
     if (!(input instanceof HTMLInputElement)) {
       return;
@@ -903,14 +903,20 @@ function syncAlbumEditAlbumLevelFields(scope = view) {
     if (!(form instanceof HTMLFormElement)) {
       return;
     }
-    const groupCount = form.querySelectorAll("[data-musicbrainz-group]").length;
+    let groupCount = form.querySelectorAll("[data-metadata-group]").length;
+    if (!groupCount) {
+      groupCount = form.querySelectorAll("[data-musicbrainz-group]").length;
+    }
     if (groupCount > 1) {
       return;
     }
-    const musicBrainzUrlInput = form.querySelector("[data-musicbrainz-url-input]");
-    const hasMusicBrainzUrl = (
-      musicBrainzUrlInput instanceof HTMLInputElement
-      && musicBrainzUrlInput.value.trim() !== ""
+    const metadataUrlInput = (
+      form.querySelector("[data-metadata-url-input]")
+      || form.querySelector("[data-musicbrainz-url-input]")
+    );
+    const hasMetadataUrl = (
+      metadataUrlInput instanceof HTMLInputElement
+      && metadataUrlInput.value.trim() !== ""
     );
     [
       form.querySelector("[data-album-input]"),
@@ -918,12 +924,15 @@ function syncAlbumEditAlbumLevelFields(scope = view) {
       form.querySelector("[data-album-genre-input]")
     ].forEach((input) => {
       if (input instanceof HTMLInputElement) {
-        input.disabled = hasMusicBrainzUrl;
+        input.disabled = hasMetadataUrl;
       }
     });
-    const note = form.querySelector("[data-album-level-musicbrainz-note]");
+    const note = (
+      form.querySelector("[data-album-level-metadata-note]")
+      || form.querySelector("[data-album-level-musicbrainz-note]")
+    );
     if (note instanceof HTMLElement) {
-      note.hidden = !hasMusicBrainzUrl;
+      note.hidden = !hasMetadataUrl;
     }
   });
 }
@@ -1722,7 +1731,7 @@ document.addEventListener("click", (event) => {
     void resetListeningData(resetListeningDataButton);
     return;
   }
-  const deleteMusicBrainzOverrideButton = event.target.closest("[data-delete-musicbrainz-override]");
+  const deleteMusicBrainzOverrideButton = event.target.closest("[data-delete-metadata-override], [data-delete-musicbrainz-override]");
   if (deleteMusicBrainzOverrideButton) {
     event.preventDefault();
     void deleteMusicBrainzOverride(deleteMusicBrainzOverrideButton);
@@ -1938,7 +1947,10 @@ document.addEventListener("input", (event) => {
   }
   if (
     event.target instanceof HTMLInputElement
-    && event.target.hasAttribute("data-musicbrainz-url-input")
+    && (
+      event.target.hasAttribute("data-metadata-url-input")
+      || event.target.hasAttribute("data-musicbrainz-url-input")
+    )
   ) {
     const albumEditForm = event.target.closest("form[data-album-edit-form]");
     if (albumEditForm) {
@@ -3302,22 +3314,31 @@ function albumEditTagPayload(form) {
 }
 
 function albumEditMusicBrainzPayload(form) {
-  const groupElements = Array.from(form.querySelectorAll("[data-musicbrainz-group]"));
+  let groupElements = Array.from(form.querySelectorAll("[data-metadata-group]"));
+  if (!groupElements.length) {
+    groupElements = Array.from(form.querySelectorAll("[data-musicbrainz-group]"));
+  }
   const fieldScopes = groupElements.length ? groupElements : [form];
   const requestGroups = [];
   let hasInvalidGroupTracks = false;
 
   fieldScopes.forEach((scope) => {
-    const musicBrainzUrlInput = scope.querySelector("[data-musicbrainz-url-input]");
+    const metadataUrlInput = (
+      scope.querySelector("[data-metadata-url-input]")
+      || scope.querySelector("[data-musicbrainz-url-input]")
+    );
     const releaseMbidInput = scope.querySelector("[data-musicbrainz-release-mbid-input]");
     const releaseGroupMbidInput = scope.querySelector("[data-musicbrainz-release-group-mbid-input]");
-    if (!(musicBrainzUrlInput instanceof HTMLInputElement)
+    if (!(metadataUrlInput instanceof HTMLInputElement)
       && !(releaseMbidInput instanceof HTMLInputElement)
       && !(releaseGroupMbidInput instanceof HTMLInputElement)) {
       return;
     }
 
-    const trackIdInputs = Array.from(scope.querySelectorAll("[data-musicbrainz-track-id]"));
+    let trackIdInputs = Array.from(scope.querySelectorAll("[data-metadata-track-id]"));
+    if (!trackIdInputs.length) {
+      trackIdInputs = Array.from(scope.querySelectorAll("[data-musicbrainz-track-id]"));
+    }
     const trackIds = trackIdInputs.map((input) => (
       input instanceof HTMLInputElement ? Number(input.value || "") : NaN
     )).filter((trackId) => Number.isInteger(trackId) && trackId > 0);
@@ -3325,14 +3346,14 @@ function albumEditMusicBrainzPayload(form) {
       hasInvalidGroupTracks = true;
     }
 
-    if (musicBrainzUrlInput instanceof HTMLInputElement) {
-      const musicBrainzUrl = musicBrainzUrlInput.value.trim();
-      const serverValue = (musicBrainzUrlInput.getAttribute("data-server-value") || "").trim();
-      if (!musicBrainzUrl && !serverValue) {
+    if (metadataUrlInput instanceof HTMLInputElement) {
+      const metadataUrl = metadataUrlInput.value.trim();
+      const serverValue = (metadataUrlInput.getAttribute("data-server-value") || "").trim();
+      if (!metadataUrl && !serverValue) {
         return;
       }
       requestGroups.push({
-        musicbrainz_url: musicBrainzUrl,
+        metadata_url: metadataUrl,
         track_ids: trackIds
       });
       return;
@@ -3389,9 +3410,9 @@ async function submitAlbumEditForm(form) {
     setAlbumEditStatus(form, tagRequest.error, true);
     return;
   }
-  const musicBrainzRequest = albumEditMusicBrainzPayload(form);
-  if (musicBrainzRequest.error) {
-    setAlbumEditStatus(form, musicBrainzRequest.error, true);
+  const metadataRequest = albumEditMusicBrainzPayload(form);
+  if (metadataRequest.error) {
+    setAlbumEditStatus(form, metadataRequest.error, true);
     return;
   }
 
@@ -3399,10 +3420,10 @@ async function submitAlbumEditForm(form) {
   if (tagRequest.payload) {
     requestBody.tags = tagRequest.payload;
   }
-  if (musicBrainzRequest.payload) {
-    requestBody.musicbrainz = musicBrainzRequest.payload;
+  if (metadataRequest.payload) {
+    requestBody.metadata = metadataRequest.payload;
   }
-  if (!requestBody.tags && !requestBody.musicbrainz) {
+  if (!requestBody.tags && !requestBody.metadata) {
     setAlbumEditStatus(form, "No album edit fields are available.", true);
     return;
   }
@@ -3535,7 +3556,7 @@ async function deleteMusicBrainzOverride(button) {
   if (!(button instanceof HTMLButtonElement) || button.disabled) {
     return;
   }
-  const row = button.closest("[data-musicbrainz-override-row]");
+  const row = button.closest("[data-metadata-override-row], [data-musicbrainz-override-row]");
   const albumId = button.dataset.albumId || (row instanceof HTMLElement ? row.dataset.albumId : "");
   const deleteUrl = button.dataset.deleteUrl;
   if (!albumId || !deleteUrl) {
@@ -3543,8 +3564,8 @@ async function deleteMusicBrainzOverride(button) {
   }
 
   const confirmed = await confirmAction({
-    title: "Delete MusicBrainz Override",
-    message: `Delete MusicBrainz override for ${albumId}?`,
+    title: "Delete Metadata Override",
+    message: `Delete metadata override for ${albumId}?`,
     confirmLabel: "Delete",
     returnFocus: button,
   });
@@ -3560,17 +3581,17 @@ async function deleteMusicBrainzOverride(button) {
     if (!response.ok) {
       const message = payload && typeof payload.error === "string" && payload.error.trim()
         ? payload.error
-        : "Unable to delete MusicBrainz override.";
+        : "Unable to delete metadata override.";
       showToast(message, {error: true});
       return;
     }
     const message = payload && typeof payload.message === "string" && payload.message.trim()
       ? payload.message
-      : "MusicBrainz override deleted.";
+      : "Metadata override deleted.";
     showToast(message);
     await navigate(window.location.href, {replace: true, scroll: false});
   } catch {
-    showToast("Unable to delete MusicBrainz override.", {error: true});
+    showToast("Unable to delete metadata override.", {error: true});
   } finally {
     if (button.isConnected) {
       button.disabled = false;

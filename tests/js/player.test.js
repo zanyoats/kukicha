@@ -1496,7 +1496,7 @@ test("player control links ignore current album page params", () => {
   );
 });
 
-test("combined album edit submit includes prefilled and cleared MusicBrainz URLs", async () => {
+test("combined album edit submit includes prefilled and cleared metadata URLs", async () => {
   const harness = createHarness({
     track_ids: [],
     position: 0,
@@ -1621,14 +1621,14 @@ test("combined album edit submit includes prefilled and cleared MusicBrainz URLs
         },
       ],
     },
-    musicbrainz: {
+    metadata: {
       groups: [
         {
-          musicbrainz_url: "https://musicbrainz.org/release/11111111-1111-1111-1111-111111111111",
+          metadata_url: "https://musicbrainz.org/release/11111111-1111-1111-1111-111111111111",
           track_ids: [1],
         },
         {
-          musicbrainz_url: "",
+          metadata_url: "",
           track_ids: [2],
         },
       ],
@@ -1639,7 +1639,7 @@ test("combined album edit submit includes prefilled and cleared MusicBrainz URLs
   assert.equal(bottomButton.getAttribute("aria-busy"), null);
 });
 
-test("album edit submit can send MusicBrainz-only groups", async () => {
+test("album edit submit can send metadata-only groups", async () => {
   const harness = createHarness({
     track_ids: [],
     position: 0,
@@ -1696,14 +1696,14 @@ test("album edit submit can send MusicBrainz-only groups", async () => {
   assert.equal(harness.fetchCalls.length, 1);
   assert.equal(harness.fetchCalls[0].url, "/api/albums/old-artist::album/edit");
   assert.deepEqual(harness.fetchCalls[0].body, {
-    musicbrainz: {
+    metadata: {
       groups: [
         {
-          musicbrainz_url: "https://musicbrainz.org/release/11111111-1111-1111-1111-111111111111",
+          metadata_url: "https://musicbrainz.org/release/11111111-1111-1111-1111-111111111111",
           track_ids: [1],
         },
         {
-          musicbrainz_url: "",
+          metadata_url: "",
           track_ids: [2],
         },
       ],
@@ -1992,7 +1992,7 @@ test("playlist cover upload sends selected image after confirmation", async () =
   assert.equal(button.getAttribute("aria-busy"), null);
 });
 
-test("album edit MusicBrainz URL disables only album-level tag fields", () => {
+test("album edit metadata URL disables only album-level tag fields", () => {
   const harness = createHarness({
     track_ids: [],
     position: 0,

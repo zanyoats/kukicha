@@ -624,7 +624,7 @@ def save_album_artist_split_mapping(
     }
 
 
-def delete_album_musicbrainz_override(
+def delete_album_metadata_override(
     runtime: PlayerRuntime,
     album_id: str,
 ) -> dict[str, object]:
@@ -639,31 +639,35 @@ def delete_album_musicbrainz_override(
         override = connection.execute(
             """
             SELECT 1
-            FROM album_musicbrainz_links
+            FROM album_metadata_links
             WHERE file_album_id = ?
-                AND (
-                    COALESCE(TRIM(release_mbid), '') != ''
-                    OR COALESCE(TRIM(release_group_mbid), '') != ''
-                )
+                AND COALESCE(TRIM(entity_id), '') != ''
             """,
             (file_album_id,),
         ).fetchone()
         if override is None:
-            raise PlayerNotFoundError(f"MusicBrainz override does not exist: {album_id}")
+            raise PlayerNotFoundError(f"metadata override does not exist: {album_id}")
 
         connection.execute(
-            "DELETE FROM album_musicbrainz_links WHERE file_album_id = ?",
+            "DELETE FROM album_metadata_links WHERE file_album_id = ?",
             (file_album_id,),
         )
         connection.execute(
-            "DELETE FROM album_musicbrainz_track_links WHERE file_album_id = ?",
+            "DELETE FROM album_metadata_track_links WHERE file_album_id = ?",
             (file_album_id,),
         )
 
     return {
         "album_id": album_id,
-        "message": f"Deleted MusicBrainz override for {album_id}.",
+        "message": f"Deleted metadata override for {album_id}.",
     }
+
+
+def delete_album_musicbrainz_override(
+    runtime: PlayerRuntime,
+    album_id: str,
+) -> dict[str, object]:
+    return delete_album_metadata_override(runtime, album_id)
 
 
 def clear_cache_tables(
@@ -929,27 +933,28 @@ def start_album_edit(
         run_edit_album_musicbrainz_job,
     )
 
-    musicbrainz_only_payload = None
+    metadata_only_payload = None
     if "tags" not in payload:
-        raw_musicbrainz = payload.get("musicbrainz")
-        if isinstance(raw_musicbrainz, dict):
-            musicbrainz_only_payload = raw_musicbrainz
+        raw_metadata = payload.get("metadata", payload.get("musicbrainz"))
+        if isinstance(raw_metadata, dict):
+            metadata_only_payload = raw_metadata
         elif any(
             key in payload
             for key in (
                 "groups",
+                "metadata_url",
                 "musicbrainz_url",
                 "musicbrainz_release_mbid",
                 "musicbrainz_release_group_mbid",
             )
         ):
-            musicbrainz_only_payload = payload
+            metadata_only_payload = payload
 
-    if musicbrainz_only_payload is not None:
+    if metadata_only_payload is not None:
         job = prepare_album_musicbrainz_edit_job(
             runtime.database,
             album_id,
-            musicbrainz_only_payload,
+            metadata_only_payload,
         )
         queued_job = runtime.enqueue_job(
             kind="edit_album_musicbrainz",
