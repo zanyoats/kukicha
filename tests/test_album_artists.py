@@ -58,3 +58,11 @@ class AlbumArtistSplitMappingTest(unittest.TestCase):
             album_artist_has_split_pattern(value, DEFAULT_ALBUM_ARTIST_SPLIT_PATTERNS)
         )
         self.assertEqual(default_album_artist_mapping(value), (value,))
+
+    def test_equals_is_detected_but_not_split_by_default(self) -> None:
+        value = "Brian Eno = Jon Hopkins"
+
+        self.assertTrue(
+            album_artist_has_split_pattern(value, DEFAULT_ALBUM_ARTIST_SPLIT_PATTERNS)
+        )
+        self.assertEqual(default_album_artist_mapping(value), (value,))
