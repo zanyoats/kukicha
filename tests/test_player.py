@@ -119,6 +119,7 @@ from kukicha.use_case import (
     start_album_cover_upload,
     start_album_delete,
     start_album_edit,
+    start_bulk_album_metadata_edit,
     update_playback as update_playback_command,
     update_player_job,
     update_queue as update_queue_command,
@@ -130,6 +131,8 @@ from kukicha.player_media import audio_mime_type, mpeg4_audio_codec_for_path
 from kukicha.player_navigation import (
     album_artist_links,
     album_artist_url,
+    album_bulk_metadata_edit_url,
+    album_bulk_star_action_url,
     album_genre_links,
     album_index_url,
     album_meta_query,
@@ -163,6 +166,11 @@ from kukicha.player_views import (
     album_musicbrainz_edit_sections,
     base_player_context,
     build_album_edit_context,
+    bulk_metadata_edit_rows_for_album,
+)
+from kukicha.use_case.metadata import (
+    store_album_metadata_link,
+    store_album_metadata_track_link,
 )
 
 from kukicha.player_runtime import (
@@ -3152,6 +3160,42 @@ class PlayerGenreFilterQueryParamsTest(unittest.TestCase):
 
         self.assertEqual(url, "/albums?genre[0][p]=Electronic")
 
+    def test_album_bulk_metadata_edit_url_keeps_filters_and_drops_paging(self) -> None:
+        url = album_bulk_metadata_edit_url(
+            AlbumListQuery(
+                artists=("Brian Eno",),
+                search="ambient",
+                genre_filters=(GenreStyleFilter(genre="Electronic"),),
+                sort=ALBUM_LIST_SORT_RECENT,
+                size=50,
+                offset=200,
+            )
+        )
+
+        self.assertEqual(
+            url,
+            "/albums/metadata-urls/edit?artist=Brian+Eno&search=ambient"
+            "&genre[0][p]=Electronic&sort=recent",
+        )
+
+    def test_album_bulk_star_action_url_keeps_filters_and_drops_paging(self) -> None:
+        url = album_bulk_star_action_url(
+            AlbumListQuery(
+                artists=("Brian Eno",),
+                search="ambient",
+                genre_filters=(GenreStyleFilter(genre="Electronic"),),
+                sort=ALBUM_LIST_SORT_RECENT,
+                size=50,
+                offset=200,
+            )
+        )
+
+        self.assertEqual(
+            url,
+            "/api/albums/star?artist=Brian+Eno&search=ambient"
+            "&genre[0][p]=Electronic&sort=recent",
+        )
+
     def test_parses_sort_param_and_defaults_to_artist(self) -> None:
         default_query = album_list_query_from_params(parse_qs(""))
         artist_query = album_list_query_from_params(parse_qs("sort=artist"))
@@ -3422,6 +3466,36 @@ class PlayerAlbumDetailLinksTest(unittest.TestCase):
         )
         self.assertNotIn("artist=Brian+Eno&amp;artist=Robert+Fripp", html)
 
+    def test_album_index_template_renders_bulk_metadata_action(self) -> None:
+        template = build_template_environment().get_template("player/index.html")
+
+        html = template.render(
+            page_key="library",
+            albums=(),
+            query=AlbumListQuery(search="ambient"),
+            show_filter_form=True,
+            show_filter_controls=False,
+            show_sort_controls=False,
+            show_pagination_controls=False,
+            empty_message="No albums matched these filters.",
+            pagination_label="Album pages",
+            search_placeholder="Search albums and artists",
+            clear_url="/albums",
+            filter_action_url="/albums",
+            default_size=200,
+            sort_options=((ALBUM_LIST_SORT_ARTIST, "Artist"),),
+            bulk_metadata_edit_page_url="/albums/metadata-urls/edit?search=ambient",
+            bulk_album_star_action_url="/api/albums/star?search=ambient",
+        )
+
+        self.assertIn("vertical-ellipsis-icon", html)
+        self.assertIn('href="/albums/metadata-urls/edit?search=ambient"', html)
+        self.assertIn("data-bulk-metadata-edit-link data-nav>Edit Metadata URLs</a>", html)
+        self.assertIn('data-bulk-album-star data-starred="true"', html)
+        self.assertIn('data-bulk-album-star data-starred="false"', html)
+        self.assertIn('data-action-url="/api/albums/star?search=ambient"', html)
+        self.assertIn(">Star all filtered</button>", html)
+        self.assertIn(">Unstar all filtered</button>", html)
 
     def test_album_template_renders_individual_album_artist_labels_with_commas(self) -> None:
         album = AlbumDetails(
@@ -4432,6 +4506,135 @@ class PlayerWebAdapterTest(unittest.TestCase):
         self.assertIn('aria-pressed="true"', starred_grid_html)
         self.assertIn('class="album-detail-title-line"', starred_detail_html)
         self.assertIn('class="album-star-toggle starred"', starred_detail_html)
+
+    def test_filtered_album_star_api_updates_matches_without_retimestamping(self) -> None:
+        old_starred_at = "2026-05-01T00:00:00Z"
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            database = temp_path / "kukicha.sqlite"
+            save_library(
+                MusicLibrary(
+                    roots=[],
+                    tracks=[
+                        TrackRecord(
+                            path="/music/Brian Eno/Ambient One/01.flac",
+                            file_type="flac",
+                            artist="Brian Eno",
+                            album_artist="Brian Eno",
+                            album="Ambient One",
+                            title="Track",
+                        ),
+                        TrackRecord(
+                            path="/music/Brian Eno/Already Starred/01.flac",
+                            file_type="flac",
+                            artist="Brian Eno",
+                            album_artist="Brian Eno",
+                            album="Already Starred",
+                            title="Track",
+                        ),
+                        TrackRecord(
+                            path="/music/Other Artist/Outside/01.flac",
+                            file_type="flac",
+                            artist="Other Artist",
+                            album_artist="Other Artist",
+                            album="Outside",
+                            title="Track",
+                        ),
+                    ],
+                    supported_extensions=[".flac"],
+                    generated_at="2026-05-01T00:00:00+00:00",
+                ),
+                database,
+            )
+            with connect_database(database, create=False) as connection:
+                album_ids = {
+                    str(row["album"]): str(row["album_id"])
+                    for row in connection.execute(
+                        "SELECT album_id, album FROM library_albums"
+                    )
+                }
+                already_starred_id = album_ids["Already Starred"]
+                connection.execute(
+                    """
+                    INSERT INTO album_user_state (album_id, starred_at)
+                    VALUES (?, ?)
+                    """,
+                    (already_starred_id, old_starred_at),
+                )
+                connection.execute(
+                    """
+                    UPDATE library_albums
+                    SET starred_at = ?
+                    WHERE album_id = ?
+                    """,
+                    (old_starred_at, already_starred_id),
+                )
+
+            runtime = self.make_runtime(database)
+            with patch("kukicha.player_web_adapter.PlayerRuntime", return_value=runtime):
+                app = create_player_app(self.make_options(temp_path))
+                client = app.test_client()
+                star_response = client.post(
+                    "/api/albums/star?artist=Brian+Eno",
+                    json={"starred": True},
+                )
+                with connect_database(database, create=False) as connection:
+                    starred_rows = {
+                        str(row["album"]): row["starred_at"]
+                        for row in connection.execute(
+                            """
+                            SELECT album, starred_at
+                            FROM library_albums
+                            ORDER BY album
+                            """
+                        )
+                    }
+                    already_state = connection.execute(
+                        """
+                        SELECT starred_at
+                        FROM album_user_state
+                        WHERE album_id = ?
+                        """,
+                        (already_starred_id,),
+                    ).fetchone()
+                unstar_response = client.post(
+                    "/api/albums/star?artist=Brian+Eno",
+                    json={"starred": False},
+                )
+                with connect_database(database, create=False) as connection:
+                    unstarred_rows = {
+                        str(row["album"]): row["starred_at"]
+                        for row in connection.execute(
+                            """
+                            SELECT album, starred_at
+                            FROM library_albums
+                            ORDER BY album
+                            """
+                        )
+                    }
+                    remaining_state_count = int(
+                        connection.execute(
+                            "SELECT COUNT(*) AS count FROM album_user_state"
+                        ).fetchone()["count"]
+                    )
+
+        self.assertEqual(star_response.status_code, 200)
+        self.assertEqual(star_response.json["matched_count"], 2)
+        self.assertEqual(star_response.json["changed_count"], 1)
+        self.assertEqual(star_response.json["message"], "Starred 1 filtered album.")
+        self.assertIsNotNone(starred_rows["Ambient One"])
+        self.assertEqual(starred_rows["Already Starred"], old_starred_at)
+        self.assertIsNone(starred_rows["Outside"])
+        self.assertIsNotNone(already_state)
+        self.assertEqual(already_state["starred_at"], old_starred_at)
+        self.assertEqual(unstar_response.status_code, 200)
+        self.assertEqual(unstar_response.json["matched_count"], 2)
+        self.assertEqual(unstar_response.json["changed_count"], 2)
+        self.assertEqual(unstar_response.json["message"], "Unstarred 2 filtered albums.")
+        self.assertIsNone(unstarred_rows["Ambient One"])
+        self.assertIsNone(unstarred_rows["Already Starred"])
+        self.assertIsNone(unstarred_rows["Outside"])
+        self.assertEqual(remaining_state_count, 0)
 
     def test_home_empty_state_links_to_library_pages_and_query_redirects_to_albums(self) -> None:
         with TemporaryDirectory() as tempdir:
@@ -5796,6 +5999,56 @@ class PlayerWebAdapterTest(unittest.TestCase):
 
         self.assertIsNotNone(app)
         preload.assert_called_once()
+
+    def test_bulk_metadata_edit_route_queues_bulk_job(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            runtime = self.make_runtime(temp_path / "kukicha.sqlite")
+            with patch("kukicha.player_web_adapter.PlayerRuntime", return_value=runtime):
+                app = create_player_app(self.make_options(temp_path))
+
+            with patch(
+                "kukicha.player_web_adapter.start_bulk_album_metadata_edit",
+                return_value={
+                    "message": "Bulk metadata URL edit queued.",
+                    "job": {"job_id": 22},
+                },
+            ) as start_bulk:
+                response = app.test_client().post(
+                    "/api/albums/metadata-urls/edit",
+                    json={
+                        "rows": [
+                            {
+                                "album_id": "old-artist::album",
+                                "metadata_url": "",
+                                "track_ids": [1],
+                            }
+                        ]
+                    },
+                )
+
+            self.assertEqual(response.status_code, 202)
+            self.assertEqual(
+                response.get_json(),
+                {
+                    "message": "Bulk metadata URL edit queued.",
+                    "job": {"job_id": 22},
+                },
+            )
+            start_bulk.assert_called_once()
+            self.assertIs(start_bulk.call_args.args[0], runtime)
+            self.assertEqual(
+                start_bulk.call_args.args[1],
+                {
+                    "rows": [
+                        {
+                            "album_id": "old-artist::album",
+                            "metadata_url": "",
+                            "track_ids": [1],
+                        }
+                    ]
+                },
+            )
 
     def test_start_player_sync_queues_config_root_sync(self) -> None:
         with TemporaryDirectory() as tempdir:
@@ -11661,6 +11914,90 @@ class PlayerAlbumTagEditTest(unittest.TestCase):
             finally:
                 connection.close()
 
+    def test_bulk_metadata_edit_rows_prefill_existing_album_url(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            database = temp_path / "kukicha.sqlite"
+            paths = (
+                temp_path / "Album" / "01.mp3",
+                temp_path / "Album" / "02.mp3",
+            )
+            self.seed_album(database, paths)
+            connection = connect_database(database, create=False)
+            try:
+                store_album_metadata_link(
+                    connection,
+                    "old-artist::album",
+                    provider="musicbrainz",
+                    entity_type="release",
+                    entity_id="11111111-1111-1111-1111-111111111111",
+                )
+                connection.commit()
+            finally:
+                connection.close()
+
+            api = LibraryQueries(database)
+            album = api.get_album("old-artist::album")
+            rows = bulk_metadata_edit_rows_for_album(
+                SimpleNamespace(database=database),
+                album,
+                AlbumListQuery(),
+                api.library_roots(),
+            )
+
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(
+                rows[0].metadata_url,
+                "https://musicbrainz.org/release/11111111-1111-1111-1111-111111111111",
+            )
+            self.assertFalse(rows[0].metadata_mixed)
+            self.assertEqual(rows[0].track_ids, (1, 2))
+            self.assertEqual(rows[0].track_count_text, "2 tracks")
+
+    def test_bulk_metadata_edit_rows_show_mixed_track_urls_as_blank(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            database = temp_path / "kukicha.sqlite"
+            paths = (
+                temp_path / "Album" / "01.mp3",
+                temp_path / "Album" / "02.mp3",
+            )
+            self.seed_album(database, paths)
+            connection = connect_database(database, create=False)
+            try:
+                store_album_metadata_track_link(
+                    connection,
+                    str(paths[0]),
+                    "old-artist::album",
+                    provider="musicbrainz",
+                    entity_type="release",
+                    entity_id="11111111-1111-1111-1111-111111111111",
+                )
+                store_album_metadata_track_link(
+                    connection,
+                    str(paths[1]),
+                    "old-artist::album",
+                    provider="discogs",
+                    entity_type="master",
+                    entity_id="12345",
+                )
+                connection.commit()
+            finally:
+                connection.close()
+
+            api = LibraryQueries(database)
+            album = api.get_album("old-artist::album")
+            rows = bulk_metadata_edit_rows_for_album(
+                SimpleNamespace(database=database),
+                album,
+                AlbumListQuery(),
+                api.library_roots(),
+            )
+
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(rows[0].metadata_url, "")
+            self.assertTrue(rows[0].metadata_mixed)
+
     def test_start_album_edit_accepts_tags_only_payload(self) -> None:
         with TemporaryDirectory() as tempdir:
             temp_path = Path(tempdir)
@@ -11865,6 +12202,57 @@ class PlayerAlbumTagEditTest(unittest.TestCase):
             self.assertEqual(enqueue_kwargs["context"]["tracks_updated"], 2)
             self.assertTrue(callable(enqueue_kwargs["runner"]))
 
+    def test_start_bulk_album_metadata_edit_queues_single_background_job(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            database = Path(tempdir) / "kukicha.sqlite"
+            runtime = Mock()
+            runtime.database = database
+            runtime.enqueue_job.return_value = PlayerJobRecord(
+                job_id=14,
+                created_at="2026-04-21T10:00:00Z",
+                updated_at="2026-04-21T10:00:00Z",
+                started_at=None,
+                finished_at=None,
+                cancel_requested_at=None,
+                kind="bulk_album_metadata_urls",
+                status="queued",
+                message="Bulk metadata URL edit queued.",
+                reason="",
+                context={
+                    "rows_changed": 2,
+                },
+            )
+
+            result = start_bulk_album_metadata_edit(
+                runtime,
+                {
+                    "rows": [
+                        {
+                            "album_id": "old-artist::album",
+                            "metadata_url": "https://www.discogs.com/release/123",
+                            "track_ids": [1, 2],
+                        },
+                        {
+                            "album_id": "other-artist::album",
+                            "metadata_url": "",
+                            "loaded_metadata_url": "https://www.discogs.com/master/456",
+                            "track_ids": [3],
+                        },
+                    ],
+                },
+            )
+
+            self.assertEqual(result["message"], "Bulk metadata URL edit queued.")
+            self.assertEqual(result["job"]["job_id"], 14)
+            runtime.enqueue_job.assert_called_once()
+            enqueue_kwargs = runtime.enqueue_job.call_args.kwargs
+            self.assertEqual(enqueue_kwargs["kind"], "bulk_album_metadata_urls")
+            self.assertEqual(enqueue_kwargs["queued_message"], "Bulk metadata URL edit queued.")
+            self.assertEqual(enqueue_kwargs["running_message"], "Bulk metadata URL edit running.")
+            self.assertEqual(enqueue_kwargs["failed_message"], "Bulk metadata URL edit failed.")
+            self.assertEqual(enqueue_kwargs["context"]["rows_changed"], 2)
+            self.assertTrue(callable(enqueue_kwargs["runner"]))
+
     def test_run_edit_album_job_writes_tags_and_publishes_rescan_recommendation(self) -> None:
         from kukicha.use_case.commands.album_edits import run_edit_album_job
 
@@ -11937,6 +12325,80 @@ class PlayerAlbumTagEditTest(unittest.TestCase):
             )
             self.assertEqual(result.context["tracks_updated"], 2)
             self.assertTrue(result.context["rescan_recommended"])
+
+    def test_run_bulk_album_metadata_edit_job_isolates_row_failures(self) -> None:
+        from kukicha.use_case.commands.album_edits import (
+            BulkAlbumMetadataEditJob,
+            BulkAlbumMetadataEditRowRequest,
+            run_bulk_album_metadata_edit_job,
+        )
+
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            database = temp_path / "kukicha.sqlite"
+            paths = (
+                temp_path / "Album" / "01.mp3",
+                temp_path / "Album" / "02.mp3",
+            )
+            self.seed_album(database, paths)
+            connection = connect_database(database, create=False)
+            try:
+                store_album_metadata_track_link(
+                    connection,
+                    str(paths[1]),
+                    "old-artist::album",
+                    provider="discogs",
+                    entity_type="master",
+                    entity_id="12345",
+                )
+                connection.commit()
+            finally:
+                connection.close()
+
+            runtime = SimpleNamespace(
+                database=database,
+                album_artist_split_patterns=DEFAULT_ALBUM_ARTIST_SPLIT_PATTERNS,
+                prefer_musicbrainz_english_aliases=True,
+            )
+            job = BulkAlbumMetadataEditJob(
+                rows=(
+                    BulkAlbumMetadataEditRowRequest(
+                        album_id="old-artist::album",
+                        track_ids=(1,),
+                        metadata_url="https://example.com/not-supported",
+                        album_label="Old Artist - Album",
+                        group_label="Track 1",
+                    ),
+                    BulkAlbumMetadataEditRowRequest(
+                        album_id="old-artist::album",
+                        track_ids=(2,),
+                        metadata_url="",
+                        loaded_metadata_url="https://www.discogs.com/master/12345",
+                        album_label="Old Artist - Album",
+                        group_label="Track 2",
+                    ),
+                )
+            )
+
+            result = run_bulk_album_metadata_edit_job(
+                runtime,
+                job,
+                PlayerJobCancelToken(),
+            )
+
+            self.assertIn("0 updated, 1 cleared, 0 skipped, 1 failed", result.message)
+            self.assertEqual(result.context["rows_cleared"], 1)
+            self.assertEqual(result.context["rows_failed"], 1)
+            self.assertIn("Old Artist - Album (Track 1)", result.context["failed_rows"])
+            self.assertIn("Expected a MusicBrainz or Discogs URL.", result.context["failed_rows"])
+            connection = connect_database(database, create=False)
+            try:
+                remaining = connection.execute(
+                    "SELECT COUNT(*) AS count FROM album_metadata_track_links"
+                ).fetchone()
+                self.assertEqual(int(remaining["count"]), 0)
+            finally:
+                connection.close()
 
     def test_edit_library_album_edit_applies_musicbrainz_after_manual_tags(self) -> None:
         with TemporaryDirectory() as tempdir:

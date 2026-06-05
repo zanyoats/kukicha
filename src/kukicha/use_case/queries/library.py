@@ -111,6 +111,21 @@ class LibraryQueries:
                 return self._playlist_list_page(connection, query)
             return self._album_list_page(connection, query)
 
+    def list_album_summaries(
+        self,
+        query: AlbumListQuery,
+    ) -> tuple[AlbumSummary, ...]:
+        with connect_existing_database(self.database) as connection:
+            query = expanded_album_list_query(connection, query)
+            if query.is_playlist is True:
+                return tuple(
+                    sorted(
+                        self._playlist_list_items(connection, query),
+                        key=album_page_sort_key(query.sort),
+                    )
+                )
+            return self._album_list_items(connection, query)
+
     def _album_list_page(
         self,
         connection: Connection,
@@ -193,6 +208,81 @@ class LibraryQueries:
             rows,
             query=query,
         )
+
+    def _album_list_items(
+        self,
+        connection: Connection,
+        query: AlbumListQuery,
+    ) -> tuple[AlbumSummary, ...]:
+        where_sql, params = album_where_clause(query)
+        sort_columns = album_sort_columns(query)
+        order_sql = album_order_by_clause(sort_columns)
+        sort_select_sql = album_sort_select_sql(sort_columns)
+        play_stats_join_sql = album_play_stats_join_sql(query)
+
+        if query.root_positions:
+            root_placeholders = placeholders_for(query.root_positions)
+            rows = list(
+                connection.execute(
+                    f"""
+                    WITH selected_album_roots AS (
+                        SELECT
+                            album_id,
+                            SUM(track_count) AS track_count,
+                            MIN(art_track_id) AS art_track_id,
+                            COALESCE(MIN(NULLIF(genre_sort_key, '')), '') AS genre_sort_key
+                        FROM library_album_roots
+                        WHERE root_position IN ({root_placeholders})
+                        GROUP BY album_id
+                    )
+                    SELECT
+                        albums.album_id,
+                        albums.album,
+                        albums.year,
+                        selected_album_roots.track_count,
+                        albums.file_created_at,
+                        albums.added_at,
+                        albums.starred_at,
+                        selected_album_roots.art_track_id
+                        {sort_select_sql}
+                    FROM library_albums AS albums
+                    JOIN selected_album_roots
+                        ON selected_album_roots.album_id = albums.album_id
+                    {play_stats_join_sql}
+                    {where_sql}
+                    {order_sql}
+                    """,
+                    [*query.root_positions, *params],
+                )
+            )
+            return self._album_summaries_from_rows(
+                connection,
+                rows,
+                root_positions=query.root_positions,
+            )
+
+        rows = list(
+            connection.execute(
+                f"""
+                SELECT
+                    albums.album_id,
+                    albums.album,
+                    albums.year,
+                    albums.track_count,
+                    albums.file_created_at,
+                    albums.added_at,
+                    albums.starred_at,
+                    albums.art_track_id
+                    {sort_select_sql}
+                FROM library_albums AS albums
+                {play_stats_join_sql}
+                {where_sql}
+                {order_sql}
+                """,
+                params,
+            )
+        )
+        return self._album_summaries_from_rows(connection, rows)
 
     def _album_page_from_rows(
         self,

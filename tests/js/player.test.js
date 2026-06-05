@@ -871,6 +871,22 @@ function readonlyArtistFilter(document, artist) {
   return element;
 }
 
+function bulkMetadataEditLink(document, href = "/albums/metadata-urls/edit") {
+  const link = document.createElement("a");
+  link.href = href;
+  link.setAttribute("href", href);
+  link.dataset.bulkMetadataEditLink = "";
+  return link;
+}
+
+function bulkAlbumStarButton(document, actionUrl = "/api/albums/star") {
+  const button = document.createElement("button");
+  button.dataset.bulkAlbumStar = "";
+  button.dataset.actionUrl = actionUrl;
+  button.setAttribute("data-action-url", actionUrl);
+  return button;
+}
+
 function sourceForUrl(context, url) {
   return context.sources.find((source) => source.buffer && source.buffer.url === url);
 }
@@ -1064,6 +1080,70 @@ test("library filter form patch syncs readonly artist filter label", () => {
 
   currentFilter = currentForm.querySelector("[data-readonly-artist-filter]");
   assert.equal(currentFilter, null);
+});
+
+test("library filter form patch updates bulk action urls from current filters", () => {
+  const harness = createHarness({
+    track_ids: [],
+    position: 0,
+    loaded_track_id: null,
+    paused: true,
+    errored_track_ids: [],
+    unavailable_track_ids: [],
+  });
+  const document = harness.document;
+  const bulkLink = bulkMetadataEditLink(
+    document,
+    "/albums/metadata-urls/edit?search=breaks&offset=200&size=50"
+  );
+  const starButton = bulkAlbumStarButton(
+    document,
+    "/api/albums/star?search=breaks&offset=200&size=50"
+  );
+  const unstarButton = bulkAlbumStarButton(
+    document,
+    "/api/albums/star?search=breaks&offset=200&size=50"
+  );
+  const currentForm = filterForm(document, [
+    testInput(document, {type: "hidden", name: "size", value: "50"}),
+    testInput(document, {type: "hidden", name: "offset", value: "200"}),
+    testInput(document, {name: "search", value: "breaks"}),
+    testInput(document, {type: "radio", name: "sort", value: "artist", checked: true}),
+    testInput(document, {type: "radio", name: "sort", value: "recently_added"}),
+    searchControls(document, [starButton, unstarButton, bulkLink]),
+  ]);
+  const nextForm = filterForm(document, [
+    testInput(document, {type: "hidden", name: "size", value: "80"}),
+    testInput(document, {type: "hidden", name: "offset", value: "400"}),
+    testInput(document, {type: "hidden", name: "artist", value: "Amon Tobin"}),
+    testInput(document, {name: "search", value: "ambient"}),
+    testInput(document, {type: "radio", name: "sort", value: "artist"}),
+    testInput(document, {type: "radio", name: "sort", value: "recently_added", checked: true}),
+    searchControls(document),
+  ]);
+  const currentPage = document.createElement("div");
+  const nextPage = document.createElement("div");
+  currentPage.setQueryResult("form[data-filter-form]", currentForm);
+  nextPage.setQueryResult("form[data-filter-form]", nextForm);
+
+  harness.context.syncLibraryFilterForm(currentPage, nextPage);
+
+  const url = new URL(bulkLink.getAttribute("href"), "http://localhost");
+  const starUrl = new URL(starButton.dataset.actionUrl, "http://localhost");
+  const unstarUrl = new URL(unstarButton.dataset.actionUrl, "http://localhost");
+  assert.equal(url.pathname, "/albums/metadata-urls/edit");
+  assert.equal(url.searchParams.get("artist"), "Amon Tobin");
+  assert.equal(url.searchParams.get("search"), "ambient");
+  assert.equal(url.searchParams.get("sort"), "recently_added");
+  assert.equal(url.searchParams.has("offset"), false);
+  assert.equal(url.searchParams.has("size"), false);
+  assert.equal(starUrl.pathname, "/api/albums/star");
+  assert.equal(starUrl.searchParams.get("artist"), "Amon Tobin");
+  assert.equal(starUrl.searchParams.get("search"), "ambient");
+  assert.equal(starUrl.searchParams.get("sort"), "recently_added");
+  assert.equal(starUrl.searchParams.has("offset"), false);
+  assert.equal(starUrl.searchParams.has("size"), false);
+  assert.equal(unstarUrl.toString(), starUrl.toString());
 });
 
 test("album filter form urls add genre search and sort params to current params", () => {
@@ -1712,6 +1792,185 @@ test("album edit submit can send metadata-only groups", async () => {
   assert.equal(status.textContent, "Tag edit queued.");
   assert.equal(topButton.disabled, false);
   assert.equal(bottomButton.getAttribute("aria-busy"), null);
+});
+
+test("bulk metadata edit submits only changed rows and disables apply after queue", async () => {
+  const harness = createHarness({
+    track_ids: [],
+    position: 0,
+    loaded_track_id: null,
+    paused: true,
+    errored_track_ids: [],
+    unavailable_track_ids: [],
+  });
+
+  const form = harness.document.createElement("form");
+  form.action = "/api/albums/metadata-urls/edit";
+  form.setAttribute("data-bulk-metadata-edit-form", "");
+  const topButton = harness.document.createElement("button");
+  const bottomButton = harness.document.createElement("button");
+  const status = harness.document.createElement("div");
+  const changeCount = harness.document.createElement("span");
+
+  function bulkRow({albumId, value, serverValue, trackIds, mixed = false}) {
+    const row = harness.document.createElement("article");
+    row.dataset.albumId = albumId;
+    row.dataset.albumLabel = `${albumId} label`;
+    row.dataset.groupLabel = "Group";
+    row.dataset.loadedMetadataMixed = mixed ? "true" : "false";
+    const urlInput = harness.document.createElement("input");
+    urlInput.value = value;
+    urlInput.setAttribute("data-server-value", serverValue);
+    urlInput.setAttribute("data-bulk-metadata-url-input", "");
+    const trackInputs = trackIds.map((trackId) => {
+      const input = harness.document.createElement("input");
+      input.value = String(trackId);
+      input.setAttribute("data-bulk-metadata-track-id", "");
+      return input;
+    });
+    row.setQueryResult("[data-bulk-metadata-url-input]", urlInput);
+    row.setQueryResult("[data-bulk-metadata-track-id]", trackInputs);
+    return {row, urlInput, trackInputs};
+  }
+
+  const changedRow = bulkRow({
+    albumId: "artist::changed",
+    value: "https://musicbrainz.org/release/11111111-1111-1111-1111-111111111111",
+    serverValue: "",
+    trackIds: [1, 2],
+  });
+  const unchangedRow = bulkRow({
+    albumId: "artist::unchanged",
+    value: "https://www.discogs.com/release/123",
+    serverValue: "https://www.discogs.com/release/123",
+    trackIds: [3],
+  });
+  const clearedRow = bulkRow({
+    albumId: "artist::cleared",
+    value: "",
+    serverValue: "https://www.discogs.com/master/456",
+    trackIds: [4],
+  });
+
+  form.setQueryResult("[data-bulk-metadata-row]", [
+    changedRow.row,
+    unchangedRow.row,
+    clearedRow.row,
+  ]);
+  form.setQueryResult("[data-apply-bulk-metadata-edit]", [topButton, bottomButton]);
+  form.setQueryResult("[data-bulk-metadata-edit-status]", status);
+  form.setQueryResult("[data-bulk-metadata-change-count]", changeCount);
+  form.setQueryResult("input, textarea, select, button", [
+    topButton,
+    bottomButton,
+    changedRow.urlInput,
+    unchangedRow.urlInput,
+    clearedRow.urlInput,
+    ...changedRow.trackInputs,
+    ...unchangedRow.trackInputs,
+    ...clearedRow.trackInputs,
+  ]);
+
+  harness.context.syncBulkMetadataEditFormState(form);
+
+  assert.equal(topButton.disabled, false);
+  assert.equal(changeCount.textContent, "2 changes");
+
+  await harness.context.submitBulkMetadataEditForm(form);
+  await harness.flush();
+
+  assert.equal(harness.fetchCalls.length, 1);
+  assert.equal(harness.fetchCalls[0].url, "/api/albums/metadata-urls/edit");
+  assert.deepEqual(harness.fetchCalls[0].body, {
+    rows: [
+      {
+        album_id: "artist::changed",
+        album_label: "artist::changed label",
+        group_label: "Group",
+        metadata_url: "https://musicbrainz.org/release/11111111-1111-1111-1111-111111111111",
+        loaded_metadata_url: "",
+        loaded_metadata_mixed: false,
+        track_ids: [1, 2],
+      },
+      {
+        album_id: "artist::cleared",
+        album_label: "artist::cleared label",
+        group_label: "Group",
+        metadata_url: "",
+        loaded_metadata_url: "https://www.discogs.com/master/456",
+        loaded_metadata_mixed: false,
+        track_ids: [4],
+      },
+    ],
+  });
+  assert.equal(status.textContent, "Bulk metadata URL edit queued.");
+  assert.equal(topButton.disabled, true);
+  assert.equal(changeCount.textContent, "");
+  assert.equal(
+    changedRow.urlInput.getAttribute("data-server-value"),
+    "https://musicbrainz.org/release/11111111-1111-1111-1111-111111111111"
+  );
+  assert.equal(clearedRow.urlInput.getAttribute("data-server-value"), "");
+});
+
+test("bulk album star action confirms posts and refreshes current page", async () => {
+  const harness = createHarness({
+    track_ids: [],
+    position: 0,
+    loaded_track_id: null,
+    paused: true,
+    errored_track_ids: [],
+    unavailable_track_ids: [],
+  }, {
+    fetchResponses: {
+      "/api/albums/star?artist=Brian+Eno": {
+        json: {
+          starred: true,
+          matched_count: 4,
+          changed_count: 3,
+          message: "Starred 3 filtered albums.",
+        },
+      },
+    },
+  });
+  harness.context.window.location.href = "http://localhost/albums?artist=Brian+Eno";
+  const button = harness.document.createElement("button");
+  const confirmButton = harness.document.querySelector("[data-confirmation-confirm]");
+  const dialog = harness.document.getElementById("confirmation-dialog");
+  const message = harness.document.querySelector("[data-confirmation-message]");
+  button.dataset.actionUrl = "/api/albums/star?artist=Brian+Eno";
+  button.dataset.starred = "true";
+  button.dataset.confirmTitle = "Star Filtered Albums";
+  button.dataset.confirmMessage = "Star every album in the current album view across every page?";
+  button.dataset.confirmLabel = "Star";
+
+  const updatePromise = harness.context.updateFilteredAlbumStars(button);
+  await Promise.resolve();
+
+  assert.equal(dialog.hidden, false);
+  assert.equal(message.textContent, "Star every album in the current album view across every page?");
+  assert.equal(harness.fetchCalls.length, 0);
+
+  harness.document.listeners.get("click")[0]({
+    target: confirmButton,
+    preventDefault() {},
+  });
+  await updatePromise;
+  await harness.flush();
+
+  assert.equal(dialog.hidden, true);
+  assert.equal(harness.fetchCalls.length, 2);
+  assert.equal(harness.fetchCalls[0].url, "/api/albums/star?artist=Brian+Eno");
+  assert.equal(harness.fetchCalls[0].request.method, "POST");
+  assert.deepEqual(harness.fetchCalls[0].body, {starred: true});
+  assert.equal(harness.fetchCalls[1].url, "http://localhost/albums?artist=Brian+Eno");
+  assert.equal(harness.fetchCalls[1].request.headers["X-Kukicha-Fragment"], "1");
+  assert.equal(
+    harness.document.elements.toast.querySelector(".toast-copy").textContent,
+    "Starred 3 filtered albums.",
+  );
+  assert.equal(button.disabled, false);
+  assert.equal(button.getAttribute("aria-busy"), null);
 });
 
 test("album delete queues after confirmation", async () => {

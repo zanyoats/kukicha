@@ -13,6 +13,7 @@ def job_kind_label(kind: str) -> str:
         "delete_root": "Delete Root",
         "edit_album": "Edit Tags",
         "edit_album_musicbrainz": "Edit Tags",
+        "bulk_album_metadata_urls": "Bulk Metadata URLs",
         "upload_album_cover": "Upload Cover",
         "rescan_library": "Rescan",
         "sync": "Sync",
@@ -64,6 +65,14 @@ def humanize_job_context_key(key: str) -> str:
         "roots_scanned": "Roots",
         "tracks_updated": "Tracks",
         "tracks_deleted": "Tracks",
+        "rows_changed": "Rows Changed",
+        "rows_updated": "Rows Updated",
+        "rows_cleared": "Rows Cleared",
+        "rows_skipped": "Rows Skipped",
+        "rows_failed": "Rows Failed",
+        "failed_rows": "Failed Rows",
+        "changed_since_loaded": "Changed Since Loaded",
+        "rescan_recommended": "Rescan Recommended",
         "local_files_deleted": "Local Files",
         "remote_objects_deleted": "Remote Objects",
         "local_files_updated": "Local Files",
@@ -90,6 +99,11 @@ def format_job_context_value(key: str, value: object) -> str:
         "roots_scanned",
         "tracks_updated",
         "tracks_deleted",
+        "rows_changed",
+        "rows_updated",
+        "rows_cleared",
+        "rows_skipped",
+        "rows_failed",
         "local_files_deleted",
         "remote_objects_deleted",
         "local_files_updated",
@@ -119,6 +133,8 @@ def format_job_context_value(key: str, value: object) -> str:
             return f"{float(value):.2f} seconds"
         except (TypeError, ValueError):
             return str(value)
+    if key == "rescan_recommended":
+        return "Yes" if value else ""
     return str(value)
 
 
@@ -138,6 +154,11 @@ def job_context_items(context: dict[str, object]) -> list[dict[str, str]]:
         "roots_scanned",
         "tracks_updated",
         "tracks_deleted",
+        "rows_changed",
+        "rows_updated",
+        "rows_cleared",
+        "rows_skipped",
+        "rows_failed",
         "local_files_deleted",
         "remote_objects_deleted",
         "local_files_updated",
@@ -152,6 +173,9 @@ def job_context_items(context: dict[str, object]) -> list[dict[str, str]]:
         "stale_tracks_pruned",
         "duration_seconds",
         "error",
+        "failed_rows",
+        "changed_since_loaded",
+        "rescan_recommended",
     )
     keys = [key for key in preferred_order if key in context]
     keys.extend(

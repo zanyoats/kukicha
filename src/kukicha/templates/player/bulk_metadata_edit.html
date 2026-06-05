@@ -1,0 +1,94 @@
+<div class="view-page bulk-metadata-edit-view" data-page="bulk-metadata-edit">
+  <div class="album-view-nav">
+    <a class="back-link" href="{{ album_index_url }}" data-nav>&larr; albums</a>
+  </div>
+
+  <header class="view-header">
+    {% include "player/_page_title.html" %}
+    <div class="settings-panel-meta">{{ album_count_text }} matched, {{ row_count_text }} editable.</div>
+  </header>
+
+  <section class="album-edit-panel settings-panel bulk-metadata-edit-panel">
+    <form
+      class="bulk-metadata-edit-form"
+      action="{{ bulk_metadata_edit_action_url }}"
+      method="post"
+      autocomplete="off"
+      data-bulk-metadata-edit-form
+    >
+      <div class="album-edit-actions album-edit-actions-top bulk-metadata-edit-actions">
+        <button class="primary" type="submit" data-apply-bulk-metadata-edit disabled>Apply</button>
+        <span class="settings-status bulk-metadata-change-count" data-bulk-metadata-change-count aria-live="polite"></span>
+      </div>
+
+      <div class="bulk-metadata-row-list">
+        {% for row in rows %}
+          <article
+            class="bulk-metadata-row"
+            data-bulk-metadata-row
+            data-album-id="{{ row.album_id }}"
+            data-album-label="{{ row.album_label }}"
+            data-group-label="{{ row.group_label }}"
+            data-loaded-metadata-mixed="{{ 'true' if row.metadata_mixed else 'false' }}"
+          >
+            <div class="bulk-metadata-album">
+              <a class="bulk-metadata-cover-link" href="{{ row.album_url }}" data-nav data-album-nav>
+                {% if row.art_url %}
+                  <img class="bulk-metadata-cover" src="{{ row.art_url }}" alt="" loading="lazy">
+                {% else %}
+                  <span class="bulk-metadata-cover bulk-metadata-cover-placeholder" aria-hidden="true"></span>
+                {% endif %}
+              </a>
+              <div class="bulk-metadata-copy">
+                <a class="bulk-metadata-title" href="{{ row.album_url }}" data-nav data-album-nav title="{{ row.album|display_album_title }}">
+                  {{ row.album|display_album_title }}
+                </a>
+                <div class="bulk-metadata-artist" title="{{ row.artist }}">{{ row.artist }}</div>
+                <div class="bulk-metadata-meta">
+                  <span>{{ row.track_count_text }}</span>
+                  {% if row.group_label %}
+                    <span>{{ row.group_label }}</span>
+                  {% endif %}
+                  {% for item in row.group_meta %}
+                    <span>{{ item }}</span>
+                  {% endfor %}
+                </div>
+              </div>
+            </div>
+            <div class="bulk-metadata-field-group">
+              {% for track_id in row.track_ids %}
+                <input type="hidden" value="{{ track_id }}" data-bulk-metadata-track-id>
+              {% endfor %}
+              <label class="album-edit-field bulk-metadata-url-field">
+                <span class="album-edit-label">Metadata URL</span>
+                <input
+                  class="settings-input"
+                  type="url"
+                  value="{{ row.metadata_url }}"
+                  data-server-value="{{ row.metadata_url }}"
+                  data-bulk-metadata-url-input
+                  autocomplete="off"
+                  placeholder="https://musicbrainz.org/release/... or https://www.discogs.com/release/..."
+                >
+              </label>
+              {% if row.metadata_mixed %}
+                <div class="bulk-metadata-mixed-note">Mixed saved URLs</div>
+              {% endif %}
+            </div>
+          </article>
+        {% else %}
+          <div class="empty">No albums matched these filters.</div>
+        {% endfor %}
+      </div>
+
+      <div class="album-edit-actions bulk-metadata-edit-actions">
+        <button class="primary" type="submit" data-apply-bulk-metadata-edit disabled>Apply</button>
+      </div>
+      <div
+        class="settings-status"
+        data-bulk-metadata-edit-status
+        aria-live="polite"
+      ></div>
+    </form>
+  </section>
+</div>

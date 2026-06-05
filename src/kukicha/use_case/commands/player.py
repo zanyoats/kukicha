@@ -10,13 +10,14 @@ from urllib.parse import urlsplit
 from ...discogs import file_album_id_from_album_id
 from ..cache import CACHE_TABLE_GROUP_BY_KEY
 from ..database import connect_existing_database
-from ..queries import LibraryQueries
+from ..queries import LibraryQueries, album_where_clause
 from ..queries.sql import placeholders_for
 
 if TYPE_CHECKING:
     from ...models import TrackArtwork
     from ...player_runtime import PlayerQueueState
     from ...player_runtime import PlayerRuntime
+    from ..queries import AlbumListQuery
 
 
 QUEUE_STATE_ID = 1
@@ -756,6 +757,82 @@ def update_album_star(
     }
 
 
+def update_filtered_album_stars(
+    runtime: PlayerRuntime,
+    query: AlbumListQuery,
+    payload: dict[str, Any],
+) -> dict[str, object]:
+    from .jobs import utc_now_iso
+
+    starred = payload.get("starred") is True
+    query = LibraryQueries(runtime.database).expand_album_list_query(query)
+    where_sql, params = album_where_clause(query)
+    starred_at = utc_now_iso() if starred else None
+
+    with connect_existing_database(runtime.database) as connection:
+        rows = tuple(
+            connection.execute(
+                f"""
+                SELECT albums.album_id, albums.starred_at
+                FROM library_albums AS albums
+                {where_sql}
+                """,
+                params,
+            )
+        )
+        if starred:
+            changed_album_ids = tuple(
+                str(row["album_id"])
+                for row in rows
+                if row["starred_at"] is None
+            )
+        else:
+            changed_album_ids = tuple(
+                str(row["album_id"])
+                for row in rows
+                if row["starred_at"] is not None
+            )
+
+        if changed_album_ids:
+            placeholders = placeholders_for(changed_album_ids)
+            if starred_at is None:
+                connection.execute(
+                    f"""
+                    DELETE FROM album_user_state
+                    WHERE album_id IN ({placeholders})
+                    """,
+                    changed_album_ids,
+                )
+            else:
+                connection.executemany(
+                    """
+                    INSERT INTO album_user_state (album_id, starred_at)
+                    VALUES (?, ?)
+                    ON CONFLICT(album_id) DO UPDATE SET
+                        starred_at = excluded.starred_at
+                    """,
+                    ((album_id, starred_at) for album_id in changed_album_ids),
+                )
+            connection.execute(
+                f"""
+                UPDATE library_albums
+                SET starred_at = ?
+                WHERE album_id IN ({placeholders})
+                """,
+                (starred_at, *changed_album_ids),
+            )
+
+    action = "Starred" if starred else "Unstarred"
+    changed_count = len(changed_album_ids)
+    changed_album_label = "album" if changed_count == 1 else "albums"
+    return {
+        "starred": starred,
+        "matched_count": len(rows),
+        "changed_count": changed_count,
+        "message": f"{action} {changed_count} filtered {changed_album_label}.",
+    }
+
+
 def update_artist_star(
     runtime: PlayerRuntime,
     artist: str,
@@ -995,6 +1072,38 @@ def start_album_edit(
 
     return {
         "message": f"Tag edit queued for {job.album_label}.",
+        "job": job_payload(queued_job),
+    }
+
+
+def start_bulk_album_metadata_edit(
+    runtime: PlayerRuntime,
+    payload: dict[str, Any],
+) -> dict[str, object]:
+    from ...player_jobs import job_payload
+    from .album_edits import (
+        prepare_bulk_album_metadata_edit_job,
+        run_bulk_album_metadata_edit_job,
+    )
+
+    job = prepare_bulk_album_metadata_edit_job(payload)
+    queued_job = runtime.enqueue_job(
+        kind="bulk_album_metadata_urls",
+        queued_message="Bulk metadata URL edit queued.",
+        running_message="Bulk metadata URL edit running.",
+        canceled_message="Bulk metadata URL edit canceled.",
+        failed_message="Bulk metadata URL edit failed.",
+        context={
+            "rows_changed": len(job.rows),
+        },
+        runner=lambda cancel_token: run_bulk_album_metadata_edit_job(
+            runtime,
+            job,
+            cancel_token,
+        ),
+    )
+    return {
+        "message": "Bulk metadata URL edit queued.",
         "job": job_payload(queued_job),
     }
 

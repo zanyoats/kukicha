@@ -1,12 +1,13 @@
 from __future__ import annotations
 
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, quote
 
 from ._compat import UTC
+from .display import display_album_title
 from .use_case import ALBUM_LIST_SORT_RECENTLY_ADDED, AlbumListQuery, LibraryQueries
 from .use_case import (
     album_list_query_from_params,
@@ -15,6 +16,22 @@ from .use_case import (
 )
 from .player_common import format_compact_count, format_count_label
 from .player_runtime import PlayerRuntime
+
+
+@dataclass(frozen=True, slots=True)
+class BulkMetadataEditRow:
+    album_id: str
+    album: str
+    artist: str
+    album_url: str
+    art_url: str
+    album_label: str
+    group_label: str
+    group_meta: tuple[str, ...]
+    track_ids: tuple[int, ...]
+    track_count_text: str
+    metadata_url: str
+    metadata_mixed: bool = False
 
 
 def base_player_context(runtime: PlayerRuntime, **context: Any) -> dict[str, Any]:
@@ -84,6 +101,8 @@ def playlist_index_query_from_query_string(_query_string: str) -> AlbumListQuery
 def build_index_context(runtime: PlayerRuntime, query_string: str) -> dict[str, Any]:
     from .player_navigation import (
         ALBUM_SORT_OPTIONS,
+        album_bulk_metadata_edit_url,
+        album_bulk_star_action_url,
         album_index_url,
         checked_genre_values,
         player_page_context,
@@ -133,9 +152,127 @@ def build_index_context(runtime: PlayerRuntime, query_string: str) -> dict[str, 
         show_pagination_controls=True,
         sort_options=ALBUM_SORT_OPTIONS,
         default_size=DEFAULT_ALBUMS_SIZE,
+        bulk_metadata_edit_page_url=album_bulk_metadata_edit_url(query),
+        bulk_album_star_action_url=album_bulk_star_action_url(query),
     )
     context.update(player_page_context("library"))
     return context
+
+
+def build_bulk_metadata_edit_context(
+    runtime: PlayerRuntime,
+    query_string: str,
+) -> dict[str, Any]:
+    from .player_navigation import (
+        album_bulk_metadata_edit_url,
+        album_index_url,
+        player_page_context,
+    )
+
+    api = LibraryQueries(runtime.database)
+    query = api.expand_album_list_query(
+        replace(album_index_query_from_query_string(query_string), offset=0)
+    )
+    albums = api.list_album_summaries(query)
+    roots = api.library_roots()
+    rows: list[BulkMetadataEditRow] = []
+    for album_summary in albums:
+        album = api.get_album(album_summary.album_id)
+        rows.extend(bulk_metadata_edit_rows_for_album(runtime, album, query, roots))
+
+    context = base_player_context(
+        runtime,
+        page_name="bulk-metadata-edit",
+        page_key="bulk-metadata-edit",
+        page_heading="Bulk Metadata URLs",
+        view_template="player/bulk_metadata_edit.html",
+        query=query,
+        rows=tuple(rows),
+        row_count_text=format_count_label(len(rows), "row", "rows"),
+        album_count_text=format_count_label(len(albums), "album", "albums"),
+        album_index_url=album_index_url(query, offset=0),
+        bulk_metadata_edit_page_url=album_bulk_metadata_edit_url(query),
+        bulk_metadata_edit_action_url="/api/albums/metadata-urls/edit",
+    )
+    context.update(player_page_context("library"))
+    context["page_name"] = "bulk-metadata-edit"
+    context["page_key"] = "bulk-metadata-edit"
+    context["page_heading"] = "Bulk Metadata URLs"
+    return context
+
+
+def bulk_metadata_edit_rows_for_album(
+    runtime: PlayerRuntime,
+    album: Any,
+    query: AlbumListQuery,
+    roots: tuple[Any, ...],
+) -> list[BulkMetadataEditRow]:
+    from .player_navigation import album_art_url, album_url
+    from .player_presenters import album_tag_edit_sections, track_view
+    from .use_case.database import connect_existing_database
+    from .use_case.metadata import album_metadata_link_for_album_id
+
+    track_views = [track_view(track) for track in album.tracks]
+    sections = album_tag_edit_sections(track_views, roots)
+    paths = tuple(
+        item.track.path
+        for section in sections
+        for item in section.tracks
+        if item.track.path
+    )
+    with connect_existing_database(runtime.database) as connection:
+        from .use_case.metadata import load_album_metadata_track_links
+
+        track_links = load_album_metadata_track_links(connection, paths)
+        fallback_url = ""
+        if len(sections) == 1:
+            fallback_url = metadata_url_for_link(
+                album_metadata_link_for_album_id(connection, album.album_id)
+            )
+
+    rows: list[BulkMetadataEditRow] = []
+    for section in sections:
+        link_values = tuple(
+            dict.fromkeys(
+                (
+                    link.provider,
+                    link.entity_type,
+                    link.entity_id,
+                )
+                for item in section.tracks
+                for link in (track_links.get(item.track.path),)
+                if link is not None and link.provider and link.entity_id
+            )
+        )
+        metadata_mixed = len(link_values) > 1
+        metadata_url = ""
+        if len(link_values) == 1:
+            metadata_url = metadata_url_for_entity(*link_values[0])
+        elif not metadata_mixed:
+            metadata_url = fallback_url
+
+        track_ids = tuple(item.track.track_id for item in section.tracks)
+        group_count = len(track_ids)
+        track_count_text = format_count_label(group_count, "track", "tracks")
+        if group_count != album.track_count:
+            track_count_text = f"{track_count_text} of {format_count_label(album.track_count, 'track', 'tracks')}"
+        rows.append(
+            BulkMetadataEditRow(
+                album_id=album.album_id,
+                album=album.album,
+                artist=album.artist,
+                album_url=album_url(album, query),
+                art_url=album_art_url(album),
+                album_label=f"{album.artist} - {display_album_title(album.album)}",
+                group_label=section.label,
+                group_meta=section.meta,
+                track_ids=track_ids,
+                track_count_text=track_count_text,
+                metadata_url=metadata_url,
+                metadata_mixed=metadata_mixed,
+            )
+        )
+    return rows
 
 
 def build_home_context(runtime: PlayerRuntime) -> dict[str, Any]:

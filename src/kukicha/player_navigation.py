@@ -152,6 +152,37 @@ def album_index_url(
     encoded = urlencode(params, doseq=True, safe="[]")
     return f"/albums?{encoded}" if encoded else "/albums"
 
+
+def album_bulk_metadata_edit_url(query: AlbumListQuery) -> str:
+    bulk_query = AlbumListQuery(
+        artists=query.artists,
+        album=query.album,
+        genres=query.genres,
+        styles=query.styles,
+        genre_filters=query.genre_filters,
+        search=query.search,
+        sort=query.sort,
+        is_playlist=False,
+    )
+    encoded = urlencode(album_query_params(bulk_query), doseq=True, safe="[]")
+    return f"/albums/metadata-urls/edit?{encoded}" if encoded else "/albums/metadata-urls/edit"
+
+
+def album_bulk_star_action_url(query: AlbumListQuery) -> str:
+    bulk_query = AlbumListQuery(
+        artists=query.artists,
+        album=query.album,
+        genres=query.genres,
+        styles=query.styles,
+        genre_filters=query.genre_filters,
+        search=query.search,
+        sort=query.sort,
+        is_playlist=False,
+    )
+    encoded = urlencode(album_query_params(bulk_query), doseq=True, safe="[]")
+    return f"/api/albums/star?{encoded}" if encoded else "/api/albums/star"
+
+
 def playlist_index_url(_query: AlbumListQuery, *, offset: int | None = None) -> str:
     return "/playlists"
 

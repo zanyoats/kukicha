@@ -1657,6 +1657,14 @@ class LibraryAlbumArtistMappingTest(unittest.TestCase):
         self.assertEqual(mapping_text, "Brian Eno And Roger Eno")
         self.assertEqual(album_artists, ["Brian Eno And Roger Eno"])
 
+    def test_save_library_records_default_hyphen_mapping_unchanged(self) -> None:
+        mapping_text, album_artists = self.save_single_album_artist_mapping(
+            "Brian Eno - Jon Hopkins"
+        )
+
+        self.assertEqual(mapping_text, "Brian Eno - Jon Hopkins")
+        self.assertEqual(album_artists, ["Brian Eno - Jon Hopkins"])
+
     def test_save_library_records_custom_pattern_mapping_unchanged(self) -> None:
         mapping_text, album_artists = self.save_single_album_artist_mapping(
             "Alice feat. Bob",

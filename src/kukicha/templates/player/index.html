@@ -1,4 +1,4 @@
-{% from "player/_icons.html" import delete_icon, play_icon, queue_add_icon, search_icon, star_icon %}
+{% from "player/_icons.html" import delete_icon, play_icon, queue_add_icon, search_icon, star_icon, vertical_ellipsis_icon %}
 
 <div class="view-page" data-page="{{ page_key }}">
   <header class="view-header">
@@ -90,6 +90,36 @@
               {% endfor %}
             </div>
           </details>
+          {% endif %}
+          {% if (bulk_album_star_action_url is defined and bulk_album_star_action_url) or (bulk_metadata_edit_page_url is defined and bulk_metadata_edit_page_url) %}
+            <details class="filter-menu bulk-actions-menu" data-dropdown-menu>
+              <summary aria-label="Album actions" title="Album actions">
+                {{ vertical_ellipsis_icon() }}
+              </summary>
+              <div class="filter-options bulk-action-options">
+                {% if bulk_album_star_action_url is defined and bulk_album_star_action_url %}
+                  <button class="page-menu-link page-menu-button" type="button"
+                    data-bulk-album-star data-starred="true"
+                    data-action-url="{{ bulk_album_star_action_url }}"
+                    data-confirm-title="Star Filtered Albums"
+                    data-confirm-message="Star every album in the current album view across every page? Already starred albums keep their original favorite dates."
+                    data-confirm-label="Star">Star all filtered</button>
+                  <button class="page-menu-link page-menu-button" type="button"
+                    data-bulk-album-star data-starred="false"
+                    data-action-url="{{ bulk_album_star_action_url }}"
+                    data-confirm-title="Unstar Filtered Albums"
+                    data-confirm-message="Unstar every album in the current album view across every page?"
+                    data-confirm-label="Unstar">Unstar all filtered</button>
+                {% endif %}
+                {% if bulk_album_star_action_url is defined and bulk_album_star_action_url and bulk_metadata_edit_page_url is defined and bulk_metadata_edit_page_url %}
+                  <hr class="page-menu-divider">
+                {% endif %}
+                {% if bulk_metadata_edit_page_url is defined and bulk_metadata_edit_page_url %}
+                  <a class="page-menu-link" href="{{ bulk_metadata_edit_page_url }}"
+                    data-bulk-metadata-edit-link data-nav>Edit Metadata URLs</a>
+                {% endif %}
+              </div>
+            </details>
           {% endif %}
           <a class="button-link clear-filter-button" href="{{ clear_url }}" data-nav aria-label="Clear" title="Clear">
             {{ delete_icon("clear-icon") }}<span class="visually-hidden">Clear</span>

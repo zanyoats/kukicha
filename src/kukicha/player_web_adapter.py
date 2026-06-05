@@ -36,12 +36,14 @@ from .use_case import (
     start_album_cover_upload,
     start_album_delete,
     start_album_edit,
+    start_bulk_album_metadata_edit,
     start_rescan_library,
     start_sync,
     track_artwork,
     track_audio_path,
     track_audio_resource,
     update_album_star as update_album_star_command,
+    update_filtered_album_stars as update_filtered_album_stars_command,
     upload_playlist_cover as upload_playlist_cover_command,
     update_playback as update_playback_command,
     update_queue as update_queue_command,
@@ -74,10 +76,12 @@ from .player_platform import (
 from .player_runtime import PlayerRuntime
 from .player_views import (
     album_playback_payload,
+    album_index_query_from_query_string,
     build_album_context,
     build_album_edit_context,
     build_artist_split_rules_page_context,
     build_artists_page_context,
+    build_bulk_metadata_edit_context,
     build_cache_page_context,
     build_help_page_context,
     build_home_context,
@@ -104,6 +108,7 @@ from .static_assets import (
 
 BYTE_RANGE_RE = re.compile(r"bytes=(\d*)-(\d*)$")
 MAX_POST_BYTES = 1024 * 64
+MAX_BULK_METADATA_EDIT_BYTES = 1024 * 1024 * 2
 MAX_COVER_UPLOAD_BYTES = 1024 * 1024 * 25
 MAX_PLAYLIST_UPLOAD_BYTES = 1024 * 1024 * 5
 FRAGMENT_HEADER = "X-Kukicha-Fragment"
@@ -249,6 +254,13 @@ def create_player_app(options: PlayerServerOptions) -> Flask:
         reset_playback_for_document_load()
         return rendered_response(build_search_context(player_context().runtime, query_string()))
 
+    @app.get("/albums/metadata-urls/edit")
+    def bulk_metadata_edit() -> Response:
+        reset_playback_for_document_load()
+        return rendered_response(
+            build_bulk_metadata_edit_context(player_context().runtime, query_string())
+        )
+
     @app.get("/api/jobs/events")
     def job_events() -> Response:
         return job_events_response(player_context().runtime)
@@ -356,6 +368,12 @@ def create_player_app(options: PlayerServerOptions) -> Flask:
     def reset_player_listening_data() -> Response:
         return json_response(reset_listening_data(player_context().database))
 
+    @app.post("/api/albums/metadata-urls/edit")
+    def edit_bulk_album_metadata_urls() -> Response:
+        payload = read_json_body(max_bytes=MAX_BULK_METADATA_EDIT_BYTES)
+        result = start_bulk_album_metadata_edit(player_context().runtime, payload)
+        return json_response(result, status=202)
+
     @app.post("/api/albums/<path:album_id>/edit")
     def edit_album(album_id: str) -> Response:
         payload = read_json_body()
@@ -383,6 +401,17 @@ def create_player_app(options: PlayerServerOptions) -> Flask:
         result = update_album_star_command(
             player_context().runtime,
             album_id,
+            read_json_body(),
+        )
+        return json_response(result)
+
+    @app.post("/api/albums/star")
+    def update_filtered_album_stars() -> Response:
+        result = update_filtered_album_stars_command(
+            player_context().runtime,
+            album_index_query_from_query_string(
+                request.query_string.decode("utf-8", "replace")
+            ),
             read_json_body(),
         )
         return json_response(result)
@@ -898,12 +927,12 @@ def error_message(error: Exception) -> str:
     return str(error)
 
 
-def read_json_body() -> dict[str, Any]:
+def read_json_body(*, max_bytes: int = MAX_POST_BYTES) -> dict[str, Any]:
     try:
         length = int(request.headers.get("Content-Length", "0") or "0")
     except ValueError as error:
         raise ValueError("invalid Content-Length") from error
-    if length > MAX_POST_BYTES:
+    if length > max_bytes:
         raise ValueError("request body too large")
     raw = request.get_data(cache=False) if length else b"{}"
     try:

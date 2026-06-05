@@ -759,6 +759,7 @@ syncFilterSummaries();
 syncAlbumMusicBrainzFormValues();
 syncAlbumEditAlbumLevelFields();
 syncAlbumArtistMappingForms();
+syncBulkMetadataEditForms();
 localizeBrowserTimes();
 syncJobsStream();
 
@@ -1009,6 +1010,7 @@ function renderFragment(html, url, options = {}) {
   syncAlbumMusicBrainzFormValues();
   syncAlbumEditAlbumLevelFields();
   syncAlbumArtistMappingForms();
+  syncBulkMetadataEditForms();
   localizeBrowserTimes();
   syncJobsStream();
   if (options.restoreScroll) {
@@ -1110,6 +1112,8 @@ function syncLibraryFilterForm(currentPageRoot, nextPageRoot) {
   syncTopLevelHiddenInputs(currentForm, nextForm);
   syncReadonlyArtistFilter(currentForm, nextForm);
   syncFormControls(currentForm, nextForm);
+  syncBulkMetadataEditLink(currentForm);
+  syncBulkAlbumStarActionUrls(currentForm);
 }
 
 function syncReadonlyArtistFilter(currentForm, nextForm) {
@@ -1389,6 +1393,66 @@ function syncFilterSummaries(form = view.querySelector("form[data-filter-form]")
   updateSearchSummary(form);
   updateSortSummary(form);
   updateFilterSummary(form, "genres", selectedGenreFilterCount(form));
+  syncBulkMetadataEditLink(form);
+  syncBulkAlbumStarActionUrls(form);
+}
+
+function syncBulkMetadataEditLink(form = view.querySelector("form[data-filter-form]")) {
+  if (!(form instanceof HTMLFormElement)) {
+    return;
+  }
+  const link = form.querySelector("[data-bulk-metadata-edit-link]");
+  if (!(link instanceof HTMLAnchorElement)) {
+    return;
+  }
+  const url = bulkMetadataEditUrl(form, link);
+  const href = `${url.pathname}${url.search}`;
+  link.href = href;
+  link.setAttribute("href", href);
+}
+
+function bulkMetadataEditUrl(form, link = null) {
+  const baseHref = link instanceof HTMLAnchorElement
+    ? link.href || link.getAttribute("href") || "/albums/metadata-urls/edit"
+    : "/albums/metadata-urls/edit";
+  return filteredAlbumActionUrl(form, baseHref);
+}
+
+function syncBulkAlbumStarActionUrls(form = view.querySelector("form[data-filter-form]")) {
+  if (!(form instanceof HTMLFormElement)) {
+    return;
+  }
+  const buttons = Array.from(form.querySelectorAll("[data-bulk-album-star]"))
+    .filter((button) => button instanceof HTMLButtonElement);
+  if (!buttons.length) {
+    return;
+  }
+  const url = bulkAlbumStarActionUrl(form, buttons[0]);
+  const href = `${url.pathname}${url.search}`;
+  for (const button of buttons) {
+    button.dataset.actionUrl = href;
+    button.setAttribute("data-action-url", href);
+  }
+}
+
+function bulkAlbumStarActionUrl(form, button = null) {
+  const baseHref = button instanceof HTMLButtonElement
+    ? button.dataset.actionUrl || "/api/albums/star"
+    : "/api/albums/star";
+  return filteredAlbumActionUrl(form, baseHref);
+}
+
+function filteredAlbumActionUrl(form, baseHref) {
+  const albumUrl = formUrl(form);
+  const url = new URL(baseHref, window.location.origin);
+  url.search = "";
+  for (const [key, value] of albumUrl.searchParams.entries()) {
+    if (key === "offset" || key === "size" || key === "page") {
+      continue;
+    }
+    url.searchParams.append(key, value);
+  }
+  return url;
 }
 
 function updateSearchSummary(form) {
@@ -1798,6 +1862,13 @@ document.addEventListener("click", (event) => {
     return;
   }
 
+  const bulkAlbumStar = event.target.closest("[data-bulk-album-star]");
+  if (bulkAlbumStar) {
+    event.preventDefault();
+    void updateFilteredAlbumStars(bulkAlbumStar);
+    return;
+  }
+
   const albumStarToggle = event.target.closest("[data-album-star-toggle]");
   if (albumStarToggle) {
     event.preventDefault();
@@ -1895,6 +1966,12 @@ document.addEventListener("submit", (event) => {
     submitAlbumEditForm(albumEditForm);
     return;
   }
+  const bulkMetadataEditForm = event.target.closest("form[data-bulk-metadata-edit-form]");
+  if (bulkMetadataEditForm) {
+    event.preventDefault();
+    submitBulkMetadataEditForm(bulkMetadataEditForm);
+    return;
+  }
   const albumArtistMappingForm = event.target.closest("form[data-album-artist-mapping-form]");
   if (albumArtistMappingForm) {
     event.preventDefault();
@@ -1950,11 +2027,16 @@ document.addEventListener("input", (event) => {
     && (
       event.target.hasAttribute("data-metadata-url-input")
       || event.target.hasAttribute("data-musicbrainz-url-input")
+      || event.target.hasAttribute("data-bulk-metadata-url-input")
     )
   ) {
     const albumEditForm = event.target.closest("form[data-album-edit-form]");
     if (albumEditForm) {
       syncAlbumEditAlbumLevelFields(albumEditForm);
+    }
+    const bulkMetadataEditForm = event.target.closest("form[data-bulk-metadata-edit-form]");
+    if (bulkMetadataEditForm) {
+      syncBulkMetadataEditFormState(bulkMetadataEditForm);
     }
   }
   const albumArtistMappingForm = event.target.closest("form[data-album-artist-mapping-form]");
@@ -2030,6 +2112,7 @@ window.addEventListener("pageshow", (event) => {
   if (!event.persisted) {
     syncAlbumMusicBrainzFormValues();
     syncAlbumEditAlbumLevelFields();
+    syncBulkMetadataEditForms();
   }
   syncJobsStream();
   updatePlaybackUi();
@@ -3387,6 +3470,156 @@ function albumEditMusicBrainzPayload(form) {
   };
 }
 
+function bulkMetadataChangedRows(form) {
+  return Array.from(form.querySelectorAll("[data-bulk-metadata-row]")).filter((row) => {
+    const input = row.querySelector("[data-bulk-metadata-url-input]");
+    if (!(input instanceof HTMLInputElement)) {
+      return false;
+    }
+    const serverValue = (input.getAttribute("data-server-value") || "").trim();
+    return input.value.trim() !== serverValue;
+  });
+}
+
+function syncBulkMetadataEditForms(scope = view) {
+  if (!(scope instanceof Element)) {
+    return;
+  }
+  const forms = scope instanceof HTMLFormElement && scope.hasAttribute("data-bulk-metadata-edit-form")
+    ? [scope]
+    : Array.from(scope.querySelectorAll("form[data-bulk-metadata-edit-form]"));
+  forms.forEach((form) => {
+    if (form instanceof HTMLFormElement) {
+      syncBulkMetadataEditFormState(form);
+    }
+  });
+}
+
+function syncBulkMetadataEditFormState(form) {
+  const changedCount = bulkMetadataChangedRows(form).length;
+  const submitButtons = Array.from(form.querySelectorAll("[data-apply-bulk-metadata-edit]"))
+    .filter((button) => button instanceof HTMLButtonElement);
+  submitButtons.forEach((button) => {
+    button.disabled = changedCount === 0;
+  });
+  const changeCount = form.querySelector("[data-bulk-metadata-change-count]");
+  if (changeCount instanceof HTMLElement) {
+    changeCount.textContent = changedCount
+      ? `${changedCount} ${changedCount === 1 ? "change" : "changes"}`
+      : "";
+  }
+}
+
+function bulkMetadataEditPayload(form) {
+  const changedRows = bulkMetadataChangedRows(form);
+  if (!changedRows.length) {
+    return {payload: null, rows: [], error: "No metadata URL changes to apply."};
+  }
+
+  const rows = [];
+  for (const row of changedRows) {
+    const input = row.querySelector("[data-bulk-metadata-url-input]");
+    if (!(input instanceof HTMLInputElement)) {
+      return {payload: null, rows: [], error: "Metadata URL fields are unavailable."};
+    }
+    const albumId = (row.dataset.albumId || "").trim();
+    if (!albumId) {
+      return {payload: null, rows: [], error: "Album metadata row is missing an album id."};
+    }
+    const trackIds = Array.from(row.querySelectorAll("[data-bulk-metadata-track-id]"))
+      .map((trackInput) => (
+        trackInput instanceof HTMLInputElement ? Number(trackInput.value || "") : NaN
+      ))
+      .filter((trackId) => Number.isInteger(trackId) && trackId > 0);
+    if (!trackIds.length) {
+      return {payload: null, rows: [], error: "No tracks available to edit."};
+    }
+    rows.push({
+      album_id: albumId,
+      album_label: row.dataset.albumLabel || "",
+      group_label: row.dataset.groupLabel || "",
+      metadata_url: input.value.trim(),
+      loaded_metadata_url: (input.getAttribute("data-server-value") || "").trim(),
+      loaded_metadata_mixed: row.dataset.loadedMetadataMixed === "true",
+      track_ids: trackIds
+    });
+  }
+  return {payload: {rows}, rows: changedRows, error: ""};
+}
+
+async function submitBulkMetadataEditForm(form) {
+  if (!(form instanceof HTMLFormElement)) {
+    return;
+  }
+  const submitButtons = Array.from(form.querySelectorAll("[data-apply-bulk-metadata-edit]"))
+    .filter((button) => button instanceof HTMLButtonElement);
+  if (!submitButtons.length) {
+    return;
+  }
+
+  const request = bulkMetadataEditPayload(form);
+  if (request.error) {
+    setBulkMetadataEditStatus(form, request.error, true);
+    return;
+  }
+
+  setBulkMetadataEditStatus(form, "Submitting metadata URL edits...");
+  const formControls = Array.from(form.querySelectorAll("input, textarea, select, button"));
+  formControls.forEach((control) => {
+    control.disabled = true;
+  });
+  submitButtons.forEach((button) => {
+    button.setAttribute("aria-busy", "true");
+  });
+  try {
+    const response = await fetch(form.action, {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify(request.payload)
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const message = payload && typeof payload.error === "string" && payload.error.trim()
+        ? payload.error
+        : "Unable to apply metadata URL edits.";
+      setBulkMetadataEditStatus(form, message, true);
+      showToast(message, {error: true});
+      return;
+    }
+    const message = payload && typeof payload.message === "string" && payload.message.trim()
+      ? payload.message
+      : "Bulk metadata URL edit queued.";
+    markBulkMetadataRowsSubmitted(request.rows);
+    setBulkMetadataEditStatus(form, message);
+    if (payload && payload.job) {
+      showJobToast(payload.job);
+    } else {
+      showToast(message);
+    }
+  } catch {
+    setBulkMetadataEditStatus(form, "Unable to apply metadata URL edits.", true);
+    showToast("Unable to apply metadata URL edits.", {error: true});
+  } finally {
+    submitButtons.forEach((button) => {
+      button.removeAttribute("aria-busy");
+    });
+    formControls.forEach((control) => {
+      control.disabled = false;
+    });
+    syncBulkMetadataEditFormState(form);
+  }
+}
+
+function markBulkMetadataRowsSubmitted(rows) {
+  rows.forEach((row) => {
+    const input = row.querySelector("[data-bulk-metadata-url-input]");
+    if (input instanceof HTMLInputElement) {
+      input.setAttribute("data-server-value", input.value.trim());
+    }
+    row.dataset.loadedMetadataMixed = "false";
+  });
+}
+
 async function submitAlbumEditForm(form) {
   if (!(form instanceof HTMLFormElement)) {
     return;
@@ -4168,6 +4401,10 @@ function setAlbumEditStatus(formOrElement, message, isError = false) {
   setStatusMessage(formOrElement, "[data-album-edit-status]", message, isError);
 }
 
+function setBulkMetadataEditStatus(formOrElement, message, isError = false) {
+  setStatusMessage(formOrElement, "[data-bulk-metadata-edit-status]", message, isError);
+}
+
 function setAlbumDeleteStatus(formOrElement, message, isError = false) {
   setStatusMessage(formOrElement, "[data-album-delete-status]", message, isError);
 }
@@ -4646,6 +4883,54 @@ function albumStarUrl(albumId) {
     window.location.origin
   );
   return url.toString();
+}
+
+async function updateFilteredAlbumStars(button) {
+  if (!(button instanceof HTMLButtonElement) || button.disabled) {
+    return;
+  }
+  const actionUrl = button.dataset.actionUrl || "";
+  if (!actionUrl) {
+    return;
+  }
+  const starred = button.dataset.starred === "true";
+  const confirmed = await confirmAction({
+    title: button.dataset.confirmTitle || (starred ? "Star Filtered Albums" : "Unstar Filtered Albums"),
+    message: button.dataset.confirmMessage || (
+      starred
+        ? "Star every album in the current album view across every page?"
+        : "Unstar every album in the current album view across every page?"
+    ),
+    confirmLabel: button.dataset.confirmLabel || (starred ? "Star" : "Unstar"),
+    returnFocus: button,
+  });
+  if (!confirmed) {
+    return;
+  }
+
+  button.disabled = true;
+  button.setAttribute("aria-busy", "true");
+  try {
+    const response = await fetch(actionUrl, {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({starred}),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      showToast(responsePayloadError(payload, "Unable to update filtered albums."), {error: true});
+      return;
+    }
+    showToast(responsePayloadMessage(payload, starred ? "Filtered albums starred." : "Filtered albums unstarred."));
+    await navigate(window.location.href, {replace: true, scroll: false});
+  } catch {
+    showToast("Unable to update filtered albums.", {error: true});
+  } finally {
+    if (button.isConnected) {
+      button.disabled = false;
+      button.removeAttribute("aria-busy");
+    }
+  }
 }
 
 async function toggleAlbumStar(button) {

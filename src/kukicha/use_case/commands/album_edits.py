@@ -75,7 +75,12 @@ from ..musicbrainz import (
     normalize_musicbrainz_mbid,
 )
 from ...player_common import optional_int, placeholders_for
-from ...player_runtime import PlayerJobCancelToken, PlayerJobResult, PlayerRuntime
+from ...player_runtime import (
+    PlayerJobCanceled,
+    PlayerJobCancelToken,
+    PlayerJobResult,
+    PlayerRuntime,
+)
 from ...scanner import (
     DOWNLOAD_CHUNK_SIZE,
     s3_user_metadata,
@@ -265,6 +270,51 @@ class AlbumEditResult:
     cover_art_resolution: CoverArtResolutionStats
 
 
+@dataclass(frozen=True, slots=True)
+class BulkAlbumMetadataEditRowRequest:
+    album_id: str
+    track_ids: tuple[int, ...]
+    metadata_url: str
+    loaded_metadata_url: str = ""
+    loaded_metadata_mixed: bool = False
+    album_label: str = ""
+    group_label: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class BulkAlbumMetadataEditJob:
+    rows: tuple[BulkAlbumMetadataEditRowRequest, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class BulkAlbumMetadataEditFailure:
+    album_label: str
+    group_label: str
+    metadata_url: str
+    reason: str
+
+
+@dataclass(frozen=True, slots=True)
+class BulkAlbumMetadataEditCurrentChange:
+    album_label: str
+    group_label: str
+    loaded_metadata_url: str
+    loaded_metadata_mixed: bool
+    current_metadata_url: str
+    current_metadata_mixed: bool
+
+
+@dataclass(frozen=True, slots=True)
+class BulkAlbumMetadataEditResult:
+    rows_updated: int
+    rows_cleared: int
+    rows_skipped: int
+    rows_failed: int
+    tracks_updated: int
+    failures: tuple[BulkAlbumMetadataEditFailure, ...] = ()
+    changed_since_loaded: tuple[BulkAlbumMetadataEditCurrentChange, ...] = ()
+
+
 def prepare_album_edit_job(
     database: Path,
     album_id: str,
@@ -303,6 +353,51 @@ def combined_album_musicbrainz_payload(payload: dict[str, Any]) -> dict[str, Any
         return raw_musicbrainz
 
     return raw_musicbrainz if raw_musicbrainz else None
+
+
+def prepare_bulk_album_metadata_edit_job(
+    payload: dict[str, Any],
+) -> BulkAlbumMetadataEditJob:
+    raw_rows = payload.get("rows")
+    if not isinstance(raw_rows, list) or not raw_rows:
+        raise ValueError("at least one metadata URL change is required")
+
+    rows: list[BulkAlbumMetadataEditRowRequest] = []
+    seen_track_ids: set[int] = set()
+    for raw_row in raw_rows:
+        if not isinstance(raw_row, dict):
+            raise ValueError("invalid metadata URL row")
+        raw_album_id = raw_row.get("album_id")
+        if not isinstance(raw_album_id, str) or not raw_album_id.strip():
+            raise ValueError("album id is required")
+        raw_metadata_url = raw_row.get("metadata_url", "")
+        if not isinstance(raw_metadata_url, str):
+            raise ValueError("Metadata URL must be a string")
+        raw_loaded_metadata_url = raw_row.get("loaded_metadata_url", "")
+        if not isinstance(raw_loaded_metadata_url, str):
+            raise ValueError("Loaded metadata URL must be a string")
+        track_ids = parse_album_musicbrainz_track_ids(raw_row.get("track_ids"))
+        for track_id in track_ids:
+            if track_id in seen_track_ids:
+                raise ValueError(f"duplicate track id: {track_id}")
+            seen_track_ids.add(track_id)
+        rows.append(
+            BulkAlbumMetadataEditRowRequest(
+                album_id=raw_album_id.strip(),
+                track_ids=track_ids,
+                metadata_url=raw_metadata_url.strip(),
+                loaded_metadata_url=raw_loaded_metadata_url.strip(),
+                loaded_metadata_mixed=bool(raw_row.get("loaded_metadata_mixed")),
+                album_label=optional_string(raw_row.get("album_label")),
+                group_label=optional_string(raw_row.get("group_label")),
+            )
+        )
+
+    return BulkAlbumMetadataEditJob(rows=tuple(rows))
+
+
+def optional_string(value: object) -> str:
+    return value.strip() if isinstance(value, str) else ""
 
 
 def prepare_album_musicbrainz_edit_request(
@@ -1613,6 +1708,230 @@ def edit_library_album_edit(
     )
 
 
+def edit_library_bulk_album_metadata_urls(
+    database: Path,
+    job: BulkAlbumMetadataEditJob,
+    *,
+    album_artist_split_patterns: Iterable[str | None] = DEFAULT_ALBUM_ARTIST_SPLIT_PATTERNS,
+    prefer_musicbrainz_english_aliases: bool = True,
+    cancel_check: Callable[[], None] | None = None,
+) -> BulkAlbumMetadataEditResult:
+    rows_updated = 0
+    rows_cleared = 0
+    rows_skipped = 0
+    rows_failed = 0
+    tracks_updated = 0
+    failures: list[BulkAlbumMetadataEditFailure] = []
+    changed_since_loaded: list[BulkAlbumMetadataEditCurrentChange] = []
+
+    for row in job.rows:
+        try:
+            if cancel_check is not None:
+                cancel_check()
+            current_url, current_mixed = current_metadata_url_for_bulk_row(
+                database,
+                row.album_id,
+                row.track_ids,
+            )
+            if (
+                row.loaded_metadata_mixed
+                or current_mixed
+                or current_url != row.loaded_metadata_url
+            ):
+                changed_since_loaded.append(
+                    BulkAlbumMetadataEditCurrentChange(
+                        album_label=bulk_row_album_label(database, row),
+                        group_label=row.group_label,
+                        loaded_metadata_url=row.loaded_metadata_url,
+                        loaded_metadata_mixed=row.loaded_metadata_mixed,
+                        current_metadata_url=current_url,
+                        current_metadata_mixed=current_mixed,
+                    )
+                )
+            if not current_mixed and current_url == row.metadata_url:
+                rows_skipped += 1
+                continue
+
+            row_job = prepare_album_musicbrainz_edit_job(
+                database,
+                row.album_id,
+                {
+                    "metadata_url": row.metadata_url,
+                    "track_ids": list(row.track_ids),
+                },
+            )
+            row_result = edit_library_album_musicbrainz(
+                database,
+                row_job,
+                album_artist_split_patterns=album_artist_split_patterns,
+                prefer_musicbrainz_english_aliases=prefer_musicbrainz_english_aliases,
+                cancel_check=cancel_check,
+            )
+            if row_result.ids_cleared:
+                rows_cleared += 1
+            else:
+                rows_updated += 1
+                tracks_updated += row_result.tracks_updated
+        except PlayerJobCanceled:
+            raise
+        except Exception as error:
+            rows_failed += 1
+            failures.append(
+                BulkAlbumMetadataEditFailure(
+                    album_label=bulk_row_album_label(database, row),
+                    group_label=row.group_label,
+                    metadata_url=row.metadata_url,
+                    reason=brief_album_metadata_row_error(error),
+                )
+            )
+
+    return BulkAlbumMetadataEditResult(
+        rows_updated=rows_updated,
+        rows_cleared=rows_cleared,
+        rows_skipped=rows_skipped,
+        rows_failed=rows_failed,
+        tracks_updated=tracks_updated,
+        failures=tuple(failures),
+        changed_since_loaded=tuple(changed_since_loaded),
+    )
+
+
+def current_metadata_url_for_bulk_row(
+    database: Path,
+    album_id: str,
+    track_ids: tuple[int, ...],
+) -> tuple[str, bool]:
+    connection = connect_existing_database(database)
+    try:
+        placeholders = placeholders_for(track_ids)
+        rows = list(
+            connection.execute(
+                f"""
+                SELECT track_id, album_id, path
+                FROM library_tracks
+                WHERE track_id IN ({placeholders})
+                ORDER BY track_id
+                """,
+                track_ids,
+            )
+        )
+        rows_by_id = {int(row["track_id"]): row for row in rows}
+        missing_track_ids = [
+            track_id
+            for track_id in track_ids
+            if track_id not in rows_by_id
+        ]
+        if missing_track_ids:
+            raise TrackNotFoundError(missing_track_ids[0])
+        for track_id in track_ids:
+            row_album_id = str(rows_by_id[track_id]["album_id"] or "")
+            if row_album_id != album_id:
+                raise ValueError(f"track does not belong to album: {track_id}")
+
+        paths = tuple(str(row["path"]) for row in rows)
+        track_links = load_album_metadata_track_links(connection, paths)
+        link_values = tuple(
+            dict.fromkeys(
+                (
+                    link.provider,
+                    link.entity_type,
+                    link.entity_id,
+                )
+                for path in paths
+                for link in (track_links.get(path),)
+                if link is not None and link.provider and link.entity_id
+            )
+        )
+        if len(link_values) == 1:
+            return metadata_url_for_values(*link_values[0]), False
+        if len(link_values) > 1:
+            return "", True
+
+        album_track_rows = list(
+            connection.execute(
+                """
+                SELECT track_id
+                FROM library_tracks
+                WHERE album_id = ?
+                """,
+                (album_id,),
+            )
+        )
+        album_track_ids = {int(row["track_id"]) for row in album_track_rows}
+        if album_track_ids == set(track_ids):
+            return metadata_url_for_link(
+                album_metadata_link_for_album_id(connection, album_id)
+            ), False
+        return "", False
+    finally:
+        connection.close()
+
+
+def metadata_url_for_link(link: object) -> str:
+    if link is None:
+        return ""
+    return metadata_url_for_values(
+        getattr(link, "provider", None),
+        getattr(link, "entity_type", None),
+        getattr(link, "entity_id", None),
+    )
+
+
+def metadata_url_for_values(
+    provider: object,
+    entity_type: object,
+    entity_id: object,
+) -> str:
+    provider_text = str(provider or "")
+    entity_type_text = str(entity_type or "")
+    entity_id_text = str(entity_id or "")
+    if not provider_text or not entity_type_text or not entity_id_text:
+        return ""
+    if provider_text == METADATA_PROVIDER_MUSICBRAINZ:
+        if entity_type_text == METADATA_ENTITY_RELEASE:
+            return f"https://musicbrainz.org/release/{entity_id_text}"
+        if entity_type_text == METADATA_ENTITY_RELEASE_GROUP:
+            return f"https://musicbrainz.org/release-group/{entity_id_text}"
+    if provider_text == METADATA_PROVIDER_DISCOGS:
+        if entity_type_text == METADATA_ENTITY_RELEASE:
+            return f"https://www.discogs.com/release/{entity_id_text}"
+        if entity_type_text == METADATA_ENTITY_MASTER:
+            return f"https://www.discogs.com/master/{entity_id_text}"
+    return ""
+
+
+def bulk_row_album_label(
+    database: Path,
+    row: BulkAlbumMetadataEditRowRequest,
+) -> str:
+    if row.album_label:
+        return row.album_label
+    connection = connect_existing_database(database)
+    try:
+        album_row = connection.execute(
+            """
+            SELECT album
+            FROM library_albums
+            WHERE album_id = ?
+            """,
+            (row.album_id,),
+        ).fetchone()
+        if album_row is None:
+            return row.album_id
+        artist_label = album_artist_display_text(connection, row.album_id)
+        album_name = str(album_row["album"]) if album_row["album"] else "<unknown album>"
+        return album_display_label(artist_label, album_name)
+    finally:
+        connection.close()
+
+
+def brief_album_metadata_row_error(error: BaseException) -> str:
+    reason = str(error).strip()
+    if not reason:
+        return error.__class__.__name__
+    return reason.splitlines()[0][:240]
+
+
 def run_edit_album_job(
     runtime: PlayerRuntime,
     job: AlbumTagEditJob,
@@ -1728,3 +2047,98 @@ def run_edit_album_musicbrainz_job(
             "rescan_recommended": True,
         },
     )
+
+
+def run_bulk_album_metadata_edit_job(
+    runtime: PlayerRuntime,
+    job: BulkAlbumMetadataEditJob,
+    cancel_token: PlayerJobCancelToken,
+) -> PlayerJobResult:
+    started_at = perf_counter()
+    result = edit_library_bulk_album_metadata_urls(
+        runtime.database,
+        job,
+        album_artist_split_patterns=runtime.album_artist_split_patterns,
+        prefer_musicbrainz_english_aliases=runtime.prefer_musicbrainz_english_aliases,
+        cancel_check=cancel_token.raise_if_canceled,
+    )
+    duration_seconds = perf_counter() - started_at
+    LOGGER.info(
+        "bulk metadata URL edit completed (updated=%s, cleared=%s, skipped=%s, failed=%s, duration=%.2fs)",
+        result.rows_updated,
+        result.rows_cleared,
+        result.rows_skipped,
+        result.rows_failed,
+        duration_seconds,
+    )
+    context: dict[str, object] = {
+        "rows_updated": result.rows_updated,
+        "rows_cleared": result.rows_cleared,
+        "rows_skipped": result.rows_skipped,
+        "rows_failed": result.rows_failed,
+        "tracks_updated": result.tracks_updated,
+        "duration_seconds": duration_seconds,
+    }
+    if result.rows_updated:
+        context["rescan_recommended"] = True
+    failed_rows = format_bulk_metadata_failures(result.failures)
+    if failed_rows:
+        context["failed_rows"] = failed_rows
+    changed_rows = format_bulk_metadata_current_changes(result.changed_since_loaded)
+    if changed_rows:
+        context["changed_since_loaded"] = changed_rows
+
+    return PlayerJobResult(
+        message=bulk_album_metadata_edit_message(result),
+        context=context,
+    )
+
+
+def bulk_album_metadata_edit_message(result: BulkAlbumMetadataEditResult) -> str:
+    parts = [
+        f"{result.rows_updated} updated",
+        f"{result.rows_cleared} cleared",
+        f"{result.rows_skipped} skipped",
+        f"{result.rows_failed} failed",
+    ]
+    message = f"Bulk metadata URL edit finished: {', '.join(parts)}."
+    if result.rows_updated:
+        message += " Rescan the library to update library filters, artists, and stats."
+    return message
+
+
+def format_bulk_metadata_failures(
+    failures: tuple[BulkAlbumMetadataEditFailure, ...],
+) -> str:
+    return "; ".join(
+        bulk_metadata_failure_label(failure)
+        for failure in failures
+    )
+
+
+def bulk_metadata_failure_label(failure: BulkAlbumMetadataEditFailure) -> str:
+    label = failure.album_label
+    if failure.group_label:
+        label = f"{label} ({failure.group_label})"
+    metadata_url = failure.metadata_url or "<cleared>"
+    return f"{label}: {metadata_url} - {failure.reason}"
+
+
+def format_bulk_metadata_current_changes(
+    changes: tuple[BulkAlbumMetadataEditCurrentChange, ...],
+) -> str:
+    return "; ".join(
+        bulk_metadata_current_change_label(change)
+        for change in changes
+    )
+
+
+def bulk_metadata_current_change_label(
+    change: BulkAlbumMetadataEditCurrentChange,
+) -> str:
+    label = change.album_label
+    if change.group_label:
+        label = f"{label} ({change.group_label})"
+    loaded = "mixed" if change.loaded_metadata_mixed else change.loaded_metadata_url or "<empty>"
+    current = "mixed" if change.current_metadata_mixed else change.current_metadata_url or "<empty>"
+    return f"{label}: loaded {loaded}, current {current}"
