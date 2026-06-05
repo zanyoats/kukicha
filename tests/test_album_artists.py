@@ -6,6 +6,7 @@ from kukicha.album_artists import (
     DEFAULT_ALBUM_ARTIST_SPLIT_PATTERNS,
     album_artist_has_split_pattern,
     default_album_artist_mapping,
+    display_track_artist_lines,
 )
 
 
@@ -66,3 +67,27 @@ class AlbumArtistSplitMappingTest(unittest.TestCase):
             album_artist_has_split_pattern(value, DEFAULT_ALBUM_ARTIST_SPLIT_PATTERNS)
         )
         self.assertEqual(default_album_artist_mapping(value), (value,))
+
+    def test_display_track_artist_lines_splits_active_semicolon_pattern(self) -> None:
+        self.assertEqual(
+            display_track_artist_lines(
+                "Spiritualized;J. Spaceman;Sean Cook",
+                DEFAULT_ALBUM_ARTIST_SPLIT_PATTERNS,
+            ),
+            ("Spiritualized", "J. Spaceman", "Sean Cook"),
+        )
+
+    def test_display_track_artist_lines_uses_active_patterns_only(self) -> None:
+        self.assertEqual(
+            display_track_artist_lines("Spiritualized;J. Spaceman", ("&",)),
+            ("Spiritualized;J. Spaceman",),
+        )
+
+    def test_display_track_artist_lines_does_not_split_hyphen_pattern(self) -> None:
+        self.assertEqual(
+            display_track_artist_lines(
+                "Brian Eno - Jon Hopkins",
+                DEFAULT_ALBUM_ARTIST_SPLIT_PATTERNS,
+            ),
+            ("Brian Eno - Jon Hopkins",),
+        )

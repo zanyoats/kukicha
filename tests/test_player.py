@@ -160,6 +160,7 @@ from kukicha.player_presenters import (
     reset_queue_state,
     track_playback_payload,
     track_view,
+    track_views_with_artist_display_lines,
     valid_playback_ids,
 )
 from kukicha.player_views import (
@@ -1716,6 +1717,60 @@ class PlayerPlaylistMembershipTest(unittest.TestCase):
         self.assertLess(html.index("<th>Cover</th>"), html.index("<th>Artist</th>"))
         self.assertLess(html.index('<td class="cover-cell">'), html.index("Track Artist"))
         self.assertIn('<td class="track-artist">Track Artist</td>', html)
+
+    def test_track_table_can_show_track_artist_display_lines(self) -> None:
+        view = replace(
+            make_track_view(
+                7,
+                root_position=0,
+                path="/music/Album/07.mp3",
+                album_artist="Album Artist",
+                artist="Spiritualized;J. Spaceman;Sean Cook",
+            ),
+            track_artist_display_lines=("Spiritualized", "J. Spaceman", "Sean Cook"),
+        )
+
+        html = build_template_environment().get_template("player/_track_table.html").render(
+            table_rows=[{"track": view, "group_label": ""}],
+            is_queue=False,
+            queue_state=PlayerQueueState(track_ids=[]),
+            show_track_artist=True,
+        )
+
+        self.assertIn('<td class="track-artist track-artist-lines">', html)
+        self.assertIn('<span class="track-artist-line">Spiritualized</span>', html)
+        self.assertIn("<br>", html)
+        self.assertIn('<span class="track-artist-line">J. Spaceman</span>', html)
+        self.assertIn('<span class="track-artist-line">Sean Cook</span>', html)
+
+    def test_track_artist_display_lines_follow_default_display_rules(self) -> None:
+        views = track_views_with_artist_display_lines(
+            [
+                make_track_view(
+                    7,
+                    root_position=0,
+                    path="/music/Album/07.mp3",
+                    artist="Spiritualized;J. Spaceman;Sean Cook",
+                ),
+                make_track_view(
+                    8,
+                    root_position=0,
+                    path="/music/Album/08.mp3",
+                    artist="Brian Eno - Jon Hopkins",
+                ),
+            ],
+            split_patterns=DEFAULT_ALBUM_ARTIST_SPLIT_PATTERNS,
+        )
+
+        self.assertEqual(
+            views[0].track_artist_display_lines,
+            ("Spiritualized", "J. Spaceman", "Sean Cook"),
+        )
+        self.assertEqual(
+            views[1].track_artist_display_lines,
+            ("Brian Eno - Jon Hopkins",),
+        )
+        self.assertEqual(views[0].artist, "Spiritualized;J. Spaceman;Sean Cook")
 
     def test_track_table_renders_queue_error_status(self) -> None:
         view = make_track_view(

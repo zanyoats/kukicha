@@ -3196,6 +3196,14 @@ tbody tr.selected {
   white-space: nowrap;
 }
 
+.track-artist-lines {
+  line-height: 1.35;
+}
+
+.track-artist-line {
+  display: inline-block;
+}
+
 .duration-indeterminate {
   display: inline-flex;
   align-items: center;

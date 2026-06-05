@@ -815,6 +815,7 @@ def build_album_context(
         album_track_meta,
         album_track_sections,
         track_view,
+        track_views_with_artist_display_lines,
         track_views_with_playlist_options,
     )
 
@@ -824,6 +825,10 @@ def build_album_context(
     track_views = track_views_with_playlist_options(
         runtime.database,
         [track_view(track) for track in album.tracks],
+    )
+    track_views = track_views_with_artist_display_lines(
+        track_views,
+        split_patterns=runtime.album_artist_split_patterns,
     )
     roots = api.library_roots()
     track_sections = album_track_sections(track_views, roots)

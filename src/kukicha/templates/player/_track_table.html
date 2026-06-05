@@ -8,7 +8,18 @@
 
 {% macro track_artist_cell(track) -%}
   {% if show_track_artist %}
-    <td class="track-artist">{{ track.artist or track.album_artist }}</td>
+    {% set artist_text = track.artist or track.album_artist %}
+    {% set artist_lines = track.track_artist_display_lines or [artist_text] %}
+    {% if artist_lines|length > 1 %}
+      <td class="track-artist track-artist-lines">
+        {%- for artist in artist_lines -%}
+          {%- if not loop.first %}<br>{% endif -%}
+          <span class="track-artist-line">{{ artist }}</span>
+        {%- endfor -%}
+      </td>
+    {% else %}
+      <td class="track-artist">{{ artist_lines[0] if artist_lines else artist_text }}</td>
+    {% endif %}
   {% endif %}
 {%- endmacro %}
 

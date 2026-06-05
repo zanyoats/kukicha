@@ -7,6 +7,7 @@ from pathlib import Path
 import re
 from urllib.parse import urlsplit
 
+from .album_artists import display_track_artist_lines
 from .discogs import most_common_value
 from .use_case import (
     AlbumDetails,
@@ -71,6 +72,7 @@ class TrackView:
     has_playlist_membership: bool = False
     playlist_options: tuple[PlaylistMenuOption, ...] | None = None
     duration_is_indeterminate: bool = False
+    track_artist_display_lines: tuple[str, ...] = ()
 
     @property
     def is_playlist_item(self) -> bool:
@@ -365,6 +367,22 @@ def track_views_with_playlist_options(
         if view.library_track_id is not None
         else view
         for view in views
+    ]
+
+def track_views_with_artist_display_lines(
+    track_views: Iterable[TrackView],
+    *,
+    split_patterns: Iterable[str | None],
+) -> list[TrackView]:
+    return [
+        replace(
+            view,
+            track_artist_display_lines=display_track_artist_lines(
+                view.artist or view.album_artist,
+                split_patterns,
+            ),
+        )
+        for view in track_views
     ]
 
 def track_view(track: PlaylistTrack) -> TrackView:

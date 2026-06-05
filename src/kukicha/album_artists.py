@@ -60,6 +60,44 @@ def default_album_artist_mapping(value: str | None) -> tuple[str, ...]:
     return normalized_album_artist_values(re.split(r"/", split_text))
 
 
+def display_track_artist_lines(
+    value: str | None,
+    patterns: Iterable[str | None],
+) -> tuple[str, ...]:
+    text = (value or "").strip()
+    if not text:
+        return ()
+
+    try:
+        normalized_patterns = normalize_album_artist_split_patterns(patterns)
+    except TypeError:
+        normalized_patterns = DEFAULT_ALBUM_ARTIST_SPLIT_PATTERNS
+    active_patterns = {pattern.casefold() for pattern in normalized_patterns}
+    split_text = text
+    split_with = (
+        "with" in active_patterns
+        and "&" in active_patterns
+        and "&" in split_text
+        and WITH_WORD_RE.search(split_text) is not None
+    )
+    if split_with:
+        split_text = WITH_WORD_RE.sub(",", split_text)
+
+    separators: list[str] = []
+    for separator in ("/", ";", "&"):
+        if separator in active_patterns:
+            separators.append(separator)
+    if ("," in active_patterns and "&" in text) or split_with:
+        separators.append(",")
+
+    if not separators:
+        return normalized_album_artist_values((text,))
+
+    return normalized_album_artist_values(
+        re.split("|".join(re.escape(separator) for separator in separators), split_text)
+    )
+
+
 def mapped_album_artist_text(artists: Iterable[str | None]) -> str:
     return "\n".join(normalized_album_artist_values(artists))
 
