@@ -1349,6 +1349,7 @@ class RecommendationServiceTest(unittest.TestCase):
 
     def test_track_radio_applies_mode_specific_listening_adjustments(self) -> None:
         database = self.build_database()
+        recently_played_at = datetime.now(timezone.utc).isoformat()
         with connect_database(database, create=False) as connection:
             connection.execute(
                 """
@@ -1374,7 +1375,7 @@ class RecommendationServiceTest(unittest.TestCase):
                 (
                     "/music/closest/01.flac",
                     100,
-                    "2000-01-01T00:00:00+00:00",
+                    recently_played_at,
                     2,
                     "album-2",
                     "/music/closest/01.flac",
@@ -1385,23 +1386,75 @@ class RecommendationServiceTest(unittest.TestCase):
             )
         service = RecommendationService(database)
 
+        default_result_list = service.get_track_radio(1, limit=10)
+        discovery_result_list = service.get_track_radio(
+            1,
+            mode=RECOMMENDATION_MODE_DISCOVERY,
+            limit=10,
+        )
         default_results = {
             result.candidate.metadata.track_id: result
-            for result in service.get_track_radio(1, limit=10)
+            for result in default_result_list
         }
         discovery_results = {
             result.candidate.metadata.track_id: result
-            for result in service.get_track_radio(
-                1,
-                mode=RECOMMENDATION_MODE_DISCOVERY,
-                limit=10,
-            )
+            for result in discovery_result_list
         }
 
         self.assertEqual(default_results[2].score.favorite_boost, 0.05)
         self.assertEqual(default_results[2].score.track_play_penalty, 0.05)
+        self.assertEqual(default_results[2].score.recency_penalty, 0.30)
         self.assertEqual(discovery_results[2].score.favorite_boost, 0.0)
         self.assertEqual(discovery_results[2].score.track_play_penalty, 0.30)
+        self.assertEqual(discovery_results[2].score.recency_penalty, 0.50)
+        default_track_ids = [
+            result.candidate.metadata.track_id
+            for result in default_result_list
+        ]
+        discovery_track_ids = [
+            result.candidate.metadata.track_id
+            for result in discovery_result_list
+        ]
+        self.assertLess(
+            default_track_ids.index(2),
+            default_track_ids.index(4),
+        )
+        self.assertLess(
+            discovery_track_ids.index(4),
+            discovery_track_ids.index(2),
+        )
+
+    def test_genre_only_track_radio_uses_only_genre_matches(self) -> None:
+        service = RecommendationService(self.build_database())
+
+        default_results = {
+            result.candidate.metadata.track_id: result
+            for result in service.get_track_radio(1, limit=10)
+        }
+        genre_only_results = {
+            result.candidate.metadata.track_id: result
+            for result in service.get_track_radio(
+                1,
+                mode=RECOMMENDATION_MODE_GENRE_ONLY,
+                limit=10,
+            )
+        }
+
+        self.assertGreater(
+            default_results[2].score.base_similarity,
+            default_results[4].score.base_similarity,
+        )
+        self.assertAlmostEqual(genre_only_results[2].score.base_similarity, 1.0)
+        self.assertAlmostEqual(genre_only_results[4].score.base_similarity, 1.0)
+        self.assertEqual(genre_only_results[3].score.base_similarity, 0.0)
+        self.assertEqual(
+            genre_only_results[2].explanation.matched_genres,
+            ("Rock",),
+        )
+        self.assertEqual(genre_only_results[2].explanation.matched_styles, ())
+        self.assertIsNone(genre_only_results[2].explanation.matched_decade)
+        self.assertFalse(genre_only_results[3].explanation.same_artist)
+        self.assertIsNone(genre_only_results[3].explanation.matched_decade)
 
     def test_track_radio_applies_limit_after_ranking(self) -> None:
         service = RecommendationService(self.build_database())
@@ -1469,6 +1522,69 @@ class RecommendationServiceTest(unittest.TestCase):
             results_by_id[7].explanation.matched_styles,
             ("Minimalism",),
         )
+
+    def test_genre_only_album_and_artist_radio_use_only_genre_reasons(self) -> None:
+        service = RecommendationService(self.build_multi_seed_database())
+
+        album_results = {
+            result.candidate.metadata.track_id: result
+            for result in service.get_album_radio(
+                "album-seed",
+                mode=RECOMMENDATION_MODE_GENRE_ONLY,
+                limit=10,
+            )
+        }
+        artist_results = {
+            result.candidate.metadata.track_id: result
+            for result in service.get_artist_radio(
+                "Seed Artist",
+                mode=RECOMMENDATION_MODE_GENRE_ONLY,
+                limit=10,
+            )
+        }
+
+        self.assertGreater(album_results[3].score.base_similarity, 0.0)
+        self.assertEqual(
+            album_results[3].explanation.matched_genres,
+            ("Ambient",),
+        )
+        self.assertEqual(album_results[3].explanation.matched_styles, ())
+        self.assertIsNone(album_results[3].explanation.matched_decade)
+
+        self.assertGreater(artist_results[7].score.base_similarity, 0.0)
+        self.assertEqual(
+            artist_results[7].explanation.matched_genres,
+            ("Electronic",),
+        )
+        self.assertEqual(artist_results[7].explanation.matched_styles, ())
+        self.assertIsNone(artist_results[7].explanation.matched_decade)
+
+    def test_discovery_album_and_artist_radio_can_run(self) -> None:
+        service = RecommendationService(self.build_multi_seed_database())
+
+        album_results = service.get_album_radio(
+            "album-seed",
+            mode=RECOMMENDATION_MODE_DISCOVERY,
+            limit=10,
+        )
+        artist_results = service.get_artist_radio(
+            "Seed Artist",
+            mode=RECOMMENDATION_MODE_DISCOVERY,
+            limit=10,
+        )
+
+        self.assertGreater(len(album_results), 0)
+        self.assertGreater(len(artist_results), 0)
+
+    def test_invalid_modes_are_rejected_by_radio_surfaces(self) -> None:
+        service = RecommendationService(self.build_multi_seed_database())
+
+        with self.assertRaises(RecommendationModeError):
+            service.get_track_radio(1, mode="ambient_only")
+        with self.assertRaises(RecommendationModeError):
+            service.get_album_radio("album-seed", mode="ambient_only")
+        with self.assertRaises(RecommendationModeError):
+            service.get_artist_radio("Seed Artist", mode="ambient_only")
 
     def test_album_and_artist_radio_missing_seeds_raise_query_errors(self) -> None:
         service = RecommendationService(self.build_multi_seed_database())

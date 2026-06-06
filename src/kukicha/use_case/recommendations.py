@@ -946,6 +946,7 @@ def score_recommendation_candidate(
             candidate,
             seed_candidates,
             score=score,
+            config=resolved_config,
         ),
     )
 
@@ -1112,7 +1113,11 @@ def build_recommendation_explanation(
     seed_candidates: Iterable[RecommendationCandidate] = (),
     *,
     score: RecommendationScore | None = None,
+    mode: object | None = None,
+    config: RecommendationModeConfig | None = None,
 ) -> RecommendationExplanation:
+    resolved_config = recommendation_scoring_config(mode=mode, config=config)
+    weights = resolved_config.feature_weights
     seed_candidate_pool = tuple(seed_candidates)
     seed_metadata = tuple(seed.metadata for seed in seed_candidate_pool)
     return RecommendationExplanation(
@@ -1120,20 +1125,28 @@ def build_recommendation_explanation(
             candidate.metadata.genres,
             seed_metadata,
             lambda metadata: metadata.genres,
-        ),
+        )
+        if weights.genres > 0
+        else (),
         matched_styles=recommendation_matched_metadata_values(
             candidate.metadata.styles,
             seed_metadata,
             lambda metadata: metadata.styles,
-        ),
+        )
+        if weights.styles > 0
+        else (),
         matched_decade=recommendation_matched_decade(
             candidate.metadata,
             seed_metadata,
-        ),
+        )
+        if weights.decade > 0
+        else None,
         same_artist=recommendation_has_same_artist(
             candidate.metadata,
             seed_metadata,
-        ),
+        )
+        if weights.artist > 0
+        else False,
         score=score or RecommendationScore(),
     )
 
