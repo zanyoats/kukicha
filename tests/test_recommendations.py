@@ -28,6 +28,7 @@ from kukicha.use_case import (
     RecommendationModeError,
     RecommendationProfileSeed,
     RecommendationRequest,
+    RecommendationService,
     TrackNotFoundError,
     add_sparse_vectors,
     build_recommendation_album_profile,
@@ -713,6 +714,196 @@ class RecommendationCandidateLoadingTest(unittest.TestCase):
             [1, 2],
         )
         self.assertEqual(queries.get_candidate(1).metadata.title, "Bright Arc")
+
+
+class RecommendationServiceTest(unittest.TestCase):
+    def build_database(self) -> Path:
+        tempdir = TemporaryDirectory()
+        self.addCleanup(tempdir.cleanup)
+        database = Path(tempdir.name) / "library.sqlite"
+        with connect_database(database) as connection:
+            connection.executemany(
+                """
+                INSERT INTO library_albums (album_id, album, year, track_count)
+                VALUES (?, ?, ?, ?)
+                """,
+                (
+                    ("album-1", "Seed Album", 1992, 1),
+                    ("album-2", "Closest Album", 1992, 1),
+                    ("album-3", "Artist Drift", 1992, 1),
+                    ("album-4", "Garage Album", 1985, 1),
+                    ("album-5", "Quiet Album", 1975, 1),
+                    ("album-6", "Quiet Album II", 1975, 1),
+                ),
+            )
+            connection.executemany(
+                """
+                INSERT INTO library_tracks (
+                    track_id,
+                    album_id,
+                    path,
+                    file_type,
+                    scan_error,
+                    artist,
+                    album_artist,
+                    album,
+                    title,
+                    date
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    (
+                        1,
+                        "album-1",
+                        "/music/seed/01.flac",
+                        "flac",
+                        None,
+                        "Seed Artist",
+                        "Seed Artist",
+                        "Seed Album",
+                        "Seed Song",
+                        "1992-04-01",
+                    ),
+                    (
+                        2,
+                        "album-2",
+                        "/music/closest/01.flac",
+                        "flac",
+                        None,
+                        "Other Artist",
+                        "Other Artist",
+                        "Closest Album",
+                        "Closest Song",
+                        "1992",
+                    ),
+                    (
+                        3,
+                        "album-3",
+                        "/music/drift/01.flac",
+                        "flac",
+                        None,
+                        "Seed Artist",
+                        "Seed Artist",
+                        "Artist Drift",
+                        "Same Artist Drift",
+                        "1992",
+                    ),
+                    (
+                        4,
+                        "album-4",
+                        "/music/garage/01.flac",
+                        "flac",
+                        None,
+                        "Garage Band",
+                        "Garage Band",
+                        "Garage Album",
+                        "Genre Cousin",
+                        "1985",
+                    ),
+                    (
+                        5,
+                        "album-5",
+                        "/music/quiet/01.flac",
+                        "flac",
+                        None,
+                        "Quiet Artist",
+                        "Quiet Artist",
+                        "Quiet Album",
+                        "Quiet One",
+                        "1975",
+                    ),
+                    (
+                        6,
+                        "album-6",
+                        "/music/quiet/02.flac",
+                        "flac",
+                        None,
+                        "Another Quiet Artist",
+                        "Another Quiet Artist",
+                        "Quiet Album II",
+                        "Quiet Two",
+                        "1975",
+                    ),
+                ),
+            )
+            connection.executemany(
+                """
+                INSERT INTO library_track_genres (track_id, position, genre)
+                VALUES (?, ?, ?)
+                """,
+                (
+                    (1, 0, "Rock"),
+                    (2, 0, "Rock"),
+                    (3, 0, "Modern Classical"),
+                    (4, 0, "Rock"),
+                    (5, 0, "Ambient"),
+                    (6, 0, "Ambient"),
+                ),
+            )
+            connection.executemany(
+                """
+                INSERT INTO library_track_styles (track_id, position, style)
+                VALUES (?, ?, ?)
+                """,
+                (
+                    (1, 0, "Dream Pop"),
+                    (2, 0, "Dream Pop"),
+                    (3, 0, "Minimalism"),
+                    (4, 0, "Garage Rock"),
+                    (5, 0, "Drone"),
+                    (6, 0, "Drone"),
+                ),
+            )
+        return database
+
+    def test_track_radio_excludes_seed_and_ranks_default_similarity(self) -> None:
+        service = RecommendationService(self.build_database())
+
+        results = service.get_track_radio(1, limit=10)
+
+        track_ids = [result.candidate.metadata.track_id for result in results]
+        self.assertNotIn(1, track_ids)
+        self.assertEqual(track_ids[0], 2)
+        self.assertLess(track_ids.index(4), track_ids.index(3))
+        self.assertLess(track_ids.index(3), track_ids.index(5))
+        self.assertLess(track_ids.index(5), track_ids.index(6))
+
+        results_by_id = {
+            result.candidate.metadata.track_id: result
+            for result in results
+        }
+        self.assertGreater(
+            results_by_id[2].score.base_similarity,
+            results_by_id[3].score.base_similarity,
+        )
+        self.assertGreater(
+            results_by_id[3].score.base_similarity,
+            results_by_id[5].score.base_similarity,
+        )
+        self.assertEqual(
+            results_by_id[5].score.base_similarity,
+            results_by_id[6].score.base_similarity,
+        )
+        self.assertEqual(
+            results_by_id[2].score.final_score,
+            results_by_id[2].score.base_similarity,
+        )
+
+    def test_track_radio_applies_limit_after_ranking(self) -> None:
+        service = RecommendationService(self.build_database())
+
+        results = service.get_track_radio(1, limit=2)
+
+        self.assertEqual(
+            [result.candidate.metadata.track_id for result in results],
+            [2, 4],
+        )
+
+    def test_track_radio_missing_seed_raises_track_not_found(self) -> None:
+        service = RecommendationService(self.build_database())
+
+        with self.assertRaises(TrackNotFoundError):
+            service.get_track_radio(404)
 
 
 if __name__ == "__main__":

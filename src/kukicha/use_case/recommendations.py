@@ -502,6 +502,45 @@ class RecommendationQueries:
             return load_recommendation_candidate(connection, track_id)
 
 
+class RecommendationService:
+    def __init__(self, database: str | Path) -> None:
+        self.queries = RecommendationQueries(database)
+
+    def get_track_radio(
+        self,
+        track_id: int,
+        mode: object | None = RECOMMENDATION_MODE_DEFAULT,
+        limit: object | None = DEFAULT_RECOMMENDATION_LIMIT,
+    ) -> tuple[RecommendationResult, ...]:
+        normalized_track_id = int(track_id)
+        config = recommendation_mode_config(mode)
+        normalized_limit = RECOMMENDATION_CONFIG.normalize_limit(limit)
+        candidates = self.queries.list_candidates()
+        if (
+            recommendation_candidate_by_track_id(candidates, normalized_track_id)
+            is None
+        ):
+            raise TrackNotFoundError(normalized_track_id)
+
+        vocabulary = build_recommendation_vocabulary(candidates)
+        track_vectors = build_recommendation_track_vectors(
+            candidates,
+            mode=config.mode,
+            vocabulary=vocabulary,
+        )
+        profile = build_recommendation_track_profile(
+            normalized_track_id,
+            track_vectors,
+        )
+        scored = score_recommendation_candidates(
+            profile,
+            candidates,
+            track_vectors,
+            exclude_track_ids=(normalized_track_id,),
+        )
+        return rank_recommendation_results(scored)[:normalized_limit]
+
+
 def recommendation_mode_config(mode: object | None = None) -> RecommendationModeConfig:
     return RECOMMENDATION_CONFIG.mode_config(mode)
 
@@ -710,6 +749,65 @@ def build_recommendation_profile(
         seed_track_ids=tuple(seed_track_ids),
         total_seed_weight=total_seed_weight,
     )
+
+
+def score_recommendation_candidate(
+    profile: RecommendationProfile,
+    candidate: RecommendationCandidate,
+    track_vector: Mapping[str, float],
+) -> RecommendationResult:
+    score = RecommendationScore(
+        base_similarity=sparse_cosine_similarity(profile.vector, track_vector),
+    )
+    return RecommendationResult(
+        candidate=candidate,
+        score=score,
+        explanation=RecommendationExplanation(score=score),
+    )
+
+
+def score_recommendation_candidates(
+    profile: RecommendationProfile,
+    candidates: Iterable[RecommendationCandidate],
+    track_vectors: Mapping[int, Mapping[str, float]],
+    *,
+    exclude_track_ids: Iterable[int] = (),
+) -> tuple[RecommendationResult, ...]:
+    excluded_track_ids = set(int(track_id) for track_id in exclude_track_ids)
+    return tuple(
+        score_recommendation_candidate(
+            profile,
+            candidate,
+            track_vectors.get(candidate.metadata.track_id, {}),
+        )
+        for candidate in candidates
+        if candidate.metadata.track_id not in excluded_track_ids
+    )
+
+
+def rank_recommendation_results(
+    results: Iterable[RecommendationResult],
+) -> tuple[RecommendationResult, ...]:
+    return tuple(
+        sorted(
+            results,
+            key=lambda result: (
+                -result.final_score,
+                result.candidate.metadata.track_id,
+            ),
+        )
+    )
+
+
+def recommendation_candidate_by_track_id(
+    candidates: Iterable[RecommendationCandidate],
+    track_id: int,
+) -> RecommendationCandidate | None:
+    normalized_track_id = int(track_id)
+    for candidate in candidates:
+        if candidate.metadata.track_id == normalized_track_id:
+            return candidate
+    return None
 
 
 def recommendation_candidate_rows(
@@ -1406,6 +1504,7 @@ __all__ = [
     "RecommendationRequest",
     "RecommendationResult",
     "RecommendationScore",
+    "RecommendationService",
     "RecommendationVocabulary",
     "RecencyPenalties",
     "SparseVector",
@@ -1430,7 +1529,10 @@ __all__ = [
     "recommendation_candidates_from_rows",
     "recommendation_decade",
     "recommendation_mode_config",
+    "rank_recommendation_results",
     "scale_sparse_vector",
+    "score_recommendation_candidate",
+    "score_recommendation_candidates",
     "sparse_cosine_similarity",
     "sparse_dot_product",
     "sparse_vector_norm",
