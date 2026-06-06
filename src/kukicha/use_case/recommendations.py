@@ -476,6 +476,12 @@ class RecommendationExplanation:
             "matched_styles",
             normalized_unique_text_tuple(self.matched_styles),
         )
+        object.__setattr__(
+            self,
+            "matched_decade",
+            normalize_decade_term(self.matched_decade),
+        )
+        object.__setattr__(self, "same_artist", bool(self.same_artist))
 
 
 @dataclass(frozen=True, slots=True)
@@ -516,10 +522,11 @@ class RecommendationService:
         config = recommendation_mode_config(mode)
         normalized_limit = RECOMMENDATION_CONFIG.normalize_limit(limit)
         candidates = self.queries.list_candidates()
-        if (
-            recommendation_candidate_by_track_id(candidates, normalized_track_id)
-            is None
-        ):
+        seed_candidate = recommendation_candidate_by_track_id(
+            candidates,
+            normalized_track_id,
+        )
+        if seed_candidate is None:
             raise TrackNotFoundError(normalized_track_id)
 
         vocabulary = build_recommendation_vocabulary(candidates)
@@ -537,6 +544,7 @@ class RecommendationService:
             candidates,
             track_vectors,
             exclude_track_ids=(normalized_track_id,),
+            seed_candidates=(seed_candidate,),
         )
         return rank_recommendation_results(scored)[:normalized_limit]
 
@@ -755,6 +763,8 @@ def score_recommendation_candidate(
     profile: RecommendationProfile,
     candidate: RecommendationCandidate,
     track_vector: Mapping[str, float],
+    *,
+    seed_candidates: Iterable[RecommendationCandidate] = (),
 ) -> RecommendationResult:
     score = RecommendationScore(
         base_similarity=sparse_cosine_similarity(profile.vector, track_vector),
@@ -762,7 +772,11 @@ def score_recommendation_candidate(
     return RecommendationResult(
         candidate=candidate,
         score=score,
-        explanation=RecommendationExplanation(score=score),
+        explanation=build_recommendation_explanation(
+            candidate,
+            seed_candidates,
+            score=score,
+        ),
     )
 
 
@@ -772,17 +786,102 @@ def score_recommendation_candidates(
     track_vectors: Mapping[int, Mapping[str, float]],
     *,
     exclude_track_ids: Iterable[int] = (),
+    seed_candidates: Iterable[RecommendationCandidate] = (),
 ) -> tuple[RecommendationResult, ...]:
     excluded_track_ids = set(int(track_id) for track_id in exclude_track_ids)
+    seed_candidate_pool = tuple(seed_candidates)
     return tuple(
         score_recommendation_candidate(
             profile,
             candidate,
             track_vectors.get(candidate.metadata.track_id, {}),
+            seed_candidates=seed_candidate_pool,
         )
         for candidate in candidates
         if candidate.metadata.track_id not in excluded_track_ids
     )
+
+
+def build_recommendation_explanation(
+    candidate: RecommendationCandidate,
+    seed_candidates: Iterable[RecommendationCandidate] = (),
+    *,
+    score: RecommendationScore | None = None,
+) -> RecommendationExplanation:
+    seed_candidate_pool = tuple(seed_candidates)
+    seed_metadata = tuple(seed.metadata for seed in seed_candidate_pool)
+    return RecommendationExplanation(
+        matched_genres=recommendation_matched_metadata_values(
+            candidate.metadata.genres,
+            seed_metadata,
+            lambda metadata: metadata.genres,
+        ),
+        matched_styles=recommendation_matched_metadata_values(
+            candidate.metadata.styles,
+            seed_metadata,
+            lambda metadata: metadata.styles,
+        ),
+        matched_decade=recommendation_matched_decade(
+            candidate.metadata,
+            seed_metadata,
+        ),
+        same_artist=recommendation_has_same_artist(
+            candidate.metadata,
+            seed_metadata,
+        ),
+        score=score or RecommendationScore(),
+    )
+
+
+def recommendation_matched_metadata_values(
+    candidate_values: Iterable[str | None],
+    seed_metadata: Iterable[CandidateMetadata],
+    values_for_metadata: Callable[[CandidateMetadata], Iterable[str | None]],
+) -> tuple[str, ...]:
+    seed_terms = {
+        term
+        for metadata in seed_metadata
+        for term in normalized_feature_terms(values_for_metadata(metadata))
+    }
+    if not seed_terms:
+        return ()
+    return tuple(
+        value
+        for value in normalized_unique_text_tuple(candidate_values)
+        if recommendation_feature_term(value) in seed_terms
+    )
+
+
+def recommendation_matched_decade(
+    candidate_metadata: CandidateMetadata,
+    seed_metadata: Iterable[CandidateMetadata],
+) -> str | None:
+    candidate_decade = normalize_decade_term(candidate_metadata.decade)
+    if candidate_decade is None:
+        return None
+    seed_decades = {
+        decade
+        for metadata in seed_metadata
+        if (decade := normalize_decade_term(metadata.decade))
+    }
+    if candidate_decade in seed_decades:
+        return candidate_decade
+    return None
+
+
+def recommendation_has_same_artist(
+    candidate_metadata: CandidateMetadata,
+    seed_metadata: Iterable[CandidateMetadata],
+) -> bool:
+    candidate_terms = set(recommendation_metadata_artist_terms(candidate_metadata))
+    if not candidate_terms:
+        return False
+    seed_terms = {
+        term
+        for metadata in seed_metadata
+        for term in recommendation_metadata_artist_terms(metadata)
+    }
+    return bool(candidate_terms.intersection(seed_terms))
 
 
 def rank_recommendation_results(
@@ -1511,6 +1610,7 @@ __all__ = [
     "add_sparse_vectors",
     "build_recommendation_album_profile",
     "build_recommendation_artist_profile",
+    "build_recommendation_explanation",
     "build_recommendation_profile",
     "build_recommendation_track_profile",
     "build_recommendation_track_vector",

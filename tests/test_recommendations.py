@@ -28,11 +28,13 @@ from kukicha.use_case import (
     RecommendationModeError,
     RecommendationProfileSeed,
     RecommendationRequest,
+    RecommendationScore,
     RecommendationService,
     TrackNotFoundError,
     add_sparse_vectors,
     build_recommendation_album_profile,
     build_recommendation_artist_profile,
+    build_recommendation_explanation,
     build_recommendation_profile,
     build_recommendation_track_profile,
     build_recommendation_track_vector,
@@ -480,6 +482,111 @@ class RecommendationProfileTest(unittest.TestCase):
         self.assertEqual(missing_track.total_seed_weight, 0.0)
 
 
+class RecommendationExplanationTest(unittest.TestCase):
+    def candidate(
+        self,
+        track_id: int,
+        *,
+        artist: str = "",
+        album_artist: str = "",
+        decade: str | None = None,
+        genres: tuple[str, ...] = (),
+        styles: tuple[str, ...] = (),
+    ) -> RecommendationCandidate:
+        return RecommendationCandidate(
+            metadata=CandidateMetadata(
+                track_id=track_id,
+                path=f"/music/{track_id}.flac",
+                artist=artist,
+                album_artist=album_artist,
+                decade=decade,
+                genres=genres,
+                styles=styles,
+            )
+        )
+
+    def test_explanation_identifies_shared_seed_metadata(self) -> None:
+        seed = self.candidate(
+            1,
+            artist="Seed Artist",
+            album_artist="Seed Collective",
+            decade="1990s",
+            genres=("Rock", "Pop"),
+            styles=("Dream Pop", "Shoegaze"),
+        )
+        candidate = self.candidate(
+            2,
+            artist="Other Artist",
+            album_artist="Other Artist",
+            decade="1992",
+            genres=("Rock", "Ambient"),
+            styles=("Dream Pop", "Drone"),
+        )
+        same_artist = self.candidate(
+            3,
+            artist="Seed Artist",
+            decade="2010s",
+            genres=("Jazz",),
+            styles=("Post-Bop",),
+        )
+        score = RecommendationScore(base_similarity=0.75)
+
+        explanation = build_recommendation_explanation(
+            candidate,
+            (seed,),
+            score=score,
+        )
+        same_artist_explanation = build_recommendation_explanation(
+            same_artist,
+            (seed,),
+            score=RecommendationScore(base_similarity=0.15),
+        )
+
+        self.assertEqual(explanation.matched_genres, ("Rock",))
+        self.assertEqual(explanation.matched_styles, ("Dream Pop",))
+        self.assertEqual(explanation.matched_decade, "1990s")
+        self.assertFalse(explanation.same_artist)
+        self.assertIs(explanation.score, score)
+        self.assertEqual(explanation.score.base_similarity, 0.75)
+        self.assertEqual(explanation.score.favorite_boost, 0.0)
+        self.assertEqual(explanation.score.track_play_penalty, 0.0)
+        self.assertEqual(explanation.score.artist_play_penalty, 0.0)
+        self.assertEqual(explanation.score.album_play_penalty, 0.0)
+        self.assertEqual(explanation.score.recency_penalty, 0.0)
+
+        self.assertTrue(same_artist_explanation.same_artist)
+        self.assertEqual(same_artist_explanation.matched_genres, ())
+        self.assertEqual(same_artist_explanation.matched_styles, ())
+        self.assertIsNone(same_artist_explanation.matched_decade)
+
+    def test_explanation_handles_sparse_candidate_metadata(self) -> None:
+        seed = self.candidate(
+            1,
+            artist="Seed Artist",
+            decade="1990s",
+            genres=("Rock",),
+            styles=("Dream Pop",),
+        )
+        sparse_candidate = self.candidate(2)
+
+        explanation = build_recommendation_explanation(
+            sparse_candidate,
+            (seed,),
+            score=RecommendationScore(base_similarity=0.0),
+        )
+
+        self.assertEqual(explanation.matched_genres, ())
+        self.assertEqual(explanation.matched_styles, ())
+        self.assertIsNone(explanation.matched_decade)
+        self.assertFalse(explanation.same_artist)
+        self.assertEqual(explanation.score.base_similarity, 0.0)
+        self.assertEqual(explanation.score.favorite_boost, 0.0)
+        self.assertEqual(explanation.score.track_play_penalty, 0.0)
+        self.assertEqual(explanation.score.artist_play_penalty, 0.0)
+        self.assertEqual(explanation.score.album_play_penalty, 0.0)
+        self.assertEqual(explanation.score.recency_penalty, 0.0)
+
+
 class RecommendationCandidateLoadingTest(unittest.TestCase):
     def build_database(self) -> Path:
         tempdir = TemporaryDirectory()
@@ -888,6 +995,35 @@ class RecommendationServiceTest(unittest.TestCase):
             results_by_id[2].score.final_score,
             results_by_id[2].score.base_similarity,
         )
+        for result in results:
+            self.assertIs(result.explanation.score, result.score)
+
+        self.assertEqual(results_by_id[2].explanation.matched_genres, ("Rock",))
+        self.assertEqual(
+            results_by_id[2].explanation.matched_styles,
+            ("Dream Pop",),
+        )
+        self.assertEqual(results_by_id[2].explanation.matched_decade, "1990s")
+        self.assertFalse(results_by_id[2].explanation.same_artist)
+
+        self.assertTrue(results_by_id[3].explanation.same_artist)
+        self.assertEqual(results_by_id[3].explanation.matched_genres, ())
+        self.assertEqual(results_by_id[3].explanation.matched_styles, ())
+        self.assertEqual(results_by_id[3].explanation.matched_decade, "1990s")
+        self.assertEqual(results_by_id[3].explanation.score.favorite_boost, 0.0)
+        self.assertEqual(
+            results_by_id[3].explanation.score.track_play_penalty,
+            0.0,
+        )
+        self.assertEqual(
+            results_by_id[3].explanation.score.artist_play_penalty,
+            0.0,
+        )
+        self.assertEqual(
+            results_by_id[3].explanation.score.album_play_penalty,
+            0.0,
+        )
+        self.assertEqual(results_by_id[3].explanation.score.recency_penalty, 0.0)
 
     def test_track_radio_applies_limit_after_ranking(self) -> None:
         service = RecommendationService(self.build_database())
