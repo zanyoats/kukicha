@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+import math
 import re
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from sqlite3 import Connection, Row
@@ -64,6 +65,12 @@ DiversityStrength = Literal["low", "medium", "high"]
 DEFAULT_RECOMMENDATION_LIMIT = 25
 MAX_RECOMMENDATION_LIMIT = 500
 YEAR_PATTERN = re.compile(r"(?<!\d)(\d{4})(?!\d)")
+SparseVector = dict[str, float]
+
+GENRE_FEATURE_PREFIX = "genre"
+STYLE_FEATURE_PREFIX = "style"
+ARTIST_FEATURE_PREFIX = "artist"
+DECADE_FEATURE_PREFIX = "decade"
 
 
 class RecommendationModeError(ValueError):
@@ -307,6 +314,78 @@ class RecommendationCandidate:
 
 
 @dataclass(frozen=True, slots=True)
+class RecommendationVocabulary:
+    document_count: int = 0
+    genre_terms: tuple[str, ...] = ()
+    style_terms: tuple[str, ...] = ()
+    artist_terms: tuple[str, ...] = ()
+    decade_terms: tuple[str, ...] = ()
+    genre_idf: Mapping[str, float] = field(default_factory=dict)
+    style_idf: Mapping[str, float] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "document_count", max(0, int(self.document_count)))
+        object.__setattr__(
+            self,
+            "genre_terms",
+            normalized_feature_terms(self.genre_terms),
+        )
+        object.__setattr__(
+            self,
+            "style_terms",
+            normalized_feature_terms(self.style_terms),
+        )
+        object.__setattr__(
+            self,
+            "artist_terms",
+            normalized_feature_terms(self.artist_terms),
+        )
+        object.__setattr__(
+            self,
+            "decade_terms",
+            normalized_decade_terms(self.decade_terms),
+        )
+        object.__setattr__(
+            self,
+            "genre_idf",
+            MappingProxyType(normalized_float_mapping(self.genre_idf)),
+        )
+        object.__setattr__(
+            self,
+            "style_idf",
+            MappingProxyType(normalized_float_mapping(self.style_idf)),
+        )
+
+    @property
+    def genre_features(self) -> tuple[str, ...]:
+        return tuple(
+            recommendation_feature_key(GENRE_FEATURE_PREFIX, term)
+            for term in self.genre_terms
+        )
+
+    @property
+    def style_features(self) -> tuple[str, ...]:
+        return tuple(
+            recommendation_feature_key(STYLE_FEATURE_PREFIX, term)
+            for term in self.style_terms
+        )
+
+    @property
+    def artist_features(self) -> tuple[str, ...]:
+        return tuple(
+            recommendation_feature_key(ARTIST_FEATURE_PREFIX, term)
+            for term in self.artist_terms
+        )
+
+    @property
+    def decade_features(self) -> tuple[str, ...]:
+        return tuple(
+            recommendation_feature_key(DECADE_FEATURE_PREFIX, term)
+            for term in self.decade_terms
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class RecommendationScore:
     base_similarity: float = 0.0
     favorite_boost: float = 0.0
@@ -399,6 +478,112 @@ def load_recommendation_candidate(
     if not candidates:
         raise TrackNotFoundError(normalized_track_id)
     return candidates[0]
+
+
+def build_recommendation_vocabulary(
+    candidates: Iterable[RecommendationCandidate],
+) -> RecommendationVocabulary:
+    candidate_pool = tuple(candidates)
+    genre_document_counts = recommendation_term_document_counts(
+        candidate_pool,
+        lambda metadata: metadata.genres,
+    )
+    style_document_counts = recommendation_term_document_counts(
+        candidate_pool,
+        lambda metadata: metadata.styles,
+    )
+    artist_terms = sorted(
+        {
+            term
+            for candidate in candidate_pool
+            if (term := recommendation_artist_term(candidate.metadata))
+        }
+    )
+    decade_terms = sorted(
+        {
+            term
+            for candidate in candidate_pool
+            if (term := normalize_decade_term(candidate.metadata.decade))
+        },
+        key=decade_sort_key,
+    )
+    document_count = len(candidate_pool)
+    return RecommendationVocabulary(
+        document_count=document_count,
+        genre_terms=tuple(sorted(genre_document_counts)),
+        style_terms=tuple(sorted(style_document_counts)),
+        artist_terms=tuple(artist_terms),
+        decade_terms=tuple(decade_terms),
+        genre_idf={
+            term: recommendation_inverse_document_frequency(
+                document_count,
+                document_frequency,
+            )
+            for term, document_frequency in genre_document_counts.items()
+        },
+        style_idf={
+            term: recommendation_inverse_document_frequency(
+                document_count,
+                document_frequency,
+            )
+            for term, document_frequency in style_document_counts.items()
+        },
+    )
+
+
+def build_recommendation_track_vectors(
+    candidates: Iterable[RecommendationCandidate],
+    *,
+    mode: object | None = None,
+    vocabulary: RecommendationVocabulary | None = None,
+) -> dict[int, SparseVector]:
+    candidate_pool = tuple(candidates)
+    if vocabulary is None:
+        vocabulary = build_recommendation_vocabulary(candidate_pool)
+    return {
+        candidate.metadata.track_id: build_recommendation_track_vector(
+            candidate,
+            vocabulary,
+            mode=mode,
+        )
+        for candidate in candidate_pool
+    }
+
+
+def build_recommendation_track_vector(
+    candidate: RecommendationCandidate,
+    vocabulary: RecommendationVocabulary,
+    *,
+    mode: object | None = None,
+) -> SparseVector:
+    config = recommendation_mode_config(mode)
+    weights = config.feature_weights
+    vector: SparseVector = {}
+    vector.update(
+        weighted_feature_group_vector(
+            recommendation_genre_feature_vector(candidate, vocabulary),
+            weights.genres,
+        )
+    )
+    vector.update(
+        weighted_feature_group_vector(
+            recommendation_style_feature_vector(candidate, vocabulary),
+            weights.styles,
+        )
+    )
+    vector.update(
+        weighted_feature_group_vector(
+            recommendation_artist_feature_vector(candidate, vocabulary),
+            weights.artist,
+        )
+    )
+    vector.update(
+        weighted_feature_group_vector(
+            recommendation_decade_feature_vector(candidate, vocabulary),
+            weights.decade,
+        )
+    )
+    return normalize_sparse_vector(vector)
 
 
 def recommendation_candidate_rows(
@@ -556,6 +741,211 @@ def recommendation_decade(
         return None
     decade = (year // 10) * 10
     return f"{decade}s"
+
+
+def recommendation_term_document_counts(
+    candidates: Iterable[RecommendationCandidate],
+    values_for_metadata: Callable[[CandidateMetadata], Iterable[str | None]],
+) -> dict[str, int]:
+    document_counts: dict[str, int] = {}
+    for candidate in candidates:
+        terms = normalized_feature_terms(values_for_metadata(candidate.metadata))
+        for term in terms:
+            document_counts[term] = document_counts.get(term, 0) + 1
+    return document_counts
+
+
+def recommendation_inverse_document_frequency(
+    document_count: int,
+    document_frequency: int,
+) -> float:
+    normalized_document_count = max(0, int(document_count))
+    normalized_document_frequency = min(
+        normalized_document_count,
+        max(0, int(document_frequency)),
+    )
+    if normalized_document_count == 0 or normalized_document_frequency == 0:
+        return 0.0
+    return (
+        math.log(
+            (1.0 + normalized_document_count)
+            / (1.0 + normalized_document_frequency)
+        )
+        + 1.0
+    )
+
+
+def recommendation_genre_feature_vector(
+    candidate: RecommendationCandidate,
+    vocabulary: RecommendationVocabulary,
+) -> SparseVector:
+    return recommendation_tfidf_feature_vector(
+        candidate.metadata.genres,
+        idf_by_term=vocabulary.genre_idf,
+        feature_prefix=GENRE_FEATURE_PREFIX,
+    )
+
+
+def recommendation_style_feature_vector(
+    candidate: RecommendationCandidate,
+    vocabulary: RecommendationVocabulary,
+) -> SparseVector:
+    return recommendation_tfidf_feature_vector(
+        candidate.metadata.styles,
+        idf_by_term=vocabulary.style_idf,
+        feature_prefix=STYLE_FEATURE_PREFIX,
+    )
+
+
+def recommendation_tfidf_feature_vector(
+    values: Iterable[str | None],
+    *,
+    idf_by_term: Mapping[str, float],
+    feature_prefix: str,
+) -> SparseVector:
+    vector: SparseVector = {}
+    for term in normalized_feature_terms(values):
+        idf = float(idf_by_term.get(term, 0.0))
+        if idf > 0:
+            vector[recommendation_feature_key(feature_prefix, term)] = idf
+    return vector
+
+
+def recommendation_artist_feature_vector(
+    candidate: RecommendationCandidate,
+    vocabulary: RecommendationVocabulary,
+) -> SparseVector:
+    term = recommendation_artist_term(candidate.metadata)
+    if not term or term not in vocabulary.artist_terms:
+        return {}
+    return {recommendation_feature_key(ARTIST_FEATURE_PREFIX, term): 1.0}
+
+
+def recommendation_decade_feature_vector(
+    candidate: RecommendationCandidate,
+    vocabulary: RecommendationVocabulary,
+) -> SparseVector:
+    source_decade = decade_start_year(candidate.metadata.decade)
+    if source_decade is None:
+        return {}
+    vector: SparseVector = {}
+    for decade_term in vocabulary.decade_terms:
+        target_decade = decade_start_year(decade_term)
+        if target_decade is None:
+            continue
+        distance = abs(source_decade - target_decade) // 10
+        weight = soft_decade_weight(distance)
+        if weight > 0:
+            vector[recommendation_feature_key(DECADE_FEATURE_PREFIX, decade_term)] = (
+                weight
+            )
+    return vector
+
+
+def weighted_feature_group_vector(
+    vector: Mapping[str, float],
+    weight: float,
+) -> SparseVector:
+    normalized_weight = float(weight)
+    if normalized_weight <= 0:
+        return {}
+    normalized = normalize_sparse_vector(vector)
+    if not normalized:
+        return {}
+    return {key: value * normalized_weight for key, value in normalized.items()}
+
+
+def normalize_sparse_vector(vector: Mapping[str, float]) -> SparseVector:
+    squared_norm = sum(float(value) * float(value) for value in vector.values())
+    if squared_norm <= 0:
+        return {}
+    norm = math.sqrt(squared_norm)
+    return {
+        key: float(value) / norm
+        for key, value in sorted(vector.items())
+        if value
+    }
+
+
+def recommendation_feature_key(feature_prefix: str, term: str) -> str:
+    return f"{feature_prefix}:{term}"
+
+
+def recommendation_artist_term(metadata: CandidateMetadata) -> str:
+    artists = normalized_album_artist_values((metadata.artist,))
+    if not artists:
+        artists = normalized_album_artist_values((metadata.album_artist,))
+    if not artists:
+        return ""
+    return recommendation_feature_term(artists[0])
+
+
+def recommendation_feature_term(value: object | None) -> str:
+    if value is None:
+        return ""
+    return normalize_text(str(value))
+
+
+def normalized_feature_terms(values: Iterable[object | None]) -> tuple[str, ...]:
+    return tuple(
+        sorted(
+            {
+                term
+                for value in values
+                if (term := recommendation_feature_term(value))
+            }
+        )
+    )
+
+
+def normalized_decade_terms(values: Iterable[object | None]) -> tuple[str, ...]:
+    return tuple(
+        sorted(
+            {
+                term
+                for value in values
+                if (term := normalize_decade_term(value))
+            },
+            key=decade_sort_key,
+        )
+    )
+
+
+def normalized_float_mapping(values: Mapping[str, float]) -> dict[str, float]:
+    return {
+        term: float(value)
+        for key, value in values.items()
+        if (term := recommendation_feature_term(key))
+    }
+
+
+def normalize_decade_term(value: object | None) -> str | None:
+    decade = decade_start_year(value)
+    if decade is None:
+        return None
+    return f"{decade}s"
+
+
+def decade_start_year(value: object | None) -> int | None:
+    year = year_from_text(value)
+    if year is None:
+        return None
+    return (year // 10) * 10
+
+
+def decade_sort_key(value: object | None) -> tuple[bool, int, str]:
+    decade = decade_start_year(value)
+    return (decade is None, decade or 0, str(value or ""))
+
+
+def soft_decade_weight(distance: int) -> float:
+    if distance == 0:
+        return 1.0
+    if distance == 1:
+        return 0.4
+    if distance == 2:
+        return 0.1
+    return 0.0
 
 
 def year_from_text(value: object | None) -> int | None:
@@ -749,6 +1139,9 @@ __all__ = [
     "RECENT_PLAY_PENALTY_MEDIUM",
     "RECENT_PLAY_PENALTY_RANDOM_WEIGHTED",
     "RECOMMENDATION_CONFIG",
+    "ARTIST_FEATURE_PREFIX",
+    "DECADE_FEATURE_PREFIX",
+    "GENRE_FEATURE_PREFIX",
     "RECOMMENDATION_MODE_ARTIST_ONLY",
     "RECOMMENDATION_MODE_CONFIGS",
     "RECOMMENDATION_MODE_DEFAULT",
@@ -756,6 +1149,7 @@ __all__ = [
     "RECOMMENDATION_MODE_GENRE_ONLY",
     "RECOMMENDATION_MODE_RANDOM",
     "RECOMMENDATION_MODE_VALUES",
+    "STYLE_FEATURE_PREFIX",
     "SUPPORTED_RECOMMENDATION_MODES",
     "ArtistOnlyFallback",
     "CandidateFilter",
@@ -778,12 +1172,20 @@ __all__ = [
     "RecommendationRequest",
     "RecommendationResult",
     "RecommendationScore",
+    "RecommendationVocabulary",
     "RecencyPenalties",
+    "SparseVector",
+    "build_recommendation_track_vector",
+    "build_recommendation_track_vectors",
+    "build_recommendation_vocabulary",
     "load_recommendation_candidate",
     "load_recommendation_candidates",
     "normalize_recommendation_limit",
     "normalize_recommendation_mode",
+    "normalize_sparse_vector",
     "normalized_unique_text_tuple",
+    "recommendation_feature_key",
+    "recommendation_inverse_document_frequency",
     "recommendation_candidate_rows",
     "recommendation_candidates_from_rows",
     "recommendation_decade",

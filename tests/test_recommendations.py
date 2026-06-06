@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import FrozenInstanceError
+import math
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
@@ -9,6 +10,7 @@ from kukicha.use_case import (
     ARTIST_ONLY_FALLBACK_RETURN_FEWER,
     CANDIDATE_FILTER_ARTIST_MATCH_REQUIRED,
     CANDIDATE_SELECTION_WEIGHTED_RANDOM,
+    CandidateMetadata,
     DEFAULT_RECOMMENDATION_LIMIT,
     DIVERSITY_STRENGTH_LOW,
     MAX_RECOMMENDATION_LIMIT,
@@ -20,11 +22,15 @@ from kukicha.use_case import (
     RECOMMENDATION_MODE_GENRE_ONLY,
     RECOMMENDATION_MODE_RANDOM,
     SUPPORTED_RECOMMENDATION_MODES,
+    RecommendationCandidate,
     RecommendationQueries,
     RecommendationLimitError,
     RecommendationModeError,
     RecommendationRequest,
     TrackNotFoundError,
+    build_recommendation_track_vector,
+    build_recommendation_track_vectors,
+    build_recommendation_vocabulary,
     connect_database,
     load_recommendation_candidate,
     load_recommendation_candidates,
@@ -148,6 +154,165 @@ class RecommendationModeConfigTest(unittest.TestCase):
         self.assertEqual(multipliers.multiplier_for_age_days(14), 0.70)
         self.assertEqual(multipliers.multiplier_for_age_days(None), 1.00)
         self.assertEqual(multipliers.multiplier_for_age_days(45), 1.00)
+
+
+class RecommendationVectorTest(unittest.TestCase):
+    def candidate(
+        self,
+        track_id: int,
+        *,
+        artist: str = "",
+        album_artist: str = "",
+        decade: str | None = None,
+        genres: tuple[str, ...] = (),
+        styles: tuple[str, ...] = (),
+    ) -> RecommendationCandidate:
+        return RecommendationCandidate(
+            metadata=CandidateMetadata(
+                track_id=track_id,
+                path=f"/music/{track_id}.flac",
+                title=f"Track {track_id}",
+                artist=artist,
+                album_artist=album_artist,
+                decade=decade,
+                genres=genres,
+                styles=styles,
+            )
+        )
+
+    def similarity(
+        self,
+        left: dict[str, float],
+        right: dict[str, float],
+    ) -> float:
+        return sum(value * right.get(key, 0.0) for key, value in left.items())
+
+    def vector_norm(self, vector: dict[str, float]) -> float:
+        return math.sqrt(sum(value * value for value in vector.values()))
+
+    def test_vocabulary_builds_tfidf_terms_from_candidate_pool(self) -> None:
+        candidates = (
+            self.candidate(
+                1,
+                artist="Seed Artist",
+                decade="1990s",
+                genres=("Rock",),
+                styles=("Dream Pop",),
+            ),
+            self.candidate(
+                2,
+                artist="Other Artist",
+                decade="1970s",
+                genres=("Pop",),
+                styles=("Dream Pop",),
+            ),
+            self.candidate(
+                3,
+                artist="Third Artist",
+                decade="1970s",
+                genres=("Rock",),
+                styles=("Garage Rock",),
+            ),
+            self.candidate(
+                4,
+                artist="Fourth Artist",
+                decade="2010s",
+                genres=("Ambient",),
+                styles=("Minimal",),
+            ),
+        )
+
+        vocabulary = build_recommendation_vocabulary(candidates)
+
+        self.assertEqual(vocabulary.document_count, 4)
+        self.assertEqual(vocabulary.genre_terms, ("ambient", "pop", "rock"))
+        self.assertEqual(
+            vocabulary.style_terms,
+            ("dream pop", "garage rock", "minimal"),
+        )
+        self.assertEqual(vocabulary.decade_terms, ("1970s", "1990s", "2010s"))
+        self.assertLess(vocabulary.genre_idf["rock"], vocabulary.genre_idf["ambient"])
+        self.assertIn("genre:rock", vocabulary.genre_features)
+        self.assertIn("style:dream pop", vocabulary.style_features)
+        self.assertIn("artist:seed artist", vocabulary.artist_features)
+        self.assertIn("decade:1990s", vocabulary.decade_features)
+
+    def test_style_match_scores_higher_than_broad_genre_match(self) -> None:
+        seed = self.candidate(
+            1,
+            artist="Seed Artist",
+            decade="1990s",
+            genres=("Rock",),
+            styles=("Dream Pop",),
+        )
+        style_match = self.candidate(
+            2,
+            artist="Other Artist",
+            decade="1970s",
+            genres=("Pop",),
+            styles=("Dream Pop",),
+        )
+        genre_match = self.candidate(
+            3,
+            artist="Third Artist",
+            decade="1970s",
+            genres=("Rock",),
+            styles=("Garage Rock",),
+        )
+        vocabulary = build_recommendation_vocabulary((seed, style_match, genre_match))
+        vectors = build_recommendation_track_vectors(
+            (seed, style_match, genre_match),
+            vocabulary=vocabulary,
+        )
+
+        self.assertAlmostEqual(self.vector_norm(vectors[1]), 1.0)
+        self.assertGreater(
+            self.similarity(vectors[1], vectors[2]),
+            self.similarity(vectors[1], vectors[3]),
+        )
+
+    def test_mode_weights_zero_unused_feature_groups(self) -> None:
+        candidate = self.candidate(
+            1,
+            artist="Seed Artist",
+            decade="1990s",
+            genres=("Rock",),
+            styles=("Dream Pop",),
+        )
+        vocabulary = build_recommendation_vocabulary((candidate,))
+
+        genre_only = build_recommendation_track_vector(
+            candidate,
+            vocabulary,
+            mode=RECOMMENDATION_MODE_GENRE_ONLY,
+        )
+        artist_only = build_recommendation_track_vector(
+            candidate,
+            vocabulary,
+            mode=RECOMMENDATION_MODE_ARTIST_ONLY,
+        )
+        random_mode = build_recommendation_track_vector(
+            candidate,
+            vocabulary,
+            mode=RECOMMENDATION_MODE_RANDOM,
+        )
+
+        self.assertEqual(tuple(genre_only), ("genre:rock",))
+        self.assertEqual(tuple(artist_only), ("artist:seed artist",))
+        self.assertEqual(random_mode, {})
+
+    def test_empty_metadata_produces_stable_empty_vectors(self) -> None:
+        candidate = self.candidate(1)
+        vocabulary = build_recommendation_vocabulary((candidate,))
+
+        self.assertEqual(vocabulary.document_count, 1)
+        self.assertEqual(vocabulary.genre_terms, ())
+        self.assertEqual(build_recommendation_track_vector(candidate, vocabulary), {})
+        self.assertEqual(
+            build_recommendation_track_vectors((candidate,), vocabulary=vocabulary),
+            {1: {}},
+        )
+        self.assertEqual(build_recommendation_track_vectors(()), {})
 
 
 class RecommendationCandidateLoadingTest(unittest.TestCase):
