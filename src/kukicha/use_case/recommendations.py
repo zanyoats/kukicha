@@ -4,6 +4,7 @@ import math
 import re
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from sqlite3 import Connection, Row
 from types import MappingProxyType
@@ -309,6 +310,12 @@ class ListeningStats:
     def __post_init__(self) -> None:
         for name in ("track_play_count", "album_play_count", "artist_play_count"):
             object.__setattr__(self, name, max(0, int(getattr(self, name))))
+        for name in (
+            "track_last_played_at",
+            "album_last_played_at",
+            "artist_last_played_at",
+        ):
+            object.__setattr__(self, name, normalized_optional_text(getattr(self, name)))
 
 
 @dataclass(frozen=True, slots=True)
@@ -360,6 +367,30 @@ class RecommendationProfile:
     @property
     def is_cold_start(self) -> bool:
         return not self.has_vector
+
+
+@dataclass(frozen=True, slots=True)
+class ListeningAdjustmentContext:
+    max_log_track_play_count: float = 0.0
+    max_log_album_play_count: float = 0.0
+    max_log_artist_play_count: float = 0.0
+    current_time: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
+
+    def __post_init__(self) -> None:
+        for name in (
+            "max_log_track_play_count",
+            "max_log_album_play_count",
+            "max_log_artist_play_count",
+        ):
+            value = float(getattr(self, name))
+            if not math.isfinite(value) or value < 0:
+                value = 0.0
+            object.__setattr__(self, name, value)
+        object.__setattr__(
+            self,
+            "current_time",
+            recommendation_utc_datetime(self.current_time),
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -523,7 +554,7 @@ class RecommendationService:
         limit: object | None = DEFAULT_RECOMMENDATION_LIMIT,
     ) -> tuple[RecommendationResult, ...]:
         normalized_track_id = int(track_id)
-        _, normalized_limit, candidates, track_vectors = (
+        config, normalized_limit, candidates, track_vectors = (
             self._recommendation_context(mode, limit)
         )
         seed_candidate = recommendation_candidate_by_track_id(
@@ -541,6 +572,7 @@ class RecommendationService:
             candidates,
             track_vectors,
             normalized_limit=normalized_limit,
+            config=config,
             exclude_track_ids=(normalized_track_id,),
             seed_candidates=(seed_candidate,),
         )
@@ -578,6 +610,7 @@ class RecommendationService:
             candidates,
             track_vectors,
             normalized_limit=normalized_limit,
+            config=config,
             exclude_track_ids=excluded_track_ids,
             seed_candidates=seed_candidates,
         )
@@ -589,7 +622,7 @@ class RecommendationService:
         limit: object | None = DEFAULT_RECOMMENDATION_LIMIT,
     ) -> tuple[RecommendationResult, ...]:
         normalized_artist = normalized_optional_text(artist)
-        _, normalized_limit, candidates, track_vectors = (
+        config, normalized_limit, candidates, track_vectors = (
             self._recommendation_context(mode, limit)
         )
         seed_candidates = recommendation_candidates_by_artist(
@@ -609,6 +642,7 @@ class RecommendationService:
             candidates,
             track_vectors,
             normalized_limit=normalized_limit,
+            config=config,
             seed_candidates=seed_candidates,
         )
 
@@ -642,11 +676,13 @@ class RecommendationService:
         normalized_limit: int,
         exclude_track_ids: Iterable[int] = (),
         seed_candidates: Iterable[RecommendationCandidate] = (),
+        config: RecommendationModeConfig | None = None,
     ) -> tuple[RecommendationResult, ...]:
         scored = score_recommendation_candidates(
             profile,
             candidates,
             track_vectors,
+            config=config,
             exclude_track_ids=exclude_track_ids,
             seed_candidates=seed_candidates,
         )
@@ -869,9 +905,39 @@ def score_recommendation_candidate(
     track_vector: Mapping[str, float],
     *,
     seed_candidates: Iterable[RecommendationCandidate] = (),
+    mode: object | None = None,
+    config: RecommendationModeConfig | None = None,
+    listening_context: ListeningAdjustmentContext | None = None,
+    current_time: datetime | None = None,
 ) -> RecommendationResult:
+    resolved_config = recommendation_scoring_config(mode=mode, config=config)
+    context = listening_context or build_listening_adjustment_context(
+        (candidate,),
+        current_time=current_time,
+    )
     score = RecommendationScore(
         base_similarity=sparse_cosine_similarity(profile.vector, track_vector),
+        favorite_boost=recommendation_favorite_boost(candidate, resolved_config),
+        track_play_penalty=recommendation_play_count_penalty(
+            candidate.listening.track_play_count,
+            resolved_config.track_play_penalty,
+            context.max_log_track_play_count,
+        ),
+        artist_play_penalty=recommendation_play_count_penalty(
+            candidate.listening.artist_play_count,
+            resolved_config.artist_play_penalty,
+            context.max_log_artist_play_count,
+        ),
+        album_play_penalty=recommendation_play_count_penalty(
+            candidate.listening.album_play_count,
+            resolved_config.album_play_penalty,
+            context.max_log_album_play_count,
+        ),
+        recency_penalty=recommendation_recency_penalty(
+            candidate,
+            resolved_config,
+            current_time=context.current_time,
+        ),
     )
     return RecommendationResult(
         candidate=candidate,
@@ -891,7 +957,16 @@ def score_recommendation_candidates(
     *,
     exclude_track_ids: Iterable[int] = (),
     seed_candidates: Iterable[RecommendationCandidate] = (),
+    mode: object | None = None,
+    config: RecommendationModeConfig | None = None,
+    current_time: datetime | None = None,
 ) -> tuple[RecommendationResult, ...]:
+    resolved_config = recommendation_scoring_config(mode=mode, config=config)
+    candidate_pool = tuple(candidates)
+    listening_context = build_listening_adjustment_context(
+        candidate_pool,
+        current_time=current_time,
+    )
     excluded_track_ids = set(int(track_id) for track_id in exclude_track_ids)
     seed_candidate_pool = tuple(seed_candidates)
     return tuple(
@@ -900,10 +975,136 @@ def score_recommendation_candidates(
             candidate,
             track_vectors.get(candidate.metadata.track_id, {}),
             seed_candidates=seed_candidate_pool,
+            config=resolved_config,
+            listening_context=listening_context,
         )
-        for candidate in candidates
+        for candidate in candidate_pool
         if candidate.metadata.track_id not in excluded_track_ids
     )
+
+
+def recommendation_scoring_config(
+    *,
+    mode: object | None = None,
+    config: RecommendationModeConfig | None = None,
+) -> RecommendationModeConfig:
+    if config is not None:
+        return config
+    return recommendation_mode_config(mode)
+
+
+def build_listening_adjustment_context(
+    candidates: Iterable[RecommendationCandidate],
+    *,
+    current_time: datetime | None = None,
+) -> ListeningAdjustmentContext:
+    candidate_pool = tuple(candidates)
+    return ListeningAdjustmentContext(
+        max_log_track_play_count=max_log_play_count(
+            candidate.listening.track_play_count
+            for candidate in candidate_pool
+        ),
+        max_log_album_play_count=max_log_play_count(
+            candidate.listening.album_play_count
+            for candidate in candidate_pool
+        ),
+        max_log_artist_play_count=max_log_play_count(
+            candidate.listening.artist_play_count
+            for candidate in candidate_pool
+        ),
+        current_time=current_time or datetime.now(timezone.utc),
+    )
+
+
+def max_log_play_count(play_counts: Iterable[int]) -> float:
+    return max(
+        (
+            math.log1p(max(0, int(play_count)))
+            for play_count in play_counts
+        ),
+        default=0.0,
+    )
+
+
+def recommendation_play_count_penalty(
+    play_count: int,
+    penalty_weight: float,
+    max_log_play_count_value: float,
+) -> float:
+    normalized_count = normalized_recommendation_play_count(
+        play_count,
+        max_log_play_count_value,
+    )
+    if normalized_count <= 0:
+        return 0.0
+    return float(penalty_weight) * normalized_count
+
+
+def normalized_recommendation_play_count(
+    play_count: int,
+    max_log_play_count_value: float,
+) -> float:
+    normalized_max = float(max_log_play_count_value)
+    if normalized_max <= 0:
+        return 0.0
+    normalized_count = math.log1p(max(0, int(play_count))) / normalized_max
+    return max(0.0, min(1.0, normalized_count))
+
+
+def recommendation_favorite_boost(
+    candidate: RecommendationCandidate,
+    config: RecommendationModeConfig,
+) -> float:
+    if not candidate.metadata.is_favorite:
+        return 0.0
+    return float(config.favorite_boost)
+
+
+def recommendation_recency_penalty(
+    candidate: RecommendationCandidate,
+    config: RecommendationModeConfig,
+    *,
+    current_time: datetime | None = None,
+) -> float:
+    days_since_played = recommendation_days_since_played(
+        candidate.listening.track_last_played_at,
+        current_time=current_time,
+    )
+    return config.recency_penalties.penalty_for_age_days(days_since_played)
+
+
+def recommendation_days_since_played(
+    last_played_at: object | None,
+    *,
+    current_time: datetime | None = None,
+) -> float | None:
+    played_at = recommendation_datetime_from_iso(last_played_at)
+    if played_at is None:
+        return None
+    now = recommendation_utc_datetime(current_time or datetime.now(timezone.utc))
+    age = now - played_at
+    if age.total_seconds() < 0:
+        return 0.0
+    return age.total_seconds() / 86400.0
+
+
+def recommendation_datetime_from_iso(value: object | None) -> datetime | None:
+    text = optional_text(value)
+    if text is None:
+        return None
+    if text.endswith("Z"):
+        text = f"{text[:-1]}+00:00"
+    try:
+        parsed = datetime.fromisoformat(text)
+    except ValueError:
+        return None
+    return recommendation_utc_datetime(parsed)
+
+
+def recommendation_utc_datetime(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
 
 
 def build_recommendation_explanation(

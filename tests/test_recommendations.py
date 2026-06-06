@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import FrozenInstanceError
+from datetime import datetime, timedelta, timezone
 import math
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -24,6 +25,7 @@ from kukicha.use_case import (
     RECOMMENDATION_MODE_GENRE_ONLY,
     RECOMMENDATION_MODE_RANDOM,
     SUPPORTED_RECOMMENDATION_MODES,
+    ListeningStats,
     RecommendationCandidate,
     RecommendationQueries,
     RecommendationLimitError,
@@ -50,6 +52,7 @@ from kukicha.use_case import (
     normalize_recommendation_mode,
     recommendation_mode_config,
     scale_sparse_vector,
+    score_recommendation_candidates,
     sparse_cosine_similarity,
     sparse_dot_product,
     sparse_vector_norm,
@@ -587,6 +590,170 @@ class RecommendationExplanationTest(unittest.TestCase):
         self.assertEqual(explanation.score.artist_play_penalty, 0.0)
         self.assertEqual(explanation.score.album_play_penalty, 0.0)
         self.assertEqual(explanation.score.recency_penalty, 0.0)
+
+
+class RecommendationListeningAdjustmentTest(unittest.TestCase):
+    fixed_now = datetime(2026, 6, 6, 12, 0, tzinfo=timezone.utc)
+
+    def candidate(
+        self,
+        track_id: int,
+        *,
+        starred_at: str | None = None,
+        track_play_count: int = 0,
+        album_play_count: int = 0,
+        artist_play_count: int = 0,
+        track_last_played_at: str | None = None,
+    ) -> RecommendationCandidate:
+        return RecommendationCandidate(
+            metadata=CandidateMetadata(
+                track_id=track_id,
+                path=f"/music/{track_id}.flac",
+                title=f"Track {track_id}",
+                artist=f"Artist {track_id}",
+                album_id=f"album-{track_id}",
+                starred_at=starred_at,
+            ),
+            listening=ListeningStats(
+                track_play_count=track_play_count,
+                album_play_count=album_play_count,
+                artist_play_count=artist_play_count,
+                track_last_played_at=track_last_played_at,
+            ),
+        )
+
+    def score_by_track_id(
+        self,
+        candidates: tuple[RecommendationCandidate, ...],
+        *,
+        mode: object | None = RECOMMENDATION_MODE_DEFAULT,
+    ) -> dict[int, RecommendationScore]:
+        profile = build_recommendation_profile(
+            (RecommendationProfileSeed(track_id=1),),
+            {1: {"style:dream pop": 1.0}},
+        )
+        vectors = {
+            candidate.metadata.track_id: {"style:dream pop": 1.0}
+            for candidate in candidates
+        }
+        return {
+            result.candidate.metadata.track_id: result.score
+            for result in score_recommendation_candidates(
+                profile,
+                candidates,
+                vectors,
+                mode=mode,
+                current_time=self.fixed_now,
+            )
+        }
+
+    def test_high_play_count_tracks_are_lightly_downranked_in_default_mode(
+        self,
+    ) -> None:
+        scores = self.score_by_track_id(
+            (
+                self.candidate(
+                    2,
+                    track_play_count=100,
+                    album_play_count=50,
+                    artist_play_count=25,
+                ),
+                self.candidate(3),
+            )
+        )
+
+        self.assertEqual(scores[2].base_similarity, 1.0)
+        self.assertEqual(scores[3].base_similarity, 1.0)
+        self.assertAlmostEqual(scores[2].track_play_penalty, 0.05)
+        self.assertAlmostEqual(scores[2].album_play_penalty, 0.02)
+        self.assertAlmostEqual(scores[2].artist_play_penalty, 0.02)
+        self.assertEqual(scores[3].track_play_penalty, 0.0)
+        self.assertEqual(scores[3].album_play_penalty, 0.0)
+        self.assertEqual(scores[3].artist_play_penalty, 0.0)
+        self.assertLess(scores[2].final_score, scores[3].final_score)
+        self.assertAlmostEqual(scores[2].final_score, 0.91)
+
+    def test_recently_played_tracks_receive_expected_penalty_bucket(self) -> None:
+        def played_at(age: timedelta) -> str:
+            return (self.fixed_now - age).isoformat()
+
+        scores = self.score_by_track_id(
+            (
+                self.candidate(
+                    2,
+                    track_last_played_at=played_at(timedelta(hours=12)),
+                ),
+                self.candidate(
+                    3,
+                    track_last_played_at=played_at(timedelta(days=3)),
+                ),
+                self.candidate(
+                    4,
+                    track_last_played_at=played_at(timedelta(days=14)),
+                ),
+                self.candidate(
+                    5,
+                    track_last_played_at=played_at(timedelta(days=45)),
+                ),
+            )
+        )
+
+        self.assertEqual(scores[2].recency_penalty, 0.30)
+        self.assertEqual(scores[3].recency_penalty, 0.15)
+        self.assertEqual(scores[4].recency_penalty, 0.05)
+        self.assertEqual(scores[5].recency_penalty, 0.0)
+
+    def test_favorite_boosts_follow_the_selected_mode_config(self) -> None:
+        candidate = self.candidate(
+            2,
+            starred_at="2026-06-01T10:00:00+00:00",
+        )
+
+        default_score = self.score_by_track_id((candidate,))[2]
+        discovery_score = self.score_by_track_id(
+            (candidate,),
+            mode=RECOMMENDATION_MODE_DISCOVERY,
+        )[2]
+
+        self.assertEqual(default_score.favorite_boost, 0.05)
+        self.assertEqual(discovery_score.favorite_boost, 0.0)
+        self.assertAlmostEqual(default_score.final_score, 1.05)
+        self.assertAlmostEqual(discovery_score.final_score, 1.0)
+
+    def test_missing_play_stats_do_not_penalize_a_track(self) -> None:
+        score = self.score_by_track_id((self.candidate(2),))[2]
+
+        self.assertEqual(score.base_similarity, 1.0)
+        self.assertEqual(score.favorite_boost, 0.0)
+        self.assertEqual(score.track_play_penalty, 0.0)
+        self.assertEqual(score.album_play_penalty, 0.0)
+        self.assertEqual(score.artist_play_penalty, 0.0)
+        self.assertEqual(score.recency_penalty, 0.0)
+        self.assertEqual(score.final_score, score.base_similarity)
+
+    def test_score_explanations_carry_listening_adjustments(self) -> None:
+        candidate = self.candidate(
+            2,
+            starred_at="2026-06-01T10:00:00+00:00",
+            track_play_count=10,
+            track_last_played_at=(self.fixed_now - timedelta(days=3)).isoformat(),
+        )
+        profile = build_recommendation_profile(
+            (RecommendationProfileSeed(track_id=1),),
+            {1: {"style:dream pop": 1.0}},
+        )
+
+        result = score_recommendation_candidates(
+            profile,
+            (candidate,),
+            {2: {"style:dream pop": 1.0}},
+            current_time=self.fixed_now,
+        )[0]
+
+        self.assertIs(result.explanation.score, result.score)
+        self.assertEqual(result.explanation.score.favorite_boost, 0.05)
+        self.assertEqual(result.explanation.score.track_play_penalty, 0.05)
+        self.assertEqual(result.explanation.score.recency_penalty, 0.15)
 
 
 class RecommendationCandidateLoadingTest(unittest.TestCase):
@@ -1179,6 +1346,62 @@ class RecommendationServiceTest(unittest.TestCase):
             0.0,
         )
         self.assertEqual(results_by_id[3].explanation.score.recency_penalty, 0.0)
+
+    def test_track_radio_applies_mode_specific_listening_adjustments(self) -> None:
+        database = self.build_database()
+        with connect_database(database, create=False) as connection:
+            connection.execute(
+                """
+                INSERT INTO track_user_state (track_path, starred_at)
+                VALUES (?, ?)
+                """,
+                ("/music/closest/01.flac", "2026-06-01T10:00:00+00:00"),
+            )
+            connection.execute(
+                """
+                INSERT INTO play_track_stats (
+                    track_path,
+                    play_count,
+                    last_played_at,
+                    track_id,
+                    album_id,
+                    path,
+                    title,
+                    artist,
+                    album
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    "/music/closest/01.flac",
+                    100,
+                    "2000-01-01T00:00:00+00:00",
+                    2,
+                    "album-2",
+                    "/music/closest/01.flac",
+                    "Closest Song",
+                    "Other Artist",
+                    "Closest Album",
+                ),
+            )
+        service = RecommendationService(database)
+
+        default_results = {
+            result.candidate.metadata.track_id: result
+            for result in service.get_track_radio(1, limit=10)
+        }
+        discovery_results = {
+            result.candidate.metadata.track_id: result
+            for result in service.get_track_radio(
+                1,
+                mode=RECOMMENDATION_MODE_DISCOVERY,
+                limit=10,
+            )
+        }
+
+        self.assertEqual(default_results[2].score.favorite_boost, 0.05)
+        self.assertEqual(default_results[2].score.track_play_penalty, 0.05)
+        self.assertEqual(discovery_results[2].score.favorite_boost, 0.0)
+        self.assertEqual(discovery_results[2].score.track_play_penalty, 0.30)
 
     def test_track_radio_applies_limit_after_ranking(self) -> None:
         service = RecommendationService(self.build_database())
