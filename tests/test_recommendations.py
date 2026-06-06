@@ -26,10 +26,17 @@ from kukicha.use_case import (
     RecommendationQueries,
     RecommendationLimitError,
     RecommendationModeError,
+    RecommendationProfileSeed,
     RecommendationRequest,
     TrackNotFoundError,
+    add_sparse_vectors,
+    build_recommendation_album_profile,
+    build_recommendation_artist_profile,
+    build_recommendation_profile,
+    build_recommendation_track_profile,
     build_recommendation_track_vector,
     build_recommendation_track_vectors,
+    build_recommendation_user_profile,
     build_recommendation_vocabulary,
     connect_database,
     load_recommendation_candidate,
@@ -37,6 +44,11 @@ from kukicha.use_case import (
     normalize_recommendation_limit,
     normalize_recommendation_mode,
     recommendation_mode_config,
+    scale_sparse_vector,
+    sparse_cosine_similarity,
+    sparse_dot_product,
+    sparse_vector_norm,
+    weighted_average_sparse_vectors,
 )
 
 
@@ -313,6 +325,158 @@ class RecommendationVectorTest(unittest.TestCase):
             {1: {}},
         )
         self.assertEqual(build_recommendation_track_vectors(()), {})
+
+
+class RecommendationProfileTest(unittest.TestCase):
+    def candidate(
+        self,
+        track_id: int,
+        *,
+        artist: str = "",
+        album_artist: str = "",
+        album_id: str | None = None,
+    ) -> RecommendationCandidate:
+        return RecommendationCandidate(
+            metadata=CandidateMetadata(
+                track_id=track_id,
+                path=f"/music/{track_id}.flac",
+                title=f"Track {track_id}",
+                artist=artist,
+                album_artist=album_artist,
+                album_id=album_id,
+            )
+        )
+
+    def test_sparse_vector_math_supports_cosine_similarity(self) -> None:
+        normalized = {"feature:a": 0.6, "feature:b": 0.8}
+
+        self.assertEqual(
+            sparse_vector_norm({"feature:a": 3.0, "feature:b": 4.0}),
+            5.0,
+        )
+        self.assertAlmostEqual(sparse_dot_product(normalized, normalized), 1.0)
+        self.assertAlmostEqual(
+            sparse_cosine_similarity(normalized, normalized),
+            1.0,
+        )
+        self.assertEqual(
+            sparse_cosine_similarity({"feature:a": 1.0}, {"feature:b": 1.0}),
+            0.0,
+        )
+        self.assertEqual(sparse_cosine_similarity({}, normalized), 0.0)
+
+        self.assertEqual(
+            add_sparse_vectors(
+                {"feature:b": 2.0, "feature:a": 1.0},
+                {"feature:b": -2.0, "feature:c": 4.0},
+            ),
+            {"feature:a": 1.0, "feature:c": 4.0},
+        )
+        self.assertEqual(
+            scale_sparse_vector({"feature:a": 2.0, "feature:b": 0.0}, 0.5),
+            {"feature:a": 1.0},
+        )
+
+    def test_weighted_average_sparse_vectors_favors_higher_weight_seed(self) -> None:
+        average = weighted_average_sparse_vectors(
+            (
+                ({"style:dream pop": 1.0}, 3.0),
+                ({"style:garage rock": 1.0}, 1.0),
+            )
+        )
+
+        self.assertEqual(
+            average,
+            {"style:dream pop": 0.75, "style:garage rock": 0.25},
+        )
+        self.assertGreater(
+            sparse_cosine_similarity(average, {"style:dream pop": 1.0}),
+            sparse_cosine_similarity(average, {"style:garage rock": 1.0}),
+        )
+
+        with self.assertRaisesRegex(ValueError, "non-negative"):
+            weighted_average_sparse_vectors((({"style:dream pop": 1.0}, -1.0),))
+
+    def test_profile_builders_share_weighted_vector_math(self) -> None:
+        candidates = (
+            self.candidate(
+                1,
+                artist="Seed Artist",
+                album_artist="Seed Collective",
+                album_id="album-1",
+            ),
+            self.candidate(
+                2,
+                artist="Guest Artist",
+                album_artist="Seed Collective",
+                album_id="album-1",
+            ),
+            self.candidate(
+                3,
+                artist="Other Artist",
+                album_artist="Other Artist",
+                album_id="album-2",
+            ),
+        )
+        track_vectors = {
+            1: {"style:dream pop": 1.0},
+            2: {"style:shoegaze": 1.0},
+            3: {"style:garage rock": 1.0},
+        }
+
+        track_profile = build_recommendation_track_profile(1, track_vectors)
+        self.assertEqual(track_profile.vector, {"style:dream pop": 1.0})
+        self.assertEqual(track_profile.seed_track_ids, (1,))
+        self.assertEqual(track_profile.total_seed_weight, 1.0)
+
+        album_profile = build_recommendation_album_profile(
+            "album-1",
+            candidates,
+            track_vectors,
+        )
+        self.assertEqual(
+            album_profile.vector,
+            {"style:dream pop": 0.5, "style:shoegaze": 0.5},
+        )
+        self.assertEqual(album_profile.seed_track_ids, (1, 2))
+
+        artist_profile = build_recommendation_artist_profile(
+            "seed collective",
+            candidates,
+            track_vectors,
+        )
+        self.assertEqual(
+            artist_profile.vector,
+            {"style:dream pop": 0.5, "style:shoegaze": 0.5},
+        )
+        self.assertEqual(artist_profile.seed_track_ids, (1, 2))
+
+        user_profile = build_recommendation_user_profile(
+            (
+                RecommendationProfileSeed(track_id=1, weight=3.0),
+                RecommendationProfileSeed(track_id=3, weight=1.0),
+            ),
+            track_vectors,
+        )
+        self.assertEqual(
+            user_profile.vector,
+            {"style:dream pop": 0.75, "style:garage rock": 0.25},
+        )
+        self.assertEqual(user_profile.seed_track_ids, (1, 3))
+        self.assertEqual(user_profile.total_seed_weight, 4.0)
+
+    def test_empty_profile_input_returns_cold_start_profile(self) -> None:
+        self.assertTrue(build_recommendation_profile((), {}).is_cold_start)
+
+        missing_track = build_recommendation_track_profile(
+            404,
+            {1: {"style:dream pop": 1.0}},
+        )
+
+        self.assertFalse(missing_track.has_seed_tracks)
+        self.assertTrue(missing_track.is_cold_start)
+        self.assertEqual(missing_track.vector, {})
+        self.assertEqual(missing_track.total_seed_weight, 0.0)
 
 
 class RecommendationCandidateLoadingTest(unittest.TestCase):

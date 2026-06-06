@@ -314,6 +314,51 @@ class RecommendationCandidate:
 
 
 @dataclass(frozen=True, slots=True)
+class RecommendationProfileSeed:
+    track_id: int
+    weight: float = 1.0
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "track_id", int(self.track_id))
+        weight = float(self.weight)
+        if not math.isfinite(weight) or weight < 0:
+            raise ValueError("recommendation profile seed weight must be non-negative")
+        object.__setattr__(self, "weight", weight)
+
+
+@dataclass(frozen=True, slots=True)
+class RecommendationProfile:
+    vector: Mapping[str, float] = field(default_factory=dict)
+    seed_track_ids: tuple[int, ...] = ()
+    total_seed_weight: float = 0.0
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "vector",
+            MappingProxyType(sparse_vector_copy(self.vector)),
+        )
+        object.__setattr__(
+            self,
+            "seed_track_ids",
+            tuple(dict.fromkeys(int(track_id) for track_id in self.seed_track_ids)),
+        )
+        object.__setattr__(self, "total_seed_weight", float(self.total_seed_weight))
+
+    @property
+    def has_seed_tracks(self) -> bool:
+        return bool(self.seed_track_ids)
+
+    @property
+    def has_vector(self) -> bool:
+        return bool(self.vector)
+
+    @property
+    def is_cold_start(self) -> bool:
+        return not self.has_vector
+
+
+@dataclass(frozen=True, slots=True)
 class RecommendationVocabulary:
     document_count: int = 0
     genre_terms: tuple[str, ...] = ()
@@ -586,6 +631,87 @@ def build_recommendation_track_vector(
     return normalize_sparse_vector(vector)
 
 
+def build_recommendation_track_profile(
+    track_id: int,
+    track_vectors: Mapping[int, Mapping[str, float]],
+) -> RecommendationProfile:
+    return build_recommendation_profile(
+        (RecommendationProfileSeed(track_id=track_id),),
+        track_vectors,
+    )
+
+
+def build_recommendation_album_profile(
+    album_id: object | None,
+    candidates: Iterable[RecommendationCandidate],
+    track_vectors: Mapping[int, Mapping[str, float]],
+) -> RecommendationProfile:
+    normalized_album_id = normalized_optional_text(album_id)
+    if normalized_album_id is None:
+        return RecommendationProfile()
+    return build_recommendation_profile(
+        (
+            RecommendationProfileSeed(track_id=candidate.metadata.track_id)
+            for candidate in candidates
+            if candidate.metadata.album_id == normalized_album_id
+        ),
+        track_vectors,
+    )
+
+
+def build_recommendation_artist_profile(
+    artist: object | None,
+    candidates: Iterable[RecommendationCandidate],
+    track_vectors: Mapping[int, Mapping[str, float]],
+) -> RecommendationProfile:
+    artist_terms = set(recommendation_artist_terms((artist,)))
+    if not artist_terms:
+        return RecommendationProfile()
+    return build_recommendation_profile(
+        (
+            RecommendationProfileSeed(track_id=candidate.metadata.track_id)
+            for candidate in candidates
+            if artist_terms.intersection(
+                recommendation_metadata_artist_terms(candidate.metadata)
+            )
+        ),
+        track_vectors,
+    )
+
+
+def build_recommendation_user_profile(
+    seeds: Iterable[RecommendationProfileSeed],
+    track_vectors: Mapping[int, Mapping[str, float]],
+) -> RecommendationProfile:
+    return build_recommendation_profile(seeds, track_vectors)
+
+
+def build_recommendation_profile(
+    seeds: Iterable[RecommendationProfileSeed],
+    track_vectors: Mapping[int, Mapping[str, float]],
+) -> RecommendationProfile:
+    seed_track_ids: list[int] = []
+    weighted_vectors: list[tuple[Mapping[str, float], float]] = []
+    total_seed_weight = 0.0
+    for seed in seeds:
+        normalized_seed = RecommendationProfileSeed(seed.track_id, seed.weight)
+        if (
+            normalized_seed.weight <= 0
+            or normalized_seed.track_id not in track_vectors
+        ):
+            continue
+        seed_track_ids.append(normalized_seed.track_id)
+        total_seed_weight += normalized_seed.weight
+        vector = track_vectors[normalized_seed.track_id]
+        if vector:
+            weighted_vectors.append((vector, normalized_seed.weight))
+    return RecommendationProfile(
+        vector=weighted_average_sparse_vectors(weighted_vectors),
+        seed_track_ids=tuple(seed_track_ids),
+        total_seed_weight=total_seed_weight,
+    )
+
+
 def recommendation_candidate_rows(
     connection: Connection,
     *,
@@ -842,6 +968,86 @@ def recommendation_decade_feature_vector(
     return vector
 
 
+def sparse_dot_product(
+    left: Mapping[str, float],
+    right: Mapping[str, float],
+) -> float:
+    if len(left) > len(right):
+        left, right = right, left
+    return sum(
+        float(value) * float(right.get(key, 0.0))
+        for key, value in left.items()
+    )
+
+
+def sparse_vector_norm(vector: Mapping[str, float]) -> float:
+    squared_norm = sum(float(value) * float(value) for value in vector.values())
+    if squared_norm <= 0:
+        return 0.0
+    return math.sqrt(squared_norm)
+
+
+def sparse_cosine_similarity(
+    left: Mapping[str, float],
+    right: Mapping[str, float],
+) -> float:
+    left_norm = sparse_vector_norm(left)
+    right_norm = sparse_vector_norm(right)
+    if left_norm <= 0 or right_norm <= 0:
+        return 0.0
+    similarity = sparse_dot_product(left, right) / (left_norm * right_norm)
+    return max(-1.0, min(1.0, similarity))
+
+
+def add_sparse_vectors(*vectors: Mapping[str, float]) -> SparseVector:
+    result: SparseVector = {}
+    for vector in vectors:
+        for key, value in vector.items():
+            normalized_value = float(value)
+            if normalized_value:
+                result[key] = result.get(key, 0.0) + normalized_value
+                if result[key] == 0:
+                    del result[key]
+    return sparse_vector_copy(result)
+
+
+def scale_sparse_vector(
+    vector: Mapping[str, float],
+    scalar: float,
+) -> SparseVector:
+    normalized_scalar = float(scalar)
+    if normalized_scalar == 0:
+        return {}
+    return sparse_vector_copy(
+        {
+            key: float(value) * normalized_scalar
+            for key, value in vector.items()
+            if value
+        }
+    )
+
+
+def weighted_average_sparse_vectors(
+    weighted_vectors: Iterable[tuple[Mapping[str, float], float]],
+) -> SparseVector:
+    weighted_sum: SparseVector = {}
+    total_weight = 0.0
+    for vector, weight in weighted_vectors:
+        normalized_weight = float(weight)
+        if not math.isfinite(normalized_weight) or normalized_weight < 0:
+            raise ValueError("sparse vector weight must be non-negative")
+        if normalized_weight == 0 or not vector:
+            continue
+        total_weight += normalized_weight
+        weighted_sum = add_sparse_vectors(
+            weighted_sum,
+            scale_sparse_vector(vector, normalized_weight),
+        )
+    if total_weight <= 0:
+        return {}
+    return scale_sparse_vector(weighted_sum, 1.0 / total_weight)
+
+
 def weighted_feature_group_vector(
     vector: Mapping[str, float],
     weight: float,
@@ -867,6 +1073,14 @@ def normalize_sparse_vector(vector: Mapping[str, float]) -> SparseVector:
     }
 
 
+def sparse_vector_copy(vector: Mapping[str, float]) -> SparseVector:
+    return {
+        str(key): float(value)
+        for key, value in sorted(vector.items())
+        if value
+    }
+
+
 def recommendation_feature_key(feature_prefix: str, term: str) -> str:
     return f"{feature_prefix}:{term}"
 
@@ -878,6 +1092,24 @@ def recommendation_artist_term(metadata: CandidateMetadata) -> str:
     if not artists:
         return ""
     return recommendation_feature_term(artists[0])
+
+
+def recommendation_metadata_artist_terms(
+    metadata: CandidateMetadata,
+) -> tuple[str, ...]:
+    return recommendation_artist_terms((metadata.artist, metadata.album_artist))
+
+
+def recommendation_artist_terms(values: Iterable[object | None]) -> tuple[str, ...]:
+    return tuple(
+        dict.fromkeys(
+            term
+            for artist in normalized_album_artist_values(
+                tuple(optional_text(value) for value in values)
+            )
+            if (term := recommendation_feature_term(artist))
+        )
+    )
 
 
 def recommendation_feature_term(value: object | None) -> str:
@@ -1168,6 +1400,8 @@ __all__ = [
     "RecommendationMode",
     "RecommendationModeConfig",
     "RecommendationModeError",
+    "RecommendationProfile",
+    "RecommendationProfileSeed",
     "RecommendationQueries",
     "RecommendationRequest",
     "RecommendationResult",
@@ -1175,8 +1409,14 @@ __all__ = [
     "RecommendationVocabulary",
     "RecencyPenalties",
     "SparseVector",
+    "add_sparse_vectors",
+    "build_recommendation_album_profile",
+    "build_recommendation_artist_profile",
+    "build_recommendation_profile",
+    "build_recommendation_track_profile",
     "build_recommendation_track_vector",
     "build_recommendation_track_vectors",
+    "build_recommendation_user_profile",
     "build_recommendation_vocabulary",
     "load_recommendation_candidate",
     "load_recommendation_candidates",
@@ -1190,4 +1430,9 @@ __all__ = [
     "recommendation_candidates_from_rows",
     "recommendation_decade",
     "recommendation_mode_config",
+    "scale_sparse_vector",
+    "sparse_cosine_similarity",
+    "sparse_dot_product",
+    "sparse_vector_norm",
+    "weighted_average_sparse_vectors",
 ]
