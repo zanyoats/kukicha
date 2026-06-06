@@ -15,7 +15,11 @@ from ..models import normalize_genre_values
 from ..text import normalize_text
 from .database import connect_existing_database
 from .library import split_genres_and_styles
-from .queries.library import taxonomy_sets, track_values_by_track
+from .queries.library import (
+    album_artists_by_album,
+    taxonomy_sets,
+    track_values_by_track,
+)
 from .queries.models import (
     AlbumNotFoundError,
     ArtistNotFoundError,
@@ -202,6 +206,7 @@ class RecommendationModeConfig:
     candidate_filter: CandidateFilter | None = None
     candidate_selection: CandidateSelection | None = None
     artist_only_fallback: ArtistOnlyFallback = ARTIST_ONLY_FALLBACK_RETURN_FEWER
+    exclude_seed_track: bool = True
     exclude_seed_album_tracks: bool = True
     random_recency_multipliers: RandomRecencyMultipliers | None = None
     random_track_play_count_weight: float = 0.0
@@ -271,6 +276,7 @@ class CandidateMetadata:
     title: str = ""
     artist: str = ""
     album_artist: str = ""
+    album_artists: tuple[str, ...] = ()
     album_id: str | None = None
     album: str = ""
     date: str | None = None
@@ -285,6 +291,11 @@ class CandidateMetadata:
         object.__setattr__(self, "title", str(self.title or ""))
         object.__setattr__(self, "artist", str(self.artist or ""))
         object.__setattr__(self, "album_artist", str(self.album_artist or ""))
+        object.__setattr__(
+            self,
+            "album_artists",
+            normalized_album_artist_values(self.album_artists),
+        )
         object.__setattr__(self, "album_id", normalized_optional_text(self.album_id))
         object.__setattr__(self, "album", str(self.album or ""))
         object.__setattr__(self, "date", normalized_optional_text(self.date))
@@ -322,6 +333,9 @@ class ListeningStats:
 class RecommendationCandidate:
     metadata: CandidateMetadata
     listening: ListeningStats = field(default_factory=ListeningStats)
+
+
+CandidateArtistTerms = Callable[[CandidateMetadata], Iterable[object | None]]
 
 
 @dataclass(frozen=True, slots=True)
@@ -567,14 +581,20 @@ class RecommendationService:
             normalized_track_id,
             track_vectors,
         )
+        excluded_track_ids: tuple[int, ...] = ()
+        if config.exclude_seed_track:
+            excluded_track_ids = (normalized_track_id,)
         return self._rank_profile_results(
             profile,
             candidates,
             track_vectors,
             normalized_limit=normalized_limit,
             config=config,
-            exclude_track_ids=(normalized_track_id,),
+            exclude_track_ids=excluded_track_ids,
             seed_candidates=(seed_candidate,),
+            artist_filter_terms=recommendation_track_artist_terms(
+                seed_candidate.metadata,
+            ),
         )
 
     def get_album_radio(
@@ -613,6 +633,10 @@ class RecommendationService:
             config=config,
             exclude_track_ids=excluded_track_ids,
             seed_candidates=seed_candidates,
+            artist_filter_terms=recommendation_seed_album_artist_terms(
+                seed_candidates,
+            ),
+            candidate_artist_terms=recommendation_album_artist_terms,
         )
 
     def get_artist_radio(
@@ -644,6 +668,7 @@ class RecommendationService:
             normalized_limit=normalized_limit,
             config=config,
             seed_candidates=seed_candidates,
+            artist_filter_terms=recommendation_artist_terms((normalized_artist,)),
         )
 
     def _recommendation_context(
@@ -677,6 +702,8 @@ class RecommendationService:
         exclude_track_ids: Iterable[int] = (),
         seed_candidates: Iterable[RecommendationCandidate] = (),
         config: RecommendationModeConfig | None = None,
+        artist_filter_terms: Iterable[object | None] = (),
+        candidate_artist_terms: CandidateArtistTerms | None = None,
     ) -> tuple[RecommendationResult, ...]:
         scored = score_recommendation_candidates(
             profile,
@@ -685,6 +712,8 @@ class RecommendationService:
             config=config,
             exclude_track_ids=exclude_track_ids,
             seed_candidates=seed_candidates,
+            artist_filter_terms=artist_filter_terms,
+            candidate_artist_terms=candidate_artist_terms,
         )
         return rank_recommendation_results(scored)[:normalized_limit]
 
@@ -961,6 +990,8 @@ def score_recommendation_candidates(
     mode: object | None = None,
     config: RecommendationModeConfig | None = None,
     current_time: datetime | None = None,
+    artist_filter_terms: Iterable[object | None] = (),
+    candidate_artist_terms: CandidateArtistTerms | None = None,
 ) -> tuple[RecommendationResult, ...]:
     resolved_config = recommendation_scoring_config(mode=mode, config=config)
     candidate_pool = tuple(candidates)
@@ -970,6 +1001,10 @@ def score_recommendation_candidates(
     )
     excluded_track_ids = set(int(track_id) for track_id in exclude_track_ids)
     seed_candidate_pool = tuple(seed_candidates)
+    required_artist_terms = set(recommendation_artist_terms(artist_filter_terms))
+    resolved_candidate_artist_terms = (
+        candidate_artist_terms or recommendation_metadata_artist_terms
+    )
     return tuple(
         score_recommendation_candidate(
             profile,
@@ -981,7 +1016,33 @@ def score_recommendation_candidates(
         )
         for candidate in candidate_pool
         if candidate.metadata.track_id not in excluded_track_ids
+        and recommendation_candidate_matches_filter(
+            candidate,
+            resolved_config,
+            required_artist_terms=required_artist_terms,
+            candidate_artist_terms=resolved_candidate_artist_terms,
+        )
     )
+
+
+def recommendation_candidate_matches_filter(
+    candidate: RecommendationCandidate,
+    config: RecommendationModeConfig,
+    *,
+    required_artist_terms: set[str],
+    candidate_artist_terms: CandidateArtistTerms | None = None,
+) -> bool:
+    if config.candidate_filter != CANDIDATE_FILTER_ARTIST_MATCH_REQUIRED:
+        return True
+    if not required_artist_terms:
+        return False
+    resolved_candidate_artist_terms = (
+        candidate_artist_terms or recommendation_metadata_artist_terms
+    )
+    candidate_terms = set(
+        recommendation_artist_terms(resolved_candidate_artist_terms(candidate.metadata))
+    )
+    return bool(candidate_terms.intersection(required_artist_terms))
 
 
 def recommendation_scoring_config(
@@ -1327,9 +1388,23 @@ def recommendation_candidates_from_rows(
     )
     taxonomy_genres, taxonomy_styles = taxonomy_sets(connection)
     artist_stats_by_key = recommendation_artist_stats_by_key(connection, track_rows)
+    album_artists_by_id = album_artists_by_album(
+        connection,
+        (
+            album_id
+            for row in track_rows
+            if (album_id := optional_text(row["album_id"]))
+        ),
+    )
     candidates: list[RecommendationCandidate] = []
     for row in track_rows:
         track_id = int(row["track_id"])
+        album_id = optional_text(row["album_id"])
+        album_artists = album_artists_by_id.get(album_id or "", ())
+        if not album_artists:
+            album_artists = normalized_album_artist_values(
+                (text_or_empty(row["album_artist"]),)
+            )
         genres, styles = split_genres_and_styles(
             normalize_genre_values(genres_by_track.get(track_id, [])),
             normalize_genre_values(styles_by_track.get(track_id, [])),
@@ -1345,7 +1420,8 @@ def recommendation_candidates_from_rows(
                     title=text_or_empty(row["title"]),
                     artist=text_or_empty(row["artist"]),
                     album_artist=text_or_empty(row["album_artist"]),
-                    album_id=optional_text(row["album_id"]),
+                    album_artists=album_artists,
+                    album_id=album_id,
                     album=text_or_empty(row["album"]),
                     date=optional_text(row["date"]),
                     decade=recommendation_decade(row["date"], row["album_year"]),
@@ -1633,6 +1709,8 @@ def recommendation_feature_key(feature_prefix: str, term: str) -> str:
 def recommendation_artist_term(metadata: CandidateMetadata) -> str:
     artists = normalized_album_artist_values((metadata.artist,))
     if not artists:
+        artists = normalized_album_artist_values(metadata.album_artists)
+    if not artists:
         artists = normalized_album_artist_values((metadata.album_artist,))
     if not artists:
         return ""
@@ -1642,7 +1720,39 @@ def recommendation_artist_term(metadata: CandidateMetadata) -> str:
 def recommendation_metadata_artist_terms(
     metadata: CandidateMetadata,
 ) -> tuple[str, ...]:
-    return recommendation_artist_terms((metadata.artist, metadata.album_artist))
+    return recommendation_artist_terms(
+        (metadata.artist, *metadata.album_artists, metadata.album_artist)
+    )
+
+
+def recommendation_track_artist_terms(
+    metadata: CandidateMetadata,
+) -> tuple[str, ...]:
+    terms = recommendation_artist_terms((metadata.artist,))
+    if terms:
+        return terms
+    return recommendation_album_artist_terms(metadata)
+
+
+def recommendation_album_artist_terms(
+    metadata: CandidateMetadata,
+) -> tuple[str, ...]:
+    terms = recommendation_artist_terms(metadata.album_artists)
+    if terms:
+        return terms
+    return recommendation_artist_terms((metadata.album_artist,))
+
+
+def recommendation_seed_album_artist_terms(
+    candidates: Iterable[RecommendationCandidate],
+) -> tuple[str, ...]:
+    return tuple(
+        dict.fromkeys(
+            term
+            for candidate in candidates
+            for term in recommendation_album_artist_terms(candidate.metadata)
+        )
+    )
 
 
 def recommendation_artist_terms(values: Iterable[object | None]) -> tuple[str, ...]:
@@ -1871,6 +1981,8 @@ RECOMMENDATION_MODE_CONFIGS: Mapping[RecommendationMode, RecommendationModeConfi
                 diversity_strength=DIVERSITY_STRENGTH_LOW,
                 candidate_filter=CANDIDATE_FILTER_ARTIST_MATCH_REQUIRED,
                 artist_only_fallback=ARTIST_ONLY_FALLBACK_RETURN_FEWER,
+                exclude_seed_track=False,
+                exclude_seed_album_tracks=False,
             ),
             RECOMMENDATION_MODE_RANDOM: RecommendationModeConfig(
                 mode=RECOMMENDATION_MODE_RANDOM,
@@ -1976,7 +2088,10 @@ __all__ = [
     "recommendation_candidate_rows",
     "recommendation_candidates_from_rows",
     "recommendation_decade",
+    "recommendation_album_artist_terms",
     "recommendation_mode_config",
+    "recommendation_seed_album_artist_terms",
+    "recommendation_track_artist_terms",
     "rank_recommendation_results",
     "scale_sparse_vector",
     "score_recommendation_candidate",

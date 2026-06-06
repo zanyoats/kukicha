@@ -155,6 +155,8 @@ class RecommendationModeConfigTest(unittest.TestCase):
         self.assertEqual(artist_only.diversity_strength, DIVERSITY_STRENGTH_LOW)
         self.assertFalse(artist_only.diversity_caps.apply_artist_cap)
         self.assertEqual(artist_only.artist_only_fallback, ARTIST_ONLY_FALLBACK_RETURN_FEWER)
+        self.assertFalse(artist_only.exclude_seed_track)
+        self.assertFalse(artist_only.exclude_seed_album_tracks)
 
     def test_random_mode_recency_multipliers_match_plan_values(self) -> None:
         config = recommendation_mode_config(RECOMMENDATION_MODE_RANDOM)
@@ -1285,6 +1287,159 @@ class RecommendationServiceTest(unittest.TestCase):
             )
         return database
 
+    def build_artist_only_database(self) -> Path:
+        tempdir = TemporaryDirectory()
+        self.addCleanup(tempdir.cleanup)
+        database = Path(tempdir.name) / "library.sqlite"
+        with connect_database(database) as connection:
+            connection.executemany(
+                """
+                INSERT INTO library_albums (album_id, album, year, track_count)
+                VALUES (?, ?, ?, ?)
+                """,
+                (
+                    ("album-seed", "The Pearl", 1984, 2),
+                    ("album-eno", "Another Green World", 1975, 1),
+                    ("album-budd", "The Pavilion of Dreams", 1978, 1),
+                    ("album-laraaji", "Ambient Three", 1980, 1),
+                    ("album-collab", "Fourth World", 1980, 1),
+                    ("album-compilation", "Curated Ambient", 1981, 1),
+                ),
+            )
+            connection.executemany(
+                """
+                INSERT INTO library_album_artists (album_id, position, artist)
+                VALUES (?, ?, ?)
+                """,
+                (
+                    ("album-seed", 0, "Brian Eno"),
+                    ("album-seed", 1, "Harold Budd"),
+                    ("album-eno", 0, "Brian Eno"),
+                    ("album-budd", 0, "Harold Budd"),
+                    ("album-laraaji", 0, "Laraaji"),
+                    ("album-collab", 0, "Brian Eno"),
+                    ("album-collab", 1, "Jon Hassell"),
+                    ("album-compilation", 0, "Compilation Curator"),
+                ),
+            )
+            connection.executemany(
+                """
+                INSERT INTO library_tracks (
+                    track_id,
+                    album_id,
+                    path,
+                    file_type,
+                    scan_error,
+                    artist,
+                    album_artist,
+                    album,
+                    title,
+                    date
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    (
+                        1,
+                        "album-seed",
+                        "/music/pearl/01.flac",
+                        "flac",
+                        None,
+                        "Brian Eno",
+                        "Brian Eno, Harold Budd",
+                        "The Pearl",
+                        "Late October",
+                        "1984",
+                    ),
+                    (
+                        2,
+                        "album-seed",
+                        "/music/pearl/02.flac",
+                        "flac",
+                        None,
+                        "Harold Budd",
+                        "Brian Eno, Harold Budd",
+                        "The Pearl",
+                        "A Stream With Bright Fish",
+                        "1984",
+                    ),
+                    (
+                        3,
+                        "album-eno",
+                        "/music/eno/01.flac",
+                        "flac",
+                        None,
+                        "Brian Eno",
+                        "Brian Eno",
+                        "Another Green World",
+                        "Becalmed",
+                        "1975",
+                    ),
+                    (
+                        4,
+                        "album-budd",
+                        "/music/budd/01.flac",
+                        "flac",
+                        None,
+                        "Harold Budd",
+                        "Harold Budd",
+                        "The Pavilion of Dreams",
+                        "Bismillahi Rrahmani Rrahim",
+                        "1978",
+                    ),
+                    (
+                        5,
+                        "album-laraaji",
+                        "/music/laraaji/01.flac",
+                        "flac",
+                        None,
+                        "Laraaji",
+                        "Laraaji",
+                        "Ambient Three",
+                        "The Dance",
+                        "1980",
+                    ),
+                    (
+                        6,
+                        "album-collab",
+                        "/music/fourth-world/01.flac",
+                        "flac",
+                        None,
+                        "Jon Hassell",
+                        "Brian Eno, Jon Hassell",
+                        "Fourth World",
+                        "Charm",
+                        "1980",
+                    ),
+                    (
+                        7,
+                        "album-compilation",
+                        "/music/curated/01.flac",
+                        "flac",
+                        None,
+                        "Brian Eno",
+                        "Compilation Curator",
+                        "Curated Ambient",
+                        "Licensed Eno Track",
+                        "1981",
+                    ),
+                ),
+            )
+            connection.executemany(
+                """
+                INSERT INTO library_track_genres (track_id, position, genre)
+                VALUES (?, ?, ?)
+                """,
+                tuple((track_id, 0, "Ambient") for track_id in range(1, 8)),
+            )
+            connection.executemany(
+                """
+                INSERT INTO library_track_styles (track_id, position, style)
+                VALUES (?, ?, ?)
+                """,
+                tuple((track_id, 0, "Minimal") for track_id in range(1, 8)),
+            )
+        return database
+
     def test_track_radio_excludes_seed_and_ranks_default_similarity(self) -> None:
         service = RecommendationService(self.build_database())
 
@@ -1456,6 +1611,25 @@ class RecommendationServiceTest(unittest.TestCase):
         self.assertFalse(genre_only_results[3].explanation.same_artist)
         self.assertIsNone(genre_only_results[3].explanation.matched_decade)
 
+    def test_artist_only_track_radio_filters_to_seed_track_artist(self) -> None:
+        service = RecommendationService(self.build_database())
+
+        results = service.get_track_radio(
+            1,
+            mode=RECOMMENDATION_MODE_ARTIST_ONLY,
+            limit=10,
+        )
+
+        self.assertEqual(
+            [result.candidate.metadata.track_id for result in results],
+            [1, 3],
+        )
+        for result in results:
+            self.assertTrue(result.explanation.same_artist)
+            self.assertEqual(result.explanation.matched_genres, ())
+            self.assertEqual(result.explanation.matched_styles, ())
+            self.assertIsNone(result.explanation.matched_decade)
+
     def test_track_radio_applies_limit_after_ranking(self) -> None:
         service = RecommendationService(self.build_database())
 
@@ -1558,6 +1732,53 @@ class RecommendationServiceTest(unittest.TestCase):
         )
         self.assertEqual(artist_results[7].explanation.matched_styles, ())
         self.assertIsNone(artist_results[7].explanation.matched_decade)
+
+    def test_artist_only_album_radio_uses_all_split_album_artists(self) -> None:
+        service = RecommendationService(self.build_artist_only_database())
+
+        results = service.get_album_radio(
+            "album-seed",
+            mode=RECOMMENDATION_MODE_ARTIST_ONLY,
+            limit=10,
+        )
+
+        track_ids = [result.candidate.metadata.track_id for result in results]
+        self.assertEqual(set(track_ids), {1, 2, 3, 4, 6})
+        self.assertIn(1, track_ids)
+        self.assertIn(2, track_ids)
+        self.assertNotIn(5, track_ids)
+        self.assertNotIn(7, track_ids)
+
+        results_by_id = {
+            result.candidate.metadata.track_id: result
+            for result in results
+        }
+        self.assertEqual(
+            results_by_id[1].candidate.metadata.album_artists,
+            ("Brian Eno", "Harold Budd"),
+        )
+        self.assertEqual(
+            results_by_id[6].candidate.metadata.album_artists,
+            ("Brian Eno", "Jon Hassell"),
+        )
+        self.assertTrue(results_by_id[3].explanation.same_artist)
+        self.assertTrue(results_by_id[4].explanation.same_artist)
+
+    def test_artist_only_artist_radio_returns_fewer_without_unrelated_artists(
+        self,
+    ) -> None:
+        service = RecommendationService(self.build_database())
+
+        results = service.get_artist_radio(
+            "Quiet Artist",
+            mode=RECOMMENDATION_MODE_ARTIST_ONLY,
+            limit=10,
+        )
+
+        self.assertEqual(
+            [result.candidate.metadata.track_id for result in results],
+            [5],
+        )
 
     def test_discovery_album_and_artist_radio_can_run(self) -> None:
         service = RecommendationService(self.build_multi_seed_database())
