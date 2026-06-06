@@ -15,7 +15,11 @@ from ..text import normalize_text
 from .database import connect_existing_database
 from .library import split_genres_and_styles
 from .queries.library import taxonomy_sets, track_values_by_track
-from .queries.models import TrackNotFoundError
+from .queries.models import (
+    AlbumNotFoundError,
+    ArtistNotFoundError,
+    TrackNotFoundError,
+)
 from .queries.sql import placeholders_for
 
 
@@ -519,32 +523,132 @@ class RecommendationService:
         limit: object | None = DEFAULT_RECOMMENDATION_LIMIT,
     ) -> tuple[RecommendationResult, ...]:
         normalized_track_id = int(track_id)
-        config = recommendation_mode_config(mode)
-        normalized_limit = RECOMMENDATION_CONFIG.normalize_limit(limit)
-        candidates = self.queries.list_candidates()
+        _, normalized_limit, candidates, track_vectors = (
+            self._recommendation_context(mode, limit)
+        )
         seed_candidate = recommendation_candidate_by_track_id(
             candidates,
             normalized_track_id,
         )
         if seed_candidate is None:
             raise TrackNotFoundError(normalized_track_id)
+        profile = build_recommendation_track_profile(
+            normalized_track_id,
+            track_vectors,
+        )
+        return self._rank_profile_results(
+            profile,
+            candidates,
+            track_vectors,
+            normalized_limit=normalized_limit,
+            exclude_track_ids=(normalized_track_id,),
+            seed_candidates=(seed_candidate,),
+        )
 
+    def get_album_radio(
+        self,
+        album_id: object | None,
+        mode: object | None = RECOMMENDATION_MODE_DEFAULT,
+        limit: object | None = DEFAULT_RECOMMENDATION_LIMIT,
+    ) -> tuple[RecommendationResult, ...]:
+        normalized_album_id = normalized_optional_text(album_id)
+        config, normalized_limit, candidates, track_vectors = (
+            self._recommendation_context(mode, limit)
+        )
+        seed_candidates = recommendation_candidates_by_album_id(
+            candidates,
+            normalized_album_id,
+        )
+        if not seed_candidates:
+            raise AlbumNotFoundError(normalized_album_id or "")
+
+        profile = build_recommendation_album_profile(
+            normalized_album_id,
+            candidates,
+            track_vectors,
+        )
+        excluded_track_ids: tuple[int, ...] = ()
+        if config.exclude_seed_album_tracks:
+            excluded_track_ids = tuple(
+                candidate.metadata.track_id
+                for candidate in seed_candidates
+            )
+        return self._rank_profile_results(
+            profile,
+            candidates,
+            track_vectors,
+            normalized_limit=normalized_limit,
+            exclude_track_ids=excluded_track_ids,
+            seed_candidates=seed_candidates,
+        )
+
+    def get_artist_radio(
+        self,
+        artist: object | None,
+        mode: object | None = RECOMMENDATION_MODE_DEFAULT,
+        limit: object | None = DEFAULT_RECOMMENDATION_LIMIT,
+    ) -> tuple[RecommendationResult, ...]:
+        normalized_artist = normalized_optional_text(artist)
+        _, normalized_limit, candidates, track_vectors = (
+            self._recommendation_context(mode, limit)
+        )
+        seed_candidates = recommendation_candidates_by_artist(
+            candidates,
+            normalized_artist,
+        )
+        if not seed_candidates:
+            raise ArtistNotFoundError(normalized_artist or "")
+
+        profile = build_recommendation_artist_profile(
+            normalized_artist,
+            candidates,
+            track_vectors,
+        )
+        return self._rank_profile_results(
+            profile,
+            candidates,
+            track_vectors,
+            normalized_limit=normalized_limit,
+            seed_candidates=seed_candidates,
+        )
+
+    def _recommendation_context(
+        self,
+        mode: object | None,
+        limit: object | None,
+    ) -> tuple[
+        RecommendationModeConfig,
+        int,
+        tuple[RecommendationCandidate, ...],
+        dict[int, SparseVector],
+    ]:
+        config = recommendation_mode_config(mode)
+        normalized_limit = RECOMMENDATION_CONFIG.normalize_limit(limit)
+        candidates = self.queries.list_candidates()
         vocabulary = build_recommendation_vocabulary(candidates)
         track_vectors = build_recommendation_track_vectors(
             candidates,
             mode=config.mode,
             vocabulary=vocabulary,
         )
-        profile = build_recommendation_track_profile(
-            normalized_track_id,
-            track_vectors,
-        )
+        return config, normalized_limit, candidates, track_vectors
+
+    def _rank_profile_results(
+        self,
+        profile: RecommendationProfile,
+        candidates: Iterable[RecommendationCandidate],
+        track_vectors: Mapping[int, Mapping[str, float]],
+        *,
+        normalized_limit: int,
+        exclude_track_ids: Iterable[int] = (),
+        seed_candidates: Iterable[RecommendationCandidate] = (),
+    ) -> tuple[RecommendationResult, ...]:
         scored = score_recommendation_candidates(
             profile,
             candidates,
             track_vectors,
-            exclude_track_ids=(normalized_track_id,),
-            seed_candidates=(seed_candidate,),
+            exclude_track_ids=exclude_track_ids,
+            seed_candidates=seed_candidates,
         )
         return rank_recommendation_results(scored)[:normalized_limit]
 
@@ -907,6 +1011,36 @@ def recommendation_candidate_by_track_id(
         if candidate.metadata.track_id == normalized_track_id:
             return candidate
     return None
+
+
+def recommendation_candidates_by_album_id(
+    candidates: Iterable[RecommendationCandidate],
+    album_id: object | None,
+) -> tuple[RecommendationCandidate, ...]:
+    normalized_album_id = normalized_optional_text(album_id)
+    if normalized_album_id is None:
+        return ()
+    return tuple(
+        candidate
+        for candidate in candidates
+        if candidate.metadata.album_id == normalized_album_id
+    )
+
+
+def recommendation_candidates_by_artist(
+    candidates: Iterable[RecommendationCandidate],
+    artist: object | None,
+) -> tuple[RecommendationCandidate, ...]:
+    artist_terms = set(recommendation_artist_terms((artist,)))
+    if not artist_terms:
+        return ()
+    return tuple(
+        candidate
+        for candidate in candidates
+        if artist_terms.intersection(
+            recommendation_metadata_artist_terms(candidate.metadata)
+        )
+    )
 
 
 def recommendation_candidate_rows(

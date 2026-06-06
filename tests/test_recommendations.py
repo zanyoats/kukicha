@@ -10,6 +10,8 @@ from kukicha.use_case import (
     ARTIST_ONLY_FALLBACK_RETURN_FEWER,
     CANDIDATE_FILTER_ARTIST_MATCH_REQUIRED,
     CANDIDATE_SELECTION_WEIGHTED_RANDOM,
+    AlbumNotFoundError,
+    ArtistNotFoundError,
     CandidateMetadata,
     DEFAULT_RECOMMENDATION_LIMIT,
     DIVERSITY_STRENGTH_LOW,
@@ -963,6 +965,159 @@ class RecommendationServiceTest(unittest.TestCase):
             )
         return database
 
+    def build_multi_seed_database(self) -> Path:
+        tempdir = TemporaryDirectory()
+        self.addCleanup(tempdir.cleanup)
+        database = Path(tempdir.name) / "library.sqlite"
+        with connect_database(database) as connection:
+            connection.executemany(
+                """
+                INSERT INTO library_albums (album_id, album, year, track_count)
+                VALUES (?, ?, ?, ?)
+                """,
+                (
+                    ("album-seed", "Two Moods", 2001, 2),
+                    ("album-ambient", "Night Weather", 2001, 1),
+                    ("album-rock", "Guitar Mirror", 1992, 1),
+                    ("album-unrelated", "Brass Roads", 1970, 1),
+                    ("album-artist-third", "Another Seed Study", 2010, 1),
+                    ("album-minimal", "Minimal Cousin", 2010, 1),
+                ),
+            )
+            connection.executemany(
+                """
+                INSERT INTO library_tracks (
+                    track_id,
+                    album_id,
+                    path,
+                    file_type,
+                    scan_error,
+                    artist,
+                    album_artist,
+                    album,
+                    title,
+                    date
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    (
+                        1,
+                        "album-seed",
+                        "/music/two-moods/01.flac",
+                        "flac",
+                        None,
+                        "Seed Artist",
+                        "Seed Artist",
+                        "Two Moods",
+                        "Guitar Light",
+                        "1992",
+                    ),
+                    (
+                        2,
+                        "album-seed",
+                        "/music/two-moods/02.flac",
+                        "flac",
+                        None,
+                        "Guest Singer",
+                        "Seed Artist",
+                        "Two Moods",
+                        "Cloud Room",
+                        "2001",
+                    ),
+                    (
+                        3,
+                        "album-ambient",
+                        "/music/night-weather/01.flac",
+                        "flac",
+                        None,
+                        "Other Ambient",
+                        "Other Ambient",
+                        "Night Weather",
+                        "Cloud Echo",
+                        "2001",
+                    ),
+                    (
+                        4,
+                        "album-rock",
+                        "/music/guitar-mirror/01.flac",
+                        "flac",
+                        None,
+                        "Other Rock",
+                        "Other Rock",
+                        "Guitar Mirror",
+                        "Guitar Echo",
+                        "1992",
+                    ),
+                    (
+                        5,
+                        "album-unrelated",
+                        "/music/brass-roads/01.flac",
+                        "flac",
+                        None,
+                        "Brass Group",
+                        "Brass Group",
+                        "Brass Roads",
+                        "Old Streets",
+                        "1970",
+                    ),
+                    (
+                        6,
+                        "album-artist-third",
+                        "/music/seed-study/01.flac",
+                        "flac",
+                        None,
+                        "Seed Artist",
+                        "Seed Artist",
+                        "Another Seed Study",
+                        "Small Pattern",
+                        "2010",
+                    ),
+                    (
+                        7,
+                        "album-minimal",
+                        "/music/minimal-cousin/01.flac",
+                        "flac",
+                        None,
+                        "Pattern Ensemble",
+                        "Pattern Ensemble",
+                        "Minimal Cousin",
+                        "Pattern Echo",
+                        "2010",
+                    ),
+                ),
+            )
+            connection.executemany(
+                """
+                INSERT INTO library_track_genres (track_id, position, genre)
+                VALUES (?, ?, ?)
+                """,
+                (
+                    (1, 0, "Rock"),
+                    (2, 0, "Ambient"),
+                    (3, 0, "Ambient"),
+                    (4, 0, "Rock"),
+                    (5, 0, "Jazz"),
+                    (6, 0, "Electronic"),
+                    (7, 0, "Electronic"),
+                ),
+            )
+            connection.executemany(
+                """
+                INSERT INTO library_track_styles (track_id, position, style)
+                VALUES (?, ?, ?)
+                """,
+                (
+                    (1, 0, "Dream Pop"),
+                    (2, 0, "Drone"),
+                    (3, 0, "Drone"),
+                    (4, 0, "Dream Pop"),
+                    (5, 0, "Post-Bop"),
+                    (6, 0, "Minimalism"),
+                    (7, 0, "Minimalism"),
+                ),
+            )
+        return database
+
     def test_track_radio_excludes_seed_and_ranks_default_similarity(self) -> None:
         service = RecommendationService(self.build_database())
 
@@ -1040,6 +1195,65 @@ class RecommendationServiceTest(unittest.TestCase):
 
         with self.assertRaises(TrackNotFoundError):
             service.get_track_radio(404)
+
+    def test_album_radio_excludes_seed_album_and_uses_all_album_tracks(self) -> None:
+        service = RecommendationService(self.build_multi_seed_database())
+
+        results = service.get_album_radio("album-seed", limit=10)
+
+        track_ids = [result.candidate.metadata.track_id for result in results]
+        self.assertNotIn(1, track_ids)
+        self.assertNotIn(2, track_ids)
+
+        results_by_id = {
+            result.candidate.metadata.track_id: result
+            for result in results
+        }
+        self.assertGreater(results_by_id[3].score.base_similarity, 0.0)
+        self.assertGreater(
+            results_by_id[3].score.base_similarity,
+            results_by_id[5].score.base_similarity,
+        )
+        self.assertEqual(results_by_id[3].explanation.matched_genres, ("Ambient",))
+        self.assertEqual(results_by_id[3].explanation.matched_styles, ("Drone",))
+
+    def test_artist_radio_includes_seed_artist_and_uses_full_catalog_profile(
+        self,
+    ) -> None:
+        service = RecommendationService(self.build_multi_seed_database())
+
+        results = service.get_artist_radio("Seed Artist", limit=10)
+
+        track_ids = [result.candidate.metadata.track_id for result in results]
+        self.assertIn(1, track_ids)
+        self.assertIn(2, track_ids)
+        self.assertIn(6, track_ids)
+
+        results_by_id = {
+            result.candidate.metadata.track_id: result
+            for result in results
+        }
+        self.assertGreater(results_by_id[7].score.base_similarity, 0.0)
+        self.assertGreater(
+            results_by_id[7].score.base_similarity,
+            results_by_id[5].score.base_similarity,
+        )
+        self.assertEqual(
+            results_by_id[7].explanation.matched_genres,
+            ("Electronic",),
+        )
+        self.assertEqual(
+            results_by_id[7].explanation.matched_styles,
+            ("Minimalism",),
+        )
+
+    def test_album_and_artist_radio_missing_seeds_raise_query_errors(self) -> None:
+        service = RecommendationService(self.build_multi_seed_database())
+
+        with self.assertRaises(AlbumNotFoundError):
+            service.get_album_radio("missing-album")
+        with self.assertRaises(ArtistNotFoundError):
+            service.get_artist_radio("Missing Artist")
 
 
 if __name__ == "__main__":
