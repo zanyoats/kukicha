@@ -1,9 +1,21 @@
 from __future__ import annotations
 
+import re
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field
+from pathlib import Path
+from sqlite3 import Connection, Row
 from types import MappingProxyType
 from typing import Literal, cast
+
+from ..album_artists import normalized_album_artist_values
+from ..models import normalize_genre_values
+from ..text import normalize_text
+from .database import connect_existing_database
+from .library import split_genres_and_styles
+from .queries.library import taxonomy_sets, track_values_by_track
+from .queries.models import TrackNotFoundError
+from .queries.sql import placeholders_for
 
 
 RecommendationMode = Literal[
@@ -51,6 +63,7 @@ DiversityStrength = Literal["low", "medium", "high"]
 
 DEFAULT_RECOMMENDATION_LIMIT = 25
 MAX_RECOMMENDATION_LIMIT = 500
+YEAR_PATTERN = re.compile(r"(?<!\d)(\d{4})(?!\d)")
 
 
 class RecommendationModeError(ValueError):
@@ -260,9 +273,13 @@ class CandidateMetadata:
         object.__setattr__(self, "title", str(self.title or ""))
         object.__setattr__(self, "artist", str(self.artist or ""))
         object.__setattr__(self, "album_artist", str(self.album_artist or ""))
+        object.__setattr__(self, "album_id", normalized_optional_text(self.album_id))
         object.__setattr__(self, "album", str(self.album or ""))
+        object.__setattr__(self, "date", normalized_optional_text(self.date))
+        object.__setattr__(self, "decade", normalized_optional_text(self.decade))
         object.__setattr__(self, "genres", normalized_unique_text_tuple(self.genres))
         object.__setattr__(self, "styles", normalized_unique_text_tuple(self.styles))
+        object.__setattr__(self, "starred_at", normalized_optional_text(self.starred_at))
 
     @property
     def is_favorite(self) -> bool:
@@ -348,8 +365,218 @@ class RecommendationResult:
         return self.score.final_score
 
 
+class RecommendationQueries:
+    def __init__(self, database: str | Path) -> None:
+        self.database = Path(database)
+
+    def list_candidates(self) -> tuple[RecommendationCandidate, ...]:
+        with connect_existing_database(self.database) as connection:
+            return load_recommendation_candidates(connection)
+
+    def get_candidate(self, track_id: int) -> RecommendationCandidate:
+        with connect_existing_database(self.database) as connection:
+            return load_recommendation_candidate(connection, track_id)
+
+
 def recommendation_mode_config(mode: object | None = None) -> RecommendationModeConfig:
     return RECOMMENDATION_CONFIG.mode_config(mode)
+
+
+def load_recommendation_candidates(
+    connection: Connection,
+) -> tuple[RecommendationCandidate, ...]:
+    rows = recommendation_candidate_rows(connection)
+    return recommendation_candidates_from_rows(connection, rows)
+
+
+def load_recommendation_candidate(
+    connection: Connection,
+    track_id: int,
+) -> RecommendationCandidate:
+    normalized_track_id = int(track_id)
+    rows = recommendation_candidate_rows(connection, track_ids=(normalized_track_id,))
+    candidates = recommendation_candidates_from_rows(connection, rows)
+    if not candidates:
+        raise TrackNotFoundError(normalized_track_id)
+    return candidates[0]
+
+
+def recommendation_candidate_rows(
+    connection: Connection,
+    *,
+    track_ids: Iterable[int] = (),
+) -> list[Row]:
+    normalized_track_ids = tuple(dict.fromkeys(int(track_id) for track_id in track_ids))
+    track_filter_sql = ""
+    params: list[object] = []
+    if normalized_track_ids:
+        track_filter_sql = (
+            f" AND tracks.track_id IN ({placeholders_for(normalized_track_ids)})"
+        )
+        params.extend(normalized_track_ids)
+    return list(
+        connection.execute(
+            f"""
+            SELECT
+                tracks.track_id,
+                tracks.path,
+                tracks.title,
+                tracks.artist,
+                tracks.album_artist,
+                tracks.album_id,
+                tracks.album,
+                tracks.date,
+                albums.year AS album_year,
+                track_state.starred_at,
+                COALESCE(track_stats.play_count, 0) AS track_play_count,
+                track_stats.last_played_at AS track_last_played_at,
+                COALESCE(album_stats.play_count, 0) AS album_play_count,
+                album_stats.last_played_at AS album_last_played_at
+            FROM library_tracks AS tracks
+            LEFT JOIN library_albums AS albums
+                ON albums.album_id = tracks.album_id
+            LEFT JOIN track_user_state AS track_state
+                ON track_state.track_path = tracks.path
+                    AND track_state.starred_at IS NOT NULL
+            LEFT JOIN play_track_stats AS track_stats
+                ON track_stats.track_path = tracks.path
+            LEFT JOIN play_album_stats AS album_stats
+                ON album_stats.album_id = tracks.album_id
+            WHERE COALESCE(tracks.scan_error, '') = ''
+                {track_filter_sql}
+            ORDER BY tracks.track_id
+            """,
+            params,
+        )
+    )
+
+
+def recommendation_candidates_from_rows(
+    connection: Connection,
+    rows: Iterable[Row],
+) -> tuple[RecommendationCandidate, ...]:
+    track_rows = list(rows)
+    track_ids = [int(row["track_id"]) for row in track_rows]
+    genres_by_track = track_values_by_track(
+        connection,
+        track_ids,
+        table="library_track_genres",
+        column="genre",
+    )
+    styles_by_track = track_values_by_track(
+        connection,
+        track_ids,
+        table="library_track_styles",
+        column="style",
+    )
+    taxonomy_genres, taxonomy_styles = taxonomy_sets(connection)
+    artist_stats_by_key = recommendation_artist_stats_by_key(connection, track_rows)
+    candidates: list[RecommendationCandidate] = []
+    for row in track_rows:
+        track_id = int(row["track_id"])
+        genres, styles = split_genres_and_styles(
+            normalize_genre_values(genres_by_track.get(track_id, [])),
+            normalize_genre_values(styles_by_track.get(track_id, [])),
+            taxonomy_genres=taxonomy_genres,
+            taxonomy_styles=taxonomy_styles,
+        )
+        artist_stats = artist_stats_by_key.get(candidate_artist_stats_key(row))
+        candidates.append(
+            RecommendationCandidate(
+                metadata=CandidateMetadata(
+                    track_id=track_id,
+                    path=str(row["path"]),
+                    title=text_or_empty(row["title"]),
+                    artist=text_or_empty(row["artist"]),
+                    album_artist=text_or_empty(row["album_artist"]),
+                    album_id=optional_text(row["album_id"]),
+                    album=text_or_empty(row["album"]),
+                    date=optional_text(row["date"]),
+                    decade=recommendation_decade(row["date"], row["album_year"]),
+                    genres=tuple(genres),
+                    styles=tuple(styles),
+                    starred_at=optional_text(row["starred_at"]),
+                ),
+                listening=ListeningStats(
+                    track_play_count=int(row["track_play_count"] or 0),
+                    album_play_count=int(row["album_play_count"] or 0),
+                    artist_play_count=artist_stats[0] if artist_stats else 0,
+                    track_last_played_at=optional_text(row["track_last_played_at"]),
+                    album_last_played_at=optional_text(row["album_last_played_at"]),
+                    artist_last_played_at=artist_stats[1] if artist_stats else None,
+                ),
+            )
+        )
+    return tuple(candidates)
+
+
+def recommendation_artist_stats_by_key(
+    connection: Connection,
+    rows: Iterable[Row],
+) -> dict[str, tuple[int, str | None]]:
+    keys = tuple(
+        sorted({key for row in rows if (key := candidate_artist_stats_key(row))})
+    )
+    if not keys:
+        return {}
+    placeholders = placeholders_for(keys)
+    return {
+        str(row["artist_key"]): (
+            int(row["play_count"] or 0),
+            optional_text(row["last_played_at"]),
+        )
+        for row in connection.execute(
+            f"""
+            SELECT artist_key, play_count, last_played_at
+            FROM play_artist_stats
+            WHERE artist_key IN ({placeholders})
+            """,
+            keys,
+        )
+    }
+
+
+def candidate_artist_stats_key(row: Row) -> str:
+    artists = normalized_album_artist_values((optional_text(row["album_artist"]),))
+    if not artists:
+        artists = normalized_album_artist_values((optional_text(row["artist"]),))
+    if not artists:
+        return ""
+    return normalize_text(artists[0])
+
+
+def recommendation_decade(
+    track_date: object | None,
+    album_year: object | None = None,
+) -> str | None:
+    year = year_from_text(track_date)
+    if year is None:
+        year = year_from_value(album_year)
+    if year is None:
+        return None
+    decade = (year // 10) * 10
+    return f"{decade}s"
+
+
+def year_from_text(value: object | None) -> int | None:
+    if value is None:
+        return None
+    match = YEAR_PATTERN.search(str(value))
+    if match is None:
+        return None
+    return year_from_value(match.group(1))
+
+
+def year_from_value(value: object | None) -> int | None:
+    if value is None or (isinstance(value, str) and not value.strip()):
+        return None
+    try:
+        year = int(value)
+    except (TypeError, ValueError):
+        return None
+    if 1000 <= year <= 9999:
+        return year
+    return None
 
 
 def normalized_unique_text_tuple(values: Iterable[str | None]) -> tuple[str, ...]:
@@ -362,6 +589,24 @@ def normalized_unique_text_tuple(values: Iterable[str | None]) -> tuple[str, ...
             continue
         normalized.setdefault(" ".join(text.casefold().split()), text)
     return tuple(normalized.values())
+
+
+def normalized_optional_text(value: object | None) -> str | None:
+    text = optional_text(value)
+    if text is None:
+        return None
+    return " ".join(text.split())
+
+
+def optional_text(value: object | None) -> str | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def text_or_empty(value: object | None) -> str:
+    return optional_text(value) or ""
 
 
 DEFAULT_RECENCY_PENALTIES = RecencyPenalties(
@@ -529,12 +774,18 @@ __all__ = [
     "RecommendationMode",
     "RecommendationModeConfig",
     "RecommendationModeError",
+    "RecommendationQueries",
     "RecommendationRequest",
     "RecommendationResult",
     "RecommendationScore",
     "RecencyPenalties",
+    "load_recommendation_candidate",
+    "load_recommendation_candidates",
     "normalize_recommendation_limit",
     "normalize_recommendation_mode",
     "normalized_unique_text_tuple",
+    "recommendation_candidate_rows",
+    "recommendation_candidates_from_rows",
+    "recommendation_decade",
     "recommendation_mode_config",
 ]
