@@ -85,7 +85,7 @@
                   <button class="album-cover-action play-icon-button" type="button" data-play-album
                     aria-label="Play {{ album.artist }} - {{ album.album|display_album_title }}"
                     title="Play">{{ play_icon() }}</button>
-                  {{ album_action_menu(album.artist ~ " - " ~ (album.album|display_album_title)) }}
+                  {{ album_action_menu(album.artist ~ " - " ~ (album.album|display_album_title), album|album_radio_url) }}
                 </div>
               {% endif %}
             </div>

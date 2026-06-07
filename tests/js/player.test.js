@@ -887,6 +887,18 @@ function bulkAlbumStarButton(document, actionUrl = "/api/albums/star") {
   return button;
 }
 
+function artistRadioBulkMenu(document, href = "/recommendations/radio/artist/Amon%20Tobin") {
+  const menu = document.createElement("details");
+  menu.className = "filter-menu bulk-actions-menu";
+  menu.dataset.dropdownMenu = "";
+  const link = document.createElement("a");
+  link.href = href;
+  link.setAttribute("href", href);
+  link.textContent = "Artist Radio";
+  menu.append(link);
+  return menu;
+}
+
 function sourceForUrl(context, url) {
   return context.sources.find((source) => source.buffer && source.buffer.url === url);
 }
@@ -1146,6 +1158,56 @@ test("library filter form patch updates bulk action urls from current filters", 
   assert.equal(unstarUrl.toString(), starUrl.toString());
 });
 
+test("library filter form patch syncs artist radio bulk action with artist filter", () => {
+  const harness = createHarness({
+    track_ids: [],
+    position: 0,
+    loaded_track_id: null,
+    paused: true,
+    errored_track_ids: [],
+    unavailable_track_ids: [],
+  });
+  const document = harness.document;
+  const clearButton = document.createElement("a");
+  clearButton.className = "button-link clear-filter-button";
+  const currentForm = filterForm(document, [
+    testInput(document, {type: "hidden", name: "size", value: ""}),
+    searchControls(document, [clearButton]),
+  ]);
+  const nextForm = filterForm(document, [
+    testInput(document, {type: "hidden", name: "size", value: ""}),
+    testInput(document, {type: "hidden", name: "artist", value: "Amon Tobin"}),
+    searchControls(document, [
+      artistRadioBulkMenu(document, "/recommendations/radio/artist/Amon%20Tobin"),
+      document.createElement("a"),
+    ]),
+  ]);
+  const currentPage = document.createElement("div");
+  const nextPage = document.createElement("div");
+  currentPage.setQueryResult("form[data-filter-form]", currentForm);
+  nextPage.setQueryResult("form[data-filter-form]", nextForm);
+
+  harness.context.syncLibraryFilterForm(currentPage, nextPage);
+
+  let currentMenu = currentForm.querySelector(".bulk-actions-menu");
+  assert.ok(currentMenu);
+  assert.equal(
+    currentMenu.children[0].getAttribute("href"),
+    "/recommendations/radio/artist/Amon%20Tobin"
+  );
+
+  const clearedForm = filterForm(document, [
+    testInput(document, {type: "hidden", name: "size", value: ""}),
+    searchControls(document, [document.createElement("a")]),
+  ]);
+  nextPage.setQueryResult("form[data-filter-form]", clearedForm);
+
+  harness.context.syncLibraryFilterForm(currentPage, nextPage);
+
+  currentMenu = currentForm.querySelector(".bulk-actions-menu");
+  assert.equal(currentMenu, null);
+});
+
 test("album filter form urls add genre search and sort params to current params", () => {
   const harness = createHarness({
     track_ids: [],
@@ -1269,6 +1331,56 @@ test("preserve scroll navigation links do not scroll after fragment render", asy
   assert.equal(String(harness.fetchCalls[0].url), pageUrl);
   assert.deepEqual(harness.scrollToCalls, []);
   assert.equal(harness.context.history.state.kukichaScrollY, 320);
+});
+
+test("navigation links inside dropdown menus close the containing menu", async () => {
+  const pageUrl = "http://localhost/recommendations/radio/track/7";
+  const harness = createHarness(
+    {
+      track_ids: [],
+      position: 0,
+      loaded_track_id: null,
+      paused: true,
+      errored_track_ids: [],
+      unavailable_track_ids: [],
+    },
+    {
+      fetchResponses: {
+        [pageUrl]: {
+          text: '<div class="view-page recommendations-page" data-page="recommendations"></div>',
+        },
+      },
+    }
+  );
+  const menu = harness.document.createElement("details");
+  menu.dataset.dropdownMenu = "";
+  menu.open = true;
+  const link = harness.document.createElement("a");
+  link.href = pageUrl;
+  link.setAttribute("href", pageUrl);
+  link.closest = (selector) => {
+    if (selector === "a[data-nav]") {
+      return link;
+    }
+    if (selector === "details[data-dropdown-menu]") {
+      return menu;
+    }
+    return null;
+  };
+  let prevented = false;
+
+  harness.document.listeners.get("click")[0]({
+    target: link,
+    preventDefault() {
+      prevented = true;
+    },
+  });
+  await harness.flush();
+
+  assert.equal(prevented, true);
+  assert.equal(menu.open, false);
+  assert.equal(String(harness.fetchCalls[0].url), pageUrl);
+  assert.equal(harness.view.dataset.page, "recommendations");
 });
 
 test("selected track url scrolls selected album row into view", () => {

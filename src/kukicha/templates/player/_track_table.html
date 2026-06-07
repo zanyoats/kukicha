@@ -91,6 +91,12 @@
       <button class="page-menu-link page-menu-button" type="button" data-queue-track data-queue-append>
         Add to Queue
       </button>
+      {% set track_radio_url = track|track_radio_url %}
+      {% if track_radio_url %}
+        <a class="page-menu-link" href="{{ track_radio_url }}" data-nav>Track Radio</a>
+      {% else %}
+        <button class="page-menu-link page-menu-button" type="button" disabled>Track Radio</button>
+      {% endif %}
       {% if show_playlist_track_menu %}
         {% if track.library_track_id %}
           <details class="playlist-track-menu track-action-submenu{% if track.has_playlist_membership %} has-playlist-membership{% endif %}" data-playlist-menu data-library-track-id="{{ track.library_track_id }}">

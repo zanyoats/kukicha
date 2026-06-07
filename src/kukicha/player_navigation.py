@@ -14,6 +14,12 @@ from .use_case import (
     ALBUM_LIST_SORT_RECENT,
     ALBUM_LIST_SORT_RECENTLY_ADDED,
     ALBUM_LIST_SORT_STARRED,
+    RECOMMENDATION_MODE_ARTIST_ONLY,
+    RECOMMENDATION_MODE_DEFAULT,
+    RECOMMENDATION_MODE_DISCOVERY,
+    RECOMMENDATION_MODE_GENRE_ONLY,
+    RECOMMENDATION_MODE_RANDOM,
+    SUPPORTED_RECOMMENDATION_MODES,
     AlbumDetails,
     AlbumListQuery,
     AlbumSummary,
@@ -39,6 +45,13 @@ ALBUM_SORT_OPTIONS = (
     (ALBUM_LIST_SORT_GENRE, "Genre"),
     (ALBUM_LIST_SORT_STARRED, "Starred"),
 )
+RECOMMENDATION_MODE_LABELS = {
+    RECOMMENDATION_MODE_DEFAULT: "Default",
+    RECOMMENDATION_MODE_DISCOVERY: "Discovery",
+    RECOMMENDATION_MODE_GENRE_ONLY: "Genre",
+    RECOMMENDATION_MODE_ARTIST_ONLY: "Artist",
+    RECOMMENDATION_MODE_RANDOM: "Random",
+}
 PLAYER_PAGE_LINKS = (
     ("home", "Home", "/"),
     ("search", "Search", "/search"),
@@ -181,6 +194,118 @@ def album_bulk_star_action_url(query: AlbumListQuery) -> str:
     )
     encoded = urlencode(album_query_params(bulk_query), doseq=True, safe="[]")
     return f"/api/albums/star?{encoded}" if encoded else "/api/albums/star"
+
+
+def recommendation_mode_label(mode: str) -> str:
+    return RECOMMENDATION_MODE_LABELS.get(mode, mode.replace("_", " ").title())
+
+
+def recommendation_track_radio_url(
+    track: Any,
+    *,
+    mode: str | None = None,
+    limit: int | None = None,
+) -> str:
+    track_id = recommendation_track_id(track)
+    if track_id is None:
+        return ""
+    return recommendation_url(
+        f"/recommendations/radio/track/{track_id}",
+        mode=mode,
+        limit=limit,
+    )
+
+
+def recommendation_album_radio_url(
+    album: Any,
+    *,
+    mode: str | None = None,
+    limit: int | None = None,
+) -> str:
+    if bool(getattr(album, "is_playlist", False)):
+        return ""
+    album_id = str(getattr(album, "album_id", album)).strip()
+    if not album_id:
+        return ""
+    return recommendation_url(
+        f"/recommendations/radio/album/{quote(album_id, safe=':')}",
+        mode=mode,
+        limit=limit,
+    )
+
+
+def recommendation_artist_radio_url(
+    artist: str,
+    *,
+    mode: str | None = None,
+    limit: int | None = None,
+) -> str:
+    artist_value = str(artist).strip()
+    if not artist_value:
+        return ""
+    return recommendation_url(
+        f"/recommendations/radio/artist/{quote(artist_value, safe='')}",
+        mode=mode,
+        limit=limit,
+    )
+
+
+def recommendation_daily_url(
+    *,
+    mode: str | None = None,
+    limit: int | None = None,
+    date: str | None = None,
+) -> str:
+    return recommendation_url(
+        "/recommendations/daily",
+        mode=mode,
+        limit=limit,
+        date=date,
+    )
+
+
+def recommendation_url(
+    path: str,
+    *,
+    mode: str | None = None,
+    limit: int | None = None,
+    date: str | None = None,
+) -> str:
+    params: dict[str, str] = {}
+    if mode and mode != RECOMMENDATION_MODE_DEFAULT:
+        params["mode"] = mode
+    if limit is not None:
+        params["limit"] = str(limit)
+    if date:
+        params["date"] = date
+    encoded = urlencode(params)
+    return f"{path}?{encoded}" if encoded else path
+
+
+def recommendation_mode_links(
+    url_for_mode: Any,
+    current_mode: str,
+) -> tuple[dict[str, object], ...]:
+    return tuple(
+        {
+            "mode": mode,
+            "label": recommendation_mode_label(mode),
+            "url": url_for_mode(mode),
+            "current": mode == current_mode,
+        }
+        for mode in SUPPORTED_RECOMMENDATION_MODES
+    )
+
+
+def recommendation_track_id(track: Any) -> int | None:
+    track_id = getattr(track, "library_track_id", None)
+    if track_id is None:
+        track_id = getattr(track, "track_id", track)
+    try:
+        resolved_id = int(track_id)
+    except (TypeError, ValueError):
+        return None
+    return resolved_id if resolved_id > 0 else None
 
 
 def playlist_index_url(_query: AlbumListQuery, *, offset: int | None = None) -> str:

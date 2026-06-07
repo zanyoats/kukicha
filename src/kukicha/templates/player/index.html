@@ -92,12 +92,18 @@
             </div>
           </details>
           {% endif %}
-          {% if (bulk_album_star_action_url is defined and bulk_album_star_action_url) or (bulk_metadata_edit_page_url is defined and bulk_metadata_edit_page_url) %}
+          {% if (artist_radio_url is defined and artist_radio_url) or (bulk_album_star_action_url is defined and bulk_album_star_action_url) or (bulk_metadata_edit_page_url is defined and bulk_metadata_edit_page_url) %}
             <details class="filter-menu bulk-actions-menu" data-dropdown-menu>
               <summary aria-label="Album actions" title="Album actions">
                 {{ vertical_ellipsis_icon() }}
               </summary>
               <div class="filter-options bulk-action-options">
+                {% if artist_radio_url is defined and artist_radio_url %}
+                  <a class="page-menu-link" href="{{ artist_radio_url }}" data-nav>Artist Radio</a>
+                {% endif %}
+                {% if artist_radio_url is defined and artist_radio_url and ((bulk_album_star_action_url is defined and bulk_album_star_action_url) or (bulk_metadata_edit_page_url is defined and bulk_metadata_edit_page_url)) %}
+                  <hr class="page-menu-divider">
+                {% endif %}
                 {% if bulk_album_star_action_url is defined and bulk_album_star_action_url %}
                   <button class="page-menu-link page-menu-button" type="button"
                     data-bulk-album-star data-starred="true"
@@ -194,7 +200,7 @@
                   <button class="album-cover-action play-icon-button" type="button" data-play-album
                     aria-label="Play {{ album.artist }} - {{ album.album|display_album_title }}"
                     title="Play">{{ play_icon() }}</button>
-                  {{ album_action_menu(album.artist ~ " - " ~ (album.album|display_album_title)) }}
+                  {{ album_action_menu(album.artist ~ " - " ~ (album.album|display_album_title), album|album_radio_url) }}
                 </div>
               {% endif %}
             </div>

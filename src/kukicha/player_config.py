@@ -30,6 +30,8 @@ from .player_navigation import (
     album_artist_url,
     album_summary_text,
     album_url,
+    recommendation_album_radio_url,
+    recommendation_track_radio_url,
 )
 from .static_assets import static_asset_url
 from .use_case import prepare_player_database
@@ -1209,5 +1211,7 @@ def build_template_environment() -> Environment:
     environment.filters["album_summary"] = album_summary_text
     environment.filters["compact_count"] = format_compact_count
     environment.filters["display_album_title"] = display_album_title
+    environment.filters["album_radio_url"] = recommendation_album_radio_url
+    environment.filters["track_radio_url"] = recommendation_track_radio_url
     environment.globals["static_asset_url"] = static_asset_url
     return environment

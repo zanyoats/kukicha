@@ -109,6 +109,7 @@ def build_index_context(runtime: PlayerRuntime, query_string: str) -> dict[str, 
         selected_genre_filter_count,
         selected_genre_values,
         selected_style_values,
+        recommendation_artist_radio_url,
     )
     from .use_case import DEFAULT_ALBUMS_SIZE
 
@@ -154,6 +155,11 @@ def build_index_context(runtime: PlayerRuntime, query_string: str) -> dict[str, 
         default_size=DEFAULT_ALBUMS_SIZE,
         bulk_metadata_edit_page_url=album_bulk_metadata_edit_url(query),
         bulk_album_star_action_url=album_bulk_star_action_url(query),
+        artist_radio_url=(
+            recommendation_artist_radio_url(query.artists[0])
+            if len(query.artists) == 1
+            else ""
+        ),
     )
     context.update(player_page_context("library"))
     return context
@@ -440,6 +446,70 @@ def build_simple_page_context(runtime: PlayerRuntime, page_key: str) -> dict[str
         view_template="player/simple_page.html",
     )
     context.update(player_page_context(page_key))
+    return context
+
+
+def build_recommendation_context(
+    runtime: PlayerRuntime,
+    *,
+    page_heading: str,
+    source_text: str,
+    results: tuple[Any, ...],
+    mode: str,
+    limit: int,
+    mode_links: tuple[dict[str, object], ...],
+) -> dict[str, Any]:
+    from .player_navigation import recommendation_mode_label
+    from .player_presenters import (
+        TrackTableRow,
+        track_view,
+        track_views_with_artist_display_lines,
+        track_views_with_playlist_options,
+    )
+
+    track_ids = tuple(
+        result.candidate.metadata.track_id
+        for result in results
+    )
+    track_views = track_views_with_playlist_options(
+        runtime.database,
+        [
+            track_view(track)
+            for track in LibraryQueries(runtime.database).get_tracks_by_ids(track_ids)
+        ],
+    )
+    track_views = track_views_with_artist_display_lines(
+        track_views,
+        split_patterns=getattr(runtime, "album_artist_split_patterns", ()),
+    )
+    views_by_id = {
+        view.library_track_id: view
+        for view in track_views
+        if view.library_track_id is not None
+    }
+    ordered_views = tuple(
+        view
+        for track_id in track_ids
+        if (view := views_by_id.get(track_id)) is not None
+    )
+    count_parts = [
+        format_count_label(len(ordered_views), "track", "tracks"),
+        recommendation_mode_label(mode),
+    ]
+    if source_text:
+        count_parts.insert(0, source_text)
+    context = base_player_context(
+        runtime,
+        page_name="recommendations",
+        page_key="recommendations",
+        page_heading=page_heading,
+        count_text=" - ".join(count_parts),
+        view_template="player/recommendations.html",
+        table_rows=[TrackTableRow(track=view) for view in ordered_views],
+        recommendation_mode=mode,
+        recommendation_limit=limit,
+        recommendation_mode_links=mode_links,
+    )
     return context
 
 

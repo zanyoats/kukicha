@@ -17,7 +17,7 @@
             <button class="album-cover-action play-icon-button" type="button" data-play-album
               aria-label="Play {{ playlist.name }}"
               title="Play">{{ play_icon() }}</button>
-            {{ album_action_menu(playlist.name, "Playlist actions") }}
+            {{ album_action_menu(playlist.name, title="Playlist actions") }}
           </div>
         {% endif %}
       </div>

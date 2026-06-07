@@ -299,6 +299,27 @@ button:disabled,
   margin-left: auto;
 }
 
+.home-daily-recommendations-link {
+  flex: 0 0 auto;
+}
+
+.recommendations-header {
+  align-items: flex-start;
+}
+
+.recommendation-mode-links {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.recommendation-mode-link.current {
+  border-color: var(--accent);
+  background: var(--surface);
+  color: var(--accent-strong);
+}
+
 .search-page {
   gap: 24px;
 }
@@ -3479,6 +3500,11 @@ tr.queue-error .queue-status-label {
     width: 100%;
     max-width: none;
     margin-left: 0;
+  }
+
+  .home-daily-recommendations-link,
+  .recommendation-mode-links {
+    justify-content: flex-start;
   }
 
   .home-track-row.search-result-row {

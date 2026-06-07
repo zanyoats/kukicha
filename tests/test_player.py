@@ -142,6 +142,10 @@ from kukicha.player_navigation import (
     player_page_heading,
     player_page_menu_items,
     playlist_index_url,
+    recommendation_album_radio_url,
+    recommendation_artist_radio_url,
+    recommendation_daily_url,
+    recommendation_track_radio_url,
     search_url,
 )
 from kukicha.use_case import album_list_query_from_params
@@ -1703,8 +1707,16 @@ class PlayerPlaylistMembershipTest(unittest.TestCase):
 
         self.assertIn("album-action-menu-button", html)
         self.assertIn('data-queue-album data-queue-append', html)
+        self.assertIn(
+            'href="/recommendations/radio/album/aphex-twin::selected-ambient-works-volume-ii" data-nav>Album Radio</a>',
+            html,
+        )
         self.assertIn('class="filter-menu track-action-menu"', html)
         self.assertIn('data-queue-track data-queue-append', html)
+        self.assertIn(
+            'href="/recommendations/radio/track/7" data-nav>Track Radio</a>',
+            html,
+        )
         self.assertEqual(html.count("Add to Queue"), 2)
         self.assertIn("track-action-submenu has-playlist-membership", html)
         self.assertIn("Bookmark", html)
@@ -1744,6 +1756,7 @@ class PlayerPlaylistMembershipTest(unittest.TestCase):
         )
 
         self.assertIn("data-queue-track", html)
+        self.assertNotIn("Album Radio", html)
         self.assertNotIn("data-playlist-menu", html)
         self.assertNotIn("data-playlist-toggle", html)
         self.assertNotIn("Add to Playlists", html)
@@ -3306,6 +3319,41 @@ class PlayerGenreFilterQueryParamsTest(unittest.TestCase):
             "&genre[0][p]=Electronic&sort=recent",
         )
 
+    def test_recommendation_urls_encode_seed_values_and_modes(self) -> None:
+        album = AlbumDetails(
+            album_id="brian-eno::ambient 1",
+            artist="Brian Eno",
+            album_artists=("Brian Eno",),
+            album="Ambient 1",
+            year=1978,
+            track_count=4,
+        )
+
+        self.assertEqual(
+            recommendation_track_radio_url(
+                make_track_view(7, root_position=0, path="/music/07.flac"),
+                mode="discovery",
+                limit=10,
+            ),
+            "/recommendations/radio/track/7?mode=discovery&limit=10",
+        )
+        self.assertEqual(
+            recommendation_album_radio_url(album, limit=25),
+            "/recommendations/radio/album/brian-eno::ambient%201?limit=25",
+        )
+        self.assertEqual(
+            recommendation_album_radio_url(replace(album, is_playlist=True)),
+            "",
+        )
+        self.assertEqual(
+            recommendation_artist_radio_url("Seed Artist/Guest"),
+            "/recommendations/radio/artist/Seed%20Artist%2FGuest",
+        )
+        self.assertEqual(
+            recommendation_daily_url(limit=30, date="2026-06-07"),
+            "/recommendations/daily?limit=30&date=2026-06-07",
+        )
+
     def test_parses_sort_param_and_defaults_to_artist(self) -> None:
         default_query = album_list_query_from_params(parse_qs(""))
         artist_query = album_list_query_from_params(parse_qs("sort=artist"))
@@ -3606,6 +3654,62 @@ class PlayerAlbumDetailLinksTest(unittest.TestCase):
         self.assertIn('data-action-url="/api/albums/star?search=ambient"', html)
         self.assertIn(">Star all filtered</button>", html)
         self.assertIn(">Unstar all filtered</button>", html)
+
+    def test_album_index_template_renders_artist_radio_bulk_action(self) -> None:
+        template = build_template_environment().get_template("player/index.html")
+
+        html = template.render(
+            page_key="library",
+            albums=(),
+            query=AlbumListQuery(artists=("Seed Artist",)),
+            show_filter_form=True,
+            show_filter_controls=False,
+            show_sort_controls=False,
+            show_pagination_controls=False,
+            empty_message="No albums matched these filters.",
+            pagination_label="Album pages",
+            search_placeholder="Search albums and artists",
+            clear_url="/albums",
+            filter_action_url="/albums",
+            default_size=200,
+            sort_options=((ALBUM_LIST_SORT_ARTIST, "Artist"),),
+            artist_radio_url="/recommendations/radio/artist/Seed%20Artist",
+            bulk_metadata_edit_page_url="",
+            bulk_album_star_action_url="",
+        )
+
+        self.assertIn('class="filter-menu bulk-actions-menu"', html)
+        self.assertIn(
+            'href="/recommendations/radio/artist/Seed%20Artist" data-nav>Artist Radio</a>',
+            html,
+        )
+
+    def test_home_template_renders_daily_recommendations_entry_point(self) -> None:
+        template = build_template_environment().get_template("player/home.html")
+
+        html = template.render(
+            page_key="home",
+            dashboard=SimpleNamespace(
+                recent_albums=(),
+                recently_added_albums=(),
+                recently_added_since="",
+                recently_starred_albums=(),
+                recent_artists=(),
+                recent_tracks=(),
+                recent_playlists=(),
+            ),
+            continue_listening=None,
+            show_history_empty=False,
+            recently_added_heading="Added in the Last Month",
+            played_label=lambda value: value,
+            added_label=lambda value: value,
+            favorited_label=lambda value: value,
+        )
+
+        self.assertIn(
+            'href="/recommendations/daily" data-nav>Daily Recommendations</a>',
+            html,
+        )
 
     def test_album_template_renders_individual_album_artist_labels_with_commas(self) -> None:
         album = AlbumDetails(
@@ -6520,6 +6624,47 @@ class PlayerWebAdapterTest(unittest.TestCase):
             self.assertEqual(result["explanation"]["matched_styles"], ["Dream Pop"])
             self.assertEqual(result["explanation"]["matched_decade"], "1990s")
             self.assertFalse(result["explanation"]["same_artist"])
+
+    def test_recommendation_route_renders_playable_html_for_browser_request(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            database = temp_path / "kukicha.sqlite"
+            self.seed_recommendation_database(database)
+
+            app = create_player_app(self.make_options(temp_path))
+
+            response = app.test_client().get(
+                "/recommendations/radio/track/1",
+                query_string={"limit": "1"},
+                headers={"Accept": "text/html"},
+            )
+
+            self.assertEqual(response.status_code, 200)
+            self.assertTrue(response.content_type.startswith("text/html"))
+            html = response.get_data(as_text=True)
+            self.assertIn('<div class="view-page recommendations-page"', html)
+            self.assertLess(
+                html.index('href="/" data-history-back data-nav>&larr; back</a>'),
+                html.index("<h1>Track Radio</h1>"),
+            )
+            self.assertIn("<h1>Track Radio</h1>", html)
+            self.assertIn("Seed Artist - Seed Song", html)
+            self.assertIn(
+                'class="button-link recommendation-mode-link current" href="/recommendations/radio/track/1?limit=1"',
+                html,
+            )
+            self.assertNotIn("recommendation-mode-link primary", html)
+            self.assertIn('href="/recommendations/radio/track/1?limit=1" data-nav', html)
+            self.assertIn(
+                'href="/recommendations/radio/track/1?mode=discovery&amp;limit=1" data-nav',
+                html,
+            )
+            self.assertNotIn("<th>Artist</th>", html)
+            self.assertIn('data-track-id="2"', html)
+            self.assertNotIn('data-play-track="2"', html)
+            self.assertNotIn("track-action-menu", html)
+            self.assertIn("queue-add-icon", html)
+            self.assertIn("data-queue-track data-queue-append", html)
 
     def test_album_artist_and_daily_recommendation_routes_return_json(self) -> None:
         with TemporaryDirectory() as tempdir:

@@ -1,0 +1,29 @@
+<div class="view-page recommendations-page" data-page="recommendations">
+  <div class="album-view-nav">
+    <a class="back-link" href="/" data-history-back data-nav>&larr; back</a>
+  </div>
+
+  <header class="view-header recommendations-header">
+    <div class="view-title-group">
+      <h1>{{ page_heading }}</h1>
+      {% if count_text %}
+        <div class="count">{{ count_text }}</div>
+      {% endif %}
+    </div>
+    <nav class="recommendation-mode-links" aria-label="Recommendation modes">
+      {% for item in recommendation_mode_links %}
+        <a class="button-link recommendation-mode-link{% if item.current %} current{% endif %}" href="{{ item.url }}" data-nav
+          {% if item.current %}aria-current="page"{% endif %}>{{ item.label }}</a>
+      {% endfor %}
+    </nav>
+  </header>
+
+  {% if table_rows %}
+    {% set is_queue = false %}
+    {% set show_track_play_button = false %}
+    {% set show_playlist_track_menu = false %}
+    {% include "player/_track_table.html" %}
+  {% else %}
+    <div class="empty">No recommendations found.</div>
+  {% endif %}
+</div>

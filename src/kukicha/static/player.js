@@ -1114,8 +1114,32 @@ function syncLibraryFilterForm(currentPageRoot, nextPageRoot) {
   syncTopLevelHiddenInputs(currentForm, nextForm);
   syncReadonlyArtistFilter(currentForm, nextForm);
   syncFormControls(currentForm, nextForm);
+  syncBulkActionsMenu(currentForm, nextForm);
   syncBulkMetadataEditLink(currentForm);
   syncBulkAlbumStarActionUrls(currentForm);
+}
+
+function syncBulkActionsMenu(currentForm, nextForm) {
+  const currentMenu = currentForm.querySelector(".bulk-actions-menu");
+  const nextMenu = nextForm.querySelector(".bulk-actions-menu");
+  if (currentMenu instanceof HTMLElement && nextMenu instanceof HTMLElement) {
+    currentMenu.parentNode?.insertBefore(nextMenu, currentMenu);
+    currentMenu.remove();
+    return;
+  }
+  if (currentMenu instanceof HTMLElement) {
+    currentMenu.remove();
+    return;
+  }
+  if (!(nextMenu instanceof HTMLElement)) {
+    return;
+  }
+  const controls = currentForm.querySelector(".search-controls");
+  const clearButton = currentForm.querySelector(".clear-filter-button");
+  if (!(controls instanceof HTMLElement)) {
+    return;
+  }
+  controls.insertBefore(nextMenu, clearButton instanceof HTMLElement ? clearButton : null);
 }
 
 function syncReadonlyArtistFilter(currentForm, nextForm) {
@@ -1919,6 +1943,7 @@ document.addEventListener("click", (event) => {
     return;
   }
   event.preventDefault();
+  closeContainingDropdownMenu(link);
   const scrollAnchor = link.hasAttribute("data-album-nav")
     ? scrollAnchorForLink(albumCardAnchor(link))
     : null;

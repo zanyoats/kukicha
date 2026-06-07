@@ -16,6 +16,7 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.serving import make_server
 
 from ._compat import UTC
+from .display import display_album_title
 from .use_case import (
     NATIVE_PLAYBACK_SOURCE,
     append_queue as append_queue_command,
@@ -77,7 +78,14 @@ from .player_errors import PlayerConfigError, PlayerConflictError, PlayerNotFoun
 from .library_sources import resolve_remote_worker_count
 from .media_resources import AudioResource, local_audio_resource
 from .player_media import audio_resource_head, iter_audio_resource_bytes
-from .player_navigation import PLAYER_PAGE_ROUTE_KEYS
+from .player_navigation import (
+    PLAYER_PAGE_ROUTE_KEYS,
+    recommendation_album_radio_url,
+    recommendation_artist_radio_url,
+    recommendation_daily_url,
+    recommendation_mode_links,
+    recommendation_track_radio_url,
+)
 from .player_platform import (
     register_player_signal_handlers,
     restore_signal_handlers,
@@ -103,6 +111,7 @@ from .player_views import (
     build_playlist_edit_context,
     build_playlist_index_context,
     build_queue_context,
+    build_recommendation_context,
     build_roots_page_context,
     build_search_context,
     build_simple_page_context,
@@ -297,6 +306,25 @@ def create_player_app(options: PlayerServerOptions) -> Flask:
             mode=mode,
             limit=limit,
         )
+        if wants_recommendation_page():
+            return rendered_response(
+                build_recommendation_context(
+                    player_context().runtime,
+                    page_heading="Track Radio",
+                    source_text=recommendation_track_source_text(track_id),
+                    results=results,
+                    mode=mode,
+                    limit=limit,
+                    mode_links=recommendation_mode_links(
+                        lambda link_mode: recommendation_track_radio_url(
+                            track_id,
+                            mode=link_mode,
+                            limit=limit,
+                        ),
+                        mode,
+                    ),
+                )
+            )
         return recommendation_response(
             "track_radio",
             results,
@@ -312,6 +340,25 @@ def create_player_app(options: PlayerServerOptions) -> Flask:
             mode=mode,
             limit=limit,
         )
+        if wants_recommendation_page():
+            return rendered_response(
+                build_recommendation_context(
+                    player_context().runtime,
+                    page_heading="Album Radio",
+                    source_text=recommendation_album_source_text(album_id),
+                    results=results,
+                    mode=mode,
+                    limit=limit,
+                    mode_links=recommendation_mode_links(
+                        lambda link_mode: recommendation_album_radio_url(
+                            album_id,
+                            mode=link_mode,
+                            limit=limit,
+                        ),
+                        mode,
+                    ),
+                )
+            )
         return recommendation_response(
             "album_radio",
             results,
@@ -327,6 +374,25 @@ def create_player_app(options: PlayerServerOptions) -> Flask:
             mode=mode,
             limit=limit,
         )
+        if wants_recommendation_page():
+            return rendered_response(
+                build_recommendation_context(
+                    player_context().runtime,
+                    page_heading="Artist Radio",
+                    source_text=artist,
+                    results=results,
+                    mode=mode,
+                    limit=limit,
+                    mode_links=recommendation_mode_links(
+                        lambda link_mode: recommendation_artist_radio_url(
+                            artist,
+                            mode=link_mode,
+                            limit=limit,
+                        ),
+                        mode,
+                    ),
+                )
+            )
         return recommendation_response(
             "artist_radio",
             results,
@@ -345,12 +411,32 @@ def create_player_app(options: PlayerServerOptions) -> Flask:
             limit=limit,
             date=date_value,
         )
+        playlist_date = recommendation_daily_date_key(date_value)
+        if wants_recommendation_page():
+            return rendered_response(
+                build_recommendation_context(
+                    player_context().runtime,
+                    page_heading="Daily Recommendations",
+                    source_text=playlist_date,
+                    results=results,
+                    mode=mode,
+                    limit=limit,
+                    mode_links=recommendation_mode_links(
+                        lambda link_mode: recommendation_daily_url(
+                            mode=link_mode,
+                            limit=limit,
+                            date=playlist_date,
+                        ),
+                        mode,
+                    ),
+                )
+            )
         return recommendation_response(
             "daily",
             results,
             mode=mode,
             limit=limit,
-            playlist_date=recommendation_daily_date_key(date_value),
+            playlist_date=playlist_date,
         )
 
     @app.get("/healthz")
@@ -763,8 +849,30 @@ def player_context() -> PlayerWebContext:
 def wants_json_error() -> bool:
     return (
         request.path.startswith("/api/")
-        or request.path.startswith("/recommendations/")
+        or (
+            request.path.startswith("/recommendations/")
+            and not wants_recommendation_page()
+        )
         or request.method == "POST"
+    )
+
+
+def wants_recommendation_page() -> bool:
+    if not request.path.startswith("/recommendations/"):
+        return False
+    if wants_fragment():
+        return True
+    accept_header = request.headers.get("Accept", "")
+    if "text/html" not in accept_header and "application/xhtml+xml" not in accept_header:
+        return False
+    best_match = request.accept_mimetypes.best_match(
+        ("text/html", "application/json")
+    )
+    if best_match != "text/html":
+        return False
+    return (
+        request.accept_mimetypes["text/html"]
+        >= request.accept_mimetypes["application/json"]
     )
 
 
@@ -794,6 +902,8 @@ def is_mounted_open_subsonic_path() -> bool:
 def should_return_auth_unauthorized() -> bool:
     if request.method not in {"GET", "HEAD"}:
         return True
+    if request.path.startswith("/recommendations/"):
+        return not wants_recommendation_page()
     return request.path.startswith(
         ("/api/", "/recommendations/", "/audio/", "/playlist-audio/", "/art/")
     )
@@ -976,6 +1086,23 @@ def recommendation_query_params(
             max_limit=RECOMMENDATION_CONFIG.max_limit,
         ),
     )
+
+
+def recommendation_track_source_text(track_id: int) -> str:
+    from .use_case import LibraryQueries
+
+    track = LibraryQueries(player_context().database).get_track(track_id)
+    title = track.title or Path(track.path).name
+    artist = track.artist or track.album_artist
+    return f"{artist} - {title}" if artist else title
+
+
+def recommendation_album_source_text(album_id: str) -> str:
+    from .use_case import LibraryQueries
+
+    album = LibraryQueries(player_context().database).get_album(album_id)
+    title = display_album_title(album.album)
+    return f"{album.artist} - {title}" if album.artist else title
 
 
 def recommendation_response(
