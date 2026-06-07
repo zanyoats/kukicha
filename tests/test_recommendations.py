@@ -174,8 +174,8 @@ class RecommendationModeConfigTest(unittest.TestCase):
         self.assertFalse(artist_only.diversity_caps.apply_artist_cap)
         self.assertEqual(artist_only.recent_play_suppression_days, 1.0)
         self.assertEqual(artist_only.artist_only_fallback, ARTIST_ONLY_FALLBACK_RETURN_FEWER)
-        self.assertFalse(artist_only.exclude_seed_track)
-        self.assertFalse(artist_only.exclude_seed_album_tracks)
+        self.assertTrue(artist_only.exclude_seed_track)
+        self.assertTrue(artist_only.exclude_seed_album_tracks)
 
     def test_random_mode_recency_multipliers_match_plan_values(self) -> None:
         config = recommendation_mode_config(RECOMMENDATION_MODE_RANDOM)
@@ -185,8 +185,8 @@ class RecommendationModeConfigTest(unittest.TestCase):
         self.assertEqual(config.recent_play_penalty_strength, RECENT_PLAY_PENALTY_RANDOM_WEIGHTED)
         self.assertEqual(config.random_track_play_count_weight, 0.15)
         self.assertIsNone(config.recent_play_suppression_days)
-        self.assertFalse(config.exclude_seed_track)
-        self.assertFalse(config.exclude_seed_album_tracks)
+        self.assertTrue(config.exclude_seed_track)
+        self.assertTrue(config.exclude_seed_album_tracks)
         self.assertIsNotNone(multipliers)
         assert multipliers is not None
         self.assertEqual(multipliers.played_last_24_hours, 0.10)
@@ -2018,6 +2018,266 @@ class RecommendationServiceTest(unittest.TestCase):
             )
         return database
 
+    def test_acceptance_fixture_track_radio_modes_match_source_plan(self) -> None:
+        database = self.build_database()
+        with connect_database(database, create=False) as connection:
+            connection.execute(
+                """
+                INSERT INTO play_track_stats (
+                    track_path,
+                    play_count,
+                    last_played_at,
+                    track_id,
+                    album_id,
+                    path,
+                    title,
+                    artist,
+                    album
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    "/music/closest/01.flac",
+                    100,
+                    "2026-01-01T00:00:00+00:00",
+                    2,
+                    "album-2",
+                    "/music/closest/01.flac",
+                    "Closest Song",
+                    "Other Artist",
+                    "Closest Album",
+                ),
+            )
+        service = RecommendationService(database)
+
+        default_results = service.get_track_radio(1, limit=10)
+        default_by_id = {
+            result.candidate.metadata.track_id: result
+            for result in default_results
+        }
+        default_track_ids = [
+            result.candidate.metadata.track_id
+            for result in default_results
+        ]
+
+        self.assertNotIn(1, default_track_ids)
+        self.assertEqual(default_track_ids[0], 2)
+        self.assertEqual(default_by_id[2].explanation.matched_genres, ("Rock",))
+        self.assertEqual(
+            default_by_id[2].explanation.matched_styles,
+            ("Dream Pop",),
+        )
+        self.assertEqual(default_by_id[2].explanation.matched_decade, "1990s")
+        self.assertFalse(default_by_id[2].explanation.same_artist)
+
+        genre_only_results = service.get_track_radio(
+            1,
+            mode=RECOMMENDATION_MODE_GENRE_ONLY,
+            limit=10,
+        )
+        genre_only_by_id = {
+            result.candidate.metadata.track_id: result
+            for result in genre_only_results
+        }
+        self.assertAlmostEqual(
+            genre_only_by_id[2].score.base_similarity,
+            genre_only_by_id[4].score.base_similarity,
+        )
+        self.assertEqual(genre_only_by_id[3].score.base_similarity, 0.0)
+        self.assertEqual(genre_only_by_id[2].explanation.matched_genres, ("Rock",))
+        self.assertEqual(genre_only_by_id[2].explanation.matched_styles, ())
+        self.assertFalse(genre_only_by_id[3].explanation.same_artist)
+
+        artist_only_results = service.get_track_radio(
+            1,
+            mode=RECOMMENDATION_MODE_ARTIST_ONLY,
+            limit=10,
+        )
+        self.assertEqual(
+            [
+                result.candidate.metadata.track_id
+                for result in artist_only_results
+            ],
+            [3],
+        )
+
+        discovery_by_id = {
+            result.candidate.metadata.track_id: result
+            for result in service.get_track_radio(
+                1,
+                mode=RECOMMENDATION_MODE_DISCOVERY,
+                limit=10,
+            )
+        }
+        self.assertGreater(
+            discovery_by_id[2].score.track_play_penalty,
+            default_by_id[2].score.track_play_penalty,
+        )
+
+        random_result = RecommendationService(
+            database,
+            random_source=FixedRandomSource(0.99),
+        ).get_track_radio(
+            1,
+            mode=RECOMMENDATION_MODE_RANDOM,
+            limit=1,
+        )[0]
+        self.assertNotEqual(random_result.candidate.metadata.track_id, 1)
+        self.assertEqual(random_result.score.base_similarity, 0.0)
+        self.assertEqual(random_result.explanation.matched_genres, ())
+        self.assertIsNotNone(random_result.score.random_draw)
+
+    def test_acceptance_fixture_album_and_artist_radio_match_source_plan(
+        self,
+    ) -> None:
+        service = RecommendationService(self.build_multi_seed_database())
+
+        album_results = service.get_album_radio("album-seed", limit=10)
+        album_track_ids = [
+            result.candidate.metadata.track_id
+            for result in album_results
+        ]
+        album_by_id = {
+            result.candidate.metadata.track_id: result
+            for result in album_results
+        }
+
+        self.assertNotIn(1, album_track_ids)
+        self.assertNotIn(2, album_track_ids)
+        self.assertGreater(album_by_id[3].score.base_similarity, 0.0)
+        self.assertEqual(album_by_id[3].explanation.matched_genres, ("Ambient",))
+        self.assertEqual(album_by_id[3].explanation.matched_styles, ("Drone",))
+        self.assertGreater(album_by_id[4].score.base_similarity, 0.0)
+        self.assertEqual(album_by_id[4].explanation.matched_genres, ("Rock",))
+        self.assertEqual(album_by_id[4].explanation.matched_styles, ("Dream Pop",))
+
+        artist_results = service.get_artist_radio("Seed Artist", limit=10)
+        artist_track_ids = [
+            result.candidate.metadata.track_id
+            for result in artist_results
+        ]
+        self.assertIn(7, artist_track_ids)
+        self.assertLessEqual(
+            sum(
+                result.candidate.metadata.artist == "Seed Artist"
+                for result in artist_results
+            ),
+            3,
+        )
+
+        artist_only_results = service.get_artist_radio(
+            "Seed Artist",
+            mode=RECOMMENDATION_MODE_ARTIST_ONLY,
+            limit=10,
+        )
+        for result in artist_only_results:
+            metadata = result.candidate.metadata
+            self.assertIn(
+                "Seed Artist",
+                (metadata.artist, metadata.album_artist, *metadata.album_artists),
+            )
+
+        random_album_results = RecommendationService(
+            self.build_multi_seed_database(),
+            random_source=FixedRandomSource(0.0, 0.0),
+        ).get_album_radio(
+            "album-seed",
+            mode=RECOMMENDATION_MODE_RANDOM,
+            limit=2,
+        )
+        self.assertEqual(
+            [
+                result.candidate.metadata.track_id
+                for result in random_album_results
+            ],
+            [3, 4],
+        )
+
+    def test_acceptance_fixture_daily_playlist_matches_source_plan(self) -> None:
+        database = self.build_daily_profile_database(played_count=100)
+        service = RecommendationService(database)
+
+        default_results = service.get_daily_playlist(
+            limit=5,
+            date="2026-06-07T12:00:00+00:00",
+        )
+        repeated_default_results = service.get_daily_playlist(
+            limit=5,
+            date="2026-06-07T23:00:00+00:00",
+        )
+        default_track_ids = [
+            result.candidate.metadata.track_id
+            for result in default_results
+        ]
+        self.assertEqual(
+            default_track_ids,
+            [
+                result.candidate.metadata.track_id
+                for result in repeated_default_results
+            ],
+        )
+        self.assertIn(3, default_track_ids)
+        self.assertIn(4, default_track_ids)
+
+        default_by_id = {
+            result.candidate.metadata.track_id: result
+            for result in default_results
+        }
+        self.assertGreater(default_by_id[3].score.base_similarity, 0.0)
+        self.assertGreater(default_by_id[4].score.base_similarity, 0.0)
+        self.assertEqual(default_by_id[2].score.track_play_penalty, 0.05)
+        self.assertEqual(default_by_id[2].score.recency_penalty, 0.15)
+
+        discovery_track_ids = [
+            result.candidate.metadata.track_id
+            for result in service.get_daily_playlist(
+                mode=RECOMMENDATION_MODE_DISCOVERY,
+                limit=5,
+                date="2026-06-07T12:00:00+00:00",
+            )
+        ]
+        self.assertNotIn(2, discovery_track_ids)
+
+        cold_start_results = RecommendationService(
+            self.build_diversity_database()
+        ).get_daily_playlist(limit=5, date="2026-06-07")
+        self.assertEqual(
+            [
+                result.candidate.metadata.track_id
+                for result in cold_start_results
+            ],
+            [1, 2, 3, 5, 7],
+        )
+
+        random_database = self.build_database()
+        random_service = RecommendationService(
+            random_database,
+            random_source=FixedRandomSource(0.99, 0.0, 0.51),
+        )
+        first_random_results = random_service.get_daily_playlist(
+            mode=RECOMMENDATION_MODE_RANDOM,
+            limit=3,
+            date="2026-06-07T12:00:00+00:00",
+        )
+        second_random_results = random_service.get_daily_playlist(
+            mode=RECOMMENDATION_MODE_RANDOM,
+            limit=3,
+            date="2026-06-07T23:00:00+00:00",
+        )
+        self.assertEqual(
+            [
+                result.candidate.metadata.track_id
+                for result in first_random_results
+            ],
+            [
+                result.candidate.metadata.track_id
+                for result in second_random_results
+            ],
+        )
+        self.assertEqual(
+            {result.score.base_similarity for result in first_random_results},
+            {0.0},
+        )
+
     def test_track_radio_excludes_seed_and_ranks_default_similarity(self) -> None:
         service = RecommendationService(self.build_database())
 
@@ -2181,7 +2441,7 @@ class RecommendationServiceTest(unittest.TestCase):
 
         self.assertEqual(
             [result.candidate.metadata.track_id for result in results],
-            [1, 3],
+            [3],
         )
         for result in results:
             self.assertTrue(result.explanation.same_artist)
@@ -2326,9 +2586,9 @@ class RecommendationServiceTest(unittest.TestCase):
         )
 
         track_ids = [result.candidate.metadata.track_id for result in results]
-        self.assertEqual(set(track_ids), {1, 2, 3, 4, 6})
-        self.assertIn(1, track_ids)
-        self.assertIn(2, track_ids)
+        self.assertEqual(set(track_ids), {3, 4, 6})
+        self.assertNotIn(1, track_ids)
+        self.assertNotIn(2, track_ids)
         self.assertNotIn(5, track_ids)
         self.assertNotIn(7, track_ids)
 
@@ -2336,10 +2596,6 @@ class RecommendationServiceTest(unittest.TestCase):
             result.candidate.metadata.track_id: result
             for result in results
         }
-        self.assertEqual(
-            results_by_id[1].candidate.metadata.album_artists,
-            ("Brian Eno", "Harold Budd"),
-        )
         self.assertEqual(
             results_by_id[6].candidate.metadata.album_artists,
             ("Brian Eno", "Jon Hassell"),
@@ -2377,7 +2633,7 @@ class RecommendationServiceTest(unittest.TestCase):
 
         self.assertEqual(
             [result.candidate.metadata.track_id for result in results],
-            [6, 1, 4],
+            [6, 2, 4],
         )
         self.assertEqual(
             [result.score.random_draw for result in results],
@@ -2427,7 +2683,7 @@ class RecommendationServiceTest(unittest.TestCase):
             )
         service = RecommendationService(
             database,
-            random_source=FixedRandomSource(0.206),
+            random_source=FixedRandomSource(0.0),
         )
 
         result = service.get_track_radio(
@@ -2437,12 +2693,12 @@ class RecommendationServiceTest(unittest.TestCase):
         )[0]
 
         self.assertEqual(result.candidate.metadata.track_id, 2)
-        self.assertEqual(result.score.random_draw, 0.206)
+        self.assertEqual(result.score.random_draw, 0.0)
         self.assertEqual(result.score.random_recency_multiplier, 0.10)
         self.assertEqual(result.score.random_play_count_multiplier, 1.0)
         self.assertEqual(result.score.random_selection_weight, 0.10)
 
-    def test_random_album_radio_keeps_seed_album_tracks_eligible(self) -> None:
+    def test_random_album_radio_excludes_seed_album_tracks(self) -> None:
         service = RecommendationService(
             self.build_multi_seed_database(),
             random_source=FixedRandomSource(0.0, 0.0),
@@ -2456,7 +2712,7 @@ class RecommendationServiceTest(unittest.TestCase):
 
         self.assertEqual(
             [result.candidate.metadata.track_id for result in results],
-            [1, 2],
+            [3, 4],
         )
 
     def test_random_track_radio_applies_artist_and_album_caps(self) -> None:
@@ -2472,7 +2728,8 @@ class RecommendationServiceTest(unittest.TestCase):
         )
 
         track_ids = [result.candidate.metadata.track_id for result in results]
-        self.assertEqual(track_ids, [1, 2, 3, 5, 7])
+        self.assertEqual(track_ids, [2, 3, 5, 7, 8])
+        self.assertNotIn(1, track_ids)
         self.assertNotIn(4, track_ids)
         self.assertNotIn(6, track_ids)
         self.assertLessEqual(

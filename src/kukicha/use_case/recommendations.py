@@ -2843,8 +2843,6 @@ RECOMMENDATION_MODE_CONFIGS: Mapping[RecommendationMode, RecommendationModeConfi
                 diversity_strength=DIVERSITY_STRENGTH_LOW,
                 candidate_filter=CANDIDATE_FILTER_ARTIST_MATCH_REQUIRED,
                 artist_only_fallback=ARTIST_ONLY_FALLBACK_RETURN_FEWER,
-                exclude_seed_track=False,
-                exclude_seed_album_tracks=False,
             ),
             RECOMMENDATION_MODE_RANDOM: RecommendationModeConfig(
                 mode=RECOMMENDATION_MODE_RANDOM,
@@ -2863,8 +2861,6 @@ RECOMMENDATION_MODE_CONFIGS: Mapping[RecommendationMode, RecommendationModeConfi
                 recent_play_penalty_strength=RECENT_PLAY_PENALTY_RANDOM_WEIGHTED,
                 diversity_strength=DIVERSITY_STRENGTH_MEDIUM,
                 candidate_selection=CANDIDATE_SELECTION_WEIGHTED_RANDOM,
-                exclude_seed_track=False,
-                exclude_seed_album_tracks=False,
                 random_recency_multipliers=RandomRecencyMultipliers(),
                 random_track_play_count_weight=0.15,
             ),
