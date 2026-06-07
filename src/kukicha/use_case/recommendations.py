@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import math
 import random as random_module
 import re
@@ -15,7 +16,7 @@ from typing import Literal, Protocol, cast
 from ..album_artists import normalized_album_artist_values
 from ..models import normalize_genre_values
 from ..text import normalize_text
-from .database import connect_existing_database
+from .database import connect_existing_database, ensure_recommendation_schema
 from .library import split_genres_and_styles
 from .queries.library import (
     album_artists_by_album,
@@ -80,6 +81,18 @@ DAILY_FAVORITE_SEED_WEIGHT = 3.0
 DAILY_TOP_LISTENED_TRACK_LIMIT = 50
 YEAR_PATTERN = re.compile(r"(?<!\d)(\d{4})(?!\d)")
 SparseVector = dict[str, float]
+RECOMMENDATION_SCORE_JSON_FIELDS = (
+    "base_similarity",
+    "favorite_boost",
+    "track_play_penalty",
+    "artist_play_penalty",
+    "album_play_penalty",
+    "recency_penalty",
+    "random_draw",
+    "random_recency_multiplier",
+    "random_play_count_multiplier",
+    "random_selection_weight",
+)
 
 
 class RecommendationRandomSource(Protocol):
@@ -576,6 +589,38 @@ class RecommendationQueries:
         with connect_existing_database(self.database) as connection:
             return load_recommendation_candidate(connection, track_id)
 
+    def get_daily_playlist(
+        self,
+        playlist_date: object | None,
+        mode: object | None,
+        limit: object | None,
+    ) -> tuple[RecommendationResult, ...] | None:
+        with connect_existing_database(self.database) as connection:
+            ensure_recommendation_schema(connection)
+            return load_saved_daily_recommendation_playlist(
+                connection,
+                playlist_date,
+                mode,
+                limit,
+            )
+
+    def save_daily_playlist(
+        self,
+        playlist_date: object | None,
+        mode: object | None,
+        limit: object | None,
+        results: Iterable[RecommendationResult],
+    ) -> None:
+        with connect_existing_database(self.database) as connection:
+            ensure_recommendation_schema(connection)
+            save_daily_recommendation_playlist(
+                connection,
+                playlist_date,
+                mode,
+                limit,
+                results,
+            )
+
 
 class RecommendationService:
     def __init__(
@@ -704,8 +749,19 @@ class RecommendationService:
         limit: object | None = DEFAULT_DAILY_RECOMMENDATION_LIMIT,
         date: object | None = None,
     ) -> tuple[RecommendationResult, ...]:
+        config = recommendation_mode_config(mode)
+        normalized_limit = normalize_daily_recommendation_limit(limit)
+        date_key = recommendation_daily_date_key(date)
+        saved_results = self.queries.get_daily_playlist(
+            date_key,
+            config.mode,
+            normalized_limit,
+        )
+        if saved_results is not None:
+            return saved_results
+
         config, normalized_limit, candidates, track_vectors = (
-            self._recommendation_context(mode, limit)
+            self._recommendation_context(config.mode, normalized_limit)
         )
         seeds = build_daily_recommendation_profile_seeds(candidates)
         seed_candidates = recommendation_candidates_by_track_ids(
@@ -725,7 +781,7 @@ class RecommendationService:
             if not artist_filter_terms:
                 ranking_config = recommendation_daily_cold_start_config(config)
 
-        return self._rank_profile_results(
+        results = self._rank_profile_results(
             profile,
             candidates,
             track_vectors,
@@ -736,6 +792,13 @@ class RecommendationService:
             current_time=current_time,
             random_source=self._daily_random_source(date, ranking_config),
         )
+        self.queries.save_daily_playlist(
+            date_key,
+            config.mode,
+            normalized_limit,
+            results,
+        )
+        return results
 
     def _recommendation_context(
         self,
@@ -1832,6 +1895,285 @@ def recommendation_daily_cold_start_config(
         candidate_filter=None,
         diversity_caps=DEFAULT_DIVERSITY_CAPS,
     )
+
+
+def normalize_daily_recommendation_limit(value: object | None) -> int:
+    return normalize_recommendation_limit(
+        value,
+        default=DEFAULT_DAILY_RECOMMENDATION_LIMIT,
+        max_limit=RECOMMENDATION_CONFIG.max_limit,
+    )
+
+
+def load_saved_daily_recommendation_playlist(
+    connection: Connection,
+    playlist_date: object | None,
+    mode: object | None,
+    limit: object | None,
+) -> tuple[RecommendationResult, ...] | None:
+    date_key = recommendation_daily_date_key(playlist_date)
+    normalized_mode = normalize_recommendation_mode(mode)
+    normalized_limit = normalize_daily_recommendation_limit(limit)
+    playlist_row = connection.execute(
+        """
+        SELECT daily_playlist_id
+        FROM recommendation_daily_playlists
+        WHERE playlist_date = ?
+            AND mode = ?
+            AND requested_limit = ?
+        """,
+        (date_key, normalized_mode, normalized_limit),
+    ).fetchone()
+    if playlist_row is None:
+        return None
+
+    item_rows = list(
+        connection.execute(
+            """
+            SELECT rank, track_id, score, explanation_json
+            FROM recommendation_daily_playlist_items
+            WHERE daily_playlist_id = ?
+            ORDER BY rank
+            """,
+            (int(playlist_row["daily_playlist_id"]),),
+        )
+    )
+    if not item_rows:
+        return ()
+
+    track_ids = tuple(
+        dict.fromkeys(int(row["track_id"]) for row in item_rows)
+    )
+    candidates = recommendation_candidates_from_rows(
+        connection,
+        recommendation_candidate_rows(connection, track_ids=track_ids),
+    )
+    candidates_by_track_id = {
+        candidate.metadata.track_id: candidate
+        for candidate in candidates
+    }
+    results: list[RecommendationResult] = []
+    for row in item_rows:
+        track_id = int(row["track_id"])
+        candidate = candidates_by_track_id.get(track_id)
+        if candidate is None:
+            continue
+        payload = recommendation_json_object(row["explanation_json"])
+        score = recommendation_score_from_json_data(
+            payload.get("score"),
+            fallback_score=row["score"],
+        )
+        explanation = recommendation_explanation_from_json_data(
+            payload,
+            score=score,
+        )
+        results.append(
+            RecommendationResult(
+                candidate=candidate,
+                score=score,
+                explanation=explanation,
+            )
+        )
+    return tuple(results)
+
+
+def save_daily_recommendation_playlist(
+    connection: Connection,
+    playlist_date: object | None,
+    mode: object | None,
+    limit: object | None,
+    results: Iterable[RecommendationResult],
+    *,
+    generated_at: datetime | None = None,
+) -> None:
+    date_key = recommendation_daily_date_key(playlist_date)
+    normalized_mode = normalize_recommendation_mode(mode)
+    normalized_limit = normalize_daily_recommendation_limit(limit)
+    generated_at_text = recommendation_datetime_to_iso(
+        generated_at or datetime.now(timezone.utc)
+    )
+    result_pool = tuple(results)
+    playlist_row = connection.execute(
+        """
+        SELECT daily_playlist_id
+        FROM recommendation_daily_playlists
+        WHERE playlist_date = ?
+            AND mode = ?
+            AND requested_limit = ?
+        """,
+        (date_key, normalized_mode, normalized_limit),
+    ).fetchone()
+    if playlist_row is None:
+        cursor = connection.execute(
+            """
+            INSERT INTO recommendation_daily_playlists (
+                playlist_date,
+                mode,
+                requested_limit,
+                generated_at
+            ) VALUES (?, ?, ?, ?)
+            """,
+            (date_key, normalized_mode, normalized_limit, generated_at_text),
+        )
+        playlist_id = int(cursor.lastrowid)
+    else:
+        playlist_id = int(playlist_row["daily_playlist_id"])
+        connection.execute(
+            """
+            UPDATE recommendation_daily_playlists
+            SET generated_at = ?
+            WHERE daily_playlist_id = ?
+            """,
+            (generated_at_text, playlist_id),
+        )
+        connection.execute(
+            """
+            DELETE FROM recommendation_daily_playlist_items
+            WHERE daily_playlist_id = ?
+            """,
+            (playlist_id,),
+        )
+
+    for rank, result in enumerate(result_pool, start=1):
+        score = recommendation_finite_float(result.final_score)
+        connection.execute(
+            """
+            INSERT INTO recommendation_daily_playlist_items (
+                daily_playlist_id,
+                rank,
+                track_id,
+                score,
+                explanation_json
+            ) VALUES (?, ?, ?, ?, ?)
+            """,
+            (
+                playlist_id,
+                rank,
+                result.candidate.metadata.track_id,
+                score,
+                recommendation_explanation_json(result.explanation, result.score),
+            ),
+        )
+
+
+def recommendation_datetime_to_iso(value: datetime) -> str:
+    return recommendation_utc_datetime(value).replace(microsecond=0).isoformat()
+
+
+def recommendation_explanation_json(
+    explanation: RecommendationExplanation,
+    score: RecommendationScore,
+) -> str:
+    return json.dumps(
+        recommendation_explanation_to_json_data(explanation, score),
+        separators=(",", ":"),
+        sort_keys=True,
+    )
+
+
+def recommendation_explanation_to_json_data(
+    explanation: RecommendationExplanation,
+    score: RecommendationScore,
+) -> dict[str, object]:
+    data: dict[str, object] = {
+        "score": recommendation_score_to_json_data(score),
+    }
+    if explanation.matched_genres:
+        data["matched_genres"] = list(explanation.matched_genres)
+    if explanation.matched_styles:
+        data["matched_styles"] = list(explanation.matched_styles)
+    if explanation.matched_decade is not None:
+        data["matched_decade"] = explanation.matched_decade
+    if explanation.same_artist:
+        data["same_artist"] = True
+    return data
+
+
+def recommendation_score_to_json_data(score: RecommendationScore) -> dict[str, float]:
+    data: dict[str, float] = {}
+    for field_name in RECOMMENDATION_SCORE_JSON_FIELDS:
+        value = getattr(score, field_name)
+        if value is None:
+            continue
+        data[field_name] = recommendation_finite_float(value)
+    return data
+
+
+def recommendation_explanation_from_json_data(
+    data: Mapping[str, object],
+    *,
+    score: RecommendationScore,
+) -> RecommendationExplanation:
+    return RecommendationExplanation(
+        matched_genres=recommendation_json_text_tuple(data.get("matched_genres")),
+        matched_styles=recommendation_json_text_tuple(data.get("matched_styles")),
+        matched_decade=optional_text(data.get("matched_decade")),
+        same_artist=data.get("same_artist") is True,
+        score=score,
+    )
+
+
+def recommendation_score_from_json_data(
+    data: object,
+    *,
+    fallback_score: object | None = None,
+) -> RecommendationScore:
+    payload = data if isinstance(data, Mapping) else {}
+    score_values: dict[str, float | None] = {}
+    for field_name in RECOMMENDATION_SCORE_JSON_FIELDS:
+        if field_name not in payload:
+            continue
+        value = recommendation_json_float(payload.get(field_name))
+        if value is not None:
+            score_values[field_name] = value
+    if not score_values:
+        score_values["base_similarity"] = recommendation_finite_float(fallback_score)
+    return RecommendationScore(**score_values)
+
+
+def recommendation_json_object(value: object | None) -> Mapping[str, object]:
+    if isinstance(value, Mapping):
+        return value
+    try:
+        parsed = json.loads(str(value or "{}"))
+    except (TypeError, ValueError):
+        return {}
+    if not isinstance(parsed, Mapping):
+        return {}
+    return parsed
+
+
+def recommendation_json_text_tuple(value: object | None) -> tuple[str, ...]:
+    if not isinstance(value, (list, tuple)):
+        return ()
+    return normalized_unique_text_tuple(
+        str(item)
+        for item in value
+        if item is not None
+    )
+
+
+def recommendation_json_float(value: object | None) -> float | None:
+    if value is None:
+        return None
+    try:
+        normalized = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(normalized):
+        return None
+    return normalized
+
+
+def recommendation_finite_float(
+    value: object | None,
+    *,
+    default: float = 0.0,
+) -> float:
+    normalized = recommendation_json_float(value)
+    if normalized is None:
+        return default
+    return normalized
 
 
 def recommendation_candidate_rows(

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from dataclasses import FrozenInstanceError, replace
 from datetime import datetime, timedelta, timezone
 import math
@@ -2653,6 +2654,148 @@ class RecommendationServiceTest(unittest.TestCase):
         self.assertEqual(result.score.random_recency_multiplier, 0.10)
         self.assertEqual(result.score.random_play_count_multiplier, 1.0)
         self.assertEqual(result.score.random_selection_weight, 0.10)
+
+    def test_daily_playlist_reuses_saved_result_for_same_date_mode_and_limit(
+        self,
+    ) -> None:
+        database = self.build_database()
+        service = RecommendationService(
+            database,
+            random_source=FixedRandomSource(0.99, 0.0, 0.51),
+        )
+
+        first_results = service.get_daily_playlist(
+            mode=RECOMMENDATION_MODE_RANDOM,
+            limit=3,
+            date="2026-06-07T12:00:00+00:00",
+        )
+        second_results = service.get_daily_playlist(
+            mode=RECOMMENDATION_MODE_RANDOM,
+            limit=3,
+            date="2026-06-07T23:00:00+00:00",
+        )
+
+        first_track_ids = [
+            result.candidate.metadata.track_id
+            for result in first_results
+        ]
+        second_track_ids = [
+            result.candidate.metadata.track_id
+            for result in second_results
+        ]
+        self.assertEqual(first_track_ids, [6, 1, 4])
+        self.assertEqual(second_track_ids, first_track_ids)
+        self.assertEqual(
+            [result.score.random_draw for result in second_results],
+            [0.99, 0.0, 0.51],
+        )
+
+        with connect_database(database, create=False) as connection:
+            playlist_row = connection.execute(
+                """
+                SELECT
+                    playlist_date,
+                    mode,
+                    requested_limit,
+                    generated_at
+                FROM recommendation_daily_playlists
+                """
+            ).fetchone()
+            item_rows = list(
+                connection.execute(
+                    """
+                    SELECT rank, track_id, score, explanation_json
+                    FROM recommendation_daily_playlist_items
+                    ORDER BY rank
+                    """
+                )
+            )
+
+        self.assertIsNotNone(playlist_row)
+        assert playlist_row is not None
+        self.assertEqual(playlist_row["playlist_date"], "2026-06-07")
+        self.assertEqual(playlist_row["mode"], RECOMMENDATION_MODE_RANDOM)
+        self.assertEqual(playlist_row["requested_limit"], 3)
+        self.assertTrue(playlist_row["generated_at"])
+        self.assertEqual(
+            [(row["rank"], row["track_id"], row["score"]) for row in item_rows],
+            [(1, 6, 1.0), (2, 1, 1.0), (3, 4, 1.0)],
+        )
+        first_payload = json.loads(item_rows[0]["explanation_json"])
+        self.assertEqual(first_payload["score"]["random_draw"], 0.99)
+        self.assertEqual(first_payload["score"]["random_selection_weight"], 1.0)
+
+    def test_daily_playlist_modes_and_dates_store_independent_rows(self) -> None:
+        database = self.build_database()
+        service = RecommendationService(database)
+
+        service.get_daily_playlist(limit=2, date="2026-06-07")
+        service.get_daily_playlist(limit=2, date="2026-06-08")
+        service.get_daily_playlist(
+            mode=RECOMMENDATION_MODE_GENRE_ONLY,
+            limit=2,
+            date="2026-06-07",
+        )
+
+        with connect_database(database, create=False) as connection:
+            rows = list(
+                connection.execute(
+                    """
+                    SELECT
+                        playlists.playlist_date,
+                        playlists.mode,
+                        playlists.requested_limit,
+                        COUNT(items.track_id) AS item_count
+                    FROM recommendation_daily_playlists AS playlists
+                    LEFT JOIN recommendation_daily_playlist_items AS items
+                        ON items.daily_playlist_id = playlists.daily_playlist_id
+                    GROUP BY playlists.daily_playlist_id
+                    ORDER BY playlists.playlist_date, playlists.mode
+                    """
+                )
+            )
+
+        self.assertEqual(
+            {
+                (
+                    row["playlist_date"],
+                    row["mode"],
+                    row["requested_limit"],
+                    row["item_count"],
+                )
+                for row in rows
+            },
+            {
+                ("2026-06-07", RECOMMENDATION_MODE_DEFAULT, 2, 2),
+                ("2026-06-07", RECOMMENDATION_MODE_GENRE_ONLY, 2, 2),
+                ("2026-06-08", RECOMMENDATION_MODE_DEFAULT, 2, 2),
+            },
+        )
+
+    def test_daily_playlist_reload_skips_deleted_tracks(self) -> None:
+        database = self.build_database()
+        service = RecommendationService(database)
+
+        first_results = service.get_daily_playlist(limit=3, date="2026-06-07")
+        first_track_ids = [
+            result.candidate.metadata.track_id
+            for result in first_results
+        ]
+        self.assertEqual(first_track_ids, [1, 2, 3])
+
+        with connect_database(database, create=False) as connection:
+            connection.execute("DELETE FROM library_tracks WHERE track_id = ?", (2,))
+
+        reloaded_results = service.get_daily_playlist(limit=3, date="2026-06-07")
+
+        self.assertEqual(
+            [result.candidate.metadata.track_id for result in reloaded_results],
+            [1, 3],
+        )
+        self.assertEqual(
+            [result.explanation.score for result in reloaded_results],
+            [result.score for result in reloaded_results],
+        )
 
     def test_discovery_album_and_artist_radio_can_run(self) -> None:
         service = RecommendationService(self.build_multi_seed_database())
