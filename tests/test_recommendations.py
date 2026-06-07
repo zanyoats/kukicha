@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import FrozenInstanceError
+from dataclasses import FrozenInstanceError, replace
 from datetime import datetime, timedelta, timezone
 import math
 from pathlib import Path
@@ -15,6 +15,7 @@ from kukicha.use_case import (
     ArtistNotFoundError,
     CandidateMetadata,
     DEFAULT_RECOMMENDATION_LIMIT,
+    DiversityCaps,
     DIVERSITY_STRENGTH_LOW,
     MAX_RECOMMENDATION_LIMIT,
     RECENT_PLAY_PENALTY_RANDOM_WEIGHTED,
@@ -32,6 +33,7 @@ from kukicha.use_case import (
     RecommendationModeError,
     RecommendationProfileSeed,
     RecommendationRequest,
+    RecommendationResult,
     RecommendationScore,
     RecommendationService,
     TrackNotFoundError,
@@ -51,6 +53,7 @@ from kukicha.use_case import (
     normalize_recommendation_limit,
     normalize_recommendation_mode,
     recommendation_mode_config,
+    rerank_recommendation_results,
     scale_sparse_vector,
     score_recommendation_candidates,
     sparse_cosine_similarity,
@@ -137,6 +140,7 @@ class RecommendationModeConfigTest(unittest.TestCase):
         self.assertEqual(config.recency_penalties.played_last_24_hours, 0.30)
         self.assertEqual(config.recency_penalties.played_last_7_days, 0.15)
         self.assertEqual(config.recency_penalties.played_last_30_days, 0.05)
+        self.assertEqual(config.recent_play_suppression_days, 1.0)
         self.assertEqual(config.diversity_caps.max_tracks_per_artist, 3)
         self.assertEqual(config.diversity_caps.max_tracks_per_album, 2)
         self.assertEqual(config.diversity_caps.max_tracks_per_genre, 8)
@@ -152,6 +156,7 @@ class RecommendationModeConfigTest(unittest.TestCase):
         self.assertEqual(discovery.album_play_penalty, 0.10)
         self.assertEqual(discovery.favorite_boost, 0.00)
         self.assertEqual(discovery.recency_penalties.played_last_24_hours, 0.50)
+        self.assertEqual(discovery.recent_play_suppression_days, 7.0)
 
         genre_only = recommendation_mode_config(RECOMMENDATION_MODE_GENRE_ONLY)
         self.assertEqual(genre_only.feature_weights.genres, 1.00)
@@ -164,6 +169,7 @@ class RecommendationModeConfigTest(unittest.TestCase):
         self.assertEqual(artist_only.candidate_filter, CANDIDATE_FILTER_ARTIST_MATCH_REQUIRED)
         self.assertEqual(artist_only.diversity_strength, DIVERSITY_STRENGTH_LOW)
         self.assertFalse(artist_only.diversity_caps.apply_artist_cap)
+        self.assertEqual(artist_only.recent_play_suppression_days, 1.0)
         self.assertEqual(artist_only.artist_only_fallback, ARTIST_ONLY_FALLBACK_RETURN_FEWER)
         self.assertFalse(artist_only.exclude_seed_track)
         self.assertFalse(artist_only.exclude_seed_album_tracks)
@@ -175,6 +181,7 @@ class RecommendationModeConfigTest(unittest.TestCase):
         self.assertEqual(config.candidate_selection, CANDIDATE_SELECTION_WEIGHTED_RANDOM)
         self.assertEqual(config.recent_play_penalty_strength, RECENT_PLAY_PENALTY_RANDOM_WEIGHTED)
         self.assertEqual(config.random_track_play_count_weight, 0.15)
+        self.assertIsNone(config.recent_play_suppression_days)
         self.assertFalse(config.exclude_seed_track)
         self.assertFalse(config.exclude_seed_album_tracks)
         self.assertIsNotNone(multipliers)
@@ -817,6 +824,149 @@ class RecommendationListeningAdjustmentTest(unittest.TestCase):
         self.assertEqual(result.explanation.score.favorite_boost, 0.05)
         self.assertEqual(result.explanation.score.track_play_penalty, 0.05)
         self.assertEqual(result.explanation.score.recency_penalty, 0.15)
+
+
+class RecommendationDiversityRerankingTest(unittest.TestCase):
+    fixed_now = datetime(2026, 6, 6, 12, 0, tzinfo=timezone.utc)
+
+    def result(
+        self,
+        track_id: int,
+        *,
+        artist: str = "",
+        album_id: str | None = None,
+        genres: tuple[str, ...] = ("Rock",),
+        base_similarity: float = 1.0,
+        track_last_played_at: str | None = None,
+    ) -> RecommendationResult:
+        candidate = RecommendationCandidate(
+            metadata=CandidateMetadata(
+                track_id=track_id,
+                path=f"/music/{track_id}.flac",
+                title=f"Track {track_id}",
+                artist=artist,
+                album_id=album_id,
+                genres=genres,
+            ),
+            listening=ListeningStats(track_last_played_at=track_last_played_at),
+        )
+        score = RecommendationScore(base_similarity=base_similarity)
+        return RecommendationResult(candidate=candidate, score=score)
+
+    def test_default_reranking_caps_artist_and_album_clusters(self) -> None:
+        results = (
+            self.result(1, artist="Dominant Artist", album_id="album-a", base_similarity=0.99),
+            self.result(2, artist="Dominant Artist", album_id="album-a", base_similarity=0.98),
+            self.result(3, artist="Dominant Artist", album_id="album-a", base_similarity=0.97),
+            self.result(4, artist="Dominant Artist", album_id="album-b", base_similarity=0.96),
+            self.result(5, artist="Dominant Artist", album_id="album-c", base_similarity=0.95),
+            self.result(6, artist="Second Artist", album_id="album-d", base_similarity=0.94),
+            self.result(7, artist="Third Artist", album_id="album-e", base_similarity=0.93),
+        )
+
+        reranked = rerank_recommendation_results(results, 5)
+
+        self.assertEqual(
+            [result.candidate.metadata.track_id for result in reranked],
+            [1, 2, 4, 6, 7],
+        )
+        self.assertLessEqual(
+            sum(
+                result.candidate.metadata.artist == "Dominant Artist"
+                for result in reranked
+            ),
+            3,
+        )
+        self.assertLessEqual(
+            sum(result.candidate.metadata.album_id == "album-a" for result in reranked),
+            2,
+        )
+
+    def test_artist_only_reranking_is_exempt_from_same_artist_cap(self) -> None:
+        results = tuple(
+            self.result(
+                track_id,
+                artist="Seed Artist",
+                album_id=f"album-{track_id}",
+                base_similarity=1.0 - (track_id / 100.0),
+            )
+            for track_id in range(1, 5)
+        )
+
+        reranked = rerank_recommendation_results(
+            results,
+            4,
+            mode=RECOMMENDATION_MODE_ARTIST_ONLY,
+        )
+
+        self.assertEqual(
+            [result.candidate.metadata.track_id for result in reranked],
+            [1, 2, 3, 4],
+        )
+
+    def test_genre_cap_limits_repeated_primary_genres_when_configured(self) -> None:
+        config = replace(
+            recommendation_mode_config(),
+            diversity_caps=DiversityCaps(
+                max_tracks_per_artist=10,
+                max_tracks_per_album=10,
+                max_tracks_per_genre=2,
+            ),
+        )
+        results = (
+            self.result(1, artist="A", album_id="a", genres=("Rock",), base_similarity=0.90),
+            self.result(2, artist="B", album_id="b", genres=("Rock",), base_similarity=0.80),
+            self.result(3, artist="C", album_id="c", genres=("Rock",), base_similarity=0.70),
+            self.result(4, artist="D", album_id="d", genres=("Jazz",), base_similarity=0.60),
+        )
+
+        reranked = rerank_recommendation_results(results, 3, config=config)
+
+        self.assertEqual(
+            [result.candidate.metadata.track_id for result in reranked],
+            [1, 2, 4],
+        )
+
+    def test_reranking_preserves_score_order_when_caps_are_not_at_risk(self) -> None:
+        results = (
+            self.result(3, artist="C", album_id="c", base_similarity=0.70),
+            self.result(1, artist="A", album_id="a", base_similarity=0.90),
+            self.result(2, artist="B", album_id="b", base_similarity=0.80),
+        )
+
+        reranked = rerank_recommendation_results(results, 3)
+
+        self.assertEqual(
+            [result.candidate.metadata.track_id for result in reranked],
+            [1, 2, 3],
+        )
+
+    def test_reranking_suppresses_recent_tracks_when_mode_configured(self) -> None:
+        recently_played_at = (
+            self.fixed_now - timedelta(hours=12)
+        ).isoformat()
+        results = (
+            self.result(
+                1,
+                artist="Recent Artist",
+                album_id="recent",
+                base_similarity=0.99,
+                track_last_played_at=recently_played_at,
+            ),
+            self.result(2, artist="Older Artist", album_id="older", base_similarity=0.98),
+            self.result(3, artist="Other Artist", album_id="other", base_similarity=0.97),
+        )
+
+        reranked = rerank_recommendation_results(
+            results,
+            2,
+            current_time=self.fixed_now,
+        )
+
+        self.assertEqual(
+            [result.candidate.metadata.track_id for result in reranked],
+            [2, 3],
+        )
 
 
 class RecommendationCandidateLoadingTest(unittest.TestCase):
@@ -1501,6 +1651,155 @@ class RecommendationServiceTest(unittest.TestCase):
             )
         return database
 
+    def build_diversity_database(self) -> Path:
+        tempdir = TemporaryDirectory()
+        self.addCleanup(tempdir.cleanup)
+        database = Path(tempdir.name) / "library.sqlite"
+        with connect_database(database) as connection:
+            connection.executemany(
+                """
+                INSERT INTO library_albums (album_id, album, year, track_count)
+                VALUES (?, ?, ?, ?)
+                """,
+                (
+                    ("album-seed", "Seed Album", 1992, 1),
+                    ("album-dominant-a", "Dominant A", 1992, 3),
+                    ("album-dominant-b", "Dominant B", 1992, 1),
+                    ("album-dominant-c", "Dominant C", 1992, 1),
+                    ("album-second", "Second Album", 1992, 1),
+                    ("album-third", "Third Album", 1992, 1),
+                ),
+            )
+            connection.executemany(
+                """
+                INSERT INTO library_tracks (
+                    track_id,
+                    album_id,
+                    path,
+                    file_type,
+                    scan_error,
+                    artist,
+                    album_artist,
+                    album,
+                    title,
+                    date
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    (
+                        1,
+                        "album-seed",
+                        "/music/seed/01.flac",
+                        "flac",
+                        None,
+                        "Seed Artist",
+                        "Seed Artist",
+                        "Seed Album",
+                        "Seed Song",
+                        "1992",
+                    ),
+                    (
+                        2,
+                        "album-dominant-a",
+                        "/music/dominant-a/01.flac",
+                        "flac",
+                        None,
+                        "Dominant Artist",
+                        "Dominant Artist",
+                        "Dominant A",
+                        "Dominant One",
+                        "1992",
+                    ),
+                    (
+                        3,
+                        "album-dominant-a",
+                        "/music/dominant-a/02.flac",
+                        "flac",
+                        None,
+                        "Dominant Artist",
+                        "Dominant Artist",
+                        "Dominant A",
+                        "Dominant Two",
+                        "1992",
+                    ),
+                    (
+                        4,
+                        "album-dominant-a",
+                        "/music/dominant-a/03.flac",
+                        "flac",
+                        None,
+                        "Dominant Artist",
+                        "Dominant Artist",
+                        "Dominant A",
+                        "Dominant Three",
+                        "1992",
+                    ),
+                    (
+                        5,
+                        "album-dominant-b",
+                        "/music/dominant-b/01.flac",
+                        "flac",
+                        None,
+                        "Dominant Artist",
+                        "Dominant Artist",
+                        "Dominant B",
+                        "Dominant Four",
+                        "1992",
+                    ),
+                    (
+                        6,
+                        "album-dominant-c",
+                        "/music/dominant-c/01.flac",
+                        "flac",
+                        None,
+                        "Dominant Artist",
+                        "Dominant Artist",
+                        "Dominant C",
+                        "Dominant Five",
+                        "1992",
+                    ),
+                    (
+                        7,
+                        "album-second",
+                        "/music/second/01.flac",
+                        "flac",
+                        None,
+                        "Second Artist",
+                        "Second Artist",
+                        "Second Album",
+                        "Second Song",
+                        "1992",
+                    ),
+                    (
+                        8,
+                        "album-third",
+                        "/music/third/01.flac",
+                        "flac",
+                        None,
+                        "Third Artist",
+                        "Third Artist",
+                        "Third Album",
+                        "Third Song",
+                        "1992",
+                    ),
+                ),
+            )
+            connection.executemany(
+                """
+                INSERT INTO library_track_genres (track_id, position, genre)
+                VALUES (?, ?, ?)
+                """,
+                tuple((track_id, 0, "Rock") for track_id in range(1, 9)),
+            )
+            connection.executemany(
+                """
+                INSERT INTO library_track_styles (track_id, position, style)
+                VALUES (?, ?, ?)
+                """,
+                tuple((track_id, 0, "Dream Pop") for track_id in range(1, 9)),
+            )
+        return database
+
     def test_track_radio_excludes_seed_and_ranks_default_similarity(self) -> None:
         service = RecommendationService(self.build_database())
 
@@ -1608,21 +1907,6 @@ class RecommendationServiceTest(unittest.TestCase):
             mode=RECOMMENDATION_MODE_DISCOVERY,
             limit=10,
         )
-        default_results = {
-            result.candidate.metadata.track_id: result
-            for result in default_result_list
-        }
-        discovery_results = {
-            result.candidate.metadata.track_id: result
-            for result in discovery_result_list
-        }
-
-        self.assertEqual(default_results[2].score.favorite_boost, 0.05)
-        self.assertEqual(default_results[2].score.track_play_penalty, 0.05)
-        self.assertEqual(default_results[2].score.recency_penalty, 0.30)
-        self.assertEqual(discovery_results[2].score.favorite_boost, 0.0)
-        self.assertEqual(discovery_results[2].score.track_play_penalty, 0.30)
-        self.assertEqual(discovery_results[2].score.recency_penalty, 0.50)
         default_track_ids = [
             result.candidate.metadata.track_id
             for result in default_result_list
@@ -1631,14 +1915,10 @@ class RecommendationServiceTest(unittest.TestCase):
             result.candidate.metadata.track_id
             for result in discovery_result_list
         ]
-        self.assertLess(
-            default_track_ids.index(2),
-            default_track_ids.index(4),
-        )
-        self.assertLess(
-            discovery_track_ids.index(4),
-            discovery_track_ids.index(2),
-        )
+        self.assertNotIn(2, default_track_ids)
+        self.assertNotIn(2, discovery_track_ids)
+        self.assertEqual(default_track_ids[0], 4)
+        self.assertEqual(discovery_track_ids[0], 4)
 
     def test_genre_only_track_radio_uses_only_genre_matches(self) -> None:
         service = RecommendationService(self.build_database())
@@ -1699,6 +1979,30 @@ class RecommendationServiceTest(unittest.TestCase):
         self.assertEqual(
             [result.candidate.metadata.track_id for result in results],
             [2, 4],
+        )
+
+    def test_default_track_radio_applies_diversity_caps(self) -> None:
+        service = RecommendationService(self.build_diversity_database())
+
+        results = service.get_track_radio(1, limit=5)
+
+        track_ids = [result.candidate.metadata.track_id for result in results]
+        self.assertEqual(track_ids, [2, 3, 5, 7, 8])
+        self.assertNotIn(4, track_ids)
+        self.assertNotIn(6, track_ids)
+        self.assertLessEqual(
+            sum(
+                result.candidate.metadata.artist == "Dominant Artist"
+                for result in results
+            ),
+            3,
+        )
+        self.assertLessEqual(
+            sum(
+                result.candidate.metadata.album_id == "album-dominant-a"
+                for result in results
+            ),
+            2,
         )
 
     def test_track_radio_missing_seed_raises_track_not_found(self) -> None:
@@ -1935,6 +2239,37 @@ class RecommendationServiceTest(unittest.TestCase):
         self.assertEqual(
             [result.candidate.metadata.track_id for result in results],
             [1, 2],
+        )
+
+    def test_random_track_radio_applies_artist_and_album_caps(self) -> None:
+        service = RecommendationService(
+            self.build_diversity_database(),
+            random_source=FixedRandomSource(0.0, 0.0, 0.0, 0.0, 0.0),
+        )
+
+        results = service.get_track_radio(
+            1,
+            mode=RECOMMENDATION_MODE_RANDOM,
+            limit=5,
+        )
+
+        track_ids = [result.candidate.metadata.track_id for result in results]
+        self.assertEqual(track_ids, [1, 2, 3, 5, 7])
+        self.assertNotIn(4, track_ids)
+        self.assertNotIn(6, track_ids)
+        self.assertLessEqual(
+            sum(
+                result.candidate.metadata.artist == "Dominant Artist"
+                for result in results
+            ),
+            3,
+        )
+        self.assertLessEqual(
+            sum(
+                result.candidate.metadata.album_id == "album-dominant-a"
+                for result in results
+            ),
+            2,
         )
 
     def test_random_artist_radio_samples_available_library(self) -> None:

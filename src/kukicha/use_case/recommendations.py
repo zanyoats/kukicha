@@ -207,6 +207,7 @@ class RecommendationModeConfig:
     recency_penalties: RecencyPenalties = field(default_factory=RecencyPenalties)
     diversity_caps: DiversityCaps = field(default_factory=DiversityCaps)
     recent_play_penalty_strength: RecentPlayPenaltyStrength = RECENT_PLAY_PENALTY_MEDIUM
+    recent_play_suppression_days: float | None = None
     diversity_strength: DiversityStrength = DIVERSITY_STRENGTH_MEDIUM
     candidate_filter: CandidateFilter | None = None
     candidate_selection: CandidateSelection | None = None
@@ -218,6 +219,16 @@ class RecommendationModeConfig:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "mode", normalize_recommendation_mode(self.mode))
+        suppression_days = self.recent_play_suppression_days
+        if suppression_days is not None:
+            suppression_days = float(suppression_days)
+            if not math.isfinite(suppression_days) or suppression_days <= 0:
+                suppression_days = None
+        object.__setattr__(
+            self,
+            "recent_play_suppression_days",
+            suppression_days,
+        )
 
     @property
     def uses_weighted_random_selection(self) -> bool:
@@ -717,6 +728,7 @@ class RecommendationService:
         candidate_artist_terms: CandidateArtistTerms | None = None,
     ) -> tuple[RecommendationResult, ...]:
         resolved_config = recommendation_scoring_config(config=config)
+        current_time = datetime.now(timezone.utc)
         scored = score_recommendation_candidates(
             profile,
             candidates,
@@ -726,14 +738,22 @@ class RecommendationService:
             seed_candidates=seed_candidates,
             artist_filter_terms=artist_filter_terms,
             candidate_artist_terms=candidate_artist_terms,
+            current_time=current_time,
         )
         if resolved_config.uses_weighted_random_selection:
             return weighted_random_sample_recommendation_results(
                 scored,
                 normalized_limit,
                 random_source=self.random_source,
+                config=resolved_config,
+                current_time=current_time,
             )
-        return rank_recommendation_results(scored)[:normalized_limit]
+        return rerank_recommendation_results(
+            scored,
+            normalized_limit,
+            config=resolved_config,
+            current_time=current_time,
+        )
 
 
 def recommendation_mode_config(mode: object | None = None) -> RecommendationModeConfig:
@@ -1109,32 +1129,193 @@ def weighted_random_sample_recommendation_results(
     limit: int,
     *,
     random_source: RecommendationRandomSource | None = None,
+    mode: object | None = None,
+    config: RecommendationModeConfig | None = None,
+    current_time: datetime | None = None,
 ) -> tuple[RecommendationResult, ...]:
     remaining = list(results)
+    resolved_config = recommendation_scoring_config(mode=mode, config=config)
+    diversity_state = RecommendationDiversityState(resolved_config)
     random_source = random_source or random_module.Random()
     sampled: list[RecommendationResult] = []
     normalized_limit = max(0, int(limit))
     while remaining and len(sampled) < normalized_limit:
+        eligible_indexes = [
+            index
+            for index, result in enumerate(remaining)
+            if recommendation_result_is_selectable_for_diversity(
+                result,
+                resolved_config,
+                diversity_state,
+                current_time=current_time,
+            )
+        ]
+        if not eligible_indexes:
+            break
         weights = [
-            recommendation_result_random_selection_weight(result)
-            for result in remaining
+            recommendation_result_random_selection_weight(remaining[index])
+            for index in eligible_indexes
         ]
         total_weight = sum(weights)
         if total_weight <= 0:
-            weights = [1.0 for _result in remaining]
+            weights = [1.0 for _index in eligible_indexes]
             total_weight = float(len(weights))
         draw = recommendation_random_draw(random_source)
         threshold = draw * total_weight
         cumulative_weight = 0.0
-        selected_index = len(remaining) - 1
+        selected_weight_index = len(eligible_indexes) - 1
         for index, weight in enumerate(weights):
             cumulative_weight += weight
             if threshold < cumulative_weight:
-                selected_index = index
+                selected_weight_index = index
                 break
+        selected_index = eligible_indexes[selected_weight_index]
         selected = remaining.pop(selected_index)
-        sampled.append(recommendation_result_with_random_draw(selected, draw))
+        selected = recommendation_result_with_random_draw(selected, draw)
+        diversity_state.accept(selected)
+        sampled.append(selected)
     return tuple(sampled)
+
+
+class RecommendationDiversityState:
+    def __init__(self, config: RecommendationModeConfig) -> None:
+        self.config = config
+        self.artist_counts: dict[str, int] = {}
+        self.album_counts: dict[str, int] = {}
+        self.genre_counts: dict[str, int] = {}
+
+    def can_accept(self, result: RecommendationResult) -> bool:
+        caps = self.config.diversity_caps
+        metadata = result.candidate.metadata
+        if caps.apply_artist_cap and not recommendation_diversity_cap_allows(
+            self.artist_counts,
+            recommendation_diversity_artist_key(metadata),
+            caps.max_tracks_per_artist,
+        ):
+            return False
+        if caps.apply_album_cap and not recommendation_diversity_cap_allows(
+            self.album_counts,
+            recommendation_diversity_album_key(metadata),
+            caps.max_tracks_per_album,
+        ):
+            return False
+        if caps.apply_genre_cap and not recommendation_diversity_cap_allows(
+            self.genre_counts,
+            recommendation_diversity_genre_key(metadata),
+            caps.max_tracks_per_genre,
+        ):
+            return False
+        return True
+
+    def accept(self, result: RecommendationResult) -> None:
+        metadata = result.candidate.metadata
+        recommendation_increment_diversity_count(
+            self.artist_counts,
+            recommendation_diversity_artist_key(metadata),
+        )
+        recommendation_increment_diversity_count(
+            self.album_counts,
+            recommendation_diversity_album_key(metadata),
+        )
+        recommendation_increment_diversity_count(
+            self.genre_counts,
+            recommendation_diversity_genre_key(metadata),
+        )
+
+
+def rerank_recommendation_results(
+    results: Iterable[RecommendationResult],
+    limit: int,
+    *,
+    mode: object | None = None,
+    config: RecommendationModeConfig | None = None,
+    current_time: datetime | None = None,
+) -> tuple[RecommendationResult, ...]:
+    resolved_config = recommendation_scoring_config(mode=mode, config=config)
+    diversity_state = RecommendationDiversityState(resolved_config)
+    selected: list[RecommendationResult] = []
+    normalized_limit = max(0, int(limit))
+    for result in rank_recommendation_results(results):
+        if len(selected) >= normalized_limit:
+            break
+        if not recommendation_result_is_selectable_for_diversity(
+            result,
+            resolved_config,
+            diversity_state,
+            current_time=current_time,
+        ):
+            continue
+        diversity_state.accept(result)
+        selected.append(result)
+    return tuple(selected)
+
+
+def recommendation_result_is_selectable_for_diversity(
+    result: RecommendationResult,
+    config: RecommendationModeConfig,
+    diversity_state: RecommendationDiversityState,
+    *,
+    current_time: datetime | None = None,
+) -> bool:
+    if recommendation_result_is_recently_suppressed(
+        result,
+        config,
+        current_time=current_time,
+    ):
+        return False
+    return diversity_state.can_accept(result)
+
+
+def recommendation_result_is_recently_suppressed(
+    result: RecommendationResult,
+    config: RecommendationModeConfig,
+    *,
+    current_time: datetime | None = None,
+) -> bool:
+    suppression_days = config.recent_play_suppression_days
+    if suppression_days is None:
+        return False
+    days_since_played = recommendation_days_since_played(
+        result.candidate.listening.track_last_played_at,
+        current_time=current_time,
+    )
+    return (
+        days_since_played is not None
+        and days_since_played <= suppression_days
+    )
+
+
+def recommendation_diversity_cap_allows(
+    counts: Mapping[str, int],
+    key: str,
+    cap: int,
+) -> bool:
+    if not key or int(cap) <= 0:
+        return True
+    return counts.get(key, 0) < int(cap)
+
+
+def recommendation_increment_diversity_count(
+    counts: dict[str, int],
+    key: str,
+) -> None:
+    if not key:
+        return
+    counts[key] = counts.get(key, 0) + 1
+
+
+def recommendation_diversity_artist_key(metadata: CandidateMetadata) -> str:
+    return recommendation_artist_term(metadata)
+
+
+def recommendation_diversity_album_key(metadata: CandidateMetadata) -> str:
+    return recommendation_feature_term(metadata.album_id)
+
+
+def recommendation_diversity_genre_key(metadata: CandidateMetadata) -> str:
+    if not metadata.genres:
+        return ""
+    return recommendation_feature_term(metadata.genres[0])
 
 
 def recommendation_result_random_selection_weight(
@@ -2068,6 +2249,7 @@ RECOMMENDATION_MODE_CONFIGS: Mapping[RecommendationMode, RecommendationModeConfi
                 recency_penalties=DEFAULT_RECENCY_PENALTIES,
                 diversity_caps=DEFAULT_DIVERSITY_CAPS,
                 recent_play_penalty_strength=RECENT_PLAY_PENALTY_MEDIUM,
+                recent_play_suppression_days=1.0,
                 diversity_strength=DIVERSITY_STRENGTH_MEDIUM,
             ),
             RECOMMENDATION_MODE_DISCOVERY: RecommendationModeConfig(
@@ -2085,6 +2267,7 @@ RECOMMENDATION_MODE_CONFIGS: Mapping[RecommendationMode, RecommendationModeConfi
                 recency_penalties=DISCOVERY_RECENCY_PENALTIES,
                 diversity_caps=DEFAULT_DIVERSITY_CAPS,
                 recent_play_penalty_strength=RECENT_PLAY_PENALTY_HIGH,
+                recent_play_suppression_days=7.0,
                 diversity_strength=DIVERSITY_STRENGTH_HIGH,
             ),
             RECOMMENDATION_MODE_GENRE_ONLY: RecommendationModeConfig(
@@ -2102,6 +2285,7 @@ RECOMMENDATION_MODE_CONFIGS: Mapping[RecommendationMode, RecommendationModeConfi
                 recency_penalties=DEFAULT_RECENCY_PENALTIES,
                 diversity_caps=DEFAULT_DIVERSITY_CAPS,
                 recent_play_penalty_strength=RECENT_PLAY_PENALTY_MEDIUM,
+                recent_play_suppression_days=1.0,
                 diversity_strength=DIVERSITY_STRENGTH_MEDIUM,
             ),
             RECOMMENDATION_MODE_ARTIST_ONLY: RecommendationModeConfig(
@@ -2125,6 +2309,7 @@ RECOMMENDATION_MODE_CONFIGS: Mapping[RecommendationMode, RecommendationModeConfi
                     apply_artist_cap=False,
                 ),
                 recent_play_penalty_strength=RECENT_PLAY_PENALTY_MEDIUM,
+                recent_play_suppression_days=1.0,
                 diversity_strength=DIVERSITY_STRENGTH_LOW,
                 candidate_filter=CANDIDATE_FILTER_ARTIST_MATCH_REQUIRED,
                 artist_only_fallback=ARTIST_ONLY_FALLBACK_RETURN_FEWER,
@@ -2242,6 +2427,7 @@ __all__ = [
     "recommendation_seed_album_artist_terms",
     "recommendation_track_artist_terms",
     "rank_recommendation_results",
+    "rerank_recommendation_results",
     "scale_sparse_vector",
     "score_recommendation_candidate",
     "score_recommendation_candidates",
