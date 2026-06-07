@@ -1,14 +1,15 @@
 from __future__ import annotations
 
 import math
+import random as random_module
 import re
 from collections.abc import Callable, Iterable, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 from pathlib import Path
 from sqlite3 import Connection, Row
 from types import MappingProxyType
-from typing import Literal, cast
+from typing import Literal, Protocol, cast
 
 from ..album_artists import normalized_album_artist_values
 from ..models import normalize_genre_values
@@ -75,6 +76,10 @@ DEFAULT_RECOMMENDATION_LIMIT = 25
 MAX_RECOMMENDATION_LIMIT = 500
 YEAR_PATTERN = re.compile(r"(?<!\d)(\d{4})(?!\d)")
 SparseVector = dict[str, float]
+
+
+class RecommendationRandomSource(Protocol):
+    def random(self) -> float: ...
 
 GENRE_FEATURE_PREFIX = "genre"
 STYLE_FEATURE_PREFIX = "style"
@@ -558,8 +563,14 @@ class RecommendationQueries:
 
 
 class RecommendationService:
-    def __init__(self, database: str | Path) -> None:
+    def __init__(
+        self,
+        database: str | Path,
+        *,
+        random_source: RecommendationRandomSource | None = None,
+    ) -> None:
         self.queries = RecommendationQueries(database)
+        self.random_source = random_source or random_module.Random()
 
     def get_track_radio(
         self,
@@ -705,16 +716,23 @@ class RecommendationService:
         artist_filter_terms: Iterable[object | None] = (),
         candidate_artist_terms: CandidateArtistTerms | None = None,
     ) -> tuple[RecommendationResult, ...]:
+        resolved_config = recommendation_scoring_config(config=config)
         scored = score_recommendation_candidates(
             profile,
             candidates,
             track_vectors,
-            config=config,
+            config=resolved_config,
             exclude_track_ids=exclude_track_ids,
             seed_candidates=seed_candidates,
             artist_filter_terms=artist_filter_terms,
             candidate_artist_terms=candidate_artist_terms,
         )
+        if resolved_config.uses_weighted_random_selection:
+            return weighted_random_sample_recommendation_results(
+                scored,
+                normalized_limit,
+                random_source=self.random_source,
+            )
         return rank_recommendation_results(scored)[:normalized_limit]
 
 
@@ -944,30 +962,37 @@ def score_recommendation_candidate(
         (candidate,),
         current_time=current_time,
     )
-    score = RecommendationScore(
-        base_similarity=sparse_cosine_similarity(profile.vector, track_vector),
-        favorite_boost=recommendation_favorite_boost(candidate, resolved_config),
-        track_play_penalty=recommendation_play_count_penalty(
-            candidate.listening.track_play_count,
-            resolved_config.track_play_penalty,
-            context.max_log_track_play_count,
-        ),
-        artist_play_penalty=recommendation_play_count_penalty(
-            candidate.listening.artist_play_count,
-            resolved_config.artist_play_penalty,
-            context.max_log_artist_play_count,
-        ),
-        album_play_penalty=recommendation_play_count_penalty(
-            candidate.listening.album_play_count,
-            resolved_config.album_play_penalty,
-            context.max_log_album_play_count,
-        ),
-        recency_penalty=recommendation_recency_penalty(
+    if resolved_config.uses_weighted_random_selection:
+        score = random_recommendation_score(
             candidate,
             resolved_config,
-            current_time=context.current_time,
-        ),
-    )
+            context,
+        )
+    else:
+        score = RecommendationScore(
+            base_similarity=sparse_cosine_similarity(profile.vector, track_vector),
+            favorite_boost=recommendation_favorite_boost(candidate, resolved_config),
+            track_play_penalty=recommendation_play_count_penalty(
+                candidate.listening.track_play_count,
+                resolved_config.track_play_penalty,
+                context.max_log_track_play_count,
+            ),
+            artist_play_penalty=recommendation_play_count_penalty(
+                candidate.listening.artist_play_count,
+                resolved_config.artist_play_penalty,
+                context.max_log_artist_play_count,
+            ),
+            album_play_penalty=recommendation_play_count_penalty(
+                candidate.listening.album_play_count,
+                resolved_config.album_play_penalty,
+                context.max_log_album_play_count,
+            ),
+            recency_penalty=recommendation_recency_penalty(
+                candidate,
+                resolved_config,
+                current_time=context.current_time,
+            ),
+        )
     return RecommendationResult(
         candidate=candidate,
         score=score,
@@ -1022,6 +1047,128 @@ def score_recommendation_candidates(
             required_artist_terms=required_artist_terms,
             candidate_artist_terms=resolved_candidate_artist_terms,
         )
+    )
+
+
+def random_recommendation_score(
+    candidate: RecommendationCandidate,
+    config: RecommendationModeConfig,
+    context: ListeningAdjustmentContext,
+    *,
+    random_draw: float | None = None,
+) -> RecommendationScore:
+    recency_multiplier = recommendation_random_recency_multiplier(
+        candidate,
+        config,
+        current_time=context.current_time,
+    )
+    play_count_multiplier = recommendation_random_play_count_multiplier(
+        candidate,
+        config,
+        context,
+    )
+    return RecommendationScore(
+        random_draw=random_draw,
+        random_recency_multiplier=recency_multiplier,
+        random_play_count_multiplier=play_count_multiplier,
+        random_selection_weight=recency_multiplier * play_count_multiplier,
+    )
+
+
+def recommendation_random_recency_multiplier(
+    candidate: RecommendationCandidate,
+    config: RecommendationModeConfig,
+    *,
+    current_time: datetime | None = None,
+) -> float:
+    multipliers = config.random_recency_multipliers or RandomRecencyMultipliers()
+    days_since_played = recommendation_days_since_played(
+        candidate.listening.track_last_played_at,
+        current_time=current_time,
+    )
+    return multipliers.multiplier_for_age_days(days_since_played)
+
+
+def recommendation_random_play_count_multiplier(
+    candidate: RecommendationCandidate,
+    config: RecommendationModeConfig,
+    context: ListeningAdjustmentContext,
+) -> float:
+    normalized_count = normalized_recommendation_play_count(
+        candidate.listening.track_play_count,
+        context.max_log_track_play_count,
+    )
+    multiplier = 1.0 - (
+        float(config.random_track_play_count_weight) * normalized_count
+    )
+    return max(0.0, min(1.0, multiplier))
+
+
+def weighted_random_sample_recommendation_results(
+    results: Iterable[RecommendationResult],
+    limit: int,
+    *,
+    random_source: RecommendationRandomSource | None = None,
+) -> tuple[RecommendationResult, ...]:
+    remaining = list(results)
+    random_source = random_source or random_module.Random()
+    sampled: list[RecommendationResult] = []
+    normalized_limit = max(0, int(limit))
+    while remaining and len(sampled) < normalized_limit:
+        weights = [
+            recommendation_result_random_selection_weight(result)
+            for result in remaining
+        ]
+        total_weight = sum(weights)
+        if total_weight <= 0:
+            weights = [1.0 for _result in remaining]
+            total_weight = float(len(weights))
+        draw = recommendation_random_draw(random_source)
+        threshold = draw * total_weight
+        cumulative_weight = 0.0
+        selected_index = len(remaining) - 1
+        for index, weight in enumerate(weights):
+            cumulative_weight += weight
+            if threshold < cumulative_weight:
+                selected_index = index
+                break
+        selected = remaining.pop(selected_index)
+        sampled.append(recommendation_result_with_random_draw(selected, draw))
+    return tuple(sampled)
+
+
+def recommendation_result_random_selection_weight(
+    result: RecommendationResult,
+) -> float:
+    weight = result.score.random_selection_weight
+    if weight is None:
+        weight = result.final_score
+    if not math.isfinite(weight):
+        return 0.0
+    return max(0.0, float(weight))
+
+
+def recommendation_random_draw(
+    random_source: RecommendationRandomSource,
+) -> float:
+    try:
+        draw = float(random_source.random())
+    except (TypeError, ValueError):
+        return 0.0
+    if not math.isfinite(draw):
+        return 0.0
+    return max(0.0, min(1.0, draw))
+
+
+def recommendation_result_with_random_draw(
+    result: RecommendationResult,
+    random_draw: float,
+) -> RecommendationResult:
+    score = replace(result.score, random_draw=random_draw)
+    return replace(
+        result,
+        score=score,
+        explanation=replace(result.explanation, score=score),
     )
 
 
@@ -2001,6 +2148,8 @@ RECOMMENDATION_MODE_CONFIGS: Mapping[RecommendationMode, RecommendationModeConfi
                 recent_play_penalty_strength=RECENT_PLAY_PENALTY_RANDOM_WEIGHTED,
                 diversity_strength=DIVERSITY_STRENGTH_MEDIUM,
                 candidate_selection=CANDIDATE_SELECTION_WEIGHTED_RANDOM,
+                exclude_seed_track=False,
+                exclude_seed_album_tracks=False,
                 random_recency_multipliers=RandomRecencyMultipliers(),
                 random_track_play_count_weight=0.15,
             ),

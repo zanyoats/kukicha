@@ -60,6 +60,16 @@ from kukicha.use_case import (
 )
 
 
+class FixedRandomSource:
+    def __init__(self, *draws: float) -> None:
+        self.draws = list(draws)
+
+    def random(self) -> float:
+        if not self.draws:
+            return 0.0
+        return self.draws.pop(0)
+
+
 class RecommendationModeConfigTest(unittest.TestCase):
     def test_supported_modes_normalize_to_canonical_names(self) -> None:
         self.assertEqual(
@@ -165,6 +175,8 @@ class RecommendationModeConfigTest(unittest.TestCase):
         self.assertEqual(config.candidate_selection, CANDIDATE_SELECTION_WEIGHTED_RANDOM)
         self.assertEqual(config.recent_play_penalty_strength, RECENT_PLAY_PENALTY_RANDOM_WEIGHTED)
         self.assertEqual(config.random_track_play_count_weight, 0.15)
+        self.assertFalse(config.exclude_seed_track)
+        self.assertFalse(config.exclude_seed_album_tracks)
         self.assertIsNotNone(multipliers)
         assert multipliers is not None
         self.assertEqual(multipliers.played_last_24_hours, 0.10)
@@ -704,6 +716,55 @@ class RecommendationListeningAdjustmentTest(unittest.TestCase):
         self.assertEqual(scores[3].recency_penalty, 0.15)
         self.assertEqual(scores[4].recency_penalty, 0.05)
         self.assertEqual(scores[5].recency_penalty, 0.0)
+
+    def test_random_mode_scores_listening_selection_weights(self) -> None:
+        def played_at(age: timedelta) -> str:
+            return (self.fixed_now - age).isoformat()
+
+        scores = self.score_by_track_id(
+            (
+                self.candidate(
+                    2,
+                    track_play_count=100,
+                    track_last_played_at=played_at(timedelta(hours=12)),
+                ),
+                self.candidate(
+                    3,
+                    track_last_played_at=played_at(timedelta(days=3)),
+                ),
+                self.candidate(
+                    4,
+                    track_last_played_at=played_at(timedelta(days=14)),
+                ),
+                self.candidate(5),
+            ),
+            mode=RECOMMENDATION_MODE_RANDOM,
+        )
+
+        self.assertEqual(scores[2].base_similarity, 0.0)
+        self.assertEqual(scores[2].random_recency_multiplier, 0.10)
+        self.assertEqual(scores[3].random_recency_multiplier, 0.35)
+        self.assertEqual(scores[4].random_recency_multiplier, 0.70)
+        self.assertEqual(scores[5].random_recency_multiplier, 1.00)
+        self.assertAlmostEqual(scores[2].random_play_count_multiplier, 0.85)
+        self.assertEqual(scores[5].random_play_count_multiplier, 1.00)
+        self.assertAlmostEqual(scores[2].random_selection_weight, 0.085)
+        self.assertEqual(
+            scores[2].final_score,
+            scores[2].random_selection_weight,
+        )
+        self.assertLess(
+            scores[2].random_selection_weight or 0.0,
+            scores[3].random_selection_weight or 0.0,
+        )
+        self.assertLess(
+            scores[3].random_selection_weight or 0.0,
+            scores[4].random_selection_weight or 0.0,
+        )
+        self.assertLess(
+            scores[4].random_selection_weight or 0.0,
+            scores[5].random_selection_weight or 0.0,
+        )
 
     def test_favorite_boosts_follow_the_selected_mode_config(self) -> None:
         candidate = self.candidate(
@@ -1778,6 +1839,119 @@ class RecommendationServiceTest(unittest.TestCase):
         self.assertEqual(
             [result.candidate.metadata.track_id for result in results],
             [5],
+        )
+
+    def test_random_track_radio_uses_deterministic_weighted_sampling(self) -> None:
+        service = RecommendationService(
+            self.build_database(),
+            random_source=FixedRandomSource(0.99, 0.0, 0.51),
+        )
+
+        results = service.get_track_radio(
+            1,
+            mode=RECOMMENDATION_MODE_RANDOM,
+            limit=3,
+        )
+
+        self.assertEqual(
+            [result.candidate.metadata.track_id for result in results],
+            [6, 1, 4],
+        )
+        self.assertEqual(
+            [result.score.random_draw for result in results],
+            [0.99, 0.0, 0.51],
+        )
+        for result in results:
+            self.assertEqual(result.score.base_similarity, 0.0)
+            self.assertEqual(result.score.random_recency_multiplier, 1.0)
+            self.assertEqual(result.score.random_play_count_multiplier, 1.0)
+            self.assertEqual(result.score.random_selection_weight, 1.0)
+            self.assertEqual(result.score.final_score, 1.0)
+            self.assertIs(result.explanation.score, result.score)
+
+    def test_random_track_radio_recent_tracks_are_less_likely_but_eligible(
+        self,
+    ) -> None:
+        database = self.build_database()
+        recently_played_at = (
+            datetime.now(timezone.utc) - timedelta(hours=12)
+        ).isoformat()
+        with connect_database(database, create=False) as connection:
+            connection.execute(
+                """
+                INSERT INTO play_track_stats (
+                    track_path,
+                    play_count,
+                    last_played_at,
+                    track_id,
+                    album_id,
+                    path,
+                    title,
+                    artist,
+                    album
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    "/music/closest/01.flac",
+                    0,
+                    recently_played_at,
+                    2,
+                    "album-2",
+                    "/music/closest/01.flac",
+                    "Closest Song",
+                    "Other Artist",
+                    "Closest Album",
+                ),
+            )
+        service = RecommendationService(
+            database,
+            random_source=FixedRandomSource(0.206),
+        )
+
+        result = service.get_track_radio(
+            1,
+            mode=RECOMMENDATION_MODE_RANDOM,
+            limit=1,
+        )[0]
+
+        self.assertEqual(result.candidate.metadata.track_id, 2)
+        self.assertEqual(result.score.random_draw, 0.206)
+        self.assertEqual(result.score.random_recency_multiplier, 0.10)
+        self.assertEqual(result.score.random_play_count_multiplier, 1.0)
+        self.assertEqual(result.score.random_selection_weight, 0.10)
+
+    def test_random_album_radio_keeps_seed_album_tracks_eligible(self) -> None:
+        service = RecommendationService(
+            self.build_multi_seed_database(),
+            random_source=FixedRandomSource(0.0, 0.0),
+        )
+
+        results = service.get_album_radio(
+            "album-seed",
+            mode=RECOMMENDATION_MODE_RANDOM,
+            limit=2,
+        )
+
+        self.assertEqual(
+            [result.candidate.metadata.track_id for result in results],
+            [1, 2],
+        )
+
+    def test_random_artist_radio_samples_available_library(self) -> None:
+        service = RecommendationService(
+            self.build_multi_seed_database(),
+            random_source=FixedRandomSource(0.99),
+        )
+
+        results = service.get_artist_radio(
+            "Seed Artist",
+            mode=RECOMMENDATION_MODE_RANDOM,
+            limit=1,
+        )
+
+        self.assertEqual(
+            [result.candidate.metadata.track_id for result in results],
+            [7],
         )
 
     def test_discovery_album_and_artist_radio_can_run(self) -> None:
