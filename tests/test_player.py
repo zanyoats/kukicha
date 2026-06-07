@@ -42,6 +42,7 @@ from kukicha.use_case import (
     LibraryQueries,
     LibraryRootFilterOption,
     LibrarySearchQuery,
+    MAX_RECOMMENDATION_LIMIT,
     NATIVE_PLAYBACK_SOURCE,
     PlaylistDetails,
     PlaylistItem,
@@ -4319,6 +4320,144 @@ class PlayerWebAdapterTest(unittest.TestCase):
             ),
         )
 
+    def seed_recommendation_database(self, database: Path) -> None:
+        with connect_database(database) as connection:
+            connection.executemany(
+                """
+                INSERT INTO library_albums (album_id, album, year, track_count)
+                VALUES (?, ?, ?, ?)
+                """,
+                (
+                    ("album-seed", "Seed Album", 1992, 1),
+                    ("album-match", "Match Album", 1992, 1),
+                    ("album-same-artist", "Same Artist Album", 2001, 1),
+                    ("album-jazz", "Jazz Album", 1984, 1),
+                ),
+            )
+            connection.executemany(
+                """
+                INSERT INTO library_tracks (
+                    track_id,
+                    album_id,
+                    path,
+                    file_type,
+                    scan_error,
+                    artist,
+                    album_artist,
+                    album,
+                    title,
+                    date
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    (
+                        1,
+                        "album-seed",
+                        "/music/seed/01.flac",
+                        "flac",
+                        None,
+                        "Seed Artist",
+                        "Seed Artist",
+                        "Seed Album",
+                        "Seed Song",
+                        "1992",
+                    ),
+                    (
+                        2,
+                        "album-match",
+                        "/music/match/01.flac",
+                        "flac",
+                        None,
+                        "Other Artist",
+                        "Other Artist",
+                        "Match Album",
+                        "Closest Song",
+                        "1992",
+                    ),
+                    (
+                        3,
+                        "album-same-artist",
+                        "/music/same-artist/01.flac",
+                        "flac",
+                        None,
+                        "Seed Artist",
+                        "Seed Artist",
+                        "Same Artist Album",
+                        "Same Artist Song",
+                        "2001",
+                    ),
+                    (
+                        4,
+                        "album-jazz",
+                        "/music/jazz/01.flac",
+                        "flac",
+                        None,
+                        "Jazz Artist",
+                        "Jazz Artist",
+                        "Jazz Album",
+                        "Jazz Song",
+                        "1984",
+                    ),
+                ),
+            )
+            connection.executemany(
+                """
+                INSERT INTO library_track_genres (track_id, position, genre)
+                VALUES (?, ?, ?)
+                """,
+                (
+                    (1, 0, "Rock"),
+                    (2, 0, "Rock"),
+                    (3, 0, "Electronic"),
+                    (4, 0, "Jazz"),
+                ),
+            )
+            connection.executemany(
+                """
+                INSERT INTO library_track_styles (track_id, position, style)
+                VALUES (?, ?, ?)
+                """,
+                (
+                    (1, 0, "Dream Pop"),
+                    (2, 0, "Dream Pop"),
+                    (3, 0, "Minimalism"),
+                    (4, 0, "Hard Bop"),
+                ),
+            )
+            connection.execute(
+                """
+                INSERT INTO track_user_state (track_path, starred_at)
+                VALUES (?, ?)
+                """,
+                ("/music/seed/01.flac", "2026-06-01T10:00:00+00:00"),
+            )
+            connection.execute(
+                """
+                INSERT INTO play_track_stats (
+                    track_path,
+                    play_count,
+                    last_played_at,
+                    track_id,
+                    album_id,
+                    path,
+                    title,
+                    artist,
+                    album
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    "/music/match/01.flac",
+                    7,
+                    "2026-05-20T12:00:00+00:00",
+                    2,
+                    "album-match",
+                    "/music/match/01.flac",
+                    "Closest Song",
+                    "Other Artist",
+                    "Match Album",
+                ),
+            )
+
     def make_runtime(self, database: Path) -> Mock:
         runtime = Mock()
         runtime.database = database
@@ -4370,6 +4509,7 @@ class PlayerWebAdapterTest(unittest.TestCase):
 
             page_response = client.get("/help")
             api_response = client.get("/api/jobs/events")
+            recommendation_response = client.get("/recommendations/daily")
             audio_response = client.get("/audio/1")
             static_response = client.get("/static/player.css")
             health_response = client.get("/healthz")
@@ -4378,6 +4518,11 @@ class PlayerWebAdapterTest(unittest.TestCase):
             self.assertEqual(page_response.headers["Location"], "/login?next=%2Fhelp")
             self.assertEqual(api_response.status_code, 401)
             self.assertEqual(api_response.get_json(), {"error": "authentication required"})
+            self.assertEqual(recommendation_response.status_code, 401)
+            self.assertEqual(
+                recommendation_response.get_json(),
+                {"error": "authentication required"},
+            )
             self.assertEqual(audio_response.status_code, 401)
             self.assertEqual(static_response.status_code, 200)
             self.assertEqual(health_response.status_code, 204)
@@ -6281,6 +6426,161 @@ class PlayerWebAdapterTest(unittest.TestCase):
 
             self.assertEqual(response.status_code, 404)
             self.assertEqual(response.get_json(), {"error": "album not found: missing-album"})
+
+    def test_track_recommendation_route_returns_json_shape(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            database = temp_path / "kukicha.sqlite"
+            self.seed_recommendation_database(database)
+
+            app = create_player_app(self.make_options(temp_path))
+
+            response = app.test_client().get(
+                "/recommendations/radio/track/1",
+                query_string={"limit": "1"},
+            )
+
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.content_type, "application/json; charset=utf-8")
+            payload = response.get_json()
+            self.assertEqual(payload["type"], "track_radio")
+            self.assertEqual(payload["mode"], "default")
+            self.assertEqual(payload["limit"], 1)
+            self.assertEqual(payload["count"], 1)
+            self.assertEqual(len(payload["results"]), 1)
+
+            result = payload["results"][0]
+            self.assertEqual(result["rank"], 1)
+            self.assertEqual(result["track"]["track_id"], 2)
+            self.assertEqual(result["track"]["title"], "Closest Song")
+            self.assertEqual(result["track"]["artist"], "Other Artist")
+            self.assertEqual(result["track"]["album_id"], "album-match")
+            self.assertEqual(result["track"]["genres"], ["Rock"])
+            self.assertEqual(result["track"]["styles"], ["Dream Pop"])
+            self.assertFalse(result["track"]["is_favorite"])
+            self.assertEqual(result["listening"]["track_play_count"], 7)
+            self.assertIn("base_similarity", result["score"])
+            self.assertIn("final_score", result["score"])
+            self.assertEqual(result["score"], result["explanation"]["score"])
+            self.assertEqual(result["explanation"]["matched_genres"], ["Rock"])
+            self.assertEqual(result["explanation"]["matched_styles"], ["Dream Pop"])
+            self.assertEqual(result["explanation"]["matched_decade"], "1990s")
+            self.assertFalse(result["explanation"]["same_artist"])
+
+    def test_album_artist_and_daily_recommendation_routes_return_json(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            database = temp_path / "kukicha.sqlite"
+            self.seed_recommendation_database(database)
+
+            app = create_player_app(self.make_options(temp_path))
+            client = app.test_client()
+
+            album_response = client.get(
+                "/recommendations/radio/album/album-seed",
+                query_string={"mode": "genre_only", "limit": "1"},
+            )
+            artist_response = client.get(
+                "/recommendations/radio/artist/Seed%20Artist",
+                query_string={"mode": "artist_only", "limit": "1"},
+            )
+            daily_response = client.get(
+                "/recommendations/daily",
+                query_string={"date": "2026-06-07", "limit": "1"},
+            )
+
+            album_payload = album_response.get_json()
+            self.assertEqual(album_response.status_code, 200)
+            self.assertEqual(album_payload["type"], "album_radio")
+            self.assertEqual(album_payload["mode"], "genre_only")
+            self.assertEqual(album_payload["limit"], 1)
+            self.assertNotEqual(
+                album_payload["results"][0]["track"]["album_id"],
+                "album-seed",
+            )
+
+            artist_payload = artist_response.get_json()
+            self.assertEqual(artist_response.status_code, 200)
+            self.assertEqual(artist_payload["type"], "artist_radio")
+            self.assertEqual(artist_payload["mode"], "artist_only")
+            self.assertEqual(artist_payload["limit"], 1)
+            self.assertEqual(
+                artist_payload["results"][0]["track"]["artist"],
+                "Seed Artist",
+            )
+
+            daily_payload = daily_response.get_json()
+            self.assertEqual(daily_response.status_code, 200)
+            self.assertEqual(daily_payload["type"], "daily")
+            self.assertEqual(daily_payload["mode"], "default")
+            self.assertEqual(daily_payload["limit"], 1)
+            self.assertEqual(daily_payload["date"], "2026-06-07")
+            self.assertEqual(daily_payload["count"], 1)
+            self.assertEqual(daily_payload["results"][0]["rank"], 1)
+
+    def test_recommendation_routes_return_json_errors(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            database = temp_path / "kukicha.sqlite"
+            self.seed_recommendation_database(database)
+
+            app = create_player_app(self.make_options(temp_path))
+            client = app.test_client()
+
+            invalid_mode_response = client.get(
+                "/recommendations/radio/track/1",
+                query_string={"mode": "ambient_only"},
+            )
+            missing_track_response = client.get("/recommendations/radio/track/404")
+            missing_album_response = client.get(
+                "/recommendations/radio/album/missing-album"
+            )
+            missing_artist_response = client.get(
+                "/recommendations/radio/artist/Missing%20Artist"
+            )
+
+            self.assertEqual(invalid_mode_response.status_code, 400)
+            self.assertIn(
+                "unsupported recommendation mode",
+                invalid_mode_response.get_json()["error"],
+            )
+            self.assertEqual(missing_track_response.status_code, 404)
+            self.assertEqual(
+                missing_track_response.get_json(),
+                {"error": "track not found: 404"},
+            )
+            self.assertEqual(missing_album_response.status_code, 404)
+            self.assertEqual(
+                missing_album_response.get_json(),
+                {"error": "album not found: missing-album"},
+            )
+            self.assertEqual(missing_artist_response.status_code, 404)
+            self.assertEqual(
+                missing_artist_response.get_json(),
+                {"error": "artist not found: Missing Artist"},
+            )
+
+    def test_recommendation_route_clamps_limit(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            database = temp_path / "kukicha.sqlite"
+            self.seed_recommendation_database(database)
+
+            app = create_player_app(self.make_options(temp_path))
+
+            high_response = app.test_client().get(
+                "/recommendations/radio/track/1",
+                query_string={"limit": "9999"},
+            )
+            low_response = app.test_client().get(
+                "/recommendations/radio/track/1",
+                query_string={"limit": "0"},
+            )
+
+            self.assertEqual(high_response.status_code, 200)
+            self.assertEqual(high_response.get_json()["limit"], MAX_RECOMMENDATION_LIMIT)
+            self.assertEqual(low_response.status_code, 200)
+            self.assertEqual(low_response.get_json()["limit"], 1)
 
     def test_cancel_job_route_returns_job_payload(self) -> None:
         with TemporaryDirectory() as tempdir:

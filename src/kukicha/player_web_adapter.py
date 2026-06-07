@@ -51,9 +51,18 @@ from .use_case import (
 )
 from .use_case import (
     AlbumNotFoundError,
+    ArtistNotFoundError,
+    DEFAULT_DAILY_RECOMMENDATION_LIMIT,
     PlaylistItemNotFoundError,
     PlaylistNotFoundError,
+    RECOMMENDATION_CONFIG,
+    RecommendationResult,
+    RecommendationScore,
+    RecommendationService,
     TrackNotFoundError,
+    normalize_recommendation_limit,
+    normalize_recommendation_mode,
+    recommendation_daily_date_key,
 )
 from .player_config import (
     LOGGER,
@@ -213,6 +222,7 @@ def create_player_app(options: PlayerServerOptions) -> Flask:
 
     @app.errorhandler(PlayerNotFoundError)
     @app.errorhandler(AlbumNotFoundError)
+    @app.errorhandler(ArtistNotFoundError)
     @app.errorhandler(PlaylistNotFoundError)
     @app.errorhandler(PlaylistItemNotFoundError)
     @app.errorhandler(TrackNotFoundError)
@@ -278,6 +288,70 @@ def create_player_app(options: PlayerServerOptions) -> Flask:
     @app.get("/api/playlists/<int:playlist_id>/cover")
     def playlist_cover(playlist_id: int) -> Response:
         return playlist_cover_response(playlist_id)
+
+    @app.get("/recommendations/radio/track/<int:track_id>")
+    def recommendation_track_radio(track_id: int) -> Response:
+        mode, limit = recommendation_query_params()
+        results = recommendation_service().get_track_radio(
+            track_id,
+            mode=mode,
+            limit=limit,
+        )
+        return recommendation_response(
+            "track_radio",
+            results,
+            mode=mode,
+            limit=limit,
+        )
+
+    @app.get("/recommendations/radio/album/<path:album_id>")
+    def recommendation_album_radio(album_id: str) -> Response:
+        mode, limit = recommendation_query_params()
+        results = recommendation_service().get_album_radio(
+            album_id,
+            mode=mode,
+            limit=limit,
+        )
+        return recommendation_response(
+            "album_radio",
+            results,
+            mode=mode,
+            limit=limit,
+        )
+
+    @app.get("/recommendations/radio/artist/<path:artist>")
+    def recommendation_artist_radio(artist: str) -> Response:
+        mode, limit = recommendation_query_params()
+        results = recommendation_service().get_artist_radio(
+            artist,
+            mode=mode,
+            limit=limit,
+        )
+        return recommendation_response(
+            "artist_radio",
+            results,
+            mode=mode,
+            limit=limit,
+        )
+
+    @app.get("/recommendations/daily")
+    def recommendation_daily() -> Response:
+        mode, limit = recommendation_query_params(
+            default_limit=DEFAULT_DAILY_RECOMMENDATION_LIMIT
+        )
+        date_value = request.args.get("date")
+        results = recommendation_service().get_daily_playlist(
+            mode=mode,
+            limit=limit,
+            date=date_value,
+        )
+        return recommendation_response(
+            "daily",
+            results,
+            mode=mode,
+            limit=limit,
+            playlist_date=recommendation_daily_date_key(date_value),
+        )
 
     @app.get("/healthz")
     def healthz() -> Response:
@@ -687,7 +761,11 @@ def player_context() -> PlayerWebContext:
 
 
 def wants_json_error() -> bool:
-    return request.path.startswith("/api/") or request.method == "POST"
+    return (
+        request.path.startswith("/api/")
+        or request.path.startswith("/recommendations/")
+        or request.method == "POST"
+    )
 
 
 def is_public_path() -> bool:
@@ -716,11 +794,13 @@ def is_mounted_open_subsonic_path() -> bool:
 def should_return_auth_unauthorized() -> bool:
     if request.method not in {"GET", "HEAD"}:
         return True
-    return request.path.startswith(("/api/", "/audio/", "/playlist-audio/", "/art/"))
+    return request.path.startswith(
+        ("/api/", "/recommendations/", "/audio/", "/playlist-audio/", "/art/")
+    )
 
 
 def auth_required_response() -> Response:
-    if request.path.startswith("/api/"):
+    if request.path.startswith(("/api/", "/recommendations/")):
         return json_response({"error": "authentication required"}, status=401)
     return Response(
         "authentication required",
@@ -873,6 +953,111 @@ def rendered_response(context: dict[str, Any], *, status: int = 200) -> Response
     template_name = context["view_template"] if wants_fragment() else "player/base.html"
     html = render_template(template_name, **context)
     return html_response(html, status=status)
+
+
+def recommendation_service() -> RecommendationService:
+    return RecommendationService(player_context().database)
+
+
+def recommendation_query_params(
+    *,
+    default_limit: int | None = None,
+) -> tuple[str, int]:
+    limit_default = (
+        RECOMMENDATION_CONFIG.default_limit
+        if default_limit is None
+        else int(default_limit)
+    )
+    return (
+        normalize_recommendation_mode(request.args.get("mode")),
+        normalize_recommendation_limit(
+            request.args.get("limit"),
+            default=limit_default,
+            max_limit=RECOMMENDATION_CONFIG.max_limit,
+        ),
+    )
+
+
+def recommendation_response(
+    kind: str,
+    results: tuple[RecommendationResult, ...],
+    *,
+    mode: str,
+    limit: int,
+    playlist_date: str | None = None,
+) -> Response:
+    payload: dict[str, object] = {
+        "type": kind,
+        "mode": mode,
+        "limit": limit,
+        "count": len(results),
+        "results": [
+            recommendation_result_payload(rank, result)
+            for rank, result in enumerate(results, start=1)
+        ],
+    }
+    if playlist_date is not None:
+        payload["date"] = playlist_date
+    return json_response(payload)
+
+
+def recommendation_result_payload(
+    rank: int,
+    result: RecommendationResult,
+) -> dict[str, object]:
+    metadata = result.candidate.metadata
+    listening = result.candidate.listening
+    return {
+        "rank": rank,
+        "track": {
+            "track_id": metadata.track_id,
+            "path": metadata.path,
+            "title": metadata.title,
+            "artist": metadata.artist,
+            "album_artist": metadata.album_artist,
+            "album_artists": list(metadata.album_artists),
+            "album_id": metadata.album_id,
+            "album": metadata.album,
+            "date": metadata.date,
+            "decade": metadata.decade,
+            "genres": list(metadata.genres),
+            "styles": list(metadata.styles),
+            "is_favorite": metadata.is_favorite,
+            "starred_at": metadata.starred_at,
+        },
+        "listening": {
+            "track_play_count": listening.track_play_count,
+            "album_play_count": listening.album_play_count,
+            "artist_play_count": listening.artist_play_count,
+            "track_last_played_at": listening.track_last_played_at,
+            "album_last_played_at": listening.album_last_played_at,
+            "artist_last_played_at": listening.artist_last_played_at,
+        },
+        "score": recommendation_score_payload(result.score),
+        "explanation": {
+            "matched_genres": list(result.explanation.matched_genres),
+            "matched_styles": list(result.explanation.matched_styles),
+            "matched_decade": result.explanation.matched_decade,
+            "same_artist": result.explanation.same_artist,
+            "score": recommendation_score_payload(result.explanation.score),
+        },
+    }
+
+
+def recommendation_score_payload(score: RecommendationScore) -> dict[str, object]:
+    return {
+        "base_similarity": score.base_similarity,
+        "favorite_boost": score.favorite_boost,
+        "track_play_penalty": score.track_play_penalty,
+        "artist_play_penalty": score.artist_play_penalty,
+        "album_play_penalty": score.album_play_penalty,
+        "recency_penalty": score.recency_penalty,
+        "random_draw": score.random_draw,
+        "random_recency_multiplier": score.random_recency_multiplier,
+        "random_play_count_multiplier": score.random_play_count_multiplier,
+        "random_selection_weight": score.random_selection_weight,
+        "final_score": score.final_score,
+    }
 
 
 def html_response(html: str, *, status: int = 200) -> Response:
