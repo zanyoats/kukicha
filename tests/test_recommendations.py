@@ -11,6 +11,7 @@ from kukicha.use_case import (
     ARTIST_ONLY_FALLBACK_RETURN_FEWER,
     CANDIDATE_FILTER_ARTIST_MATCH_REQUIRED,
     CANDIDATE_SELECTION_WEIGHTED_RANDOM,
+    DAILY_FAVORITE_SEED_WEIGHT,
     AlbumNotFoundError,
     ArtistNotFoundError,
     CandidateMetadata,
@@ -38,6 +39,7 @@ from kukicha.use_case import (
     RecommendationService,
     TrackNotFoundError,
     add_sparse_vectors,
+    build_daily_recommendation_profile_seeds,
     build_recommendation_album_profile,
     build_recommendation_artist_profile,
     build_recommendation_explanation,
@@ -506,6 +508,46 @@ class RecommendationProfileTest(unittest.TestCase):
         self.assertTrue(missing_track.is_cold_start)
         self.assertEqual(missing_track.vector, {})
         self.assertEqual(missing_track.total_seed_weight, 0.0)
+
+    def test_daily_profile_seeds_dedupe_favorites_and_top_listens(self) -> None:
+        candidates = (
+            RecommendationCandidate(
+                metadata=CandidateMetadata(
+                    track_id=1,
+                    path="/music/favorite.flac",
+                    starred_at="2026-06-01T10:00:00+00:00",
+                ),
+                listening=ListeningStats(track_play_count=4),
+            ),
+            RecommendationCandidate(
+                metadata=CandidateMetadata(
+                    track_id=2,
+                    path="/music/top-played.flac",
+                ),
+                listening=ListeningStats(track_play_count=10),
+            ),
+            RecommendationCandidate(
+                metadata=CandidateMetadata(
+                    track_id=3,
+                    path="/music/not-seeded.flac",
+                ),
+                listening=ListeningStats(track_play_count=1),
+            ),
+        )
+
+        seeds = build_daily_recommendation_profile_seeds(
+            candidates,
+            top_listened_limit=1,
+        )
+        weights = {seed.track_id: seed.weight for seed in seeds}
+
+        self.assertEqual([seed.track_id for seed in seeds], [1, 2])
+        self.assertAlmostEqual(
+            weights[1],
+            DAILY_FAVORITE_SEED_WEIGHT + math.log1p(4),
+        )
+        self.assertAlmostEqual(weights[2], math.log1p(10))
+        self.assertNotIn(3, weights)
 
 
 class RecommendationExplanationTest(unittest.TestCase):
@@ -1800,6 +1842,181 @@ class RecommendationServiceTest(unittest.TestCase):
             )
         return database
 
+    def build_daily_profile_database(self, *, played_count: int = 1) -> Path:
+        tempdir = TemporaryDirectory()
+        self.addCleanup(tempdir.cleanup)
+        database = Path(tempdir.name) / "library.sqlite"
+        with connect_database(database) as connection:
+            connection.executemany(
+                """
+                INSERT INTO library_albums (album_id, album, year, track_count)
+                VALUES (?, ?, ?, ?)
+                """,
+                (
+                    ("album-favorite-seed", "Favorite Seed", 1965, 1),
+                    ("album-played-seed", "Played Seed", 1992, 1),
+                    ("album-favorite-match", "Favorite Match", 1965, 1),
+                    ("album-played-match", "Played Match", 1992, 1),
+                    ("album-unrelated", "Unrelated", 1970, 1),
+                    ("album-favorite-artist", "Favorite Artist Catalog", 2010, 1),
+                ),
+            )
+            connection.executemany(
+                """
+                INSERT INTO library_tracks (
+                    track_id,
+                    album_id,
+                    path,
+                    file_type,
+                    scan_error,
+                    artist,
+                    album_artist,
+                    album,
+                    title,
+                    date
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    (
+                        1,
+                        "album-favorite-seed",
+                        "/music/daily/favorite-seed.flac",
+                        "flac",
+                        None,
+                        "Favorite Artist",
+                        "Favorite Artist",
+                        "Favorite Seed",
+                        "Favorite Seed Song",
+                        "1965",
+                    ),
+                    (
+                        2,
+                        "album-played-seed",
+                        "/music/daily/played-seed.flac",
+                        "flac",
+                        None,
+                        "Played Artist",
+                        "Played Artist",
+                        "Played Seed",
+                        "Played Seed Song",
+                        "1992",
+                    ),
+                    (
+                        3,
+                        "album-favorite-match",
+                        "/music/daily/favorite-match.flac",
+                        "flac",
+                        None,
+                        "Other Jazz Artist",
+                        "Other Jazz Artist",
+                        "Favorite Match",
+                        "Favorite Match Song",
+                        "1965",
+                    ),
+                    (
+                        4,
+                        "album-played-match",
+                        "/music/daily/played-match.flac",
+                        "flac",
+                        None,
+                        "Other Rock Artist",
+                        "Other Rock Artist",
+                        "Played Match",
+                        "Played Match Song",
+                        "1992",
+                    ),
+                    (
+                        5,
+                        "album-unrelated",
+                        "/music/daily/unrelated.flac",
+                        "flac",
+                        None,
+                        "Unrelated Artist",
+                        "Unrelated Artist",
+                        "Unrelated",
+                        "Unrelated Song",
+                        "1970",
+                    ),
+                    (
+                        6,
+                        "album-favorite-artist",
+                        "/music/daily/favorite-artist-catalog.flac",
+                        "flac",
+                        None,
+                        "Favorite Artist",
+                        "Favorite Artist",
+                        "Favorite Artist Catalog",
+                        "Favorite Artist Catalog Song",
+                        "2010",
+                    ),
+                ),
+            )
+            connection.executemany(
+                """
+                INSERT INTO library_track_genres (track_id, position, genre)
+                VALUES (?, ?, ?)
+                """,
+                (
+                    (1, 0, "Jazz"),
+                    (2, 0, "Rock"),
+                    (3, 0, "Jazz"),
+                    (4, 0, "Rock"),
+                    (5, 0, "Classical"),
+                    (6, 0, "Electronic"),
+                ),
+            )
+            connection.executemany(
+                """
+                INSERT INTO library_track_styles (track_id, position, style)
+                VALUES (?, ?, ?)
+                """,
+                (
+                    (1, 0, "Hard Bop"),
+                    (2, 0, "Dream Pop"),
+                    (3, 0, "Hard Bop"),
+                    (4, 0, "Dream Pop"),
+                    (5, 0, "Baroque"),
+                    (6, 0, "Minimalism"),
+                ),
+            )
+            connection.execute(
+                """
+                INSERT INTO track_user_state (track_path, starred_at)
+                VALUES (?, ?)
+                """,
+                (
+                    "/music/daily/favorite-seed.flac",
+                    "2026-06-01T10:00:00+00:00",
+                ),
+            )
+            connection.execute(
+                """
+                INSERT INTO play_track_stats (
+                    track_path,
+                    play_count,
+                    last_played_at,
+                    track_id,
+                    album_id,
+                    path,
+                    title,
+                    artist,
+                    album
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    "/music/daily/played-seed.flac",
+                    played_count,
+                    "2026-06-04T12:00:00+00:00",
+                    2,
+                    "album-played-seed",
+                    "/music/daily/played-seed.flac",
+                    "Played Seed Song",
+                    "Played Artist",
+                    "Played Seed",
+                ),
+            )
+        return database
+
     def test_track_radio_excludes_seed_and_ranks_default_similarity(self) -> None:
         service = RecommendationService(self.build_database())
 
@@ -2289,6 +2506,154 @@ class RecommendationServiceTest(unittest.TestCase):
             [7],
         )
 
+    def test_daily_playlist_weights_favorites_more_than_light_top_listens(
+        self,
+    ) -> None:
+        service = RecommendationService(
+            self.build_daily_profile_database(played_count=1)
+        )
+
+        results = service.get_daily_playlist(
+            limit=10,
+            date="2026-06-07T12:00:00+00:00",
+        )
+
+        track_ids = [result.candidate.metadata.track_id for result in results]
+        results_by_id = {
+            result.candidate.metadata.track_id: result
+            for result in results
+        }
+        self.assertLess(track_ids.index(3), track_ids.index(4))
+        self.assertGreater(
+            results_by_id[3].score.base_similarity,
+            results_by_id[4].score.base_similarity,
+        )
+        self.assertEqual(results_by_id[3].explanation.matched_genres, ("Jazz",))
+        self.assertEqual(results_by_id[3].explanation.matched_styles, ("Hard Bop",))
+
+    def test_daily_playlist_top_listens_influence_without_only_replaying_them(
+        self,
+    ) -> None:
+        service = RecommendationService(
+            self.build_daily_profile_database(played_count=100)
+        )
+
+        results = service.get_daily_playlist(
+            limit=10,
+            date="2026-06-07T12:00:00+00:00",
+        )
+
+        track_ids = [result.candidate.metadata.track_id for result in results]
+        results_by_id = {
+            result.candidate.metadata.track_id: result
+            for result in results
+        }
+        self.assertLess(track_ids.index(4), track_ids.index(2))
+        self.assertGreater(
+            results_by_id[4].score.base_similarity,
+            results_by_id[5].score.base_similarity,
+        )
+        self.assertEqual(results_by_id[2].score.track_play_penalty, 0.05)
+
+    def test_daily_playlist_cold_start_returns_diverse_library_sample(
+        self,
+    ) -> None:
+        service = RecommendationService(self.build_diversity_database())
+
+        results = service.get_daily_playlist(limit=5, date="2026-06-07")
+
+        track_ids = [result.candidate.metadata.track_id for result in results]
+        self.assertEqual(track_ids, [1, 2, 3, 5, 7])
+        self.assertNotIn(4, track_ids)
+        self.assertNotIn(6, track_ids)
+        self.assertLessEqual(
+            sum(
+                result.candidate.metadata.artist == "Dominant Artist"
+                for result in results
+            ),
+            3,
+        )
+        self.assertLessEqual(
+            sum(
+                result.candidate.metadata.album_id == "album-dominant-a"
+                for result in results
+            ),
+            2,
+        )
+
+    def test_daily_artist_only_limits_candidates_to_preferred_artists(
+        self,
+    ) -> None:
+        service = RecommendationService(
+            self.build_daily_profile_database(played_count=1)
+        )
+
+        results = service.get_daily_playlist(
+            mode=RECOMMENDATION_MODE_ARTIST_ONLY,
+            limit=10,
+            date="2026-06-07T12:00:00+00:00",
+        )
+
+        track_ids = [result.candidate.metadata.track_id for result in results]
+        self.assertEqual(set(track_ids), {1, 2, 6})
+        self.assertNotIn(3, track_ids)
+        self.assertNotIn(4, track_ids)
+        self.assertNotIn(5, track_ids)
+        for result in results:
+            self.assertIn(
+                result.candidate.metadata.artist,
+                {"Favorite Artist", "Played Artist"},
+            )
+
+    def test_daily_random_uses_recency_weighted_selection_not_profile_similarity(
+        self,
+    ) -> None:
+        database = self.build_database()
+        with connect_database(database, create=False) as connection:
+            connection.execute(
+                """
+                INSERT INTO play_track_stats (
+                    track_path,
+                    play_count,
+                    last_played_at,
+                    track_id,
+                    album_id,
+                    path,
+                    title,
+                    artist,
+                    album
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    "/music/closest/01.flac",
+                    0,
+                    "2026-06-07T00:00:00+00:00",
+                    2,
+                    "album-2",
+                    "/music/closest/01.flac",
+                    "Closest Song",
+                    "Other Artist",
+                    "Closest Album",
+                ),
+            )
+        service = RecommendationService(
+            database,
+            random_source=FixedRandomSource(0.206),
+        )
+
+        result = service.get_daily_playlist(
+            mode=RECOMMENDATION_MODE_RANDOM,
+            limit=1,
+            date="2026-06-07T12:00:00+00:00",
+        )[0]
+
+        self.assertEqual(result.candidate.metadata.track_id, 2)
+        self.assertEqual(result.score.base_similarity, 0.0)
+        self.assertEqual(result.score.random_draw, 0.206)
+        self.assertEqual(result.score.random_recency_multiplier, 0.10)
+        self.assertEqual(result.score.random_play_count_multiplier, 1.0)
+        self.assertEqual(result.score.random_selection_weight, 0.10)
+
     def test_discovery_album_and_artist_radio_can_run(self) -> None:
         service = RecommendationService(self.build_multi_seed_database())
 
@@ -2315,6 +2680,8 @@ class RecommendationServiceTest(unittest.TestCase):
             service.get_album_radio("album-seed", mode="ambient_only")
         with self.assertRaises(RecommendationModeError):
             service.get_artist_radio("Seed Artist", mode="ambient_only")
+        with self.assertRaises(RecommendationModeError):
+            service.get_daily_playlist(mode="ambient_only")
 
     def test_album_and_artist_radio_missing_seeds_raise_query_errors(self) -> None:
         service = RecommendationService(self.build_multi_seed_database())

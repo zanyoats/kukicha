@@ -5,6 +5,7 @@ import random as random_module
 import re
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field, replace
+from datetime import date as date_class
 from datetime import datetime, timezone
 from pathlib import Path
 from sqlite3 import Connection, Row
@@ -73,7 +74,10 @@ DIVERSITY_STRENGTH_HIGH = "high"
 DiversityStrength = Literal["low", "medium", "high"]
 
 DEFAULT_RECOMMENDATION_LIMIT = 25
+DEFAULT_DAILY_RECOMMENDATION_LIMIT = 30
 MAX_RECOMMENDATION_LIMIT = 500
+DAILY_FAVORITE_SEED_WEIGHT = 3.0
+DAILY_TOP_LISTENED_TRACK_LIMIT = 50
 YEAR_PATTERN = re.compile(r"(?<!\d)(\d{4})(?!\d)")
 SparseVector = dict[str, float]
 
@@ -581,6 +585,7 @@ class RecommendationService:
         random_source: RecommendationRandomSource | None = None,
     ) -> None:
         self.queries = RecommendationQueries(database)
+        self._random_source_was_provided = random_source is not None
         self.random_source = random_source or random_module.Random()
 
     def get_track_radio(
@@ -693,6 +698,45 @@ class RecommendationService:
             artist_filter_terms=recommendation_artist_terms((normalized_artist,)),
         )
 
+    def get_daily_playlist(
+        self,
+        mode: object | None = RECOMMENDATION_MODE_DEFAULT,
+        limit: object | None = DEFAULT_DAILY_RECOMMENDATION_LIMIT,
+        date: object | None = None,
+    ) -> tuple[RecommendationResult, ...]:
+        config, normalized_limit, candidates, track_vectors = (
+            self._recommendation_context(mode, limit)
+        )
+        seeds = build_daily_recommendation_profile_seeds(candidates)
+        seed_candidates = recommendation_candidates_by_track_ids(
+            candidates,
+            (seed.track_id for seed in seeds),
+        )
+        profile = build_recommendation_user_profile(seeds, track_vectors)
+        current_time = recommendation_daily_current_time(date)
+        ranking_config = config
+        artist_filter_terms: tuple[str, ...] = ()
+        if not seeds:
+            ranking_config = recommendation_daily_cold_start_config(config)
+        elif config.mode == RECOMMENDATION_MODE_ARTIST_ONLY:
+            artist_filter_terms = recommendation_daily_preferred_artist_terms(
+                seed_candidates
+            )
+            if not artist_filter_terms:
+                ranking_config = recommendation_daily_cold_start_config(config)
+
+        return self._rank_profile_results(
+            profile,
+            candidates,
+            track_vectors,
+            normalized_limit=normalized_limit,
+            config=ranking_config,
+            seed_candidates=seed_candidates,
+            artist_filter_terms=artist_filter_terms,
+            current_time=current_time,
+            random_source=self._daily_random_source(date, ranking_config),
+        )
+
     def _recommendation_context(
         self,
         mode: object | None,
@@ -726,9 +770,13 @@ class RecommendationService:
         config: RecommendationModeConfig | None = None,
         artist_filter_terms: Iterable[object | None] = (),
         candidate_artist_terms: CandidateArtistTerms | None = None,
+        current_time: datetime | None = None,
+        random_source: RecommendationRandomSource | None = None,
     ) -> tuple[RecommendationResult, ...]:
         resolved_config = recommendation_scoring_config(config=config)
-        current_time = datetime.now(timezone.utc)
+        current_time = recommendation_utc_datetime(
+            current_time or datetime.now(timezone.utc)
+        )
         scored = score_recommendation_candidates(
             profile,
             candidates,
@@ -744,7 +792,9 @@ class RecommendationService:
             return weighted_random_sample_recommendation_results(
                 scored,
                 normalized_limit,
-                random_source=self.random_source,
+                random_source=random_source
+                if random_source is not None
+                else self.random_source,
                 config=resolved_config,
                 current_time=current_time,
             )
@@ -754,6 +804,17 @@ class RecommendationService:
             config=resolved_config,
             current_time=current_time,
         )
+
+    def _daily_random_source(
+        self,
+        date: object | None,
+        config: RecommendationModeConfig,
+    ) -> RecommendationRandomSource | None:
+        if not config.uses_weighted_random_selection:
+            return None
+        if self._random_source_was_provided:
+            return self.random_source
+        return random_module.Random(recommendation_daily_random_seed(date, config))
 
 
 def recommendation_mode_config(mode: object | None = None) -> RecommendationModeConfig:
@@ -938,6 +999,70 @@ def build_recommendation_user_profile(
     track_vectors: Mapping[int, Mapping[str, float]],
 ) -> RecommendationProfile:
     return build_recommendation_profile(seeds, track_vectors)
+
+
+def build_daily_recommendation_profile_seeds(
+    candidates: Iterable[RecommendationCandidate],
+    *,
+    top_listened_limit: int = DAILY_TOP_LISTENED_TRACK_LIMIT,
+) -> tuple[RecommendationProfileSeed, ...]:
+    candidate_pool = tuple(candidates)
+    top_listened_track_ids = daily_top_listened_track_ids(
+        candidate_pool,
+        top_listened_limit,
+    )
+    seeds: list[RecommendationProfileSeed] = []
+    for candidate in candidate_pool:
+        if (
+            not candidate.metadata.is_favorite
+            and candidate.metadata.track_id not in top_listened_track_ids
+        ):
+            continue
+        weight = daily_recommendation_seed_weight(candidate)
+        if weight <= 0:
+            continue
+        seeds.append(
+            RecommendationProfileSeed(
+                track_id=candidate.metadata.track_id,
+                weight=weight,
+            )
+        )
+    return tuple(seeds)
+
+
+def daily_top_listened_track_ids(
+    candidates: Iterable[RecommendationCandidate],
+    top_listened_limit: int = DAILY_TOP_LISTENED_TRACK_LIMIT,
+) -> frozenset[int]:
+    normalized_limit = max(0, int(top_listened_limit))
+    if normalized_limit <= 0:
+        return frozenset()
+    played_candidates = [
+        candidate
+        for candidate in candidates
+        if candidate.listening.track_play_count > 0
+    ]
+    played_candidates.sort(
+        key=lambda candidate: (
+            -candidate.listening.track_play_count,
+            candidate.metadata.track_id,
+        )
+    )
+    return frozenset(
+        candidate.metadata.track_id
+        for candidate in played_candidates[:normalized_limit]
+    )
+
+
+def daily_recommendation_seed_weight(
+    candidate: RecommendationCandidate,
+) -> float:
+    weight = 0.0
+    if candidate.metadata.is_favorite:
+        weight += DAILY_FAVORITE_SEED_WEIGHT
+    if candidate.listening.track_play_count > 0:
+        weight += math.log1p(candidate.listening.track_play_count)
+    return weight
 
 
 def build_recommendation_profile(
@@ -1491,6 +1616,28 @@ def recommendation_datetime_from_iso(value: object | None) -> datetime | None:
     return recommendation_utc_datetime(parsed)
 
 
+def recommendation_daily_current_time(value: object | None = None) -> datetime:
+    if isinstance(value, datetime):
+        return recommendation_utc_datetime(value)
+    if isinstance(value, date_class):
+        return datetime(value.year, value.month, value.day, tzinfo=timezone.utc)
+    parsed = recommendation_datetime_from_iso(value)
+    if parsed is not None:
+        return parsed
+    return datetime.now(timezone.utc)
+
+
+def recommendation_daily_date_key(value: object | None = None) -> str:
+    return recommendation_daily_current_time(value).date().isoformat()
+
+
+def recommendation_daily_random_seed(
+    date: object | None,
+    config: RecommendationModeConfig,
+) -> str:
+    return f"kukicha:daily:{recommendation_daily_date_key(date)}:{config.mode}"
+
+
 def recommendation_utc_datetime(value: datetime) -> datetime:
     if value.tzinfo is None:
         return value.replace(tzinfo=timezone.utc)
@@ -1616,6 +1763,23 @@ def recommendation_candidate_by_track_id(
     return None
 
 
+def recommendation_candidates_by_track_ids(
+    candidates: Iterable[RecommendationCandidate],
+    track_ids: Iterable[int],
+) -> tuple[RecommendationCandidate, ...]:
+    normalized_track_ids = {
+        int(track_id)
+        for track_id in track_ids
+    }
+    if not normalized_track_ids:
+        return ()
+    return tuple(
+        candidate
+        for candidate in candidates
+        if candidate.metadata.track_id in normalized_track_ids
+    )
+
+
 def recommendation_candidates_by_album_id(
     candidates: Iterable[RecommendationCandidate],
     album_id: object | None,
@@ -1643,6 +1807,30 @@ def recommendation_candidates_by_artist(
         if artist_terms.intersection(
             recommendation_metadata_artist_terms(candidate.metadata)
         )
+    )
+
+
+def recommendation_daily_preferred_artist_terms(
+    seed_candidates: Iterable[RecommendationCandidate],
+) -> tuple[str, ...]:
+    return tuple(
+        dict.fromkeys(
+            term
+            for candidate in seed_candidates
+            for term in recommendation_track_artist_terms(candidate.metadata)
+        )
+    )
+
+
+def recommendation_daily_cold_start_config(
+    config: RecommendationModeConfig,
+) -> RecommendationModeConfig:
+    if config.uses_weighted_random_selection:
+        return config
+    return replace(
+        config,
+        candidate_filter=None,
+        diversity_caps=DEFAULT_DIVERSITY_CAPS,
     )
 
 
@@ -2350,7 +2538,10 @@ __all__ = [
     "ARTIST_ONLY_FALLBACK_RETURN_FEWER",
     "CANDIDATE_FILTER_ARTIST_MATCH_REQUIRED",
     "CANDIDATE_SELECTION_WEIGHTED_RANDOM",
+    "DAILY_FAVORITE_SEED_WEIGHT",
+    "DAILY_TOP_LISTENED_TRACK_LIMIT",
     "DEFAULT_DIVERSITY_CAPS",
+    "DEFAULT_DAILY_RECOMMENDATION_LIMIT",
     "DEFAULT_RECENCY_PENALTIES",
     "DEFAULT_RECOMMENDATION_LIMIT",
     "DISCOVERY_RECENCY_PENALTIES",
@@ -2411,6 +2602,9 @@ __all__ = [
     "build_recommendation_track_vectors",
     "build_recommendation_user_profile",
     "build_recommendation_vocabulary",
+    "build_daily_recommendation_profile_seeds",
+    "daily_recommendation_seed_weight",
+    "daily_top_listened_track_ids",
     "load_recommendation_candidate",
     "load_recommendation_candidates",
     "normalize_recommendation_limit",
@@ -2423,6 +2617,10 @@ __all__ = [
     "recommendation_candidates_from_rows",
     "recommendation_decade",
     "recommendation_album_artist_terms",
+    "recommendation_daily_current_time",
+    "recommendation_daily_date_key",
+    "recommendation_daily_preferred_artist_terms",
+    "recommendation_daily_random_seed",
     "recommendation_mode_config",
     "recommendation_seed_album_artist_terms",
     "recommendation_track_artist_terms",
