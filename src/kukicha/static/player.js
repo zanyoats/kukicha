@@ -65,6 +65,8 @@ let keyboardShortcutsReturnFocus = null;
 let confirmationReturnFocus = null;
 let confirmationResolve = null;
 let rescanLibraryPending = false;
+let activeRecommendationLoadingToast = null;
+let recommendationNavigationLoadCount = 0;
 const submittedIndeterminatePlayKeys = new Set();
 let activePlaybackEngine = null;
 let pendingEngineStartKey = "";
@@ -951,14 +953,17 @@ function parseFragment(html) {
 }
 
 async function navigate(url, options = {}) {
+  const recommendationLoading = beginRecommendationNavigationLoading(url);
   let html = "";
   try {
     html = await fetchFragment(url);
   } catch {
+    endRecommendationNavigationLoading(recommendationLoading);
     window.location.href = url;
     return;
   }
   renderFragment(html, url, options);
+  endRecommendationNavigationLoading(recommendationLoading);
 }
 
 async function fetchFragment(url, options = {}) {
@@ -1080,6 +1085,53 @@ function selectedTrackIdFromUrl(url) {
   }
   const trackId = Number(parsedUrl.searchParams.get("selectedTrackId"));
   return Number.isFinite(trackId) && trackId > 0 ? trackId : null;
+}
+
+function beginRecommendationNavigationLoading(url) {
+  if (!isRecommendationNavigationUrl(url)) {
+    return false;
+  }
+  recommendationNavigationLoadCount += 1;
+  if (
+    !(activeRecommendationLoadingToast instanceof HTMLElement)
+    || !activeRecommendationLoadingToast.isConnected
+  ) {
+    activeRecommendationLoadingToast = showToast("Generating playlist...", {
+      persistent: true,
+      role: "status"
+    });
+  }
+  return true;
+}
+
+function endRecommendationNavigationLoading(active) {
+  if (!active) {
+    return;
+  }
+  recommendationNavigationLoadCount = Math.max(0, recommendationNavigationLoadCount - 1);
+  if (recommendationNavigationLoadCount > 0) {
+    return;
+  }
+  if (activeRecommendationLoadingToast instanceof HTMLElement) {
+    removeToastMessage(activeRecommendationLoadingToast);
+    activeRecommendationLoadingToast = null;
+  }
+}
+
+function isRecommendationNavigationUrl(url) {
+  let parsedUrl;
+  try {
+    parsedUrl = new URL(url, window.location.href);
+  } catch {
+    return false;
+  }
+  return (
+    sameOrigin(parsedUrl)
+    && (
+      parsedUrl.pathname === "/recommendations"
+      || parsedUrl.pathname.startsWith("/recommendations/")
+    )
+  );
 }
 
 function patchLibraryView(nextPageRoot) {
@@ -4567,11 +4619,14 @@ function setAlbumArtistMappingStatus(formOrElement, message, isError = false) {
 
 function showToast(message, options = {}) {
   if (!(toast instanceof HTMLElement) || typeof message !== "string" || !message.trim()) {
-    return;
+    return null;
   }
   const toastMessage = document.createElement("div");
-  toastMessage.className = "toast-message";
+  toastMessage.classList.add("toast-message");
   toastMessage.classList.toggle("error", options.error === true);
+  if (typeof options.role === "string" && options.role.trim()) {
+    toastMessage.setAttribute("role", options.role.trim());
+  }
 
   const copy = document.createElement("div");
   copy.className = "toast-copy";
@@ -4595,13 +4650,14 @@ function showToast(message, options = {}) {
   toast.prepend(toastMessage);
   toast.hidden = false;
   if (options.persistent === true) {
-    return;
+    return toastMessage;
   }
 
   const timeout = window.setTimeout(() => {
     removeToastMessage(toastMessage);
   }, toastHideDelayMs);
   toastTimeouts.set(toastMessage, timeout);
+  return toastMessage;
 }
 
 function closeToast(button) {

@@ -1383,6 +1383,54 @@ test("navigation links inside dropdown menus close the containing menu", async (
   assert.equal(harness.view.dataset.page, "recommendations");
 });
 
+test("recommendation navigation shows a generating playlist toast while loading", async () => {
+  const pageUrl = "http://localhost/recommendations/daily";
+  const harness = createHarness(
+    {
+      track_ids: [],
+      position: 0,
+      loaded_track_id: null,
+      paused: true,
+      errored_track_ids: [],
+      unavailable_track_ids: [],
+    },
+    {
+      fetchResponses: {
+        [pageUrl]: {
+          text: '<div class="view-page recommendations-page" data-page="recommendations"></div>',
+        },
+      },
+    }
+  );
+  const link = harness.document.createElement("a");
+  link.href = pageUrl;
+  link.setAttribute("href", pageUrl);
+  link.closest = (selector) => (
+    selector === "a[data-nav]" ? link : null
+  );
+  let prevented = false;
+
+  harness.document.listeners.get("click")[0]({
+    target: link,
+    preventDefault() {
+      prevented = true;
+    },
+  });
+
+  const loadingToast = harness.document.elements.toast.querySelector(".toast-message");
+  assert.equal(prevented, true);
+  assert.equal(harness.document.elements.toast.hidden, false);
+  assert.equal(loadingToast.querySelector(".toast-copy").textContent, "Generating playlist...");
+  assert.equal(loadingToast.getAttribute("role"), "status");
+
+  await harness.flush();
+
+  assert.equal(String(harness.fetchCalls[0].url), pageUrl);
+  assert.equal(harness.view.dataset.page, "recommendations");
+  assert.equal(harness.document.elements.toast.children.length, 0);
+  assert.equal(harness.document.elements.toast.hidden, true);
+});
+
 test("selected track url scrolls selected album row into view", () => {
   const harness = createHarness({
     track_ids: [],
