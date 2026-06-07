@@ -642,6 +642,9 @@ function createHarness(initialQueueState, options = {}) {
   };
   elements["confirmation-dialog"].hidden = true;
   elements["keyboard-shortcuts-dialog"].hidden = true;
+  if (Number.isInteger(options.toastTimeoutMs) && options.toastTimeoutMs > 0) {
+    elements.toast.dataset.toastTimeoutMs = String(options.toastTimeoutMs);
+  }
   elements.audio.deferPlay = Boolean(options.deferAudioPlay);
   elements["queue-state"].textContent = JSON.stringify(initialQueueState);
 
@@ -1383,7 +1386,7 @@ test("navigation links inside dropdown menus close the containing menu", async (
   assert.equal(harness.view.dataset.page, "recommendations");
 });
 
-test("recommendation navigation shows a generating playlist toast while loading", async () => {
+test("recommendation navigation shows loaded toast until normal timeout", async () => {
   const pageUrl = "http://localhost/recommendations/daily";
   const harness = createHarness(
     {
@@ -1395,6 +1398,7 @@ test("recommendation navigation shows a generating playlist toast while loading"
       unavailable_track_ids: [],
     },
     {
+      toastTimeoutMs: 20,
       fetchResponses: {
         [pageUrl]: {
           text: '<div class="view-page recommendations-page" data-page="recommendations"></div>',
@@ -1427,6 +1431,13 @@ test("recommendation navigation shows a generating playlist toast while loading"
 
   assert.equal(String(harness.fetchCalls[0].url), pageUrl);
   assert.equal(harness.view.dataset.page, "recommendations");
+  assert.equal(harness.document.elements.toast.children.length, 1);
+  assert.equal(loadingToast.querySelector(".toast-copy").textContent, "Playlist loaded.");
+  assert.equal(harness.document.elements.toast.hidden, false);
+
+  await new Promise((resolve) => setTimeout(resolve, 30));
+  await harness.flush();
+
   assert.equal(harness.document.elements.toast.children.length, 0);
   assert.equal(harness.document.elements.toast.hidden, true);
 });

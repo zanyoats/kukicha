@@ -1093,9 +1093,13 @@ function beginRecommendationNavigationLoading(url) {
   }
   recommendationNavigationLoadCount += 1;
   if (
-    !(activeRecommendationLoadingToast instanceof HTMLElement)
-    || !activeRecommendationLoadingToast.isConnected
+    activeRecommendationLoadingToast instanceof HTMLElement
+    && activeRecommendationLoadingToast.isConnected
+    && activeRecommendationLoadingToast.parentNode
   ) {
+    clearToastMessageTimeout(activeRecommendationLoadingToast);
+    setToastMessageCopy(activeRecommendationLoadingToast, "Generating playlist...");
+  } else {
     activeRecommendationLoadingToast = showToast("Generating playlist...", {
       persistent: true,
       role: "status"
@@ -1113,8 +1117,8 @@ function endRecommendationNavigationLoading(active) {
     return;
   }
   if (activeRecommendationLoadingToast instanceof HTMLElement) {
-    removeToastMessage(activeRecommendationLoadingToast);
-    activeRecommendationLoadingToast = null;
+    setToastMessageCopy(activeRecommendationLoadingToast, "Playlist loaded.");
+    scheduleToastMessageRemoval(activeRecommendationLoadingToast);
   }
 }
 
@@ -4653,11 +4657,16 @@ function showToast(message, options = {}) {
     return toastMessage;
   }
 
+  scheduleToastMessageRemoval(toastMessage);
+  return toastMessage;
+}
+
+function scheduleToastMessageRemoval(toastMessage) {
+  clearToastMessageTimeout(toastMessage);
   const timeout = window.setTimeout(() => {
     removeToastMessage(toastMessage);
   }, toastHideDelayMs);
   toastTimeouts.set(toastMessage, timeout);
-  return toastMessage;
 }
 
 function closeToast(button) {
@@ -4668,14 +4677,28 @@ function closeToast(button) {
 }
 
 function removeToastMessage(toastMessage) {
+  clearToastMessageTimeout(toastMessage);
+  if (toastMessage === activeRecommendationLoadingToast) {
+    activeRecommendationLoadingToast = null;
+  }
+  toastMessage.remove();
+  if (toast instanceof HTMLElement && !toast.children.length) {
+    toast.hidden = true;
+  }
+}
+
+function clearToastMessageTimeout(toastMessage) {
   const timeout = toastTimeouts.get(toastMessage);
   if (timeout) {
     clearTimeout(timeout);
     toastTimeouts.delete(toastMessage);
   }
-  toastMessage.remove();
-  if (toast instanceof HTMLElement && !toast.children.length) {
-    toast.hidden = true;
+}
+
+function setToastMessageCopy(toastMessage, message) {
+  const copy = toastMessage.querySelector(".toast-copy");
+  if (copy instanceof HTMLElement) {
+    copy.textContent = message;
   }
 }
 
