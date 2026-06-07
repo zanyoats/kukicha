@@ -1,4 +1,5 @@
-{% from "player/_icons.html" import pause_icon, play_icon, queue_add_icon, search_icon %}
+{% from "player/_album_action_menu.html" import album_action_menu %}
+{% from "player/_icons.html" import pause_icon, play_icon, search_icon %}
 
 <div class="view-page home-page" data-page="{{ page_key }}">
   <header class="view-header home-header">
@@ -90,9 +91,7 @@
                   <button class="album-cover-action play-icon-button" type="button" data-play-album
                     aria-label="Play {{ album.artist }} - {{ album.album|display_album_title }}"
                     title="Play">{{ play_icon() }}</button>
-                  <button class="album-cover-action queue-icon-button" type="button" data-queue-album data-queue-append
-                    aria-label="Add {{ album.artist }} - {{ album.album|display_album_title }} to the queue"
-                    title="Add to queue">{{ queue_add_icon() }}</button>
+                  {{ album_action_menu(album.artist ~ " - " ~ (album.album|display_album_title)) }}
                 </div>
               {% endif %}
             </div>
@@ -136,9 +135,7 @@
                   <button class="album-cover-action play-icon-button" type="button" data-play-album
                     aria-label="Play {{ album.artist }} - {{ album.album|display_album_title }}"
                     title="Play">{{ play_icon() }}</button>
-                  <button class="album-cover-action queue-icon-button" type="button" data-queue-album data-queue-append
-                    aria-label="Add {{ album.artist }} - {{ album.album|display_album_title }} to the queue"
-                    title="Add to queue">{{ queue_add_icon() }}</button>
+                  {{ album_action_menu(album.artist ~ " - " ~ (album.album|display_album_title)) }}
                 </div>
               {% endif %}
             </div>
@@ -182,9 +179,7 @@
                   <button class="album-cover-action play-icon-button" type="button" data-play-album
                     aria-label="Play {{ album.artist }} - {{ album.album|display_album_title }}"
                     title="Play">{{ play_icon() }}</button>
-                  <button class="album-cover-action queue-icon-button" type="button" data-queue-album data-queue-append
-                    aria-label="Add {{ album.artist }} - {{ album.album|display_album_title }} to the queue"
-                    title="Add to queue">{{ queue_add_icon() }}</button>
+                  {{ album_action_menu(album.artist ~ " - " ~ (album.album|display_album_title)) }}
                 </div>
               {% endif %}
             </div>

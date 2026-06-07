@@ -106,6 +106,7 @@ button:not(:disabled):not(.disabled):active,
 .queue-icon-button,
 .play-icon-button,
 .playlist-icon-button,
+.track-action-menu-button,
 .delete-icon-button {
   gap: 0;
   min-width: 36px;
@@ -209,6 +210,7 @@ button:not(:disabled):not(.disabled):active,
 .queue-add-icon,
 .play-icon,
 .playlist-icon,
+.vertical-ellipsis-icon,
 .delete-icon,
 .clear-icon,
 .search-submit-icon {
@@ -353,7 +355,8 @@ button:disabled,
 
 .search-result-cover-wrap .album-cover-action,
 .search-result-cover-wrap .album-cover-action.play-icon-button,
-.search-result-cover-wrap .album-cover-action.queue-icon-button {
+.search-result-cover-wrap .album-cover-action.queue-icon-button,
+.search-result-cover-wrap .album-cover-action.album-action-menu-button {
   width: 24px;
   min-width: 24px;
   min-height: 24px;
@@ -368,6 +371,11 @@ button:disabled,
 .search-result-cover-wrap .album-cover-action.queue-icon-button .queue-add-icon {
   width: 14px;
   height: 14px;
+}
+
+.search-result-cover-wrap .album-cover-action.album-action-menu-button .vertical-ellipsis-icon {
+  width: 15px;
+  height: 15px;
 }
 
 .home-empty,
@@ -1082,18 +1090,23 @@ button:disabled,
 }
 
 .bulk-actions-menu,
-.bulk-actions-menu summary {
+.bulk-actions-menu summary,
+.track-action-menu,
+.track-action-menu > summary {
   width: 36px;
 }
 
-.bulk-actions-menu summary {
+.bulk-actions-menu summary,
+.track-action-menu > summary {
   justify-content: center;
   min-width: 36px;
+  max-width: 36px;
   height: 36px;
   padding: 7px;
 }
 
-.bulk-actions-menu .vertical-ellipsis-icon {
+.bulk-actions-menu .vertical-ellipsis-icon,
+.track-action-menu .vertical-ellipsis-icon {
   display: block;
   width: 20px;
   height: 20px;
@@ -1158,6 +1171,29 @@ button:disabled,
   max-width: calc(100vw - 32px);
 }
 
+.filter-options.track-action-options {
+  width: min(220px, calc(100vw - 32px));
+  min-width: 180px;
+  max-width: calc(100vw - 32px);
+  text-align: left;
+}
+
+.track-action-menu > .track-action-options {
+  display: none;
+}
+
+.filter-options.track-action-options-floating {
+  display: block;
+  position: fixed;
+  top: auto;
+  right: auto;
+  z-index: 1000;
+}
+
+.filter-options.track-action-options-floating[hidden] {
+  display: none;
+}
+
 .page-menu-heading {
   color: var(--muted);
   font-size: 0.72rem;
@@ -1195,6 +1231,20 @@ button:disabled,
 
 .page-menu-link.active {
   font-weight: 350;
+}
+
+.track-action-submenu > summary.page-menu-link {
+  cursor: pointer;
+  list-style: none;
+}
+
+.track-action-submenu > summary.page-menu-link::-webkit-details-marker {
+  display: none;
+}
+
+.track-action-submenu[open] > summary.page-menu-link,
+.track-action-submenu.has-playlist-membership > summary.page-menu-link {
+  color: var(--accent-strong);
 }
 
 .page-menu-divider {
@@ -2102,6 +2152,10 @@ button:disabled,
   gap: 6px;
 }
 
+.album-cover-action-menu {
+  position: relative;
+}
+
 .album-cover-action {
   display: inline-flex;
   align-items: center;
@@ -2123,10 +2177,29 @@ button:disabled,
 }
 
 .album-cover-action.play-icon-button,
-.album-cover-action.queue-icon-button {
+.album-cover-action.queue-icon-button,
+.album-cover-action.album-action-menu-button {
   width: 30px;
   min-width: 30px;
   padding: 0;
+}
+
+.album-cover-action-menu > summary.album-cover-action {
+  justify-content: center;
+  min-width: 30px;
+  max-width: 30px;
+  min-height: 30px;
+  height: 30px;
+  border: 0;
+  border-radius: 50%;
+  padding: 0;
+  background: rgba(255, 255, 255, 0.28);
+  color: rgba(255, 255, 255, 0.94);
+  list-style: none;
+}
+
+.album-cover-action-menu > summary.album-cover-action::-webkit-details-marker {
+  display: none;
 }
 
 .album-cover-action.play-icon-button .play-icon {
@@ -2140,8 +2213,24 @@ button:disabled,
   height: 16px;
 }
 
+.album-cover-action.album-action-menu-button .vertical-ellipsis-icon {
+  width: 17px;
+  height: 17px;
+  color: var(--accent);
+}
+
+.album-cover-action-options {
+  top: calc(100% + 4px);
+  bottom: auto;
+  width: min(190px, calc(100vw - 32px));
+  min-width: 160px;
+  max-width: calc(100vw - 32px);
+  text-align: left;
+}
+
 .album-cover-action:hover,
-.album-cover-action:focus-visible {
+.album-cover-action:focus-visible,
+.album-cover-action-menu[open] > summary.album-cover-action {
   background: rgba(255, 255, 255, 0.36);
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.2);
 }
@@ -3244,7 +3333,7 @@ tbody tr.selected {
 }
 
 .queue-action-cell :is(button, svg),
-.track-actions-cell :is(button, summary.playlist-icon-button, svg) {
+.track-actions-cell :is(button, summary.playlist-icon-button, summary.track-action-menu-button, svg) {
   color: var(--muted);
 }
 

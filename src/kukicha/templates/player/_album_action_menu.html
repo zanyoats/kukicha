@@ -1,0 +1,16 @@
+{% from "player/_icons.html" import vertical_ellipsis_icon %}
+
+{% macro album_action_menu(label, title="Album actions") -%}
+  <details class="filter-menu album-cover-action-menu" data-dropdown-menu>
+    <summary class="album-cover-action album-action-menu-button" aria-label="{{ title }}" title="{{ title }}">
+      <span class="visually-hidden">{{ title }}</span>
+      {{ vertical_ellipsis_icon() }}
+    </summary>
+    <div class="filter-options album-cover-action-options">
+      <button class="page-menu-link page-menu-button" type="button" data-queue-album data-queue-append
+        aria-label="Add {{ label }} to the queue">
+        Add to Queue
+      </button>
+    </div>
+  </details>
+{%- endmacro %}

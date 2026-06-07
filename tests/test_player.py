@@ -1658,6 +1658,60 @@ class PlayerPlaylistMembershipTest(unittest.TestCase):
         self.assertIn('data-playlist-create-for-track data-track-id="7"', html)
         self.assertNotIn("Loading playlists...", html)
 
+    def test_album_page_tracks_use_action_menu_with_bookmark_submenu(self) -> None:
+        album = AlbumDetails(
+            album_id="aphex-twin::selected-ambient-works-volume-ii",
+            artist="Aphex Twin",
+            album_artists=("Aphex Twin",),
+            album="Selected Ambient Works Volume II",
+            year=None,
+            track_count=1,
+        )
+        view = replace(
+            make_track_view(
+                7,
+                root_position=0,
+                path="/music/Album/07.mp3",
+                library_track_id=7,
+                playlist_options=(
+                    PlaylistMenuOption(
+                        playlist_id=3,
+                        name="Morning",
+                        checked=True,
+                    ),
+                ),
+            ),
+            has_playlist_membership=True,
+        )
+
+        html = build_template_environment().get_template("player/album.html").render(
+            album=album,
+            album_back_url="/albums",
+            album_edit_page_url="/albums/aphex-twin::selected-ambient-works-volume-ii/edit",
+            album_artist_links=album_artist_links(album, AlbumListQuery()),
+            album_genre_links=(),
+            album_year_text="",
+            album_style_links=(),
+            track_sections=(
+                {
+                    "label": "",
+                    "table_rows": ({"track": view, "group_label": ""},),
+                    "meta": (),
+                },
+            ),
+        )
+
+        self.assertIn("album-action-menu-button", html)
+        self.assertIn('data-queue-album data-queue-append', html)
+        self.assertIn('class="filter-menu track-action-menu"', html)
+        self.assertIn('data-queue-track data-queue-append', html)
+        self.assertEqual(html.count("Add to Queue"), 2)
+        self.assertIn("track-action-submenu has-playlist-membership", html)
+        self.assertIn("Bookmark", html)
+        self.assertIn('data-playlist-id="3" checked', html)
+        self.assertIn("<span>Morning</span>", html)
+        self.assertNotIn("queue-add-icon", html)
+
     def test_playlist_page_hides_playlist_bookmark_control(self) -> None:
         view = make_track_view(
             7,

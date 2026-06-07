@@ -58,6 +58,8 @@ let manualPauseRequested = false;
 let activePlaylistMenu = null;
 let activePlaylistOptions = null;
 let activePlaylistSourceOptions = null;
+let activeTrackActionMenu = null;
+let activeTrackActionOptions = null;
 let pageIsUnloading = false;
 let keyboardShortcutsReturnFocus = null;
 let confirmationReturnFocus = null;
@@ -1834,14 +1836,16 @@ document.addEventListener("click", (event) => {
   const queueAlbum = event.target.closest("[data-queue-album]");
   if (queueAlbum) {
     event.preventDefault();
+    closeContainingDropdownMenu(queueAlbum);
     void queueAlbumFromGrid(queueAlbum);
     return;
   }
   const queueTrack = event.target.closest("[data-queue-track]");
   if (queueTrack) {
     event.preventDefault();
-    const row = closestTrackRow(queueTrack);
+    const row = closestTrackRow(queueTrack) || activeTrackActionRowFor(queueTrack);
     if (row) {
+      closeContainingDropdownMenu(queueTrack);
       void appendTrackToQueue(trackFromRow(row));
     }
     return;
@@ -2047,26 +2051,43 @@ document.addEventListener("input", (event) => {
 });
 
 document.addEventListener("toggle", (event) => {
-  if (!(event.target instanceof HTMLDetailsElement) || !event.target.matches(dropdownMenuSelector)) {
+  if (!(event.target instanceof HTMLDetailsElement)) {
     return;
   }
-  if (event.target.matches("[data-playlist-menu]") && !event.target.open) {
+  const isDropdownMenu = event.target.matches(dropdownMenuSelector);
+  const isPlaylistMenu = event.target.matches("[data-playlist-menu]");
+  const isTrackActionMenu = event.target.matches("[data-track-action-menu]");
+  if (!isDropdownMenu && !isPlaylistMenu && !isTrackActionMenu) {
+    return;
+  }
+  if (isPlaylistMenu && !event.target.open) {
     restorePlaylistMenuOptions(event.target);
     return;
   }
   if (!event.target.open) {
+    if (isDropdownMenu && activePlaylistMenu && event.target.contains(activePlaylistMenu)) {
+      closeActivePlaylistMenu();
+    }
+    if (isTrackActionMenu) {
+      restoreTrackActionMenuOptions(event.target);
+    }
     return;
   }
-  if (event.target.matches("[data-playlist-menu]")) {
+  if (isTrackActionMenu) {
+    openTrackActionMenu(event.target);
+  }
+  if (isPlaylistMenu) {
     openPlaylistMenu(event.target);
   }
-  document.querySelectorAll(`${dropdownMenuSelector}[open]`).forEach((details) => {
-    if (details !== event.target) {
-      details.open = false;
+  if (isDropdownMenu) {
+    document.querySelectorAll(`${dropdownMenuSelector}[open]`).forEach((details) => {
+      if (details !== event.target && !details.contains(event.target)) {
+        details.open = false;
+      }
+    });
+    if (event.target.matches("[data-search-menu]")) {
+      focusSearchMenuInput(event.target);
     }
-  });
-  if (event.target.matches("[data-search-menu]")) {
-    focusSearchMenuInput(event.target);
   }
 }, true);
 
@@ -2074,12 +2095,14 @@ document.addEventListener("click", (event) => {
   if (!(event.target instanceof Element)) {
     return;
   }
-  if (event.target.closest(dropdownMenuSelector) || event.target.closest("[data-playlist-options]")) {
+  if (
+    event.target.closest(dropdownMenuSelector)
+    || event.target.closest("[data-playlist-options]")
+    || event.target.closest("[data-track-action-options]")
+  ) {
     return;
   }
-  document.querySelectorAll(`${dropdownMenuSelector}[open]`).forEach((details) => {
-    details.open = false;
-  });
+  closeOpenDropdownMenus();
 });
 
 window.addEventListener("popstate", (event) => {
@@ -2093,11 +2116,13 @@ window.addEventListener("popstate", (event) => {
 });
 
 window.addEventListener("scroll", () => {
+  positionActiveTrackActionMenu();
   positionActivePlaylistMenu();
   scheduleScrollStateSave();
 }, {passive: true});
 
 window.addEventListener("resize", () => {
+  positionActiveTrackActionMenu();
   positionActivePlaylistMenu();
 }, {passive: true});
 
@@ -2823,6 +2848,82 @@ function restoreAlbumArtistMappingCard(card) {
   card.classList.remove("active");
 }
 
+function openTrackActionMenu(menu) {
+  if (!(menu instanceof HTMLDetailsElement)) {
+    return;
+  }
+  if (activeTrackActionMenu && activeTrackActionMenu !== menu) {
+    activeTrackActionMenu.open = false;
+    restoreTrackActionMenuOptions(activeTrackActionMenu);
+  }
+  const sourceOptions = menu.querySelector("[data-track-action-options]");
+  if (!(sourceOptions instanceof HTMLElement)) {
+    return;
+  }
+  activeTrackActionMenu = menu;
+  activeTrackActionOptions = sourceOptions;
+  sourceOptions.classList.add("track-action-options-floating");
+  sourceOptions.hidden = false;
+  document.body.append(sourceOptions);
+  positionActiveTrackActionMenu();
+}
+
+function restoreTrackActionMenuOptions(menu = activeTrackActionMenu) {
+  if (!(menu instanceof HTMLDetailsElement) || menu !== activeTrackActionMenu) {
+    return;
+  }
+  if (activePlaylistMenu && activeTrackActionOptions && activeTrackActionOptions.contains(activePlaylistMenu)) {
+    closeActivePlaylistMenu();
+  }
+  if (activeTrackActionOptions) {
+    activeTrackActionOptions.hidden = true;
+    activeTrackActionOptions.classList.remove("track-action-options-floating");
+    activeTrackActionOptions.style.left = "";
+    activeTrackActionOptions.style.top = "";
+    activeTrackActionOptions.style.right = "";
+    activeTrackActionOptions.style.bottom = "";
+    activeTrackActionOptions.style.width = "";
+    activeTrackActionOptions.style.maxHeight = "";
+    menu.append(activeTrackActionOptions);
+  }
+  activeTrackActionMenu = null;
+  activeTrackActionOptions = null;
+}
+
+function closeActiveTrackActionMenu() {
+  if (activeTrackActionMenu) {
+    activeTrackActionMenu.open = false;
+  }
+  restoreTrackActionMenuOptions(activeTrackActionMenu);
+}
+
+function positionActiveTrackActionMenu() {
+  if (!(activeTrackActionMenu instanceof HTMLDetailsElement) || !(activeTrackActionOptions instanceof HTMLElement)) {
+    return;
+  }
+  const summary = activeTrackActionMenu.querySelector("summary");
+  if (!(summary instanceof HTMLElement)) {
+    return;
+  }
+  const bounds = summary.getBoundingClientRect();
+  const margin = 8;
+  const width = Math.min(220, Math.max(180, window.innerWidth - 32));
+  const spaceBelow = window.innerHeight - bounds.bottom - margin;
+  const spaceAbove = bounds.top - margin;
+  const opensAbove = spaceBelow < 140 && spaceAbove > spaceBelow;
+  const maxHeight = Math.max(120, opensAbove ? spaceAbove - 4 : spaceBelow - 4);
+  activeTrackActionOptions.style.width = `${width}px`;
+  activeTrackActionOptions.style.left = `${Math.max(16, Math.min(window.innerWidth - width - 16, bounds.right - width))}px`;
+  activeTrackActionOptions.style.maxHeight = `${maxHeight}px`;
+  if (opensAbove) {
+    activeTrackActionOptions.style.top = "";
+    activeTrackActionOptions.style.bottom = `${window.innerHeight - bounds.top + 4}px`;
+  } else {
+    activeTrackActionOptions.style.top = `${bounds.bottom + 4}px`;
+    activeTrackActionOptions.style.bottom = "";
+  }
+}
+
 function openPlaylistMenu(menu) {
   if (!(menu instanceof HTMLDetailsElement)) {
     return;
@@ -2892,10 +2993,16 @@ function positionActivePlaylistMenu() {
     return;
   }
   const bounds = summary.getBoundingClientRect();
+  const trackActionBounds = activePlaylistMenu.matches(".track-action-submenu")
+    && activeTrackActionOptions instanceof HTMLElement
+    && activeTrackActionOptions.contains(activePlaylistMenu)
+    ? activeTrackActionOptions.getBoundingClientRect()
+    : null;
+  const verticalBounds = trackActionBounds || bounds;
   const margin = 8;
   const width = Math.min(280, Math.max(180, window.innerWidth - 32));
-  const spaceBelow = window.innerHeight - bounds.bottom - margin;
-  const spaceAbove = bounds.top - margin;
+  const spaceBelow = window.innerHeight - verticalBounds.bottom - margin;
+  const spaceAbove = verticalBounds.top - margin;
   const opensAbove = spaceBelow < 160 && spaceAbove > spaceBelow;
   const maxHeight = Math.max(120, opensAbove ? spaceAbove - 4 : spaceBelow - 4);
   activePlaylistOptions.style.width = `${width}px`;
@@ -2903,9 +3010,9 @@ function positionActivePlaylistMenu() {
   activePlaylistOptions.style.maxHeight = `${maxHeight}px`;
   if (opensAbove) {
     activePlaylistOptions.style.top = "";
-    activePlaylistOptions.style.bottom = `${window.innerHeight - bounds.top + 4}px`;
+    activePlaylistOptions.style.bottom = `${window.innerHeight - verticalBounds.top + 4}px`;
   } else {
-    activePlaylistOptions.style.top = `${bounds.bottom + 4}px`;
+    activePlaylistOptions.style.top = `${verticalBounds.bottom + 8}px`;
     activePlaylistOptions.style.bottom = "";
   }
 }
@@ -5198,11 +5305,43 @@ function closeOpenDropdownMenus() {
     details.open = false;
     closed = true;
   });
+  if (activeTrackActionMenu) {
+    closeActiveTrackActionMenu();
+    closed = true;
+  }
   if (activePlaylistMenu) {
     closeActivePlaylistMenu();
     closed = true;
   }
   return closed;
+}
+
+function closeContainingDropdownMenu(element) {
+  let menu = element.closest(dropdownMenuSelector);
+  if (!(menu instanceof HTMLDetailsElement) && activeTrackActionOptions && activeTrackActionOptions.contains(element)) {
+    menu = activeTrackActionMenu;
+  }
+  if (!(menu instanceof HTMLDetailsElement)) {
+    return;
+  }
+  menu.open = false;
+  if (menu === activeTrackActionMenu) {
+    closeActiveTrackActionMenu();
+    return;
+  }
+  if (activePlaylistMenu && menu.contains(activePlaylistMenu)) {
+    closeActivePlaylistMenu();
+  }
+}
+
+function activeTrackActionRowFor(element) {
+  if (!(element instanceof Element) || !(activeTrackActionOptions instanceof HTMLElement)) {
+    return null;
+  }
+  if (!activeTrackActionOptions.contains(element) || !(activeTrackActionMenu instanceof HTMLDetailsElement)) {
+    return null;
+  }
+  return closestTrackRow(activeTrackActionMenu);
 }
 
 function blurShortcutInput(target) {
