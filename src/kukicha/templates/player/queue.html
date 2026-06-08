@@ -13,6 +13,7 @@
 
   {% if queue_rows %}
     {% set is_queue = true %}
+    {% set show_grouping_rows = false %}
     {% include "player/_track_table.html" %}
   {% else %}
     <div class="empty">Queue is empty.</div>

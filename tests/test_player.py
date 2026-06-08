@@ -1888,6 +1888,34 @@ class PlayerPlaylistMembershipTest(unittest.TestCase):
         self.assertIn('data-unavailable="1"', html)
         self.assertIn('<span class="queue-status-label">Unavailable</span>', html)
 
+    def test_queue_template_hides_grouping_rows(self) -> None:
+        view = make_track_view(
+            7,
+            root_position=0,
+            path="/music/Album/07.mp3",
+        )
+
+        html = build_template_environment().get_template("player/queue.html").render(
+            queue_rows=[{"track": view}],
+            table_rows=[
+                {
+                    "track": view,
+                    "group_label": "Work Header",
+                    "queue_position": 0,
+                    "queue_status": "Next",
+                    "queue_unavailable": False,
+                }
+            ],
+            queue_meta="1 track - 0 played",
+            queue_duration_text="",
+            queue_back_url="/",
+        )
+
+        self.assertNotIn("grouping-row", html)
+        self.assertNotIn("Work Header", html)
+        self.assertIn('data-track-id="7"', html)
+        self.assertIn('<span class="queue-status-label">Next</span>', html)
+
     def test_valid_playback_ids_accepts_tracks_and_external_playlist_items(self) -> None:
         api = Mock()
         api.get_tracks_by_ids.return_value = (

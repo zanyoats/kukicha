@@ -157,6 +157,7 @@
 {% set show_track_play_button = show_track_play_button|default(true) %}
 {% set show_track_action_menu = show_track_action_menu|default(false) %}
 {% set show_playlist_track_menu = show_playlist_track_menu|default(true) %}
+{% set show_grouping_rows = show_grouping_rows|default(true) %}
 {% set selected_track_id = selected_track_id|default(none) %}
 {% set column_count = (7 if show_track_artist else 6) if is_queue else (6 if show_track_artist else 5) %}
 
@@ -187,7 +188,7 @@
     </thead>
     <tbody>
       {% for row in table_rows %}
-        {% if row.group_label %}
+        {% if show_grouping_rows and row.group_label %}
           <tr class="grouping-row">
             <td colspan="{{ column_count }}">{{ row.group_label }}</td>
           </tr>
