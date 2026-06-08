@@ -492,6 +492,10 @@ def build_recommendation_context(
         for track_id in track_ids
         if (view := views_by_id.get(track_id)) is not None
     )
+    ordered_views = tuple(
+        replace(view, track_number=str(position))
+        for position, view in enumerate(ordered_views, start=1)
+    )
     count_parts = [
         format_count_label(len(ordered_views), "track", "tracks"),
         recommendation_mode_label(mode),

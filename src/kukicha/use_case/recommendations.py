@@ -758,7 +758,13 @@ class RecommendationService:
             normalized_limit,
         )
         if saved_results is not None:
-            return saved_results
+            if config.uses_weighted_random_selection:
+                return saved_results
+            return space_recommendation_results(
+                saved_results,
+                normalized_limit,
+                config=config,
+            )
 
         config, normalized_limit, candidates, track_vectors = (
             self._recommendation_context(config.mode, normalized_limit)
@@ -1422,20 +1428,114 @@ def rerank_recommendation_results(
     resolved_config = recommendation_scoring_config(mode=mode, config=config)
     diversity_state = RecommendationDiversityState(resolved_config)
     selected: list[RecommendationResult] = []
+    remaining = list(rank_recommendation_results(results))
     normalized_limit = max(0, int(limit))
-    for result in rank_recommendation_results(results):
-        if len(selected) >= normalized_limit:
+    while remaining and len(selected) < normalized_limit:
+        selectable_indexes = [
+            index
+            for index, result in enumerate(remaining)
+            if recommendation_result_is_selectable_for_diversity(
+                result,
+                resolved_config,
+                diversity_state,
+                current_time=current_time,
+            )
+        ]
+        if not selectable_indexes:
             break
-        if not recommendation_result_is_selectable_for_diversity(
-            result,
+        selected_index = recommendation_spaced_result_index(
+            remaining,
+            selectable_indexes,
+            selected,
             resolved_config,
-            diversity_state,
-            current_time=current_time,
-        ):
-            continue
+        )
+        result = remaining.pop(selected_index)
         diversity_state.accept(result)
         selected.append(result)
     return tuple(selected)
+
+
+def space_recommendation_results(
+    results: Iterable[RecommendationResult],
+    limit: int,
+    *,
+    mode: object | None = None,
+    config: RecommendationModeConfig | None = None,
+) -> tuple[RecommendationResult, ...]:
+    resolved_config = recommendation_scoring_config(mode=mode, config=config)
+    selected: list[RecommendationResult] = []
+    remaining = list(results)
+    normalized_limit = max(0, int(limit))
+    while remaining and len(selected) < normalized_limit:
+        selected_index = recommendation_spaced_result_index(
+            remaining,
+            range(len(remaining)),
+            selected,
+            resolved_config,
+        )
+        selected.append(remaining.pop(selected_index))
+    return tuple(selected)
+
+
+def recommendation_spaced_result_index(
+    results: list[RecommendationResult],
+    selectable_indexes: Iterable[int],
+    selected: list[RecommendationResult],
+    config: RecommendationModeConfig,
+) -> int:
+    scored_indexes = tuple(
+        (
+            recommendation_spacing_penalty(
+                results[index],
+                selected,
+                config,
+            ),
+            index,
+        )
+        for index in selectable_indexes
+    )
+    if not scored_indexes:
+        raise ValueError("selectable_indexes must contain at least one index")
+    return min(scored_indexes)[1]
+
+
+def recommendation_spacing_penalty(
+    result: RecommendationResult,
+    selected: list[RecommendationResult],
+    config: RecommendationModeConfig,
+) -> int:
+    if not selected:
+        return 0
+    previous = selected[-1]
+    penalty = 0
+    caps = config.diversity_caps
+    if caps.apply_album_cap and recommendation_results_share_album(result, previous):
+        penalty += 2
+    if caps.apply_artist_cap and recommendation_results_share_artist(result, previous):
+        penalty += 1
+    return penalty
+
+
+def recommendation_results_share_album(
+    left: RecommendationResult,
+    right: RecommendationResult,
+) -> bool:
+    left_key = recommendation_diversity_album_key(left.candidate.metadata)
+    return bool(
+        left_key
+        and left_key == recommendation_diversity_album_key(right.candidate.metadata)
+    )
+
+
+def recommendation_results_share_artist(
+    left: RecommendationResult,
+    right: RecommendationResult,
+) -> bool:
+    left_key = recommendation_diversity_artist_key(left.candidate.metadata)
+    return bool(
+        left_key
+        and left_key == recommendation_diversity_artist_key(right.candidate.metadata)
+    )
 
 
 def recommendation_result_is_selectable_for_diversity(

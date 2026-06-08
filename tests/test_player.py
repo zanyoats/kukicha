@@ -6590,6 +6590,11 @@ class PlayerWebAdapterTest(unittest.TestCase):
             temp_path = Path(tempdir)
             database = temp_path / "kukicha.sqlite"
             self.seed_recommendation_database(database)
+            with connect_database(database, create=False) as connection:
+                connection.execute(
+                    "UPDATE library_tracks SET track_number = ? WHERE track_id = ?",
+                    ("9", 2),
+                )
 
             app = create_player_app(self.make_options(temp_path))
 
@@ -6661,6 +6666,8 @@ class PlayerWebAdapterTest(unittest.TestCase):
             )
             self.assertNotIn("<th>Artist</th>", html)
             self.assertIn('data-track-id="2"', html)
+            self.assertIn('<td class="track-number">1</td>', html)
+            self.assertNotIn('<td class="track-number">9</td>', html)
             self.assertNotIn('data-play-track="2"', html)
             self.assertNotIn("track-action-menu", html)
             self.assertIn("queue-add-icon", html)

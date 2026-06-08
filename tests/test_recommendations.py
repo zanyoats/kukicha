@@ -911,8 +911,17 @@ class RecommendationDiversityRerankingTest(unittest.TestCase):
 
         self.assertEqual(
             [result.candidate.metadata.track_id for result in reranked],
-            [1, 2, 4, 6, 7],
+            [1, 6, 2, 7, 4],
         )
+        for previous, current in zip(reranked, reranked[1:]):
+            self.assertNotEqual(
+                previous.candidate.metadata.album_id,
+                current.candidate.metadata.album_id,
+            )
+            self.assertNotEqual(
+                previous.candidate.metadata.artist,
+                current.candidate.metadata.artist,
+            )
         self.assertLessEqual(
             sum(
                 result.candidate.metadata.artist == "Dominant Artist"
@@ -2245,7 +2254,7 @@ class RecommendationServiceTest(unittest.TestCase):
                 result.candidate.metadata.track_id
                 for result in cold_start_results
             ],
-            [1, 2, 3, 5, 7],
+            [1, 2, 7, 3, 8],
         )
 
         random_database = self.build_database()
@@ -2465,9 +2474,18 @@ class RecommendationServiceTest(unittest.TestCase):
         results = service.get_track_radio(1, limit=5)
 
         track_ids = [result.candidate.metadata.track_id for result in results]
-        self.assertEqual(track_ids, [2, 3, 5, 7, 8])
+        self.assertEqual(track_ids, [2, 7, 3, 8, 5])
         self.assertNotIn(4, track_ids)
         self.assertNotIn(6, track_ids)
+        for previous, current in zip(results, results[1:]):
+            self.assertNotEqual(
+                previous.candidate.metadata.album_id,
+                current.candidate.metadata.album_id,
+            )
+            self.assertNotEqual(
+                previous.candidate.metadata.artist,
+                current.candidate.metadata.artist,
+            )
         self.assertLessEqual(
             sum(
                 result.candidate.metadata.artist == "Dominant Artist"
@@ -2821,7 +2839,7 @@ class RecommendationServiceTest(unittest.TestCase):
         results = service.get_daily_playlist(limit=5, date="2026-06-07")
 
         track_ids = [result.candidate.metadata.track_id for result in results]
-        self.assertEqual(track_ids, [1, 2, 3, 5, 7])
+        self.assertEqual(track_ids, [1, 2, 7, 3, 8])
         self.assertNotIn(4, track_ids)
         self.assertNotIn(6, track_ids)
         self.assertLessEqual(
@@ -2981,6 +2999,55 @@ class RecommendationServiceTest(unittest.TestCase):
         first_payload = json.loads(item_rows[0]["explanation_json"])
         self.assertEqual(first_payload["score"]["random_draw"], 0.99)
         self.assertEqual(first_payload["score"]["random_selection_weight"], 1.0)
+
+    def test_daily_playlist_spaces_saved_default_result_on_load(self) -> None:
+        database = self.build_diversity_database()
+        with connect_database(database, create=False) as connection:
+            cursor = connection.execute(
+                """
+                INSERT INTO recommendation_daily_playlists (
+                    playlist_date,
+                    mode,
+                    requested_limit,
+                    generated_at
+                ) VALUES (?, ?, ?, ?)
+                """,
+                (
+                    "2026-06-07",
+                    RECOMMENDATION_MODE_DEFAULT,
+                    5,
+                    "2026-06-07T12:00:00+00:00",
+                ),
+            )
+            playlist_id = int(cursor.lastrowid)
+            connection.executemany(
+                """
+                INSERT INTO recommendation_daily_playlist_items (
+                    daily_playlist_id,
+                    rank,
+                    track_id,
+                    score,
+                    explanation_json
+                ) VALUES (?, ?, ?, ?, ?)
+                """,
+                (
+                    (playlist_id, 1, 2, 0.99, "{}"),
+                    (playlist_id, 2, 3, 0.98, "{}"),
+                    (playlist_id, 3, 5, 0.97, "{}"),
+                    (playlist_id, 4, 7, 0.96, "{}"),
+                    (playlist_id, 5, 8, 0.95, "{}"),
+                ),
+            )
+
+        results = RecommendationService(database).get_daily_playlist(
+            limit=5,
+            date="2026-06-07",
+        )
+
+        self.assertEqual(
+            [result.candidate.metadata.track_id for result in results],
+            [2, 7, 3, 8, 5],
+        )
 
     def test_daily_playlist_modes_and_dates_store_independent_rows(self) -> None:
         database = self.build_database()
