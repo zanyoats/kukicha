@@ -8405,6 +8405,50 @@ class PlayerWebAdapterTest(unittest.TestCase):
         self.assertEqual(removed.get_json()["queue"]["track_ids"], [2])
         self.assertFalse(removed.get_json()["play_next"])
 
+    def test_queue_route_preserves_display_track_number_snapshot(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            database = temp_path / "kukicha.sqlite"
+            save_library(
+                MusicLibrary(
+                    roots=["/music"],
+                    tracks=[
+                        TrackRecord(
+                            path="/music/Artist/Album/09.mp3",
+                            file_type="mp3",
+                            artist="Artist",
+                            album_artist="Artist",
+                            album="Album",
+                            title="Nine",
+                            track_number="9",
+                        ),
+                    ],
+                    supported_extensions=[".mp3"],
+                    generated_at="2026-05-01T00:00:00+00:00",
+                ),
+                database,
+            )
+            app = create_player_app(self.make_options(temp_path))
+            client = app.test_client()
+
+            response = client.post(
+                "/api/queue",
+                json={
+                    "track_ids": [1],
+                    "position": 0,
+                    "loaded_track_id": 1,
+                    "paused": False,
+                    "track_snapshots": [{"trackId": 1, "trackNumber": "1"}],
+                },
+            )
+            queue_response = client.get("/queue", headers={"Accept": "text/html"})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.get_json()["track_snapshots"][0]["trackNumber"], "1")
+        html = queue_response.get_data(as_text=True)
+        self.assertIn('<td class="track-number">1</td>', html)
+        self.assertNotIn('<td class="track-number">9</td>', html)
+
     def test_full_document_load_pauses_persisted_queue_without_clearing_it(self) -> None:
         with TemporaryDirectory() as tempdir:
             temp_path = Path(tempdir)

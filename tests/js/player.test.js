@@ -1543,6 +1543,46 @@ test("album track play ignores nested controls with track ids", async () => {
   assert.equal(queueCall.body.paused, false);
 });
 
+test("recommendation rows queue display track numbers", async () => {
+  const harness = createHarness({
+    track_ids: [],
+    position: 0,
+    loaded_track_id: null,
+    paused: true,
+    errored_track_ids: [],
+    unavailable_track_ids: [],
+  });
+  const document = harness.document;
+  const firstRow = document.createElement("tr");
+  firstRow.dataset.trackId = "7";
+  firstRow.dataset.audioUrl = "/audio/7";
+  firstRow.dataset.title = "First";
+  firstRow.dataset.trackNumber = "1";
+  const secondRow = document.createElement("tr");
+  secondRow.dataset.trackId = "8";
+  secondRow.dataset.audioUrl = "/audio/8";
+  secondRow.dataset.title = "Second";
+  secondRow.dataset.trackNumber = "2";
+  document.setQueryResult(trackRowSelector, [firstRow, secondRow]);
+  harness.view.setQueryResult(trackRowSelector, [firstRow, secondRow]);
+
+  harness.context.playFromRow(firstRow);
+  await harness.flush();
+
+  const queueCall = harness.fetchCalls.find((call) => call.url === "/api/queue");
+  assert.deepEqual(queueCall.body.track_ids, [7, 8]);
+  assert.deepEqual(
+    queueCall.body.track_snapshots.map((snapshot) => ({
+      trackId: snapshot.trackId,
+      trackNumber: snapshot.trackNumber,
+    })),
+    [
+      {trackId: 7, trackNumber: "1"},
+      {trackId: 8, trackNumber: "2"},
+    ]
+  );
+});
+
 test("album track play highlights table row before queue request resolves", async () => {
   const harness = createHarness({
     track_ids: [1],

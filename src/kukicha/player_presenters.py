@@ -237,14 +237,18 @@ def queue_track_views_for_state(
             ),
         )
     }
-    return [
-        live_views_by_id.get(playback_id)
-        or track_view_from_queue_snapshot(
-            playback_id,
-            state.snapshots[position] if position < len(state.snapshots) else {},
-        )
-        for position, playback_id in enumerate(state.track_ids)
-    ]
+    tracks: list[TrackView] = []
+    for position, playback_id in enumerate(state.track_ids):
+        snapshot = state.snapshots[position] if position < len(state.snapshots) else {}
+        live_view = live_views_by_id.get(playback_id)
+        if live_view is not None:
+            track_number = snapshot_string(snapshot, "trackNumber")
+            if track_number:
+                live_view = replace(live_view, track_number=track_number)
+            tracks.append(live_view)
+            continue
+        tracks.append(track_view_from_queue_snapshot(playback_id, snapshot))
+    return tracks
 
 def track_view_from_queue_snapshot(
     playback_id: int,

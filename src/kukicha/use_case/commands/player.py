@@ -361,11 +361,13 @@ def refreshed_queue_snapshots(
         track.track_id: queue_track_snapshot(track)
         for track in track_views_for_playback_ids(LibraryQueries(database), available_ids)
     }
-    return [
-        live_snapshots_by_id.get(playback_id)
-        or (state.snapshots[position] if position < len(state.snapshots) else {})
-        for position, playback_id in enumerate(state.track_ids)
-    ]
+    snapshots: list[dict[str, object]] = []
+    for position, playback_id in enumerate(state.track_ids):
+        previous = state.snapshots[position] if position < len(state.snapshots) else {}
+        snapshot = dict(live_snapshots_by_id.get(playback_id) or previous)
+        snapshot.update(queue_snapshot_display_overrides(previous))
+        snapshots.append(snapshot)
+    return snapshots
 
 
 def playback_snapshots(
@@ -381,6 +383,48 @@ def playback_snapshots(
     ]
 
 
+def queue_snapshots_from_payload(
+    payload: dict[str, Any],
+    track_ids: list[int],
+    fallback_snapshots: list[dict[str, object]],
+) -> list[dict[str, object]]:
+    payload_snapshots = payload.get("track_snapshots", ())
+    if not isinstance(payload_snapshots, Iterable) or isinstance(
+        payload_snapshots,
+        (str, bytes),
+    ):
+        payload_snapshots = ()
+    snapshots_by_id = {
+        track_id: snapshot
+        for snapshot in payload_snapshots
+        if isinstance(snapshot, dict)
+        and (track_id := queue_snapshot_track_id(snapshot)) in track_ids
+    }
+    merged_snapshots: list[dict[str, object]] = []
+    for track_id, fallback in zip(track_ids, fallback_snapshots, strict=True):
+        snapshot = dict(fallback)
+        if override := snapshots_by_id.get(track_id):
+            snapshot.update(queue_snapshot_display_overrides(override))
+        merged_snapshots.append(snapshot)
+    return merged_snapshots
+
+
+def queue_snapshot_track_id(snapshot: dict[str, object]) -> int:
+    try:
+        return int(snapshot.get("trackId", 0))
+    except (TypeError, ValueError):
+        return 0
+
+
+def queue_snapshot_display_overrides(
+    snapshot: dict[str, object],
+) -> dict[str, object]:
+    track_number = snapshot.get("trackNumber")
+    if isinstance(track_number, str):
+        return {"trackNumber": track_number}
+    return {}
+
+
 def update_queue(runtime: PlayerRuntime, payload: dict[str, Any]) -> dict[str, object]:
     from ...player_common import safe_ints
     from ...player_presenters import queue_state_payload, valid_playback_ids
@@ -390,7 +434,11 @@ def update_queue(runtime: PlayerRuntime, payload: dict[str, Any]) -> dict[str, o
         LibraryQueries(runtime.database),
         requested_track_ids,
     )
-    snapshots = playback_snapshots(runtime.database, track_ids)
+    snapshots = queue_snapshots_from_payload(
+        payload,
+        track_ids,
+        playback_snapshots(runtime.database, track_ids),
+    )
     with runtime.queue_lock:
         runtime.queue_state = write_queue_database(
             runtime.database,
@@ -413,7 +461,11 @@ def append_queue(runtime: PlayerRuntime, payload: dict[str, Any]) -> dict[str, o
         LibraryQueries(runtime.database),
         requested_track_ids,
     )
-    snapshots = playback_snapshots(runtime.database, track_ids)
+    snapshots = queue_snapshots_from_payload(
+        payload,
+        track_ids,
+        playback_snapshots(runtime.database, track_ids),
+    )
     with runtime.queue_lock:
         state = load_queue_state_database(runtime.database)
         if not track_ids:

@@ -5240,6 +5240,7 @@ function normalizeTrackPayload(payload) {
     albumArtist: typeof payload.albumArtist === "string" ? payload.albumArtist : "",
     albumArtists: normalizeAlbumArtists(payload.albumArtists, payload.albumArtist),
     album: typeof payload.album === "string" ? payload.album : "",
+    trackNumber: typeof payload.trackNumber === "string" ? payload.trackNumber : "",
     durationSeconds: durationIsIndeterminate || !Number.isFinite(durationSeconds)
       ? null
       : durationSeconds,
@@ -5679,6 +5680,7 @@ function trackFromRow(row) {
     albumArtist: row.dataset.albumArtist || "",
     albumArtists: albumArtistsFromRow(row),
     album: row.dataset.album || "",
+    trackNumber: row.dataset.trackNumber || "",
     durationSeconds: durationIsIndeterminate || !Number.isFinite(durationSeconds)
       ? null
       : durationSeconds,
@@ -5705,6 +5707,7 @@ function trackById(trackId) {
     albumArtist: "",
     albumArtists: [],
     album: "",
+    trackNumber: "",
     durationSeconds: null,
     durationIsIndeterminate: false,
     fileType: "",
@@ -6513,7 +6516,8 @@ async function postQueue(state) {
         position: state.position,
         loaded_track_id: state.loaded_track_id,
         paused: state.paused,
-        errored_track_ids: state.errored_track_ids
+        errored_track_ids: state.errored_track_ids,
+        track_snapshots: queueSnapshotsForTrackIds(state.track_ids)
       })
     });
     if (!response.ok) {
@@ -6530,7 +6534,10 @@ async function postQueueAppend(trackIds) {
     const response = await fetch("/api/queue/append", {
       method: "POST",
       headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({track_ids: trackIds})
+      body: JSON.stringify({
+        track_ids: trackIds,
+        track_snapshots: queueSnapshotsForTrackIds(trackIds)
+      })
     });
     if (!response.ok) {
       throw new Error(`queue append request failed: ${response.status}`);
@@ -6539,6 +6546,16 @@ async function postQueueAppend(trackIds) {
   } catch {
     return null;
   }
+}
+
+function queueSnapshotsForTrackIds(trackIds) {
+  return trackIds.map((trackId) => {
+    const track = trackById(trackId);
+    return {
+      trackId: track.trackId,
+      trackNumber: track.trackNumber || ""
+    };
+  });
 }
 
 async function postQueueRemove(position) {
