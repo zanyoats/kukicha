@@ -1548,10 +1548,10 @@ def recommendation_spacing_penalty(
 
 def recommendation_album_spacing_window(config: RecommendationModeConfig) -> int:
     if config.diversity_strength == DIVERSITY_STRENGTH_HIGH:
-        return 3
+        return 6
     if config.diversity_strength == DIVERSITY_STRENGTH_LOW:
         return 1
-    return 2
+    return 4
 
 
 def recommendation_results_share_album(

@@ -994,7 +994,7 @@ class RecommendationDiversityRerankingTest(unittest.TestCase):
 
         self.assertEqual(
             [result.candidate.metadata.track_id for result in reranked],
-            [1, 6, 4, 7, 2],
+            [1, 6, 4, 7, 5],
         )
         for previous, current in zip(reranked, reranked[1:]):
             self.assertNotEqual(
@@ -1031,7 +1031,7 @@ class RecommendationDiversityRerankingTest(unittest.TestCase):
 
         self.assertEqual(
             [result.candidate.metadata.track_id for result in reranked],
-            [1, 2, 5, 3, 4, 6],
+            [1, 2, 5, 6, 3, 4],
         )
         self.assertNotEqual(
             [
@@ -1039,6 +1039,13 @@ class RecommendationDiversityRerankingTest(unittest.TestCase):
                 for result in reranked[:4]
             ],
             ["album-a", "album-b", "album-a", "album-b"],
+        )
+        self.assertNotIn(
+            "album-a",
+            [
+                result.candidate.metadata.album_id
+                for result in reranked[1:4]
+            ],
         )
 
     def test_artist_only_reranking_is_exempt_from_same_artist_cap(self) -> None:
@@ -2693,9 +2700,9 @@ class RecommendationServiceTest(unittest.TestCase):
         results = service.get_track_radio(1, limit=5)
 
         track_ids = [result.candidate.metadata.track_id for result in results]
-        self.assertEqual(track_ids, [2, 7, 5, 8, 3])
+        self.assertEqual(track_ids, [2, 7, 5, 8, 6])
+        self.assertNotIn(3, track_ids)
         self.assertNotIn(4, track_ids)
-        self.assertNotIn(6, track_ids)
         for previous, current in zip(results, results[1:]):
             self.assertNotEqual(
                 previous.candidate.metadata.album_id,
