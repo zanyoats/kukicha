@@ -661,11 +661,14 @@ class RecommendationService:
             candidates,
             track_vectors,
             normalized_limit=normalized_limit,
-            config=config,
+            config=recommendation_radio_scoring_config(config),
             exclude_track_ids=excluded_track_ids,
             seed_candidates=(seed_candidate,),
             artist_filter_terms=recommendation_track_artist_terms(
                 seed_candidate.metadata,
+            ),
+            require_seed_feature_match=recommendation_radio_requires_seed_feature_match(
+                config
             ),
         )
 
@@ -702,13 +705,16 @@ class RecommendationService:
             candidates,
             track_vectors,
             normalized_limit=normalized_limit,
-            config=config,
+            config=recommendation_radio_scoring_config(config),
             exclude_track_ids=excluded_track_ids,
             seed_candidates=seed_candidates,
             artist_filter_terms=recommendation_seed_album_artist_terms(
                 seed_candidates,
             ),
             candidate_artist_terms=recommendation_album_artist_terms,
+            require_seed_feature_match=recommendation_radio_requires_seed_feature_match(
+                config
+            ),
         )
 
     def get_artist_radio(
@@ -738,9 +744,12 @@ class RecommendationService:
             candidates,
             track_vectors,
             normalized_limit=normalized_limit,
-            config=config,
+            config=recommendation_radio_scoring_config(config),
             seed_candidates=seed_candidates,
             artist_filter_terms=recommendation_artist_terms((normalized_artist,)),
+            require_seed_feature_match=recommendation_radio_requires_seed_feature_match(
+                config
+            ),
         )
 
     def get_daily_playlist(
@@ -841,6 +850,7 @@ class RecommendationService:
         candidate_artist_terms: CandidateArtistTerms | None = None,
         current_time: datetime | None = None,
         random_source: RecommendationRandomSource | None = None,
+        require_seed_feature_match: bool = False,
     ) -> tuple[RecommendationResult, ...]:
         resolved_config = recommendation_scoring_config(config=config)
         current_time = recommendation_utc_datetime(
@@ -856,6 +866,7 @@ class RecommendationService:
             artist_filter_terms=artist_filter_terms,
             candidate_artist_terms=candidate_artist_terms,
             current_time=current_time,
+            require_seed_feature_match=require_seed_feature_match,
         )
         if resolved_config.uses_weighted_random_selection:
             return weighted_random_sample_recommendation_results(
@@ -1231,6 +1242,7 @@ def score_recommendation_candidates(
     current_time: datetime | None = None,
     artist_filter_terms: Iterable[object | None] = (),
     candidate_artist_terms: CandidateArtistTerms | None = None,
+    require_seed_feature_match: bool = False,
 ) -> tuple[RecommendationResult, ...]:
     resolved_config = recommendation_scoring_config(mode=mode, config=config)
     candidate_pool = tuple(candidates)
@@ -1260,6 +1272,14 @@ def score_recommendation_candidates(
             resolved_config,
             required_artist_terms=required_artist_terms,
             candidate_artist_terms=resolved_candidate_artist_terms,
+        )
+        and (
+            not require_seed_feature_match
+            or recommendation_candidate_matches_seed_features(
+                candidate,
+                seed_candidate_pool,
+                resolved_config,
+            )
         )
     )
 
@@ -1659,6 +1679,90 @@ def recommendation_candidate_matches_filter(
         recommendation_artist_terms(resolved_candidate_artist_terms(candidate.metadata))
     )
     return bool(candidate_terms.intersection(required_artist_terms))
+
+
+def recommendation_radio_scoring_config(
+    config: RecommendationModeConfig,
+) -> RecommendationModeConfig:
+    if config.uses_weighted_random_selection:
+        return config
+    caps = config.diversity_caps
+    if not caps.apply_genre_cap:
+        return config
+    return replace(
+        config,
+        diversity_caps=replace(caps, apply_genre_cap=False),
+    )
+
+
+def recommendation_radio_requires_seed_feature_match(
+    config: RecommendationModeConfig,
+) -> bool:
+    return (
+        config.feature_weights.uses_content_similarity
+        and not config.uses_weighted_random_selection
+    )
+
+
+def recommendation_candidate_matches_seed_features(
+    candidate: RecommendationCandidate,
+    seed_candidates: Iterable[RecommendationCandidate],
+    config: RecommendationModeConfig,
+) -> bool:
+    seed_metadata = tuple(seed.metadata for seed in seed_candidates)
+    required_groups = recommendation_required_seed_match_groups(
+        seed_metadata,
+        config,
+    )
+    if not required_groups:
+        return True
+    if (
+        "genres" in required_groups
+        and recommendation_matched_metadata_values(
+            candidate.metadata.genres,
+            seed_metadata,
+            lambda metadata: metadata.genres,
+        )
+    ):
+        return True
+    if (
+        "styles" in required_groups
+        and recommendation_matched_metadata_values(
+            candidate.metadata.styles,
+            seed_metadata,
+            lambda metadata: metadata.styles,
+        )
+    ):
+        return True
+    return (
+        "artist" in required_groups
+        and recommendation_has_same_artist(candidate.metadata, seed_metadata)
+    )
+
+
+def recommendation_required_seed_match_groups(
+    seed_metadata: Iterable[CandidateMetadata],
+    config: RecommendationModeConfig,
+) -> tuple[str, ...]:
+    metadata_pool = tuple(seed_metadata)
+    weights = config.feature_weights
+    groups: list[str] = []
+    if weights.genres > 0 and any(
+        normalized_feature_terms(metadata.genres)
+        for metadata in metadata_pool
+    ):
+        groups.append("genres")
+    if weights.styles > 0 and any(
+        normalized_feature_terms(metadata.styles)
+        for metadata in metadata_pool
+    ):
+        groups.append("styles")
+    if weights.artist > 0 and any(
+        recommendation_metadata_artist_terms(metadata)
+        for metadata in metadata_pool
+    ):
+        groups.append("artist")
+    return tuple(groups)
 
 
 def recommendation_scoring_config(

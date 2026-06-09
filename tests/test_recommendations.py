@@ -2027,6 +2027,114 @@ class RecommendationServiceTest(unittest.TestCase):
             )
         return database
 
+    def build_album_radio_regression_database(self) -> Path:
+        tempdir = TemporaryDirectory()
+        self.addCleanup(tempdir.cleanup)
+        database = Path(tempdir.name) / "library.sqlite"
+        with connect_database(database) as connection:
+            connection.executemany(
+                """
+                INSERT INTO library_albums (album_id, album, year, track_count)
+                VALUES (?, ?, ?, ?)
+                """,
+                (
+                    ("album-seed", "Seed Electronic Album", 1997, 1),
+                    *(
+                        (
+                            f"album-electronic-{index}",
+                            f"Electronic Match {index}",
+                            1997,
+                            1,
+                        )
+                        for index in range(1, 11)
+                    ),
+                    ("album-classical", "Same Decade Classical", 1997, 1),
+                    ("album-jazz", "Same Decade Jazz", 1997, 1),
+                ),
+            )
+            connection.executemany(
+                """
+                INSERT INTO library_tracks (
+                    track_id,
+                    album_id,
+                    path,
+                    file_type,
+                    scan_error,
+                    artist,
+                    album_artist,
+                    album,
+                    title,
+                    date
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    (
+                        1,
+                        "album-seed",
+                        "/music/seed-electronic/01.flac",
+                        "flac",
+                        None,
+                        "Seed Electronic Artist",
+                        "Seed Electronic Artist",
+                        "Seed Electronic Album",
+                        "Seed Electronic Track",
+                        "1997",
+                    ),
+                    *(
+                        (
+                            index + 1,
+                            f"album-electronic-{index}",
+                            f"/music/electronic-{index}/01.flac",
+                            "flac",
+                            None,
+                            f"Electronic Artist {index}",
+                            f"Electronic Artist {index}",
+                            f"Electronic Match {index}",
+                            f"Electronic Match Track {index}",
+                            "1997",
+                        )
+                        for index in range(1, 11)
+                    ),
+                    (
+                        12,
+                        "album-classical",
+                        "/music/classical/01.flac",
+                        "flac",
+                        None,
+                        "Classical Artist",
+                        "Classical Artist",
+                        "Same Decade Classical",
+                        "Same Decade Classical Track",
+                        "1997",
+                    ),
+                    (
+                        13,
+                        "album-jazz",
+                        "/music/jazz/01.flac",
+                        "flac",
+                        None,
+                        "Jazz Artist",
+                        "Jazz Artist",
+                        "Same Decade Jazz",
+                        "Same Decade Jazz Track",
+                        "1997",
+                    ),
+                ),
+            )
+            connection.executemany(
+                """
+                INSERT INTO library_track_genres (track_id, position, genre)
+                VALUES (?, ?, ?)
+                """,
+                (
+                    (1, 0, "Electronic"),
+                    *((track_id, 0, "Electronic") for track_id in range(2, 12)),
+                    (12, 0, "Classical"),
+                    (13, 0, "Jazz"),
+                ),
+            )
+        return database
+
     def test_acceptance_fixture_track_radio_modes_match_source_plan(self) -> None:
         database = self.build_database()
         with connect_database(database, create=False) as connection:
@@ -2091,10 +2199,9 @@ class RecommendationServiceTest(unittest.TestCase):
             genre_only_by_id[2].score.base_similarity,
             genre_only_by_id[4].score.base_similarity,
         )
-        self.assertEqual(genre_only_by_id[3].score.base_similarity, 0.0)
+        self.assertNotIn(3, genre_only_by_id)
         self.assertEqual(genre_only_by_id[2].explanation.matched_genres, ("Rock",))
         self.assertEqual(genre_only_by_id[2].explanation.matched_styles, ())
-        self.assertFalse(genre_only_by_id[3].explanation.same_artist)
 
         artist_only_results = service.get_track_radio(
             1,
@@ -2201,6 +2308,21 @@ class RecommendationServiceTest(unittest.TestCase):
             [3, 4],
         )
 
+    def test_album_radio_relaxes_genre_cap_and_omits_decade_only_fill(
+        self,
+    ) -> None:
+        service = RecommendationService(self.build_album_radio_regression_database())
+
+        results = service.get_album_radio("album-seed", limit=12)
+
+        track_ids = [result.candidate.metadata.track_id for result in results]
+        self.assertEqual(track_ids, list(range(2, 12)))
+        self.assertNotIn(12, track_ids)
+        self.assertNotIn(13, track_ids)
+        for result in results:
+            self.assertEqual(result.candidate.metadata.genres, ("Electronic",))
+            self.assertEqual(result.explanation.matched_genres, ("Electronic",))
+
     def test_acceptance_fixture_daily_playlist_matches_source_plan(self) -> None:
         database = self.build_daily_profile_database(played_count=100)
         service = RecommendationService(database)
@@ -2293,11 +2415,11 @@ class RecommendationServiceTest(unittest.TestCase):
         results = service.get_track_radio(1, limit=10)
 
         track_ids = [result.candidate.metadata.track_id for result in results]
-        self.assertNotIn(1, track_ids)
-        self.assertEqual(track_ids[0], 2)
+        self.assertEqual(track_ids, [2, 4, 3])
         self.assertLess(track_ids.index(4), track_ids.index(3))
-        self.assertLess(track_ids.index(3), track_ids.index(5))
-        self.assertLess(track_ids.index(5), track_ids.index(6))
+        self.assertNotIn(1, track_ids)
+        self.assertNotIn(5, track_ids)
+        self.assertNotIn(6, track_ids)
 
         results_by_id = {
             result.candidate.metadata.track_id: result
@@ -2306,14 +2428,6 @@ class RecommendationServiceTest(unittest.TestCase):
         self.assertGreater(
             results_by_id[2].score.base_similarity,
             results_by_id[3].score.base_similarity,
-        )
-        self.assertGreater(
-            results_by_id[3].score.base_similarity,
-            results_by_id[5].score.base_similarity,
-        )
-        self.assertEqual(
-            results_by_id[5].score.base_similarity,
-            results_by_id[6].score.base_similarity,
         )
         self.assertEqual(
             results_by_id[2].score.final_score,
@@ -2429,15 +2543,13 @@ class RecommendationServiceTest(unittest.TestCase):
         )
         self.assertAlmostEqual(genre_only_results[2].score.base_similarity, 1.0)
         self.assertAlmostEqual(genre_only_results[4].score.base_similarity, 1.0)
-        self.assertEqual(genre_only_results[3].score.base_similarity, 0.0)
+        self.assertNotIn(3, genre_only_results)
         self.assertEqual(
             genre_only_results[2].explanation.matched_genres,
             ("Rock",),
         )
         self.assertEqual(genre_only_results[2].explanation.matched_styles, ())
         self.assertIsNone(genre_only_results[2].explanation.matched_decade)
-        self.assertFalse(genre_only_results[3].explanation.same_artist)
-        self.assertIsNone(genre_only_results[3].explanation.matched_decade)
 
     def test_artist_only_track_radio_filters_to_seed_track_artist(self) -> None:
         service = RecommendationService(self.build_database())
@@ -2520,11 +2632,8 @@ class RecommendationServiceTest(unittest.TestCase):
             result.candidate.metadata.track_id: result
             for result in results
         }
+        self.assertNotIn(5, results_by_id)
         self.assertGreater(results_by_id[3].score.base_similarity, 0.0)
-        self.assertGreater(
-            results_by_id[3].score.base_similarity,
-            results_by_id[5].score.base_similarity,
-        )
         self.assertEqual(results_by_id[3].explanation.matched_genres, ("Ambient",))
         self.assertEqual(results_by_id[3].explanation.matched_styles, ("Drone",))
 
@@ -2544,11 +2653,8 @@ class RecommendationServiceTest(unittest.TestCase):
             result.candidate.metadata.track_id: result
             for result in results
         }
+        self.assertNotIn(5, results_by_id)
         self.assertGreater(results_by_id[7].score.base_similarity, 0.0)
-        self.assertGreater(
-            results_by_id[7].score.base_similarity,
-            results_by_id[5].score.base_similarity,
-        )
         self.assertEqual(
             results_by_id[7].explanation.matched_genres,
             ("Electronic",),
