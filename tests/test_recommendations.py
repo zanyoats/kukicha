@@ -154,11 +154,18 @@ class RecommendationModeConfigTest(unittest.TestCase):
 
     def test_specialized_modes_match_plan_values(self) -> None:
         discovery = recommendation_mode_config(RECOMMENDATION_MODE_DISCOVERY)
-        self.assertEqual(discovery.track_play_penalty, 0.30)
-        self.assertEqual(discovery.artist_play_penalty, 0.15)
-        self.assertEqual(discovery.album_play_penalty, 0.10)
+        self.assertEqual(discovery.feature_weights.genres, 0.25)
+        self.assertEqual(discovery.feature_weights.styles, 0.55)
+        self.assertEqual(discovery.feature_weights.artist, 0.05)
+        self.assertEqual(discovery.feature_weights.decade, 0.15)
+        self.assertEqual(discovery.track_play_penalty, 0.60)
+        self.assertEqual(discovery.artist_play_penalty, 0.12)
+        self.assertEqual(discovery.album_play_penalty, 0.08)
         self.assertEqual(discovery.favorite_boost, 0.00)
-        self.assertEqual(discovery.recency_penalties.played_last_24_hours, 0.50)
+        self.assertEqual(discovery.recency_penalties.played_last_24_hours, 0.70)
+        self.assertEqual(discovery.recency_penalties.played_last_7_days, 0.45)
+        self.assertEqual(discovery.recency_penalties.played_last_30_days, 0.20)
+        self.assertEqual(discovery.recency_penalties.played_last_180_days, 0.05)
         self.assertEqual(discovery.recent_play_suppression_days, 7.0)
 
         genre_only = recommendation_mode_config(RECOMMENDATION_MODE_GENRE_ONLY)
@@ -737,6 +744,59 @@ class RecommendationListeningAdjustmentTest(unittest.TestCase):
         self.assertLess(scores[2].final_score, scores[3].final_score)
         self.assertAlmostEqual(scores[2].final_score, 0.91)
 
+    def test_discovery_prefers_underplayed_style_matches_over_overplayed_exact_matches(
+        self,
+    ) -> None:
+        overplayed_exact_match = self.candidate(2, track_play_count=100)
+        underplayed_style_match = self.candidate(3)
+        profile = build_recommendation_profile(
+            (RecommendationProfileSeed(track_id=1),),
+            {1: {"style:dream pop": 1.0}},
+        )
+        partial_match_vector = {
+            "style:dream pop": 0.65,
+            "style:neighbor": math.sqrt(1.0 - (0.65 ** 2)),
+        }
+
+        default_results = score_recommendation_candidates(
+            profile,
+            (overplayed_exact_match, underplayed_style_match),
+            {
+                2: {"style:dream pop": 1.0},
+                3: partial_match_vector,
+            },
+            current_time=self.fixed_now,
+        )
+        discovery_results = score_recommendation_candidates(
+            profile,
+            (overplayed_exact_match, underplayed_style_match),
+            {
+                2: {"style:dream pop": 1.0},
+                3: partial_match_vector,
+            },
+            mode=RECOMMENDATION_MODE_DISCOVERY,
+            current_time=self.fixed_now,
+        )
+        default_by_id = {
+            result.candidate.metadata.track_id: result
+            for result in default_results
+        }
+        discovery_by_id = {
+            result.candidate.metadata.track_id: result
+            for result in discovery_results
+        }
+
+        self.assertGreater(
+            default_by_id[2].final_score,
+            default_by_id[3].final_score,
+        )
+        self.assertGreater(
+            discovery_by_id[3].final_score,
+            discovery_by_id[2].final_score,
+        )
+        self.assertAlmostEqual(discovery_by_id[2].score.track_play_penalty, 0.60)
+        self.assertAlmostEqual(discovery_by_id[3].score.base_similarity, 0.65)
+
     def test_recently_played_tracks_receive_expected_penalty_bucket(self) -> None:
         def played_at(age: timedelta) -> str:
             return (self.fixed_now - age).isoformat()
@@ -766,6 +826,29 @@ class RecommendationListeningAdjustmentTest(unittest.TestCase):
         self.assertEqual(scores[3].recency_penalty, 0.15)
         self.assertEqual(scores[4].recency_penalty, 0.05)
         self.assertEqual(scores[5].recency_penalty, 0.0)
+
+    def test_discovery_recency_penalty_expires_at_180_days(self) -> None:
+        def played_at(age: timedelta) -> str:
+            return (self.fixed_now - age).isoformat()
+
+        scores = self.score_by_track_id(
+            (
+                self.candidate(
+                    2,
+                    track_last_played_at=played_at(timedelta(days=179)),
+                ),
+                self.candidate(
+                    3,
+                    track_last_played_at=played_at(timedelta(days=180)),
+                ),
+                self.candidate(4),
+            ),
+            mode=RECOMMENDATION_MODE_DISCOVERY,
+        )
+
+        self.assertEqual(scores[2].recency_penalty, 0.05)
+        self.assertEqual(scores[3].recency_penalty, 0.0)
+        self.assertEqual(scores[4].recency_penalty, 0.0)
 
     def test_random_mode_scores_listening_selection_weights(self) -> None:
         def played_at(age: timedelta) -> str:

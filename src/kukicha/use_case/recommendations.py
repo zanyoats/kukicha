@@ -173,16 +173,21 @@ class RecencyPenalties:
     played_last_24_hours: float = 0.0
     played_last_7_days: float = 0.0
     played_last_30_days: float = 0.0
+    played_last_180_days: float = 0.0
     older_or_never_played: float = 0.0
 
     def penalty_for_age_days(self, days_since_played: float | None) -> float:
-        if days_since_played is None or days_since_played > 30:
+        if days_since_played is None:
             return self.older_or_never_played
         if days_since_played <= 1:
             return self.played_last_24_hours
         if days_since_played <= 7:
             return self.played_last_7_days
-        return self.played_last_30_days
+        if days_since_played <= 30:
+            return self.played_last_30_days
+        if days_since_played < 180:
+            return self.played_last_180_days
+        return self.older_or_never_played
 
 
 @dataclass(frozen=True, slots=True)
@@ -2967,9 +2972,10 @@ DEFAULT_RECENCY_PENALTIES = RecencyPenalties(
     played_last_30_days=0.05,
 )
 DISCOVERY_RECENCY_PENALTIES = RecencyPenalties(
-    played_last_24_hours=0.50,
-    played_last_7_days=0.30,
-    played_last_30_days=0.10,
+    played_last_24_hours=0.70,
+    played_last_7_days=0.45,
+    played_last_30_days=0.20,
+    played_last_180_days=0.05,
 )
 DEFAULT_DIVERSITY_CAPS = DiversityCaps(
     max_tracks_per_artist=3,
@@ -3002,14 +3008,14 @@ RECOMMENDATION_MODE_CONFIGS: Mapping[RecommendationMode, RecommendationModeConfi
             RECOMMENDATION_MODE_DISCOVERY: RecommendationModeConfig(
                 mode=RECOMMENDATION_MODE_DISCOVERY,
                 feature_weights=FeatureWeights(
-                    genres=0.30,
-                    styles=0.40,
-                    artist=0.15,
+                    genres=0.25,
+                    styles=0.55,
+                    artist=0.05,
                     decade=0.15,
                 ),
-                track_play_penalty=0.30,
-                artist_play_penalty=0.15,
-                album_play_penalty=0.10,
+                track_play_penalty=0.60,
+                artist_play_penalty=0.12,
+                album_play_penalty=0.08,
                 favorite_boost=0.00,
                 recency_penalties=DISCOVERY_RECENCY_PENALTIES,
                 diversity_caps=DEFAULT_DIVERSITY_CAPS,
