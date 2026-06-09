@@ -1155,7 +1155,9 @@ button:disabled,
   height: 24px;
 }
 
-.view-header :is(button, .button-link, summary, svg) {
+.view-header .button-link,
+.view-header .filter-menu > summary,
+.view-header .filter-menu > summary svg {
   color: var(--muted);
 }
 
@@ -3377,7 +3379,7 @@ tbody tr.selected {
 }
 
 .queue-action-cell :is(button, svg),
-.track-actions-cell :is(button, summary.playlist-icon-button, summary.track-action-menu-button, svg) {
+.track-actions-cell :is(summary.playlist-icon-button, summary.track-action-menu-button, svg) {
   color: var(--muted);
 }
 
