@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import random as random_module
@@ -1508,7 +1509,7 @@ def recommendation_spaced_result_index(
     selected: list[RecommendationResult],
     config: RecommendationModeConfig,
 ) -> int:
-    scored_indexes = tuple(
+    scored_indexes = sorted(
         (
             recommendation_spacing_penalty(
                 results[index],
@@ -1521,7 +1522,130 @@ def recommendation_spaced_result_index(
     )
     if not scored_indexes:
         raise ValueError("selectable_indexes must contain at least one index")
-    return min(scored_indexes)[1]
+    if not selected:
+        return scored_indexes[0][1]
+
+    minimum_penalty = scored_indexes[0][0]
+    eligible_indexes = [
+        index for penalty, index in scored_indexes if penalty == minimum_penalty
+    ]
+    shuffle_indexes = recommendation_shuffle_candidate_indexes(
+        results,
+        eligible_indexes,
+        selected,
+        config,
+    )
+    return min(
+        shuffle_indexes,
+        key=lambda index: recommendation_stable_shuffle_key(
+            results[index],
+            selected,
+            config,
+        ),
+    )
+
+
+def recommendation_shuffle_candidate_indexes(
+    results: list[RecommendationResult],
+    selectable_indexes: Iterable[int],
+    selected: list[RecommendationResult],
+    config: RecommendationModeConfig,
+) -> tuple[int, ...]:
+    ranked_indexes = recommendation_album_reuse_candidate_indexes(
+        results,
+        tuple(selectable_indexes),
+        selected,
+        config,
+    )
+    if not ranked_indexes:
+        return ()
+    window = recommendation_shuffle_candidate_window(config)
+    score_tolerance = recommendation_shuffle_score_tolerance(config)
+    best_score = results[ranked_indexes[0]].final_score
+    return tuple(
+        index
+        for index in ranked_indexes[:window]
+        if best_score - results[index].final_score <= score_tolerance
+    ) or (ranked_indexes[0],)
+
+
+def recommendation_album_reuse_candidate_indexes(
+    results: list[RecommendationResult],
+    selectable_indexes: tuple[int, ...],
+    selected: list[RecommendationResult],
+    config: RecommendationModeConfig,
+) -> tuple[int, ...]:
+    if not config.diversity_caps.apply_album_cap or not selected:
+        return selectable_indexes
+    selected_album_keys = {
+        key
+        for result in selected
+        if (key := recommendation_diversity_album_key(result.candidate.metadata))
+    }
+    if not selected_album_keys:
+        return selectable_indexes
+    unseen_album_indexes = tuple(
+        index
+        for index in selectable_indexes
+        if recommendation_diversity_album_key(results[index].candidate.metadata)
+        not in selected_album_keys
+    )
+    if not unseen_album_indexes:
+        return selectable_indexes
+    best_score = results[selectable_indexes[0]].final_score
+    best_unseen_score = results[unseen_album_indexes[0]].final_score
+    if best_score - best_unseen_score <= recommendation_album_reuse_score_tolerance(
+        config
+    ):
+        return unseen_album_indexes
+    return selectable_indexes
+
+
+def recommendation_album_reuse_score_tolerance(config: RecommendationModeConfig) -> float:
+    if config.diversity_strength == DIVERSITY_STRENGTH_HIGH:
+        return 0.18
+    if config.diversity_strength == DIVERSITY_STRENGTH_LOW:
+        return 0.04
+    return 0.12
+
+
+def recommendation_shuffle_candidate_window(config: RecommendationModeConfig) -> int:
+    if config.diversity_strength == DIVERSITY_STRENGTH_HIGH:
+        return 10
+    if config.diversity_strength == DIVERSITY_STRENGTH_LOW:
+        return 1
+    return 8
+
+
+def recommendation_shuffle_score_tolerance(config: RecommendationModeConfig) -> float:
+    if config.diversity_strength == DIVERSITY_STRENGTH_HIGH:
+        return 0.12
+    if config.diversity_strength == DIVERSITY_STRENGTH_LOW:
+        return 0.0
+    return 0.08
+
+
+def recommendation_stable_shuffle_key(
+    result: RecommendationResult,
+    selected: list[RecommendationResult],
+    config: RecommendationModeConfig,
+) -> int:
+    metadata = result.candidate.metadata
+    recent_track_ids = ",".join(
+        str(selected_result.candidate.metadata.track_id)
+        for selected_result in selected[-8:]
+    )
+    payload = "|".join(
+        (
+            config.mode,
+            str(len(selected)),
+            recent_track_ids,
+            str(metadata.track_id),
+            metadata.album_id or "",
+        )
+    )
+    digest = hashlib.blake2b(payload.encode("utf-8"), digest_size=8).digest()
+    return int.from_bytes(digest, "big")
 
 
 def recommendation_spacing_penalty(
