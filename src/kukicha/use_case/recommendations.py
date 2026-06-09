@@ -1526,14 +1526,27 @@ def recommendation_spacing_penalty(
 ) -> int:
     if not selected:
         return 0
-    previous = selected[-1]
     penalty = 0
     caps = config.diversity_caps
-    if caps.apply_album_cap and recommendation_results_share_album(result, previous):
-        penalty += 2
+    spacing_window = recommendation_album_spacing_window(config)
+    if caps.apply_album_cap and spacing_window > 0:
+        recent_results = selected[-spacing_window:]
+        for distance, previous in enumerate(reversed(recent_results), start=1):
+            if recommendation_results_share_album(result, previous):
+                penalty += 2 * (spacing_window - distance + 1)
+                break
+    previous = selected[-1]
     if caps.apply_artist_cap and recommendation_results_share_artist(result, previous):
         penalty += 1
     return penalty
+
+
+def recommendation_album_spacing_window(config: RecommendationModeConfig) -> int:
+    if config.diversity_strength == DIVERSITY_STRENGTH_HIGH:
+        return 3
+    if config.diversity_strength == DIVERSITY_STRENGTH_LOW:
+        return 1
+    return 2
 
 
 def recommendation_results_share_album(

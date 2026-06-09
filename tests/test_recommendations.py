@@ -911,7 +911,7 @@ class RecommendationDiversityRerankingTest(unittest.TestCase):
 
         self.assertEqual(
             [result.candidate.metadata.track_id for result in reranked],
-            [1, 6, 2, 7, 4],
+            [1, 6, 4, 7, 2],
         )
         for previous, current in zip(reranked, reranked[1:]):
             self.assertNotEqual(
@@ -932,6 +932,30 @@ class RecommendationDiversityRerankingTest(unittest.TestCase):
         self.assertLessEqual(
             sum(result.candidate.metadata.album_id == "album-a" for result in reranked),
             2,
+        )
+
+    def test_reranking_breaks_alternating_album_pairs(self) -> None:
+        results = (
+            self.result(1, artist="Artist A1", album_id="album-a", base_similarity=0.99),
+            self.result(2, artist="Artist B1", album_id="album-b", base_similarity=0.98),
+            self.result(3, artist="Artist A2", album_id="album-a", base_similarity=0.97),
+            self.result(4, artist="Artist B2", album_id="album-b", base_similarity=0.96),
+            self.result(5, artist="Artist C", album_id="album-c", base_similarity=0.95),
+            self.result(6, artist="Artist D", album_id="album-d", base_similarity=0.94),
+        )
+
+        reranked = rerank_recommendation_results(results, 6)
+
+        self.assertEqual(
+            [result.candidate.metadata.track_id for result in reranked],
+            [1, 2, 5, 3, 4, 6],
+        )
+        self.assertNotEqual(
+            [
+                result.candidate.metadata.album_id
+                for result in reranked[:4]
+            ],
+            ["album-a", "album-b", "album-a", "album-b"],
         )
 
     def test_artist_only_reranking_is_exempt_from_same_artist_cap(self) -> None:
@@ -2376,7 +2400,7 @@ class RecommendationServiceTest(unittest.TestCase):
                 result.candidate.metadata.track_id
                 for result in cold_start_results
             ],
-            [1, 2, 7, 3, 8],
+            [1, 2, 7, 5, 8],
         )
 
         random_database = self.build_database()
@@ -2586,7 +2610,7 @@ class RecommendationServiceTest(unittest.TestCase):
         results = service.get_track_radio(1, limit=5)
 
         track_ids = [result.candidate.metadata.track_id for result in results]
-        self.assertEqual(track_ids, [2, 7, 3, 8, 5])
+        self.assertEqual(track_ids, [2, 7, 5, 8, 3])
         self.assertNotIn(4, track_ids)
         self.assertNotIn(6, track_ids)
         for previous, current in zip(results, results[1:]):
@@ -2945,7 +2969,7 @@ class RecommendationServiceTest(unittest.TestCase):
         results = service.get_daily_playlist(limit=5, date="2026-06-07")
 
         track_ids = [result.candidate.metadata.track_id for result in results]
-        self.assertEqual(track_ids, [1, 2, 7, 3, 8])
+        self.assertEqual(track_ids, [1, 2, 7, 5, 8])
         self.assertNotIn(4, track_ids)
         self.assertNotIn(6, track_ids)
         self.assertLessEqual(
@@ -3152,7 +3176,7 @@ class RecommendationServiceTest(unittest.TestCase):
 
         self.assertEqual(
             [result.candidate.metadata.track_id for result in results],
-            [2, 7, 3, 8, 5],
+            [2, 7, 5, 8, 3],
         )
 
     def test_daily_playlist_modes_and_dates_store_independent_rows(self) -> None:
