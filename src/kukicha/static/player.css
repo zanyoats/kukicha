@@ -1023,7 +1023,7 @@ button:disabled,
   position: relative;
 }
 
-.filter-menu summary {
+.filter-menu > summary {
   display: flex;
   align-items: center;
   min-width: 128px;
@@ -1038,19 +1038,19 @@ button:disabled,
   white-space: nowrap;
 }
 
-.filter-menu summary::-webkit-details-marker {
+.filter-menu > summary::-webkit-details-marker {
   display: none;
 }
 
-.filter-menu summary:focus {
+.filter-menu > summary:focus {
   border-color: var(--accent);
 }
 
-.filter-menu summary:hover {
+.filter-menu > summary:hover {
   border-color: var(--accent);
 }
 
-.filter-menu[open] summary {
+.filter-menu[open] > summary {
   border-color: var(--accent);
 }
 
@@ -1107,13 +1107,13 @@ button:disabled,
 }
 
 .bulk-actions-menu,
-.bulk-actions-menu summary,
+.bulk-actions-menu > summary,
 .track-action-menu,
 .track-action-menu > summary {
   width: 36px;
 }
 
-.bulk-actions-menu summary,
+.bulk-actions-menu > summary,
 .track-action-menu > summary {
   justify-content: center;
   min-width: 36px;
@@ -1251,6 +1251,12 @@ button:disabled,
 }
 
 .track-action-submenu > summary.page-menu-link {
+  width: 100%;
+  min-width: 0;
+  height: auto;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
   cursor: pointer;
   list-style: none;
 }
@@ -1266,6 +1272,12 @@ button:disabled,
 
 .recommendation-mode-submenu[open] > summary.page-menu-link {
   color: var(--accent-strong);
+}
+
+.track-action-submenu > summary.page-menu-link:hover,
+.track-action-submenu > summary.page-menu-link:focus-visible {
+  background: var(--track-row-highlight);
+  color: var(--track-row-highlight-text);
 }
 
 .recommendation-mode-options {
@@ -3478,7 +3490,7 @@ tr.queue-error .queue-status-label {
   }
 
   .filter-menu,
-  .filter-menu summary,
+  .filter-menu > summary,
   .search-field,
   .search-submit-group {
     min-width: 0;
@@ -3491,7 +3503,7 @@ tr.queue-error .queue-status-label {
     max-width: 36px;
   }
 
-  .filter-menu summary {
+  .filter-menu > summary {
     min-width: 104px;
   }
 

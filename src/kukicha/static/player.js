@@ -1859,10 +1859,10 @@ document.addEventListener("click", (event) => {
     void cancelJob(cancelJobButton);
     return;
   }
-  const loadJobQueueButton = event.target.closest("[data-load-job-queue]");
-  if (loadJobQueueButton) {
+  const playJobQueueButton = event.target.closest("[data-load-job-queue]");
+  if (playJobQueueButton) {
     event.preventDefault();
-    void loadJobQueue(loadJobQueueButton);
+    void playJobQueue(playJobQueueButton);
     return;
   }
   const generateRecommendationButton = event.target.closest("[data-generate-recommendation]");
@@ -4885,8 +4885,8 @@ function jobToastChildren(job) {
     cancelButton.disabled = Boolean(job.cancel_requested_at);
     actions.append(cancelButton);
   } else if (status === "succeeded" && jobQueueTrackIds(job).length) {
-    actions.append(loadJobQueueButton(jobQueueTrackIds(job)));
-    actions.append(closeJobToastButton(job.job_id));
+    actions.append(playJobQueueButton(jobQueueTrackIds(job), job.job_id));
+    actions.append(closeJobToastButton(job.job_id, "Cancel"));
   } else if (status === "succeeded" && !isTemporaryBookmarkJobToast(job)) {
     const refresh = document.createElement("a");
     refresh.className = "toast-link";
@@ -4913,12 +4913,15 @@ function jobQueueTrackIds(job) {
     .filter((trackId) => Number.isInteger(trackId) && trackId > 0);
 }
 
-function loadJobQueueButton(trackIds) {
+function playJobQueueButton(trackIds, jobId = null) {
   const button = document.createElement("button");
   button.type = "button";
   button.dataset.loadJobQueue = "";
   button.dataset.trackIds = JSON.stringify(trackIds);
-  button.textContent = "Load Queue";
+  if (jobId !== null && jobId !== undefined) {
+    button.dataset.jobId = String(jobId);
+  }
+  button.textContent = "Play";
   return button;
 }
 
@@ -4929,12 +4932,12 @@ function jobBadge(className, status, label) {
   return badge;
 }
 
-function closeJobToastButton(jobId) {
+function closeJobToastButton(jobId, label = "Close") {
   const button = document.createElement("button");
   button.type = "button";
   button.dataset.closeJobToast = "";
   button.dataset.jobId = String(jobId);
-  button.textContent = "Close";
+  button.textContent = label;
   return button;
 }
 
@@ -5038,33 +5041,25 @@ async function generateRecommendationPlaylist(button) {
   }
 }
 
-async function loadJobQueue(button) {
+async function playJobQueue(button) {
   if (!(button instanceof HTMLElement)) {
     return;
   }
   const trackIds = trackIdsFromDataset(button.dataset.trackIds || "");
   if (!trackIds.length) {
-    showToast("No generated tracks to load.", {error: true});
+    showToast("No generated tracks to play.", {error: true});
     return;
   }
   if ("disabled" in button) {
     button.disabled = true;
   }
   const previousText = button.textContent;
-  button.textContent = "Loading...";
+  button.textContent = "Playing...";
   button.setAttribute("aria-busy", "true");
   try {
-    const syncedState = await postGeneratedQueue(trackIds);
-    if (!syncedState) {
-      showToast("Unable to load queue.", {error: true});
-      return;
-    }
-    queueState = syncedState;
-    submittedIndeterminatePlayKeys.clear();
-    clearLoadedPlayback();
-    updatePlaybackUi();
+    await playQueue(trackIds, 0);
     await refreshQueuePage();
-    showToast("Queue loaded.");
+    closeJobToast(button);
   } finally {
     if (button.isConnected) {
       if ("disabled" in button) {
@@ -5128,7 +5123,7 @@ function updateVisibleJobCard(job) {
     if (trackIds.length) {
       const actions = document.createElement("div");
       actions.className = "job-card-actions";
-      actions.append(loadJobQueueButton(trackIds));
+      actions.append(playJobQueueButton(trackIds));
       card.append(actions);
     }
   }
@@ -6675,27 +6670,6 @@ async function postQueueAppend(trackIds) {
     });
     if (!response.ok) {
       throw new Error(`queue append request failed: ${response.status}`);
-    }
-    return normalizeQueueState(await response.json());
-  } catch {
-    return null;
-  }
-}
-
-async function postGeneratedQueue(trackIds) {
-  try {
-    const response = await fetch("/api/queue", {
-      method: "POST",
-      headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({
-        track_ids: trackIds,
-        position: 0,
-        paused: true,
-        errored_track_ids: []
-      })
-    });
-    if (!response.ok) {
-      throw new Error(`queue request failed: ${response.status}`);
     }
     return normalizeQueueState(await response.json());
   } catch {

@@ -1458,7 +1458,7 @@ test("recommendation generation posts a cancelable job and closes the menu", asy
   );
 });
 
-test("completed generated playlist jobs can replace the queue", async () => {
+test("completed generated playlist jobs can play the queue and dismiss the toast", async () => {
   const harness = createHarness({
     track_ids: [9],
     position: 0,
@@ -1467,10 +1467,14 @@ test("completed generated playlist jobs can replace the queue", async () => {
     errored_track_ids: [],
     unavailable_track_ids: [],
   });
+  const toast = harness.document.createElement("div");
+  toast.dataset.jobToastId = "42";
+  harness.jobToasts.append(toast);
   const button = harness.document.createElement("button");
   button.dataset.loadJobQueue = "";
+  button.dataset.jobId = "42";
   button.dataset.trackIds = JSON.stringify([2, 3]);
-  button.textContent = "Load Queue";
+  button.textContent = "Play";
   button.closest = (selector) => (
     selector === "[data-load-job-queue]" ? button : null
   );
@@ -1490,13 +1494,58 @@ test("completed generated playlist jobs can replace the queue", async () => {
   assert.deepEqual(harness.fetchCalls[0].body, {
     track_ids: [2, 3],
     position: 0,
+    loaded_track_id: 2,
+    paused: false,
+    errored_track_ids: [],
+    track_snapshots: [
+      {trackId: 2, trackNumber: ""},
+      {trackId: 3, trackNumber: ""},
+    ],
+  });
+  assert.equal(harness.audio.playCalls, 1);
+  assert.equal(harness.audio.src, "/audio/2");
+  assert.equal(harness.jobToasts.children.length, 0);
+  assert.equal(harness.document.elements.toast.children.length, 0);
+});
+
+test("completed generated playlist job toast offers play and cancel", () => {
+  const harness = createHarness({
+    track_ids: [],
+    position: 0,
+    loaded_track_id: null,
     paused: true,
     errored_track_ids: [],
+    unavailable_track_ids: [],
   });
-  assert.equal(
-    harness.document.elements.toast.children[0].querySelector(".toast-copy").textContent,
-    "Queue loaded."
+
+  harness.context.showJobToast({
+    job_id: 42,
+    kind: "generate_playlist",
+    kind_label: "Generate Playlist",
+    status: "succeeded",
+    status_label: "Succeeded",
+    message: "Album Radio generated 2 tracks.",
+    queue_track_ids: [2, 3],
+    updated_at: "2026-05-05T11:27:26Z",
+  });
+
+  const toast = harness.jobToasts.children[0];
+  const playButton = toast.querySelector("[data-load-job-queue]");
+  const cancelButton = toast.querySelector("[data-close-job-toast]");
+  assert.ok(playButton);
+  assert.ok(cancelButton);
+  assert.equal(playButton.textContent, "Play");
+  assert.equal(cancelButton.textContent, "Cancel");
+
+  cancelButton.closest = (selector) => (
+    selector === "[data-close-job-toast]" ? cancelButton : null
   );
+  harness.document.listeners.get("click")[0]({
+    target: cancelButton,
+    preventDefault() {},
+  });
+
+  assert.equal(harness.jobToasts.children.length, 0);
 });
 
 test("selected track url scrolls selected album row into view", () => {

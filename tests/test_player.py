@@ -10482,6 +10482,39 @@ class PlayerJobLogTest(unittest.TestCase):
         self.assertIn("Tracks", labels)
         self.assertNotIn("Queue Track Ids", labels)
 
+    def test_jobs_template_labels_generated_queue_action_as_play(self) -> None:
+        template = build_template_environment().get_template("player/jobs.html")
+        job = SimpleNamespace(
+            job_id=3,
+            status="succeeded",
+            status_label="Succeeded",
+            kind_label="Generate Playlist",
+            created_at="2026-04-21T10:00:01Z",
+            created_at_label="2026-04-21 10:00:01 UTC",
+            message="Album Radio generated 2 tracks.",
+            reason="",
+            context_items=(),
+            queue_track_ids=[2, 3],
+        )
+
+        html = template.render(
+            page_key="jobs",
+            page_heading="Jobs",
+            count_text="",
+            page_menu_items=(),
+            job_groups=(
+                SimpleNamespace(
+                    day_key="2026-04-21",
+                    day_label="April 21, 2026",
+                    jobs=(job,),
+                ),
+            ),
+        )
+
+        self.assertIn('data-load-job-queue', html)
+        self.assertIn(">Play</button>", html)
+        self.assertNotIn("Load Queue", html)
+
 
 class PlayerAlbumTagEditTest(unittest.TestCase):
     def seed_album(
