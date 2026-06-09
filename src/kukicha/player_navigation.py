@@ -17,8 +17,6 @@ from .use_case import (
     RECOMMENDATION_MODE_ARTIST_ONLY,
     RECOMMENDATION_MODE_DEFAULT,
     RECOMMENDATION_MODE_DISCOVERY,
-    RECOMMENDATION_MODE_GENRE_ONLY,
-    RECOMMENDATION_MODE_RANDOM,
     SUPPORTED_RECOMMENDATION_MODES,
     AlbumDetails,
     AlbumListQuery,
@@ -48,9 +46,7 @@ ALBUM_SORT_OPTIONS = (
 RECOMMENDATION_MODE_LABELS = {
     RECOMMENDATION_MODE_DEFAULT: "Default",
     RECOMMENDATION_MODE_DISCOVERY: "Discovery",
-    RECOMMENDATION_MODE_GENRE_ONLY: "Genre",
-    RECOMMENDATION_MODE_ARTIST_ONLY: "Artist",
-    RECOMMENDATION_MODE_RANDOM: "Random",
+    RECOMMENDATION_MODE_ARTIST_ONLY: "Artist-Only",
 }
 PLAYER_PAGE_LINKS = (
     ("home", "Home", "/"),
@@ -204,7 +200,6 @@ def recommendation_track_radio_url(
     track: Any,
     *,
     mode: str | None = None,
-    limit: int | None = None,
 ) -> str:
     track_id = recommendation_track_id(track)
     if track_id is None:
@@ -212,7 +207,6 @@ def recommendation_track_radio_url(
     return recommendation_url(
         f"/recommendations/radio/track/{track_id}",
         mode=mode,
-        limit=limit,
     )
 
 
@@ -220,7 +214,6 @@ def recommendation_album_radio_url(
     album: Any,
     *,
     mode: str | None = None,
-    limit: int | None = None,
 ) -> str:
     if bool(getattr(album, "is_playlist", False)):
         return ""
@@ -230,7 +223,6 @@ def recommendation_album_radio_url(
     return recommendation_url(
         f"/recommendations/radio/album/{quote(album_id, safe=':')}",
         mode=mode,
-        limit=limit,
     )
 
 
@@ -238,7 +230,6 @@ def recommendation_artist_radio_url(
     artist: str,
     *,
     mode: str | None = None,
-    limit: int | None = None,
 ) -> str:
     artist_value = str(artist).strip()
     if not artist_value:
@@ -246,41 +237,35 @@ def recommendation_artist_radio_url(
     return recommendation_url(
         f"/recommendations/radio/artist/{quote(artist_value, safe='')}",
         mode=mode,
-        limit=limit,
     )
+
+
+def recommendation_genre_radio_url(
+    genre: str,
+) -> str:
+    genre_value = str(genre).strip()
+    if not genre_value:
+        return ""
+    return f"/recommendations/radio/genre/{quote(genre_value, safe='')}"
+
+
+def recommendation_random_radio_url() -> str:
+    return "/recommendations/radio/random"
 
 
 def recommendation_url(
     path: str,
     *,
     mode: str | None = None,
-    limit: int | None = None,
     date: str | None = None,
 ) -> str:
     params: dict[str, str] = {}
     if mode and mode != RECOMMENDATION_MODE_DEFAULT:
         params["mode"] = mode
-    if limit is not None:
-        params["limit"] = str(limit)
     if date:
         params["date"] = date
     encoded = urlencode(params)
     return f"{path}?{encoded}" if encoded else path
-
-
-def recommendation_mode_links(
-    url_for_mode: Any,
-    current_mode: str,
-) -> tuple[dict[str, object], ...]:
-    return tuple(
-        {
-            "mode": mode,
-            "label": recommendation_mode_label(mode),
-            "url": url_for_mode(mode),
-            "current": mode == current_mode,
-        }
-        for mode in SUPPORTED_RECOMMENDATION_MODES
-    )
 
 
 def recommendation_mode_menu_items(base_url: str) -> tuple[dict[str, str], ...]:

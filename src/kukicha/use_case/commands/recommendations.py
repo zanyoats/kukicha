@@ -12,7 +12,6 @@ from ..recommendations import (
     RECOMMENDATION_CONFIG,
     RecommendationResult,
     RecommendationService,
-    normalize_recommendation_limit,
     normalize_recommendation_mode,
 )
 
@@ -20,6 +19,8 @@ RecommendationPlaylistKind = Literal[
     "track_radio",
     "album_radio",
     "artist_radio",
+    "genre_radio",
+    "random_playlist",
 ]
 
 RECOMMENDATION_PLAYLIST_JOB_KIND = "generate_playlist"
@@ -31,26 +32,22 @@ def start_recommendation_playlist(
     seed: object | None = None,
     *,
     mode: object | None = None,
-    limit: object | None = None,
 ) -> dict[str, object]:
-    normalized_mode = normalize_recommendation_mode(mode)
-    normalized_limit = normalize_recommendation_limit(
-        limit,
-        default=RECOMMENDATION_CONFIG.default_limit,
-        max_limit=RECOMMENDATION_CONFIG.max_limit,
-    )
+    normalized_mode = recommendation_playlist_mode(kind, mode)
+    normalized_limit = runtime_recommendation_limit(runtime)
     request = {
         "kind": kind,
         "seed": seed,
-        "mode": normalized_mode,
         "limit": normalized_limit,
     }
-    title = recommendation_playlist_title(kind)
+    if normalized_mode is not None:
+        request["mode"] = normalized_mode
     source_text = recommendation_playlist_source_text(
         runtime.database,
         kind,
         seed,
     )
+    title = recommendation_playlist_title(kind, source_text)
     context = recommendation_playlist_job_context(
         title=title,
         source_text=source_text,
@@ -90,14 +87,20 @@ def run_recommendation_playlist_job(
     cancel_token.raise_if_canceled()
     service = RecommendationService(runtime.database)
     kind = str(request["kind"])
-    mode = str(request["mode"])
     limit = int(request["limit"])
     if kind == "track_radio":
+        mode = str(request["mode"])
         results = service.get_track_radio(int(request["seed"]), mode=mode, limit=limit)
     elif kind == "album_radio":
+        mode = str(request["mode"])
         results = service.get_album_radio(str(request["seed"]), mode=mode, limit=limit)
     elif kind == "artist_radio":
+        mode = str(request["mode"])
         results = service.get_artist_radio(str(request["seed"]), mode=mode, limit=limit)
+    elif kind == "genre_radio":
+        results = service.get_genre_radio(str(request["seed"]), limit=limit)
+    elif kind == "random_playlist":
+        results = service.get_random_playlist(limit=limit)
     else:
         raise ValueError(f"unsupported recommendation playlist kind: {kind}")
     cancel_token.raise_if_canceled()
@@ -106,12 +109,12 @@ def run_recommendation_playlist_job(
     context = recommendation_playlist_job_context(
         title=title,
         source_text=source_text,
-        mode=mode,
+        mode=request.get("mode"),
         limit=limit,
         track_ids=track_ids,
     )
     count_text = format_count_label(len(track_ids), "track", "tracks")
-    if source_text:
+    if source_text and kind in {"track_radio", "album_radio", "artist_radio"}:
         message = f"{title} generated {count_text} for {source_text}."
     else:
         message = f"{title} generated {count_text}."
@@ -132,32 +135,60 @@ def recommendation_playlist_job_context(
     *,
     title: str,
     source_text: str,
-    mode: str,
+    mode: object | None,
     limit: int,
     track_ids: list[int] | None = None,
 ) -> dict[str, object]:
     context: dict[str, object] = {
         "operation": title,
         "playlist": source_text,
-        "mode": mode,
         "limit": limit,
     }
+    if mode is not None:
+        context["mode"] = str(mode)
     if track_ids is not None:
         context["tracks_generated"] = len(track_ids)
         context["queue_track_ids"] = track_ids
     return context
 
 
-def recommendation_playlist_title(kind: RecommendationPlaylistKind | str) -> str:
+def runtime_recommendation_limit(runtime: PlayerRuntime) -> int:
+    try:
+        raw_limit = getattr(runtime, "radio_limit")
+    except AttributeError:
+        raw_limit = RECOMMENDATION_CONFIG.default_limit
+    try:
+        return RECOMMENDATION_CONFIG.normalize_limit(raw_limit)
+    except (TypeError, ValueError):
+        return RECOMMENDATION_CONFIG.default_limit
+
+
+def recommendation_playlist_mode(
+    kind: RecommendationPlaylistKind | str,
+    mode: object | None,
+) -> str | None:
+    if str(kind) in {"track_radio", "album_radio", "artist_radio"}:
+        return normalize_recommendation_mode(mode)
+    return None
+
+
+def recommendation_playlist_title(
+    kind: RecommendationPlaylistKind | str,
+    source_text: object | None = None,
+) -> str:
+    if str(kind) == "genre_radio":
+        genre = str(source_text or "").strip()
+        return f"{genre} Radio" if genre else "Genre Radio"
     labels = {
         "track_radio": "Track Radio",
         "album_radio": "Album Radio",
         "artist_radio": "Artist Radio",
+        "random_playlist": "Random Playlist",
     }
-    try:
-        return labels[str(kind)]
-    except KeyError as error:
-        raise ValueError(f"unsupported recommendation playlist kind: {kind}") from error
+    label = labels.get(str(kind))
+    if label is None:
+        raise ValueError(f"unsupported recommendation playlist kind: {kind}")
+    return label
 
 
 def recommendation_playlist_source_text(
@@ -165,16 +196,21 @@ def recommendation_playlist_source_text(
     kind: RecommendationPlaylistKind,
     seed: object | None,
 ) -> str:
-    queries = LibraryQueries(database)
     if kind == "track_radio":
+        queries = LibraryQueries(database)
         track = queries.get_track(int(seed))
         title = track.title or Path(track.path).name
         artist = track.artist or track.album_artist
         return f"{artist} - {title}" if artist else title
     if kind == "album_radio":
+        queries = LibraryQueries(database)
         album = queries.get_album(str(seed))
         title = display_album_title(album.album)
         return f"{album.artist} - {title}" if album.artist else title
     if kind == "artist_radio":
         return str(seed or "").strip()
+    if kind == "genre_radio":
+        return str(seed or "").strip()
+    if kind == "random_playlist":
+        return ""
     raise ValueError(f"unsupported recommendation playlist kind: {kind}")

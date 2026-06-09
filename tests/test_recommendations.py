@@ -19,12 +19,11 @@ from kukicha.use_case import (
     DIVERSITY_STRENGTH_LOW,
     MAX_RECOMMENDATION_LIMIT,
     RECENT_PLAY_PENALTY_RANDOM_WEIGHTED,
+    RANDOM_RECOMMENDATION_CONFIG,
     RECOMMENDATION_CONFIG,
     RECOMMENDATION_MODE_ARTIST_ONLY,
     RECOMMENDATION_MODE_DEFAULT,
     RECOMMENDATION_MODE_DISCOVERY,
-    RECOMMENDATION_MODE_GENRE_ONLY,
-    RECOMMENDATION_MODE_RANDOM,
     SUPPORTED_RECOMMENDATION_MODES,
     ListeningStats,
     RecommendationCandidate,
@@ -32,7 +31,6 @@ from kukicha.use_case import (
     RecommendationLimitError,
     RecommendationModeError,
     RecommendationProfileSeed,
-    RecommendationRequest,
     RecommendationResult,
     RecommendationScore,
     RecommendationService,
@@ -80,9 +78,7 @@ class RecommendationModeConfigTest(unittest.TestCase):
             (
                 RECOMMENDATION_MODE_DEFAULT,
                 RECOMMENDATION_MODE_DISCOVERY,
-                RECOMMENDATION_MODE_GENRE_ONLY,
                 RECOMMENDATION_MODE_ARTIST_ONLY,
-                RECOMMENDATION_MODE_RANDOM,
             ),
         )
         for mode in SUPPORTED_RECOMMENDATION_MODES:
@@ -97,8 +93,10 @@ class RecommendationModeConfigTest(unittest.TestCase):
         self.assertEqual(normalize_recommendation_mode(""), RECOMMENDATION_MODE_DEFAULT)
 
     def test_invalid_mode_raises_clear_error(self) -> None:
-        with self.assertRaisesRegex(RecommendationModeError, "unsupported"):
-            normalize_recommendation_mode("ambient_only")
+        for mode in ("ambient_only", "genre_only", "random"):
+            with self.subTest(mode=mode):
+                with self.assertRaisesRegex(RecommendationModeError, "unsupported"):
+                    normalize_recommendation_mode(mode)
 
         with self.assertRaisesRegex(RecommendationModeError, "ambient_only"):
             recommendation_mode_config("ambient_only")
@@ -112,10 +110,6 @@ class RecommendationModeConfigTest(unittest.TestCase):
             normalize_recommendation_limit(MAX_RECOMMENDATION_LIMIT + 1),
             MAX_RECOMMENDATION_LIMIT,
         )
-
-        request = RecommendationRequest(mode=" genre_only ", limit="0")
-        self.assertEqual(request.mode, RECOMMENDATION_MODE_GENRE_ONLY)
-        self.assertEqual(request.limit, 1)
 
         with self.assertRaisesRegex(RecommendationLimitError, "invalid"):
             normalize_recommendation_limit("plenty")
@@ -165,12 +159,6 @@ class RecommendationModeConfigTest(unittest.TestCase):
         self.assertEqual(discovery.recency_penalties.played_last_180_days, 0.05)
         self.assertEqual(discovery.recent_play_suppression_days, 7.0)
 
-        genre_only = recommendation_mode_config(RECOMMENDATION_MODE_GENRE_ONLY)
-        self.assertEqual(genre_only.feature_weights.genres, 1.00)
-        self.assertEqual(genre_only.feature_weights.styles, 0.00)
-        self.assertEqual(genre_only.feature_weights.artist, 0.00)
-        self.assertEqual(genre_only.feature_weights.decade, 0.00)
-
         artist_only = recommendation_mode_config(RECOMMENDATION_MODE_ARTIST_ONLY)
         self.assertEqual(artist_only.feature_weights.artist, 1.00)
         self.assertEqual(artist_only.candidate_filter, CANDIDATE_FILTER_ARTIST_MATCH_REQUIRED)
@@ -182,7 +170,7 @@ class RecommendationModeConfigTest(unittest.TestCase):
         self.assertTrue(artist_only.exclude_seed_album_tracks)
 
     def test_random_mode_recency_multipliers_match_plan_values(self) -> None:
-        config = recommendation_mode_config(RECOMMENDATION_MODE_RANDOM)
+        config = RANDOM_RECOMMENDATION_CONFIG
         multipliers = config.random_recency_multipliers
 
         self.assertEqual(config.candidate_selection, CANDIDATE_SELECTION_WEIGHTED_RANDOM)
@@ -329,25 +317,13 @@ class RecommendationVectorTest(unittest.TestCase):
         )
         vocabulary = build_recommendation_vocabulary((candidate,))
 
-        genre_only = build_recommendation_track_vector(
-            candidate,
-            vocabulary,
-            mode=RECOMMENDATION_MODE_GENRE_ONLY,
-        )
         artist_only = build_recommendation_track_vector(
             candidate,
             vocabulary,
             mode=RECOMMENDATION_MODE_ARTIST_ONLY,
         )
-        random_mode = build_recommendation_track_vector(
-            candidate,
-            vocabulary,
-            mode=RECOMMENDATION_MODE_RANDOM,
-        )
 
-        self.assertEqual(tuple(genre_only), ("genre:rock",))
         self.assertEqual(tuple(artist_only), ("artist:seed artist",))
-        self.assertEqual(random_mode, {})
 
     def test_empty_metadata_produces_stable_empty_vectors(self) -> None:
         candidate = self.candidate(1)
@@ -654,6 +630,7 @@ class RecommendationListeningAdjustmentTest(unittest.TestCase):
         candidates: tuple[RecommendationCandidate, ...],
         *,
         mode: object | None = RECOMMENDATION_MODE_DEFAULT,
+        config: object | None = None,
     ) -> dict[int, RecommendationScore]:
         profile = build_recommendation_profile(
             (RecommendationProfileSeed(track_id=1),),
@@ -670,6 +647,7 @@ class RecommendationListeningAdjustmentTest(unittest.TestCase):
                 candidates,
                 vectors,
                 mode=mode,
+                config=config,
                 current_time=self.fixed_now,
             )
         }
@@ -827,7 +805,7 @@ class RecommendationListeningAdjustmentTest(unittest.TestCase):
                 ),
                 self.candidate(5),
             ),
-            mode=RECOMMENDATION_MODE_RANDOM,
+            config=RANDOM_RECOMMENDATION_CONFIG,
         )
 
         self.assertEqual(scores[2].base_similarity, 0.0)
@@ -2108,22 +2086,20 @@ class RecommendationServiceTest(unittest.TestCase):
         self.assertEqual(default_by_id[2].explanation.matched_decade, "1990s")
         self.assertFalse(default_by_id[2].explanation.same_artist)
 
-        genre_only_results = service.get_track_radio(
-            1,
-            mode=RECOMMENDATION_MODE_GENRE_ONLY,
-            limit=10,
-        )
-        genre_only_by_id = {
+        genre_radio_results = service.get_genre_radio("Rock", limit=10)
+        genre_radio_by_id = {
             result.candidate.metadata.track_id: result
-            for result in genre_only_results
+            for result in genre_radio_results
         }
-        self.assertAlmostEqual(
-            genre_only_by_id[2].score.base_similarity,
-            genre_only_by_id[4].score.base_similarity,
+        self.assertIn(1, genre_radio_by_id)
+        self.assertIn(2, genre_radio_by_id)
+        self.assertIn(4, genre_radio_by_id)
+        self.assertNotIn(3, genre_radio_by_id)
+        self.assertEqual(genre_radio_by_id[2].explanation.matched_genres, ("Rock",))
+        self.assertEqual(
+            genre_radio_by_id[2].explanation.matched_styles,
+            ("Dream Pop",),
         )
-        self.assertNotIn(3, genre_only_by_id)
-        self.assertEqual(genre_only_by_id[2].explanation.matched_genres, ("Rock",))
-        self.assertEqual(genre_only_by_id[2].explanation.matched_styles, ())
 
         artist_only_results = service.get_track_radio(
             1,
@@ -2153,13 +2129,11 @@ class RecommendationServiceTest(unittest.TestCase):
 
         random_result = RecommendationService(
             database,
-            random_source=FixedRandomSource(0.99),
-        ).get_track_radio(
-            1,
-            mode=RECOMMENDATION_MODE_RANDOM,
+            random_source=FixedRandomSource(0.0),
+        ).get_random_playlist(
             limit=1,
         )[0]
-        self.assertNotEqual(random_result.candidate.metadata.track_id, 1)
+        self.assertEqual(random_result.candidate.metadata.track_id, 1)
         self.assertEqual(random_result.score.base_similarity, 0.0)
         self.assertEqual(random_result.explanation.matched_genres, ())
         self.assertIsNotNone(random_result.score.random_draw)
@@ -2214,20 +2188,18 @@ class RecommendationServiceTest(unittest.TestCase):
                 (metadata.artist, metadata.album_artist, *metadata.album_artists),
             )
 
-        random_album_results = RecommendationService(
+        random_playlist_results = RecommendationService(
             self.build_multi_seed_database(),
             random_source=FixedRandomSource(0.0, 0.0),
-        ).get_album_radio(
-            "album-seed",
-            mode=RECOMMENDATION_MODE_RANDOM,
+        ).get_random_playlist(
             limit=2,
         )
         self.assertEqual(
             [
                 result.candidate.metadata.track_id
-                for result in random_album_results
+                for result in random_playlist_results
             ],
-            [3, 4],
+            [1, 2],
         )
 
     def test_album_radio_relaxes_genre_cap_and_omits_decade_only_fill(
@@ -2358,35 +2330,49 @@ class RecommendationServiceTest(unittest.TestCase):
         self.assertEqual(default_track_ids[0], 4)
         self.assertEqual(discovery_track_ids[0], 4)
 
-    def test_genre_only_track_radio_uses_only_genre_matches(self) -> None:
+    def test_genre_radio_uses_default_features_with_hard_parent_genre_filter(
+        self,
+    ) -> None:
         service = RecommendationService(self.build_database())
 
         default_results = {
             result.candidate.metadata.track_id: result
             for result in service.get_track_radio(1, limit=10)
         }
-        genre_only_results = {
+        genre_radio_results = {
             result.candidate.metadata.track_id: result
-            for result in service.get_track_radio(
-                1,
-                mode=RECOMMENDATION_MODE_GENRE_ONLY,
-                limit=10,
-            )
+            for result in service.get_genre_radio("Rock", limit=10)
         }
 
         self.assertGreater(
             default_results[2].score.base_similarity,
             default_results[4].score.base_similarity,
         )
-        self.assertAlmostEqual(genre_only_results[2].score.base_similarity, 1.0)
-        self.assertAlmostEqual(genre_only_results[4].score.base_similarity, 1.0)
-        self.assertNotIn(3, genre_only_results)
+        self.assertGreater(
+            genre_radio_results[2].score.base_similarity,
+            genre_radio_results[4].score.base_similarity,
+        )
+        self.assertIn(1, genre_radio_results)
+        self.assertNotIn(3, genre_radio_results)
         self.assertEqual(
-            genre_only_results[2].explanation.matched_genres,
+            genre_radio_results[2].explanation.matched_genres,
             ("Rock",),
         )
-        self.assertEqual(genre_only_results[2].explanation.matched_styles, ())
-        self.assertIsNone(genre_only_results[2].explanation.matched_decade)
+        self.assertEqual(
+            genre_radio_results[2].explanation.matched_styles,
+            ("Dream Pop",),
+        )
+        self.assertEqual(genre_radio_results[2].explanation.matched_decade, "1990s")
+
+    def test_genre_radio_includes_style_derived_parent_genre_matches(self) -> None:
+        service = RecommendationService(self.build_database())
+
+        results = service.get_genre_radio("Classical", limit=10)
+
+        self.assertEqual(
+            [result.candidate.metadata.track_id for result in results],
+            [3],
+        )
 
     def test_artist_only_track_radio_filters_to_seed_track_artist(self) -> None:
         service = RecommendationService(self.build_database())
@@ -2501,41 +2487,23 @@ class RecommendationServiceTest(unittest.TestCase):
             ("Minimalism",),
         )
 
-    def test_genre_only_album_and_artist_radio_use_only_genre_reasons(self) -> None:
+    def test_genre_radio_on_multi_seed_database_stays_inside_parent_genre(self) -> None:
         service = RecommendationService(self.build_multi_seed_database())
 
-        album_results = {
+        ambient_results = {
             result.candidate.metadata.track_id: result
-            for result in service.get_album_radio(
-                "album-seed",
-                mode=RECOMMENDATION_MODE_GENRE_ONLY,
-                limit=10,
-            )
-        }
-        artist_results = {
-            result.candidate.metadata.track_id: result
-            for result in service.get_artist_radio(
-                "Seed Artist",
-                mode=RECOMMENDATION_MODE_GENRE_ONLY,
-                limit=10,
-            )
+            for result in service.get_genre_radio("Ambient", limit=10)
         }
 
-        self.assertGreater(album_results[3].score.base_similarity, 0.0)
+        self.assertEqual(set(ambient_results), {2, 3})
         self.assertEqual(
-            album_results[3].explanation.matched_genres,
+            ambient_results[3].explanation.matched_genres,
             ("Ambient",),
         )
-        self.assertEqual(album_results[3].explanation.matched_styles, ())
-        self.assertIsNone(album_results[3].explanation.matched_decade)
-
-        self.assertGreater(artist_results[7].score.base_similarity, 0.0)
         self.assertEqual(
-            artist_results[7].explanation.matched_genres,
-            ("Electronic",),
+            ambient_results[3].explanation.matched_styles,
+            ("Drone",),
         )
-        self.assertEqual(artist_results[7].explanation.matched_styles, ())
-        self.assertIsNone(artist_results[7].explanation.matched_decade)
 
     def test_artist_only_album_radio_uses_all_split_album_artists(self) -> None:
         service = RecommendationService(self.build_artist_only_database())
@@ -2580,21 +2548,19 @@ class RecommendationServiceTest(unittest.TestCase):
             [5],
         )
 
-    def test_random_track_radio_uses_deterministic_weighted_sampling(self) -> None:
+    def test_random_playlist_uses_deterministic_weighted_sampling(self) -> None:
         service = RecommendationService(
             self.build_database(),
             random_source=FixedRandomSource(0.99, 0.0, 0.51),
         )
 
-        results = service.get_track_radio(
-            1,
-            mode=RECOMMENDATION_MODE_RANDOM,
+        results = service.get_random_playlist(
             limit=3,
         )
 
         self.assertEqual(
             [result.candidate.metadata.track_id for result in results],
-            [6, 2, 4],
+            [6, 1, 4],
         )
         self.assertEqual(
             [result.score.random_draw for result in results],
@@ -2608,7 +2574,7 @@ class RecommendationServiceTest(unittest.TestCase):
             self.assertEqual(result.score.final_score, 1.0)
             self.assertIs(result.explanation.score, result.score)
 
-    def test_random_track_radio_recent_tracks_are_less_likely_but_eligible(
+    def test_random_playlist_recent_tracks_are_less_likely_but_eligible(
         self,
     ) -> None:
         database = self.build_database()
@@ -2644,53 +2610,46 @@ class RecommendationServiceTest(unittest.TestCase):
             )
         service = RecommendationService(
             database,
-            random_source=FixedRandomSource(0.0),
+            random_source=FixedRandomSource(0.21),
         )
 
-        result = service.get_track_radio(
-            1,
-            mode=RECOMMENDATION_MODE_RANDOM,
+        result = service.get_random_playlist(
             limit=1,
         )[0]
 
         self.assertEqual(result.candidate.metadata.track_id, 2)
-        self.assertEqual(result.score.random_draw, 0.0)
+        self.assertEqual(result.score.random_draw, 0.21)
         self.assertEqual(result.score.random_recency_multiplier, 0.10)
         self.assertEqual(result.score.random_play_count_multiplier, 1.0)
         self.assertEqual(result.score.random_selection_weight, 0.10)
 
-    def test_random_album_radio_excludes_seed_album_tracks(self) -> None:
+    def test_random_playlist_includes_former_seed_tracks(self) -> None:
         service = RecommendationService(
             self.build_multi_seed_database(),
             random_source=FixedRandomSource(0.0, 0.0),
         )
 
-        results = service.get_album_radio(
-            "album-seed",
-            mode=RECOMMENDATION_MODE_RANDOM,
+        results = service.get_random_playlist(
             limit=2,
         )
 
         self.assertEqual(
             [result.candidate.metadata.track_id for result in results],
-            [3, 4],
+            [1, 2],
         )
 
-    def test_random_track_radio_applies_artist_and_album_caps(self) -> None:
+    def test_random_playlist_applies_artist_and_album_caps(self) -> None:
         service = RecommendationService(
             self.build_diversity_database(),
             random_source=FixedRandomSource(0.0, 0.0, 0.0, 0.0, 0.0),
         )
 
-        results = service.get_track_radio(
-            1,
-            mode=RECOMMENDATION_MODE_RANDOM,
+        results = service.get_random_playlist(
             limit=5,
         )
 
         track_ids = [result.candidate.metadata.track_id for result in results]
-        self.assertEqual(track_ids, [2, 3, 5, 7, 8])
-        self.assertNotIn(1, track_ids)
+        self.assertEqual(track_ids, [1, 2, 3, 5, 7])
         self.assertNotIn(4, track_ids)
         self.assertNotIn(6, track_ids)
         self.assertLessEqual(
@@ -2708,15 +2667,13 @@ class RecommendationServiceTest(unittest.TestCase):
             2,
         )
 
-    def test_random_artist_radio_samples_available_library(self) -> None:
+    def test_random_playlist_samples_available_library(self) -> None:
         service = RecommendationService(
             self.build_multi_seed_database(),
             random_source=FixedRandomSource(0.99),
         )
 
-        results = service.get_artist_radio(
-            "Seed Artist",
-            mode=RECOMMENDATION_MODE_RANDOM,
+        results = service.get_random_playlist(
             limit=1,
         )
 

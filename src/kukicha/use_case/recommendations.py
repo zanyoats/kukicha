@@ -16,7 +16,7 @@ from typing import Literal, Protocol, cast
 from ..album_artists import normalized_album_artist_values
 from ..models import normalize_genre_values
 from ..text import normalize_text
-from .database import connect_existing_database
+from .database import UNKNOWN_GENRE_TAG, connect_existing_database
 from .library import split_genres_and_styles
 from .queries.library import (
     album_artists_by_album,
@@ -34,23 +34,17 @@ from .queries.sql import placeholders_for
 RecommendationMode = Literal[
     "default",
     "discovery",
-    "genre_only",
     "artist_only",
-    "random",
 ]
 
 RECOMMENDATION_MODE_DEFAULT: RecommendationMode = "default"
 RECOMMENDATION_MODE_DISCOVERY: RecommendationMode = "discovery"
-RECOMMENDATION_MODE_GENRE_ONLY: RecommendationMode = "genre_only"
 RECOMMENDATION_MODE_ARTIST_ONLY: RecommendationMode = "artist_only"
-RECOMMENDATION_MODE_RANDOM: RecommendationMode = "random"
 
 SUPPORTED_RECOMMENDATION_MODES: tuple[RecommendationMode, ...] = (
     RECOMMENDATION_MODE_DEFAULT,
     RECOMMENDATION_MODE_DISCOVERY,
-    RECOMMENDATION_MODE_GENRE_ONLY,
     RECOMMENDATION_MODE_ARTIST_ONLY,
-    RECOMMENDATION_MODE_RANDOM,
 )
 RECOMMENDATION_MODE_VALUES = frozenset(SUPPORTED_RECOMMENDATION_MODES)
 
@@ -292,16 +286,6 @@ class RecommendationConfig:
             default=self.default_limit,
             max_limit=self.max_limit,
         )
-
-
-@dataclass(frozen=True, slots=True)
-class RecommendationRequest:
-    mode: RecommendationMode = RECOMMENDATION_MODE_DEFAULT
-    limit: int = DEFAULT_RECOMMENDATION_LIMIT
-
-    def __post_init__(self) -> None:
-        object.__setattr__(self, "mode", normalize_recommendation_mode(self.mode))
-        object.__setattr__(self, "limit", normalize_recommendation_limit(self.limit))
 
 
 @dataclass(frozen=True, slots=True)
@@ -591,6 +575,10 @@ class RecommendationQueries:
         with connect_existing_database(self.database) as connection:
             return load_recommendation_candidate(connection, track_id)
 
+    def style_parent_lookup(self) -> dict[str, str]:
+        with connect_existing_database(self.database) as connection:
+            return load_recommendation_style_parent_lookup(connection)
+
 class RecommendationService:
     def __init__(
         self,
@@ -721,6 +709,57 @@ class RecommendationService:
             ),
         )
 
+    def get_genre_radio(
+        self,
+        genre: object | None,
+        limit: object | None = DEFAULT_RECOMMENDATION_LIMIT,
+    ) -> tuple[RecommendationResult, ...]:
+        normalized_genre = normalized_optional_text(genre)
+        if not normalized_genre or is_unknown_genre_value(normalized_genre):
+            return ()
+        config, normalized_limit, candidates, track_vectors = (
+            self._recommendation_context(RECOMMENDATION_MODE_DEFAULT, limit)
+        )
+        style_parents = self.queries.style_parent_lookup()
+        genre_candidates = tuple(
+            candidate
+            for candidate in candidates
+            if recommendation_candidate_matches_parent_genre(
+                candidate.metadata,
+                normalized_genre,
+                style_parents,
+            )
+        )
+        if not genre_candidates:
+            return ()
+
+        profile = build_recommendation_genre_profile(
+            genre_candidates,
+            track_vectors,
+        )
+        return self._rank_profile_results(
+            profile,
+            genre_candidates,
+            track_vectors,
+            normalized_limit=normalized_limit,
+            config=recommendation_radio_scoring_config(config),
+            seed_candidates=genre_candidates,
+        )
+
+    def get_random_playlist(
+        self,
+        limit: object | None = DEFAULT_RECOMMENDATION_LIMIT,
+    ) -> tuple[RecommendationResult, ...]:
+        normalized_limit = RECOMMENDATION_CONFIG.normalize_limit(limit)
+        candidates = self.queries.list_candidates()
+        return self._rank_profile_results(
+            RecommendationProfile(),
+            candidates,
+            {},
+            normalized_limit=normalized_limit,
+            config=RANDOM_RECOMMENDATION_CONFIG,
+        )
+
     def _recommendation_context(
         self,
         mode: object | None,
@@ -812,6 +851,21 @@ def load_recommendation_candidate(
     if not candidates:
         raise TrackNotFoundError(normalized_track_id)
     return candidates[0]
+
+
+def load_recommendation_style_parent_lookup(connection: Connection) -> dict[str, str]:
+    return {
+        recommendation_feature_term(row["style"]): str(row["parent_genre"])
+        for row in connection.execute(
+            """
+            SELECT style, parent_genre
+            FROM taxonomy_styles
+            WHERE style != ''
+                AND parent_genre != ''
+            """
+        )
+        if recommendation_feature_term(row["style"])
+    }
 
 
 def build_recommendation_vocabulary(
@@ -963,6 +1017,19 @@ def build_recommendation_artist_profile(
             if artist_terms.intersection(
                 recommendation_metadata_artist_terms(candidate.metadata)
             )
+        ),
+        track_vectors,
+    )
+
+
+def build_recommendation_genre_profile(
+    candidates: Iterable[RecommendationCandidate],
+    track_vectors: Mapping[int, Mapping[str, float]],
+) -> RecommendationProfile:
+    return build_recommendation_profile(
+        (
+            RecommendationProfileSeed(track_id=candidate.metadata.track_id)
+            for candidate in candidates
         ),
         track_vectors,
     )
@@ -1645,6 +1712,38 @@ def recommendation_candidate_matches_filter(
         recommendation_artist_terms(resolved_candidate_artist_terms(candidate.metadata))
     )
     return bool(candidate_terms.intersection(required_artist_terms))
+
+
+def recommendation_candidate_matches_parent_genre(
+    metadata: CandidateMetadata,
+    genre: object | None,
+    style_parents: Mapping[str, str],
+) -> bool:
+    genre_term = recommendation_feature_term(genre)
+    if not genre_term or is_unknown_genre_value(genre):
+        return False
+    return genre_term in recommendation_candidate_parent_genre_terms(
+        metadata,
+        style_parents,
+    )
+
+
+def recommendation_candidate_parent_genre_terms(
+    metadata: CandidateMetadata,
+    style_parents: Mapping[str, str],
+) -> frozenset[str]:
+    terms = set(normalized_feature_terms(metadata.genres))
+    for style in metadata.styles:
+        parent = style_parents.get(recommendation_feature_term(style))
+        if parent and not is_unknown_genre_value(parent):
+            terms.add(recommendation_feature_term(parent))
+    return frozenset(term for term in terms if term)
+
+
+def is_unknown_genre_value(value: object | None) -> bool:
+    return recommendation_feature_term(value) == recommendation_feature_term(
+        UNKNOWN_GENRE_TAG
+    )
 
 
 def recommendation_radio_scoring_config(
@@ -2766,24 +2865,6 @@ RECOMMENDATION_MODE_CONFIGS: Mapping[RecommendationMode, RecommendationModeConfi
                 recent_play_suppression_days=7.0,
                 diversity_strength=DIVERSITY_STRENGTH_HIGH,
             ),
-            RECOMMENDATION_MODE_GENRE_ONLY: RecommendationModeConfig(
-                mode=RECOMMENDATION_MODE_GENRE_ONLY,
-                feature_weights=FeatureWeights(
-                    genres=1.00,
-                    styles=0.00,
-                    artist=0.00,
-                    decade=0.00,
-                ),
-                track_play_penalty=0.05,
-                artist_play_penalty=0.00,
-                album_play_penalty=0.00,
-                favorite_boost=0.03,
-                recency_penalties=DEFAULT_RECENCY_PENALTIES,
-                diversity_caps=DEFAULT_DIVERSITY_CAPS,
-                recent_play_penalty_strength=RECENT_PLAY_PENALTY_MEDIUM,
-                recent_play_suppression_days=1.0,
-                diversity_strength=DIVERSITY_STRENGTH_MEDIUM,
-            ),
             RECOMMENDATION_MODE_ARTIST_ONLY: RecommendationModeConfig(
                 mode=RECOMMENDATION_MODE_ARTIST_ONLY,
                 feature_weights=FeatureWeights(
@@ -2810,28 +2891,29 @@ RECOMMENDATION_MODE_CONFIGS: Mapping[RecommendationMode, RecommendationModeConfi
                 candidate_filter=CANDIDATE_FILTER_ARTIST_MATCH_REQUIRED,
                 artist_only_fallback=ARTIST_ONLY_FALLBACK_RETURN_FEWER,
             ),
-            RECOMMENDATION_MODE_RANDOM: RecommendationModeConfig(
-                mode=RECOMMENDATION_MODE_RANDOM,
-                feature_weights=FeatureWeights(
-                    genres=0.00,
-                    styles=0.00,
-                    artist=0.00,
-                    decade=0.00,
-                ),
-                track_play_penalty=0.00,
-                artist_play_penalty=0.00,
-                album_play_penalty=0.00,
-                favorite_boost=0.00,
-                recency_penalties=RecencyPenalties(),
-                diversity_caps=DEFAULT_DIVERSITY_CAPS,
-                recent_play_penalty_strength=RECENT_PLAY_PENALTY_RANDOM_WEIGHTED,
-                diversity_strength=DIVERSITY_STRENGTH_MEDIUM,
-                candidate_selection=CANDIDATE_SELECTION_WEIGHTED_RANDOM,
-                random_recency_multipliers=RandomRecencyMultipliers(),
-                random_track_play_count_weight=0.15,
-            ),
         }
     )
+)
+
+RANDOM_RECOMMENDATION_CONFIG = RecommendationModeConfig(
+    mode=RECOMMENDATION_MODE_DEFAULT,
+    feature_weights=FeatureWeights(
+        genres=0.00,
+        styles=0.00,
+        artist=0.00,
+        decade=0.00,
+    ),
+    track_play_penalty=0.00,
+    artist_play_penalty=0.00,
+    album_play_penalty=0.00,
+    favorite_boost=0.00,
+    recency_penalties=RecencyPenalties(),
+    diversity_caps=DEFAULT_DIVERSITY_CAPS,
+    recent_play_penalty_strength=RECENT_PLAY_PENALTY_RANDOM_WEIGHTED,
+    diversity_strength=DIVERSITY_STRENGTH_MEDIUM,
+    candidate_selection=CANDIDATE_SELECTION_WEIGHTED_RANDOM,
+    random_recency_multipliers=RandomRecencyMultipliers(),
+    random_track_play_count_weight=0.15,
 )
 
 RECOMMENDATION_CONFIG = RecommendationConfig(modes=RECOMMENDATION_MODE_CONFIGS)
@@ -2853,6 +2935,7 @@ __all__ = [
     "RECENT_PLAY_PENALTY_HIGH",
     "RECENT_PLAY_PENALTY_MEDIUM",
     "RECENT_PLAY_PENALTY_RANDOM_WEIGHTED",
+    "RANDOM_RECOMMENDATION_CONFIG",
     "RECOMMENDATION_CONFIG",
     "ARTIST_FEATURE_PREFIX",
     "DECADE_FEATURE_PREFIX",
@@ -2861,8 +2944,6 @@ __all__ = [
     "RECOMMENDATION_MODE_CONFIGS",
     "RECOMMENDATION_MODE_DEFAULT",
     "RECOMMENDATION_MODE_DISCOVERY",
-    "RECOMMENDATION_MODE_GENRE_ONLY",
-    "RECOMMENDATION_MODE_RANDOM",
     "RECOMMENDATION_MODE_VALUES",
     "STYLE_FEATURE_PREFIX",
     "SUPPORTED_RECOMMENDATION_MODES",
@@ -2886,7 +2967,6 @@ __all__ = [
     "RecommendationProfile",
     "RecommendationProfileSeed",
     "RecommendationQueries",
-    "RecommendationRequest",
     "RecommendationResult",
     "RecommendationScore",
     "RecommendationService",
@@ -2897,6 +2977,7 @@ __all__ = [
     "build_recommendation_album_profile",
     "build_recommendation_artist_profile",
     "build_recommendation_explanation",
+    "build_recommendation_genre_profile",
     "build_recommendation_profile",
     "build_recommendation_track_profile",
     "build_recommendation_track_vector",
@@ -2905,6 +2986,7 @@ __all__ = [
     "build_recommendation_vocabulary",
     "load_recommendation_candidate",
     "load_recommendation_candidates",
+    "load_recommendation_style_parent_lookup",
     "normalize_recommendation_limit",
     "normalize_recommendation_mode",
     "normalize_sparse_vector",
@@ -2913,6 +2995,7 @@ __all__ = [
     "recommendation_inverse_document_frequency",
     "recommendation_candidate_rows",
     "recommendation_candidates_from_rows",
+    "recommendation_candidate_matches_parent_genre",
     "recommendation_decade",
     "recommendation_album_artist_terms",
     "recommendation_mode_config",

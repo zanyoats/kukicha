@@ -312,10 +312,51 @@ def build_home_context(runtime: PlayerRuntime) -> dict[str, Any]:
     context.update(
         count_text="Listening history, recent favorites, and new additions.",
         continue_listening=continue_listening,
+        home_radio_choices=home_radio_choices(runtime),
         show_history_empty=not dashboard.has_listening_history and continue_listening is None,
     )
     context.update(player_page_context("home"))
     return context
+
+
+def home_radio_choices(runtime: PlayerRuntime) -> tuple[dict[str, str], ...]:
+    from .player_navigation import (
+        recommendation_genre_radio_url,
+        recommendation_random_radio_url,
+    )
+    from .use_case import UNKNOWN_GENRE_TAG
+
+    genre_choices: list[dict[str, str]] = []
+    seen_genres: set[str] = set()
+    filters = runtime.library_filter_options()
+    for group in sorted(
+        filters.genre_groups,
+        key=lambda item: item.genre.casefold(),
+    ):
+        genre = group.genre.strip()
+        genre_key = genre.casefold()
+        if (
+            not genre
+            or genre_key == UNKNOWN_GENRE_TAG.casefold()
+            or genre_key in seen_genres
+        ):
+            continue
+        seen_genres.add(genre_key)
+        genre_choices.append(
+            {
+                "label": genre,
+                "url": recommendation_genre_radio_url(genre),
+                "action_label": f"{genre} Radio",
+            }
+        )
+    genre_choices.append(
+        {
+            "label": "Random",
+            "url": recommendation_random_radio_url(),
+            "action_label": "Random Playlist",
+        }
+    )
+    return tuple(genre_choices)
 
 
 def build_search_context(runtime: PlayerRuntime, query_string: str) -> dict[str, Any]:
@@ -446,74 +487,6 @@ def build_simple_page_context(runtime: PlayerRuntime, page_key: str) -> dict[str
         view_template="player/simple_page.html",
     )
     context.update(player_page_context(page_key))
-    return context
-
-
-def build_recommendation_context(
-    runtime: PlayerRuntime,
-    *,
-    page_heading: str,
-    source_text: str,
-    results: tuple[Any, ...],
-    mode: str,
-    limit: int,
-    mode_links: tuple[dict[str, object], ...],
-) -> dict[str, Any]:
-    from .player_navigation import recommendation_mode_label
-    from .player_presenters import (
-        TrackTableRow,
-        track_view,
-        track_views_with_artist_display_lines,
-        track_views_with_playlist_options,
-    )
-
-    track_ids = tuple(
-        result.candidate.metadata.track_id
-        for result in results
-    )
-    track_views = track_views_with_playlist_options(
-        runtime.database,
-        [
-            track_view(track)
-            for track in LibraryQueries(runtime.database).get_tracks_by_ids(track_ids)
-        ],
-    )
-    track_views = track_views_with_artist_display_lines(
-        track_views,
-        split_patterns=getattr(runtime, "album_artist_split_patterns", ()),
-    )
-    views_by_id = {
-        view.library_track_id: view
-        for view in track_views
-        if view.library_track_id is not None
-    }
-    ordered_views = tuple(
-        view
-        for track_id in track_ids
-        if (view := views_by_id.get(track_id)) is not None
-    )
-    ordered_views = tuple(
-        replace(view, track_number=str(position))
-        for position, view in enumerate(ordered_views, start=1)
-    )
-    count_parts = [
-        format_count_label(len(ordered_views), "track", "tracks"),
-        recommendation_mode_label(mode),
-    ]
-    if source_text:
-        count_parts.insert(0, source_text)
-    context = base_player_context(
-        runtime,
-        page_name="recommendations",
-        page_key="recommendations",
-        page_heading=page_heading,
-        count_text=" - ".join(count_parts),
-        view_template="player/recommendations.html",
-        table_rows=[TrackTableRow(track=view) for view in ordered_views],
-        recommendation_mode=mode,
-        recommendation_limit=limit,
-        recommendation_mode_links=mode_links,
-    )
     return context
 
 

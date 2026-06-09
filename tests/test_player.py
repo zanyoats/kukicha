@@ -42,7 +42,6 @@ from kukicha.use_case import (
     LibraryQueries,
     LibraryRootFilterOption,
     LibrarySearchQuery,
-    MAX_RECOMMENDATION_LIMIT,
     NATIVE_PLAYBACK_SOURCE,
     PlaylistDetails,
     PlaylistItem,
@@ -76,6 +75,7 @@ from kukicha.player_config import (
     DEFAULT_PLAYER_LOG_LEVEL,
     DEFAULT_PLAYER_PORT,
     DEFAULT_PREFER_MUSICBRAINZ_ENGLISH_ALIASES,
+    DEFAULT_RADIO_LIMIT,
     DEFAULT_TOAST_TIMEOUT_MS,
     DEFAULT_TRUSTED_PROXY_HEADERS,
     APPEARANCE_THEMES,
@@ -2047,6 +2047,7 @@ class PlayerConfigTest(unittest.TestCase):
                         "accent_color = 'Dark-Sky-Blue'",
                         "appearance = 'DaRk'",
                         "toast_timeout_ms = 12000",
+                        "radio_limit = 40",
                         "album_artist_split_patterns = ['&', '/']",
                         "[opensubsonic]",
                         "mount_prefix = '/sonic/'",
@@ -2077,6 +2078,7 @@ class PlayerConfigTest(unittest.TestCase):
             self.assertEqual(options.accent_color, "dark-sky-blue")
             self.assertEqual(options.appearance, "dark")
             self.assertEqual(options.toast_timeout_ms, 12000)
+            self.assertEqual(options.radio_limit, 40)
             self.assertEqual(options.album_artist_split_patterns, ("&", "/"))
             self.assertIsNotNone(options.auth)
             assert options.auth is not None
@@ -2345,6 +2347,7 @@ class PlayerConfigTest(unittest.TestCase):
             self.assertEqual(options.accent_color, DEFAULT_ACCENT_COLOR)
             self.assertEqual(options.appearance, "system")
             self.assertEqual(options.toast_timeout_ms, DEFAULT_TOAST_TIMEOUT_MS)
+            self.assertEqual(options.radio_limit, DEFAULT_RADIO_LIMIT)
             self.assertEqual(
                 options.album_artist_split_patterns,
                 DEFAULT_ALBUM_ARTIST_SPLIT_PATTERNS,
@@ -2421,6 +2424,29 @@ class PlayerConfigTest(unittest.TestCase):
 
             with self.assertRaisesRegex(PlayerConfigError, "toast_timeout_ms must be greater than 0"):
                 load_player_options(config_path)
+
+    def test_load_player_options_reads_radio_limit(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            config_path = Path(tempdir) / "kukicha.toml"
+            self.write_config(config_path, "radio_limit = 40\n")
+
+            options = load_player_options(config_path)
+
+        self.assertEqual(options.radio_limit, 40)
+
+    def test_load_player_options_rejects_invalid_radio_limits(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            config_path = Path(tempdir) / "kukicha.toml"
+            for text, message in (
+                ("radio_limit = 0\n", "radio_limit must be greater than 0"),
+                ("radio_limit = 501\n", "radio_limit must be no greater than 500"),
+                ("radio_limit = '25'\n", "radio_limit must be an integer"),
+            ):
+                with self.subTest(text=text):
+                    self.write_config(config_path, text)
+
+                    with self.assertRaisesRegex(PlayerConfigError, message):
+                        load_player_options(config_path)
 
     def test_load_player_options_rejects_invalid_remote_workers(self) -> None:
         with TemporaryDirectory() as tempdir:
@@ -2568,7 +2594,7 @@ class PlayerConfigTest(unittest.TestCase):
                 "Supported keys:\n  log_level\n  database_path\n  roots\n  remote_roots\n  remote_workers\n  ffmpeg_path\n"
                 "  youtube_download_root\n  prefer_musicbrainz_english_aliases\n  host\n  port\n"
                 "  trusted_proxy_headers\n  appearance\n  accent_color\n  toast_timeout_ms\n"
-                "  album_artist_split_patterns\n  auth.username\n  auth.password_hash_file\n"
+                "  radio_limit\n  album_artist_split_patterns\n  auth.username\n  auth.password_hash_file\n"
                 "  auth.cookie_max_age\n  auth.cookie_name\n"
                 "  opensubsonic.mount_prefix\n  opensubsonic.secret_file",
                 help_text,
@@ -3397,13 +3423,12 @@ class PlayerGenreFilterQueryParamsTest(unittest.TestCase):
             recommendation_track_radio_url(
                 make_track_view(7, root_position=0, path="/music/07.flac"),
                 mode="discovery",
-                limit=10,
             ),
-            "/recommendations/radio/track/7?mode=discovery&limit=10",
+            "/recommendations/radio/track/7?mode=discovery",
         )
         self.assertEqual(
-            recommendation_album_radio_url(album, limit=25),
-            "/recommendations/radio/album/brian-eno::ambient%201?limit=25",
+            recommendation_album_radio_url(album),
+            "/recommendations/radio/album/brian-eno::ambient%201",
         )
         self.assertEqual(
             recommendation_album_radio_url(replace(album, is_playlist=True)),
@@ -4704,7 +4729,7 @@ class PlayerWebAdapterTest(unittest.TestCase):
 
             page_response = client.get("/help")
             api_response = client.get("/api/jobs/events")
-            recommendation_response = client.get("/recommendations/radio/track/1")
+            recommendation_response = client.post("/recommendations/radio/track/1")
             audio_response = client.get("/audio/1")
             static_response = client.get("/static/player.css")
             health_response = client.get("/healthz")
@@ -5057,6 +5082,8 @@ class PlayerWebAdapterTest(unittest.TestCase):
         self.assertIn(b'class="filter-menu page-menu"', home_header)
         self.assertIn(b'aria-current="page">Home</a>', home_header)
         self.assertNotIn(b'<a class="button-link" href="/albums" data-nav>Albums</a>', home_header)
+        self.assertIn(b"What do you want to listen to?", home_response.data)
+        self.assertIn(b'data-recommendation-url="/recommendations/radio/random"', home_response.data)
         self.assertIn(b"No listening history yet", home_response.data)
         self.assertIn(b'href="/albums" data-nav>Albums</a>', home_response.data)
         self.assertIn(b'href="/artists" data-nav>Artists</a>', home_response.data)
@@ -5066,6 +5093,69 @@ class PlayerWebAdapterTest(unittest.TestCase):
             redirect_response.headers["Location"],
             "/albums?artist=Artist+A&search=Road",
         )
+
+    def test_home_radio_section_lists_active_parent_genres_and_random_last(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            database = temp_path / "kukicha.sqlite"
+            save_library(
+                MusicLibrary(
+                    roots=["/music"],
+                    tracks=[
+                        TrackRecord(
+                            path="/music/Rock/01.flac",
+                            root_position=0,
+                            file_type="flac",
+                            artist="Rock Artist",
+                            album_artist="Rock Artist",
+                            album="Rock Album",
+                            title="Rock Track",
+                            genres=["Rock"],
+                        ),
+                        TrackRecord(
+                            path="/music/Drone/01.flac",
+                            root_position=0,
+                            file_type="flac",
+                            artist="Drone Artist",
+                            album_artist="Drone Artist",
+                            album="Drone Album",
+                            title="Drone Track",
+                            styles=["Drone"],
+                        ),
+                        TrackRecord(
+                            path="/music/Unknown/01.flac",
+                            root_position=0,
+                            file_type="flac",
+                            artist="Unknown Artist",
+                            album_artist="Unknown Artist",
+                            album="Unknown Album",
+                            title="Unknown Track",
+                            genres=["__Unknown"],
+                        ),
+                    ],
+                    supported_extensions=[".flac"],
+                    generated_at="2026-05-01T00:00:00+00:00",
+                ),
+                database,
+            )
+            runtime = self.make_runtime(database)
+            with patch("kukicha.player_web_adapter.PlayerRuntime", return_value=runtime):
+                app = create_player_app(self.make_options(temp_path))
+                response = app.test_client().get("/")
+
+        html = response.data.decode()
+        self.assertIn("What do you want to listen to?", html)
+        self.assertIn(
+            'data-recommendation-url="/recommendations/radio/genre/Electronic"',
+            html,
+        )
+        self.assertIn(
+            'data-recommendation-url="/recommendations/radio/genre/Rock"',
+            html,
+        )
+        self.assertNotIn("/recommendations/radio/genre/__Unknown", html)
+        self.assertLess(html.index(">Electronic</button>"), html.index(">Rock</button>"))
+        self.assertLess(html.index(">Rock</button>"), html.index(">Random</button>"))
 
     def test_home_shows_recently_added_albums_from_file_created_at(self) -> None:
         class FixedDateTime(datetime):
@@ -5388,6 +5478,11 @@ class PlayerWebAdapterTest(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertIn(b"Continue Listening", response.data)
+        self.assertIn(b"What do you want to listen to?", response.data)
+        self.assertLess(
+            response.data.index(b"Continue Listening"),
+            response.data.index(b"What do you want to listen to?"),
+        )
         self.assertIn(b"My Funny Valentine", response.data)
         self.assertIn(b"Undercurrent", response.data)
         self.assertIn(b"Bill Evans and Jim Hall", response.data)
@@ -5433,6 +5528,11 @@ class PlayerWebAdapterTest(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertNotIn(b"Continue Listening", response.data)
+        self.assertIn(b"What do you want to listen to?", response.data)
+        self.assertLess(
+            response.data.index(b"What do you want to listen to?"),
+            response.data.index(b"No listening history yet"),
+        )
         self.assertIn(b"No listening history yet", response.data)
 
     def test_home_continue_listening_ignores_newer_external_now_playing(self) -> None:
@@ -6622,71 +6722,24 @@ class PlayerWebAdapterTest(unittest.TestCase):
             self.assertEqual(response.status_code, 404)
             self.assertEqual(response.get_json(), {"error": "album not found: missing-album"})
 
-    def test_track_recommendation_route_returns_json_shape(self) -> None:
-        with TemporaryDirectory() as tempdir:
-            temp_path = Path(tempdir)
-            database = temp_path / "kukicha.sqlite"
-            self.seed_recommendation_database(database)
-            with connect_database(database, create=False) as connection:
-                connection.execute(
-                    "UPDATE library_tracks SET track_number = ? WHERE track_id = ?",
-                    ("9", 2),
-                )
-
-            app = create_player_app(self.make_options(temp_path))
-
-            response = app.test_client().get(
-                "/recommendations/radio/track/1",
-                query_string={"limit": "1"},
-            )
-
-            self.assertEqual(response.status_code, 200)
-            self.assertEqual(response.content_type, "application/json; charset=utf-8")
-            payload = response.get_json()
-            self.assertEqual(payload["type"], "track_radio")
-            self.assertEqual(payload["mode"], "default")
-            self.assertEqual(payload["limit"], 1)
-            self.assertEqual(payload["count"], 1)
-            self.assertEqual(len(payload["results"]), 1)
-
-            result = payload["results"][0]
-            self.assertEqual(result["rank"], 1)
-            self.assertEqual(result["track"]["track_id"], 2)
-            self.assertEqual(result["track"]["title"], "Closest Song")
-            self.assertEqual(result["track"]["artist"], "Other Artist")
-            self.assertEqual(result["track"]["album_id"], "album-match")
-            self.assertEqual(result["track"]["genres"], ["Rock"])
-            self.assertEqual(result["track"]["styles"], ["Dream Pop"])
-            self.assertFalse(result["track"]["is_favorite"])
-            self.assertEqual(result["listening"]["track_play_count"], 7)
-            self.assertIn("base_similarity", result["score"])
-            self.assertIn("final_score", result["score"])
-            self.assertEqual(result["score"], result["explanation"]["score"])
-            self.assertEqual(result["explanation"]["matched_genres"], ["Rock"])
-            self.assertEqual(result["explanation"]["matched_styles"], ["Dream Pop"])
-            self.assertEqual(result["explanation"]["matched_decade"], "1990s")
-            self.assertFalse(result["explanation"]["same_artist"])
-
-    def test_recommendation_route_returns_json_for_browser_request(self) -> None:
+    def test_recommendation_get_routes_are_not_supported(self) -> None:
         with TemporaryDirectory() as tempdir:
             temp_path = Path(tempdir)
             database = temp_path / "kukicha.sqlite"
             self.seed_recommendation_database(database)
 
             app = create_player_app(self.make_options(temp_path))
+            client = app.test_client()
 
-            response = app.test_client().get(
-                "/recommendations/radio/track/1",
-                query_string={"limit": "1"},
-                headers={"Accept": "text/html"},
+            self.assertEqual(client.get("/recommendations/radio/track/1").status_code, 405)
+            self.assertEqual(
+                client.get("/recommendations/radio/album/album-seed").status_code,
+                405,
             )
-
-            self.assertEqual(response.status_code, 200)
-            self.assertEqual(response.content_type, "application/json; charset=utf-8")
-            payload = response.get_json()
-            self.assertEqual(payload["type"], "track_radio")
-            self.assertEqual(payload["limit"], 1)
-            self.assertEqual(payload["count"], 1)
+            self.assertEqual(
+                client.get("/recommendations/radio/artist/Seed%20Artist").status_code,
+                405,
+            )
 
     def test_recommendation_post_route_queues_generation_job(self) -> None:
         with TemporaryDirectory() as tempdir:
@@ -6707,7 +6760,7 @@ class PlayerWebAdapterTest(unittest.TestCase):
                     "operation": "Album Radio",
                     "playlist": "Seed Artist - Seed Album",
                     "mode": "discovery",
-                    "limit": 10,
+                    "limit": 25,
                 },
             )
             with (
@@ -6723,7 +6776,7 @@ class PlayerWebAdapterTest(unittest.TestCase):
                 app = create_player_app(self.make_options(temp_path))
                 response = app.test_client().post(
                     "/recommendations/radio/album/album-seed",
-                    query_string={"mode": "discovery", "limit": "10"},
+                    query_string={"mode": "discovery"},
                 )
 
             self.assertEqual(response.status_code, 202)
@@ -6735,44 +6788,85 @@ class PlayerWebAdapterTest(unittest.TestCase):
                 "album_radio",
                 "album-seed",
                 mode="discovery",
-                limit=10,
             )
 
-    def test_album_and_artist_recommendation_routes_return_json(self) -> None:
+    def test_artist_recommendation_post_route_accepts_artist_only_mode(self) -> None:
         with TemporaryDirectory() as tempdir:
             temp_path = Path(tempdir)
-            database = temp_path / "kukicha.sqlite"
-            self.seed_recommendation_database(database)
-
-            app = create_player_app(self.make_options(temp_path))
-            client = app.test_client()
-
-            album_response = client.get(
-                "/recommendations/radio/album/album-seed",
-                query_string={"mode": "genre_only", "limit": "1"},
+            runtime = self.make_runtime(temp_path / "kukicha.sqlite")
+            queued_job = PlayerJobRecord(
+                job_id=18,
+                created_at="2026-04-21T10:00:00Z",
+                updated_at="2026-04-21T10:00:00Z",
+                started_at=None,
+                finished_at=None,
+                cancel_requested_at=None,
+                kind="generate_playlist",
+                status="queued",
+                message="Artist Radio queued.",
+                reason="",
+                context={
+                    "operation": "Artist Radio",
+                    "playlist": "Seed Artist",
+                    "mode": "artist_only",
+                    "limit": 25,
+                },
             )
-            artist_response = client.get(
-                "/recommendations/radio/artist/Seed%20Artist",
-                query_string={"mode": "artist_only", "limit": "1"},
-            )
-            album_payload = album_response.get_json()
-            self.assertEqual(album_response.status_code, 200)
-            self.assertEqual(album_payload["type"], "album_radio")
-            self.assertEqual(album_payload["mode"], "genre_only")
-            self.assertEqual(album_payload["limit"], 1)
-            self.assertNotEqual(
-                album_payload["results"][0]["track"]["album_id"],
-                "album-seed",
-            )
+            with (
+                patch("kukicha.player_web_adapter.PlayerRuntime", return_value=runtime),
+                patch(
+                    "kukicha.player_web_adapter.start_recommendation_playlist",
+                    return_value={
+                        "message": "Artist Radio queued.",
+                        "job": job_payload(queued_job),
+                    },
+                ) as start_playlist,
+            ):
+                app = create_player_app(self.make_options(temp_path))
+                response = app.test_client().post(
+                    "/recommendations/radio/artist/Seed%20Artist",
+                    query_string={"mode": "artist_only"},
+                )
 
-            artist_payload = artist_response.get_json()
-            self.assertEqual(artist_response.status_code, 200)
-            self.assertEqual(artist_payload["type"], "artist_radio")
-            self.assertEqual(artist_payload["mode"], "artist_only")
-            self.assertEqual(artist_payload["limit"], 1)
-            self.assertEqual(
-                artist_payload["results"][0]["track"]["artist"],
+            self.assertEqual(response.status_code, 202)
+            start_playlist.assert_called_once_with(
+                runtime,
+                "artist_radio",
                 "Seed Artist",
+                mode="artist_only",
+            )
+
+    def test_genre_and_random_recommendation_post_routes_queue_jobs(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            runtime = self.make_runtime(temp_path / "kukicha.sqlite")
+            with (
+                patch("kukicha.player_web_adapter.PlayerRuntime", return_value=runtime),
+                patch(
+                    "kukicha.player_web_adapter.start_recommendation_playlist",
+                    return_value={
+                        "message": "Playlist queued.",
+                        "job": {
+                            "job_id": 19,
+                            "kind": "generate_playlist",
+                            "status": "queued",
+                        },
+                    },
+                ) as start_playlist,
+            ):
+                app = create_player_app(self.make_options(temp_path))
+                client = app.test_client()
+                genre_response = client.post("/recommendations/radio/genre/Rock")
+                random_response = client.post("/recommendations/radio/random")
+
+            self.assertEqual(genre_response.status_code, 202)
+            self.assertEqual(random_response.status_code, 202)
+            self.assertEqual(
+                start_playlist.call_args_list,
+                [
+                    call(runtime, "genre_radio", "Rock"),
+                    call(runtime, "random_playlist"),
+                ],
             )
 
     def test_recommendation_routes_return_json_errors(self) -> None:
@@ -6784,16 +6878,13 @@ class PlayerWebAdapterTest(unittest.TestCase):
             app = create_player_app(self.make_options(temp_path))
             client = app.test_client()
 
-            invalid_mode_response = client.get(
+            invalid_mode_response = client.post(
                 "/recommendations/radio/track/1",
                 query_string={"mode": "ambient_only"},
             )
-            missing_track_response = client.get("/recommendations/radio/track/404")
-            missing_album_response = client.get(
+            missing_track_response = client.post("/recommendations/radio/track/404")
+            missing_album_response = client.post(
                 "/recommendations/radio/album/missing-album"
-            )
-            missing_artist_response = client.get(
-                "/recommendations/radio/artist/Missing%20Artist"
             )
 
             self.assertEqual(invalid_mode_response.status_code, 400)
@@ -6811,33 +6902,6 @@ class PlayerWebAdapterTest(unittest.TestCase):
                 missing_album_response.get_json(),
                 {"error": "album not found: missing-album"},
             )
-            self.assertEqual(missing_artist_response.status_code, 404)
-            self.assertEqual(
-                missing_artist_response.get_json(),
-                {"error": "artist not found: Missing Artist"},
-            )
-
-    def test_recommendation_route_clamps_limit(self) -> None:
-        with TemporaryDirectory() as tempdir:
-            temp_path = Path(tempdir)
-            database = temp_path / "kukicha.sqlite"
-            self.seed_recommendation_database(database)
-
-            app = create_player_app(self.make_options(temp_path))
-
-            high_response = app.test_client().get(
-                "/recommendations/radio/track/1",
-                query_string={"limit": "9999"},
-            )
-            low_response = app.test_client().get(
-                "/recommendations/radio/track/1",
-                query_string={"limit": "0"},
-            )
-
-            self.assertEqual(high_response.status_code, 200)
-            self.assertEqual(high_response.get_json()["limit"], MAX_RECOMMENDATION_LIMIT)
-            self.assertEqual(low_response.status_code, 200)
-            self.assertEqual(low_response.get_json()["limit"], 1)
 
     def test_cancel_job_route_returns_job_payload(self) -> None:
         with TemporaryDirectory() as tempdir:
@@ -7372,6 +7436,7 @@ class PlayerWebAdapterTest(unittest.TestCase):
                         "port = 43210",
                         "accent_color = 'cyan'",
                         "appearance = 'dim'",
+                        "radio_limit = 40",
                         "album_artist_split_patterns = ['&', '/']",
                     )
                 ),
@@ -7430,6 +7495,8 @@ class PlayerWebAdapterTest(unittest.TestCase):
             self.assertIn(b"<code>cyan</code>", response.data)
             self.assertIn(b"<code>appearance</code>", response.data)
             self.assertIn(b"<code>dim</code>", response.data)
+            self.assertIn(b"<code>radio_limit</code>", response.data)
+            self.assertIn(b"<code>40</code>", response.data)
             self.assertIn(b"<code>roots</code>", response.data)
             self.assertIn(b'class="config-array-value"', response.data)
             self.assertIn(f"<code>{(temp_path / 'music-a').resolve()}</code>".encode(), response.data)
@@ -11242,6 +11309,7 @@ class PlayerAlbumTagEditTest(unittest.TestCase):
             self.seed_album(database, (first, second))
             runtime = Mock()
             runtime.database = database
+            runtime.radio_limit = 5
             runtime.enqueue_job.return_value = PlayerJobRecord(
                 job_id=14,
                 created_at="2026-04-21T10:00:00Z",
@@ -11334,6 +11402,7 @@ class PlayerAlbumTagEditTest(unittest.TestCase):
             self.seed_album(database, (first, second))
             runtime = Mock()
             runtime.database = database
+            runtime.radio_limit = 5
             runtime.enqueue_job.return_value = PlayerJobRecord(
                 job_id=18,
                 created_at="2026-04-21T10:00:00Z",
@@ -11348,7 +11417,7 @@ class PlayerAlbumTagEditTest(unittest.TestCase):
                 context={
                     "operation": "Album Radio",
                     "playlist": "Old Artist - Album",
-                    "mode": "genre_only",
+                    "mode": "discovery",
                     "limit": 5,
                 },
             )
@@ -11357,8 +11426,7 @@ class PlayerAlbumTagEditTest(unittest.TestCase):
                 runtime,
                 "album_radio",
                 "old-artist::album",
-                mode="genre_only",
-                limit=5,
+                mode="discovery",
             )
 
             self.assertEqual(result["message"], "Album Radio queued.")
@@ -11374,7 +11442,7 @@ class PlayerAlbumTagEditTest(unittest.TestCase):
                 {
                     "operation": "Album Radio",
                     "playlist": "Old Artist - Album",
-                    "mode": "genre_only",
+                    "mode": "discovery",
                     "limit": 5,
                 },
             )

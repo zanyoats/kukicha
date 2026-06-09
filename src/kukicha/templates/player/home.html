@@ -18,18 +18,6 @@
     </form>
   </header>
 
-  {% if show_history_empty %}
-    <section class="home-empty" aria-label="No listening history">
-      <h2>No listening history yet</h2>
-      <p>Start with the library, browse artists, or pick a playlist. This page will fill in as you listen.</p>
-      <nav class="home-empty-actions" aria-label="Library shortcuts">
-        <a class="button-link primary" href="/albums" data-nav>Albums</a>
-        <a class="button-link" href="/artists" data-nav>Artists</a>
-        <a class="button-link" href="/playlists" data-nav>Playlists</a>
-      </nav>
-    </section>
-  {% endif %}
-
   {% if continue_listening %}
     {% set feature = continue_listening.album %}
     <section class="home-feature" aria-labelledby="continue-listening-title">
@@ -64,6 +52,33 @@
           <span>Now playing</span>
         </div>
       </div>
+    </section>
+  {% endif %}
+
+  {% if home_radio_choices %}
+    <section class="home-section home-radio-section" aria-labelledby="home-radio-title">
+      <div class="home-section-heading">
+        <h2 id="home-radio-title">What do you want to listen to?</h2>
+      </div>
+      <div class="home-radio-grid">
+        {% for item in home_radio_choices %}
+          <button class="button-link home-radio-button" type="button"
+            data-generate-recommendation data-recommendation-url="{{ item.url }}"
+            data-recommendation-label="{{ item.action_label }}">{{ item.label }}</button>
+        {% endfor %}
+      </div>
+    </section>
+  {% endif %}
+
+  {% if show_history_empty %}
+    <section class="home-empty" aria-label="No listening history">
+      <h2>No listening history yet</h2>
+      <p>Start with the library, browse artists, or pick a playlist. This page will fill in as you listen.</p>
+      <nav class="home-empty-actions" aria-label="Library shortcuts">
+        <a class="button-link primary" href="/albums" data-nav>Albums</a>
+        <a class="button-link" href="/artists" data-nav>Artists</a>
+        <a class="button-link" href="/playlists" data-nav>Playlists</a>
+      </nav>
     </section>
   {% endif %}
 

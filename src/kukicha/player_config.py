@@ -35,7 +35,11 @@ from .player_navigation import (
     recommendation_track_radio_url,
 )
 from .static_assets import static_asset_url
-from .use_case import prepare_player_database
+from .use_case import (
+    DEFAULT_RECOMMENDATION_LIMIT,
+    MAX_RECOMMENDATION_LIMIT,
+    prepare_player_database,
+)
 
 DEFAULT_PLAYER_LOG_LEVEL = "INFO"
 DEFAULT_PLAYER_HOST = "127.0.0.1"
@@ -52,6 +56,7 @@ DEFAULT_APPEARANCE = SYSTEM_APPEARANCE
 DEFAULT_PREFER_MUSICBRAINZ_ENGLISH_ALIASES = True
 DEFAULT_AUTH_COOKIE_MAX_AGE = "180d"
 DEFAULT_AUTH_COOKIE_NAME = "kukicha_cookie"
+DEFAULT_RADIO_LIMIT = DEFAULT_RECOMMENDATION_LIMIT
 PLAYER_CONFIG_FILENAME = "kukicha.toml"
 PLAYER_DATABASE_FILENAME = "kukicha.sqlite"
 PLAYER_CONFIG_KEY_ORDER = (
@@ -69,6 +74,7 @@ PLAYER_CONFIG_KEY_ORDER = (
     "appearance",
     "accent_color",
     "toast_timeout_ms",
+    "radio_limit",
     "album_artist_split_patterns",
 )
 AUTH_CONFIG_KEY_ORDER = (
@@ -130,6 +136,7 @@ class PlayerServerOptions:
     accent_color: str = DEFAULT_ACCENT_COLOR
     appearance: str = DEFAULT_APPEARANCE
     toast_timeout_ms: int = DEFAULT_TOAST_TIMEOUT_MS
+    radio_limit: int = DEFAULT_RADIO_LIMIT
     album_artist_split_patterns: tuple[str, ...] = DEFAULT_ALBUM_ARTIST_SPLIT_PATTERNS
     youtube_download_root: str | None = None
     prefer_musicbrainz_english_aliases: bool = DEFAULT_PREFER_MUSICBRAINZ_ENGLISH_ALIASES
@@ -347,6 +354,11 @@ def load_player_options(
         config.get("toast_timeout_ms", DEFAULT_TOAST_TIMEOUT_MS),
         key="toast_timeout_ms",
     )
+    radio_limit = parse_config_bounded_positive_int(
+        config.get("radio_limit", DEFAULT_RADIO_LIMIT),
+        key="radio_limit",
+        max_value=MAX_RECOMMENDATION_LIMIT,
+    )
     album_artist_split_patterns = parse_album_artist_split_patterns(
         config.get("album_artist_split_patterns", DEFAULT_ALBUM_ARTIST_SPLIT_PATTERNS)
     )
@@ -386,6 +398,7 @@ def load_player_options(
         accent_color=accent_color,
         appearance=appearance,
         toast_timeout_ms=toast_timeout_ms,
+        radio_limit=radio_limit,
         album_artist_split_patterns=album_artist_split_patterns,
         prefer_musicbrainz_english_aliases=prefer_musicbrainz_english_aliases,
         auth=auth,
@@ -487,6 +500,7 @@ def player_config_values(
         "accent_color": options.accent_color,
         "appearance": options.appearance,
         "toast_timeout_ms": str(options.toast_timeout_ms),
+        "radio_limit": str(options.radio_limit),
         "album_artist_split_patterns": format_player_config_string_list(
             options.album_artist_split_patterns
         ),
@@ -810,6 +824,21 @@ def parse_positive_milliseconds(value: object, *, key: str) -> int:
         raise PlayerConfigError(f"{key} must be an integer")
     if value <= 0:
         raise PlayerConfigError(f"{key} must be greater than 0")
+    return value
+
+
+def parse_config_bounded_positive_int(
+    value: object,
+    *,
+    key: str,
+    max_value: int,
+) -> int:
+    if type(value) is not int:
+        raise PlayerConfigError(f"{key} must be an integer")
+    if value <= 0:
+        raise PlayerConfigError(f"{key} must be greater than 0")
+    if value > max_value:
+        raise PlayerConfigError(f"{key} must be no greater than {max_value}")
     return value
 
 def parse_optional_positive_int(value: object, *, key: str) -> int | None:

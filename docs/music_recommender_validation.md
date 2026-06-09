@@ -11,21 +11,22 @@ player database after scanning a personal library.
 ## Automated Fixture Validation
 
 The acceptance fixture tests in `tests/test_recommendations.py` cover the
-source-plan behavior across track radio, album radio, artist radio, and all
-supported modes.
+source-plan behavior across track radio, album radio, artist radio, genre
+radio, random playlists, and all supported seeded-radio modes.
 
 Concrete examples from the fixtures:
 
 - Track radio seeded from `Seed Song` excludes track `1` and ranks
   `Closest Song` first in default mode because it shares `Rock`, `Dream Pop`,
   and the `1990s` decade.
-- Genre-only track radio for `Seed Song` treats `Closest Song` and
-  `Genre Cousin` as equal genre matches because both share `Rock`; it does not
-  give `Same Artist Drift` credit for the artist match.
+- Genre radio for `Rock` builds a default-mode profile from all Rock tracks,
+  keeps candidates inside that parent genre, and still rewards closer style and
+  decade matches within the genre.
 - Artist-only track radio for `Seed Song` returns only `Same Artist Drift`; the
   seed track is excluded and unrelated artists are not used as fill.
-- Random track radio excludes the seed track and sets content similarity to
-  `0.0`; the explanation is driven by random draw and listening weights.
+- Random playlist generation is seedless across the full library and sets
+  content similarity to `0.0`; the explanation is driven by random draw and
+  listening weights.
 - Album radio for `Two Moods` excludes seed-album tracks `Guitar Light` and
   `Cloud Room`, then validates both sides of the album profile by matching
   `Cloud Echo` on `Ambient`/`Drone` and `Guitar Echo` on `Rock`/`Dream Pop`.
@@ -49,15 +50,16 @@ Open the player and choose three known references:
   one ambient/electronic track.
 - An artist with more than one album plus adjacent artists in the library.
 
-For each reference, open or request:
+For each reference, generate radio from the player UI, or request the POST
+routes directly:
 
 ```text
-/recommendations/radio/track/<track_id>?mode=default&limit=25
-/recommendations/radio/track/<track_id>?mode=genre_only&limit=25
-/recommendations/radio/track/<track_id>?mode=artist_only&limit=25
-/recommendations/radio/track/<track_id>?mode=random&limit=25
-/recommendations/radio/album/<album_id>?mode=default&limit=25
-/recommendations/radio/artist/<artist>?mode=default&limit=25
+POST /recommendations/radio/track/<track_id>?mode=default
+POST /recommendations/radio/track/<track_id>?mode=artist_only
+POST /recommendations/radio/album/<album_id>?mode=default
+POST /recommendations/radio/artist/<artist>?mode=discovery
+POST /recommendations/radio/genre/<genre>
+POST /recommendations/radio/random
 ```
 
 Expected observations:
@@ -65,12 +67,14 @@ Expected observations:
 - Default mode should feel close but not same-artist-only. For example, a
   dream-pop track should prefer other dream-pop or nearby rock tracks before
   unrelated tracks by the same artist.
-- Genre-only should widen the result set. For example, a `Rock` seed can bring
-  in garage-rock or psychedelic-rock tracks even when style and decade differ.
+- Genre radio should keep every candidate inside the selected parent genre,
+  including tracks that match through a style's taxonomy parent, while still
+  ranking with default-mode genre/style/artist/decade features.
 - Artist-only should return fewer results instead of filling with unrelated
   artists when the artist catalog is small.
-- Random should behave like shuffle with memory: recently played tracks can
-  appear, but explanations should show lower recency multipliers.
+- Random should behave like shuffle with memory across the full library:
+  recently played tracks can appear, but explanations should show lower recency
+  multipliers.
 - Album radio should not include tracks from the seed album by default and
   should reflect more than the first track's metadata.
 

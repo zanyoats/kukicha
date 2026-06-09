@@ -1340,7 +1340,7 @@ test("preserve scroll navigation links do not scroll after fragment render", asy
 });
 
 test("navigation links inside dropdown menus close the containing menu", async () => {
-  const pageUrl = "http://localhost/recommendations/radio/track/7";
+  const pageUrl = "http://localhost/albums";
   const harness = createHarness(
     {
       track_ids: [],
@@ -1353,7 +1353,7 @@ test("navigation links inside dropdown menus close the containing menu", async (
     {
       fetchResponses: {
         [pageUrl]: {
-          text: '<div class="view-page recommendations-page" data-page="recommendations"></div>',
+          text: '<div class="view-page index-page" data-page="library"></div>',
         },
       },
     }
@@ -1386,7 +1386,7 @@ test("navigation links inside dropdown menus close the containing menu", async (
   assert.equal(prevented, true);
   assert.equal(menu.open, false);
   assert.equal(String(harness.fetchCalls[0].url), pageUrl);
-  assert.equal(harness.view.dataset.page, "recommendations");
+  assert.equal(harness.view.dataset.page, "library");
 });
 
 test("recommendation generation posts a cancelable job and closes the menu", async () => {

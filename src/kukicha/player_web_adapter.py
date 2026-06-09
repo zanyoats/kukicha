@@ -55,12 +55,7 @@ from .use_case import (
     ArtistNotFoundError,
     PlaylistItemNotFoundError,
     PlaylistNotFoundError,
-    RECOMMENDATION_CONFIG,
-    RecommendationResult,
-    RecommendationScore,
-    RecommendationService,
     TrackNotFoundError,
-    normalize_recommendation_limit,
     normalize_recommendation_mode,
 )
 from .player_config import (
@@ -288,84 +283,53 @@ def create_player_app(options: PlayerServerOptions) -> Flask:
     def playlist_cover(playlist_id: int) -> Response:
         return playlist_cover_response(playlist_id)
 
-    @app.get("/recommendations/radio/track/<int:track_id>")
-    def recommendation_track_radio(track_id: int) -> Response:
-        mode, limit = recommendation_query_params()
-        results = recommendation_service().get_track_radio(
-            track_id,
-            mode=mode,
-            limit=limit,
-        )
-        return recommendation_response(
-            "track_radio",
-            results,
-            mode=mode,
-            limit=limit,
-        )
-
     @app.post("/recommendations/radio/track/<int:track_id>")
     def start_recommendation_track_radio(track_id: int) -> Response:
-        mode, limit = recommendation_query_params()
+        mode = recommendation_mode_param()
         result = start_recommendation_playlist(
             player_context().runtime,
             "track_radio",
             track_id,
             mode=mode,
-            limit=limit,
         )
         return json_response(result, status=202)
-
-    @app.get("/recommendations/radio/album/<path:album_id>")
-    def recommendation_album_radio(album_id: str) -> Response:
-        mode, limit = recommendation_query_params()
-        results = recommendation_service().get_album_radio(
-            album_id,
-            mode=mode,
-            limit=limit,
-        )
-        return recommendation_response(
-            "album_radio",
-            results,
-            mode=mode,
-            limit=limit,
-        )
 
     @app.post("/recommendations/radio/album/<path:album_id>")
     def start_recommendation_album_radio(album_id: str) -> Response:
-        mode, limit = recommendation_query_params()
+        mode = recommendation_mode_param()
         result = start_recommendation_playlist(
             player_context().runtime,
             "album_radio",
             album_id,
             mode=mode,
-            limit=limit,
         )
         return json_response(result, status=202)
 
-    @app.get("/recommendations/radio/artist/<path:artist>")
-    def recommendation_artist_radio(artist: str) -> Response:
-        mode, limit = recommendation_query_params()
-        results = recommendation_service().get_artist_radio(
-            artist,
-            mode=mode,
-            limit=limit,
-        )
-        return recommendation_response(
-            "artist_radio",
-            results,
-            mode=mode,
-            limit=limit,
-        )
-
     @app.post("/recommendations/radio/artist/<path:artist>")
     def start_recommendation_artist_radio(artist: str) -> Response:
-        mode, limit = recommendation_query_params()
+        mode = recommendation_mode_param()
         result = start_recommendation_playlist(
             player_context().runtime,
             "artist_radio",
             artist,
             mode=mode,
-            limit=limit,
+        )
+        return json_response(result, status=202)
+
+    @app.post("/recommendations/radio/genre/<path:genre>")
+    def start_recommendation_genre_radio(genre: str) -> Response:
+        result = start_recommendation_playlist(
+            player_context().runtime,
+            "genre_radio",
+            genre,
+        )
+        return json_response(result, status=202)
+
+    @app.post("/recommendations/radio/random")
+    def start_recommendation_random_playlist() -> Response:
+        result = start_recommendation_playlist(
+            player_context().runtime,
+            "random_playlist",
         )
         return json_response(result, status=202)
 
@@ -980,98 +944,8 @@ def rendered_response(context: dict[str, Any], *, status: int = 200) -> Response
     return html_response(html, status=status)
 
 
-def recommendation_service() -> RecommendationService:
-    return RecommendationService(player_context().database)
-
-
-def recommendation_query_params() -> tuple[str, int]:
-    return (
-        normalize_recommendation_mode(request.args.get("mode")),
-        normalize_recommendation_limit(
-            request.args.get("limit"),
-            default=RECOMMENDATION_CONFIG.default_limit,
-            max_limit=RECOMMENDATION_CONFIG.max_limit,
-        ),
-    )
-
-
-def recommendation_response(
-    kind: str,
-    results: tuple[RecommendationResult, ...],
-    *,
-    mode: str,
-    limit: int,
-) -> Response:
-    payload: dict[str, object] = {
-        "type": kind,
-        "mode": mode,
-        "limit": limit,
-        "count": len(results),
-        "results": [
-            recommendation_result_payload(rank, result)
-            for rank, result in enumerate(results, start=1)
-        ],
-    }
-    return json_response(payload)
-
-
-def recommendation_result_payload(
-    rank: int,
-    result: RecommendationResult,
-) -> dict[str, object]:
-    metadata = result.candidate.metadata
-    listening = result.candidate.listening
-    return {
-        "rank": rank,
-        "track": {
-            "track_id": metadata.track_id,
-            "path": metadata.path,
-            "title": metadata.title,
-            "artist": metadata.artist,
-            "album_artist": metadata.album_artist,
-            "album_artists": list(metadata.album_artists),
-            "album_id": metadata.album_id,
-            "album": metadata.album,
-            "date": metadata.date,
-            "decade": metadata.decade,
-            "genres": list(metadata.genres),
-            "styles": list(metadata.styles),
-            "is_favorite": metadata.is_favorite,
-            "starred_at": metadata.starred_at,
-        },
-        "listening": {
-            "track_play_count": listening.track_play_count,
-            "album_play_count": listening.album_play_count,
-            "artist_play_count": listening.artist_play_count,
-            "track_last_played_at": listening.track_last_played_at,
-            "album_last_played_at": listening.album_last_played_at,
-            "artist_last_played_at": listening.artist_last_played_at,
-        },
-        "score": recommendation_score_payload(result.score),
-        "explanation": {
-            "matched_genres": list(result.explanation.matched_genres),
-            "matched_styles": list(result.explanation.matched_styles),
-            "matched_decade": result.explanation.matched_decade,
-            "same_artist": result.explanation.same_artist,
-            "score": recommendation_score_payload(result.explanation.score),
-        },
-    }
-
-
-def recommendation_score_payload(score: RecommendationScore) -> dict[str, object]:
-    return {
-        "base_similarity": score.base_similarity,
-        "favorite_boost": score.favorite_boost,
-        "track_play_penalty": score.track_play_penalty,
-        "artist_play_penalty": score.artist_play_penalty,
-        "album_play_penalty": score.album_play_penalty,
-        "recency_penalty": score.recency_penalty,
-        "random_draw": score.random_draw,
-        "random_recency_multiplier": score.random_recency_multiplier,
-        "random_play_count_multiplier": score.random_play_count_multiplier,
-        "random_selection_weight": score.random_selection_weight,
-        "final_score": score.final_score,
-    }
+def recommendation_mode_param() -> str:
+    return normalize_recommendation_mode(request.args.get("mode"))
 
 
 def html_response(html: str, *, status: int = 200) -> Response:
