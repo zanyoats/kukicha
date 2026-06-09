@@ -16,7 +16,6 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 from werkzeug.serving import make_server
 
 from ._compat import UTC
-from .display import display_album_title
 from .use_case import (
     NATIVE_PLAYBACK_SOURCE,
     append_queue as append_queue_command,
@@ -38,6 +37,7 @@ from .use_case import (
     start_album_delete,
     start_album_edit,
     start_bulk_album_metadata_edit,
+    start_recommendation_playlist,
     start_rescan_library,
     start_sync,
     track_artwork,
@@ -53,7 +53,6 @@ from .use_case import (
 from .use_case import (
     AlbumNotFoundError,
     ArtistNotFoundError,
-    DEFAULT_DAILY_RECOMMENDATION_LIMIT,
     PlaylistItemNotFoundError,
     PlaylistNotFoundError,
     RECOMMENDATION_CONFIG,
@@ -63,7 +62,6 @@ from .use_case import (
     TrackNotFoundError,
     normalize_recommendation_limit,
     normalize_recommendation_mode,
-    recommendation_daily_date_key,
 )
 from .player_config import (
     LOGGER,
@@ -78,14 +76,7 @@ from .player_errors import PlayerConfigError, PlayerConflictError, PlayerNotFoun
 from .library_sources import resolve_remote_worker_count
 from .media_resources import AudioResource, local_audio_resource
 from .player_media import audio_resource_head, iter_audio_resource_bytes
-from .player_navigation import (
-    PLAYER_PAGE_ROUTE_KEYS,
-    recommendation_album_radio_url,
-    recommendation_artist_radio_url,
-    recommendation_daily_url,
-    recommendation_mode_links,
-    recommendation_track_radio_url,
-)
+from .player_navigation import PLAYER_PAGE_ROUTE_KEYS
 from .player_platform import (
     register_player_signal_handlers,
     restore_signal_handlers,
@@ -111,7 +102,6 @@ from .player_views import (
     build_playlist_edit_context,
     build_playlist_index_context,
     build_queue_context,
-    build_recommendation_context,
     build_roots_page_context,
     build_search_context,
     build_simple_page_context,
@@ -306,31 +296,24 @@ def create_player_app(options: PlayerServerOptions) -> Flask:
             mode=mode,
             limit=limit,
         )
-        if wants_recommendation_page():
-            return rendered_response(
-                build_recommendation_context(
-                    player_context().runtime,
-                    page_heading="Track Radio",
-                    source_text=recommendation_track_source_text(track_id),
-                    results=results,
-                    mode=mode,
-                    limit=limit,
-                    mode_links=recommendation_mode_links(
-                        lambda link_mode: recommendation_track_radio_url(
-                            track_id,
-                            mode=link_mode,
-                            limit=limit,
-                        ),
-                        mode,
-                    ),
-                )
-            )
         return recommendation_response(
             "track_radio",
             results,
             mode=mode,
             limit=limit,
         )
+
+    @app.post("/recommendations/radio/track/<int:track_id>")
+    def start_recommendation_track_radio(track_id: int) -> Response:
+        mode, limit = recommendation_query_params()
+        result = start_recommendation_playlist(
+            player_context().runtime,
+            "track_radio",
+            track_id,
+            mode=mode,
+            limit=limit,
+        )
+        return json_response(result, status=202)
 
     @app.get("/recommendations/radio/album/<path:album_id>")
     def recommendation_album_radio(album_id: str) -> Response:
@@ -340,31 +323,24 @@ def create_player_app(options: PlayerServerOptions) -> Flask:
             mode=mode,
             limit=limit,
         )
-        if wants_recommendation_page():
-            return rendered_response(
-                build_recommendation_context(
-                    player_context().runtime,
-                    page_heading="Album Radio",
-                    source_text=recommendation_album_source_text(album_id),
-                    results=results,
-                    mode=mode,
-                    limit=limit,
-                    mode_links=recommendation_mode_links(
-                        lambda link_mode: recommendation_album_radio_url(
-                            album_id,
-                            mode=link_mode,
-                            limit=limit,
-                        ),
-                        mode,
-                    ),
-                )
-            )
         return recommendation_response(
             "album_radio",
             results,
             mode=mode,
             limit=limit,
         )
+
+    @app.post("/recommendations/radio/album/<path:album_id>")
+    def start_recommendation_album_radio(album_id: str) -> Response:
+        mode, limit = recommendation_query_params()
+        result = start_recommendation_playlist(
+            player_context().runtime,
+            "album_radio",
+            album_id,
+            mode=mode,
+            limit=limit,
+        )
+        return json_response(result, status=202)
 
     @app.get("/recommendations/radio/artist/<path:artist>")
     def recommendation_artist_radio(artist: str) -> Response:
@@ -374,25 +350,6 @@ def create_player_app(options: PlayerServerOptions) -> Flask:
             mode=mode,
             limit=limit,
         )
-        if wants_recommendation_page():
-            return rendered_response(
-                build_recommendation_context(
-                    player_context().runtime,
-                    page_heading="Artist Radio",
-                    source_text=artist,
-                    results=results,
-                    mode=mode,
-                    limit=limit,
-                    mode_links=recommendation_mode_links(
-                        lambda link_mode: recommendation_artist_radio_url(
-                            artist,
-                            mode=link_mode,
-                            limit=limit,
-                        ),
-                        mode,
-                    ),
-                )
-            )
         return recommendation_response(
             "artist_radio",
             results,
@@ -400,44 +357,17 @@ def create_player_app(options: PlayerServerOptions) -> Flask:
             limit=limit,
         )
 
-    @app.get("/recommendations/daily")
-    def recommendation_daily() -> Response:
-        mode, limit = recommendation_query_params(
-            default_limit=DEFAULT_DAILY_RECOMMENDATION_LIMIT
-        )
-        date_value = request.args.get("date")
-        results = recommendation_service().get_daily_playlist(
+    @app.post("/recommendations/radio/artist/<path:artist>")
+    def start_recommendation_artist_radio(artist: str) -> Response:
+        mode, limit = recommendation_query_params()
+        result = start_recommendation_playlist(
+            player_context().runtime,
+            "artist_radio",
+            artist,
             mode=mode,
             limit=limit,
-            date=date_value,
         )
-        playlist_date = recommendation_daily_date_key(date_value)
-        if wants_recommendation_page():
-            return rendered_response(
-                build_recommendation_context(
-                    player_context().runtime,
-                    page_heading="Daily Recommendations",
-                    source_text=playlist_date,
-                    results=results,
-                    mode=mode,
-                    limit=limit,
-                    mode_links=recommendation_mode_links(
-                        lambda link_mode: recommendation_daily_url(
-                            mode=link_mode,
-                            limit=limit,
-                            date=playlist_date,
-                        ),
-                        mode,
-                    ),
-                )
-            )
-        return recommendation_response(
-            "daily",
-            results,
-            mode=mode,
-            limit=limit,
-            playlist_date=playlist_date,
-        )
+        return json_response(result, status=202)
 
     @app.get("/healthz")
     def healthz() -> Response:
@@ -858,22 +788,7 @@ def wants_json_error() -> bool:
 
 
 def wants_recommendation_page() -> bool:
-    if not request.path.startswith("/recommendations/"):
-        return False
-    if wants_fragment():
-        return True
-    accept_header = request.headers.get("Accept", "")
-    if "text/html" not in accept_header and "application/xhtml+xml" not in accept_header:
-        return False
-    best_match = request.accept_mimetypes.best_match(
-        ("text/html", "application/json")
-    )
-    if best_match != "text/html":
-        return False
-    return (
-        request.accept_mimetypes["text/html"]
-        >= request.accept_mimetypes["application/json"]
-    )
+    return False
 
 
 def is_public_path() -> bool:
@@ -1069,40 +984,15 @@ def recommendation_service() -> RecommendationService:
     return RecommendationService(player_context().database)
 
 
-def recommendation_query_params(
-    *,
-    default_limit: int | None = None,
-) -> tuple[str, int]:
-    limit_default = (
-        RECOMMENDATION_CONFIG.default_limit
-        if default_limit is None
-        else int(default_limit)
-    )
+def recommendation_query_params() -> tuple[str, int]:
     return (
         normalize_recommendation_mode(request.args.get("mode")),
         normalize_recommendation_limit(
             request.args.get("limit"),
-            default=limit_default,
+            default=RECOMMENDATION_CONFIG.default_limit,
             max_limit=RECOMMENDATION_CONFIG.max_limit,
         ),
     )
-
-
-def recommendation_track_source_text(track_id: int) -> str:
-    from .use_case import LibraryQueries
-
-    track = LibraryQueries(player_context().database).get_track(track_id)
-    title = track.title or Path(track.path).name
-    artist = track.artist or track.album_artist
-    return f"{artist} - {title}" if artist else title
-
-
-def recommendation_album_source_text(album_id: str) -> str:
-    from .use_case import LibraryQueries
-
-    album = LibraryQueries(player_context().database).get_album(album_id)
-    title = display_album_title(album.album)
-    return f"{album.artist} - {title}" if album.artist else title
 
 
 def recommendation_response(
@@ -1111,7 +1001,6 @@ def recommendation_response(
     *,
     mode: str,
     limit: int,
-    playlist_date: str | None = None,
 ) -> Response:
     payload: dict[str, object] = {
         "type": kind,
@@ -1123,8 +1012,6 @@ def recommendation_response(
             for rank, result in enumerate(results, start=1)
         ],
     }
-    if playlist_date is not None:
-        payload["date"] = playlist_date
     return json_response(payload)
 
 

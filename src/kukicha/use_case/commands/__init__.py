@@ -73,6 +73,12 @@ from .playlists import (
     update_manual_playlist,
     upload_playlist_cover,
 )
+from .recommendations import (
+    RECOMMENDATION_PLAYLIST_JOB_KIND,
+    RecommendationPlaylistKind,
+    recommendation_playlist_title,
+    start_recommendation_playlist,
+)
 from .roots import (
     library_job_detail_lines,
     library_job_summary_text,
@@ -122,6 +128,9 @@ __all__ = [
     "prepare_album_musicbrainz_edit_request",
     "prepare_album_tag_edit_job",
     "prepare_player_database",
+    "RECOMMENDATION_PLAYLIST_JOB_KIND",
+    "RecommendationPlaylistKind",
+    "recommendation_playlist_title",
     "request_cancel_player_job",
     "remove_queue_item",
     "rescan_library",
@@ -133,6 +142,7 @@ __all__ = [
     "start_album_delete",
     "start_album_edit",
     "start_bulk_album_metadata_edit",
+    "start_recommendation_playlist",
     "start_rescan_library",
     "start_sync",
     "track_artwork",

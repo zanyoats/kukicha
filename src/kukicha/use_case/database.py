@@ -86,33 +86,6 @@ CREATE INDEX IF NOT EXISTS idx_library_playlist_items_track_id
     ON library_playlist_items (track_id);
 """
 
-RECOMMENDATION_SCHEMA = """
-CREATE TABLE IF NOT EXISTS recommendation_daily_playlists (
-    daily_playlist_id INTEGER PRIMARY KEY AUTOINCREMENT,
-    playlist_date TEXT NOT NULL,
-    mode TEXT NOT NULL,
-    requested_limit INTEGER NOT NULL CHECK (requested_limit > 0),
-    generated_at TEXT NOT NULL,
-    UNIQUE (playlist_date, mode, requested_limit)
-);
-CREATE INDEX IF NOT EXISTS idx_recommendation_daily_playlists_date
-    ON recommendation_daily_playlists (playlist_date DESC, mode, requested_limit);
-
-CREATE TABLE IF NOT EXISTS recommendation_daily_playlist_items (
-    daily_playlist_id INTEGER NOT NULL,
-    rank INTEGER NOT NULL CHECK (rank > 0),
-    track_id INTEGER NOT NULL,
-    score REAL NOT NULL,
-    explanation_json TEXT NOT NULL DEFAULT '{}',
-    PRIMARY KEY (daily_playlist_id, rank),
-    FOREIGN KEY (daily_playlist_id)
-        REFERENCES recommendation_daily_playlists (daily_playlist_id)
-        ON DELETE CASCADE
-);
-CREATE INDEX IF NOT EXISTS idx_recommendation_daily_playlist_items_track_id
-    ON recommendation_daily_playlist_items (track_id);
-"""
-
 LISTENING_SCHEMA = """
 CREATE TABLE IF NOT EXISTS play_events (
     play_event_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -690,7 +663,7 @@ def connect_database(
         connection.execute("PRAGMA journal_mode=WAL")
         connection.executescript(DATABASE_SCHEMA)
         connection.executescript(LIBRARY_PLAYLIST_SCHEMA)
-        ensure_recommendation_schema(connection)
+        migrate_recommendation_schema(connection)
         migrate_player_jobs_schema(connection)
         migrate_listening_schema(connection)
         migrate_library_schema(connection)
@@ -714,8 +687,9 @@ def connect_existing_database(path: Path) -> sqlite3.Connection:
     return connect_database(path, create=False, migrate=False)
 
 
-def ensure_recommendation_schema(connection: sqlite3.Connection) -> None:
-    connection.executescript(RECOMMENDATION_SCHEMA)
+def migrate_recommendation_schema(connection: sqlite3.Connection) -> None:
+    connection.execute("DROP TABLE IF EXISTS recommendation_daily_playlist_items")
+    connection.execute("DROP TABLE IF EXISTS recommendation_daily_playlists")
 
 
 def migrate_player_jobs_schema(connection: sqlite3.Connection) -> None:

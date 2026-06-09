@@ -14,6 +14,7 @@ def job_kind_label(kind: str) -> str:
         "edit_album": "Edit Tags",
         "edit_album_musicbrainz": "Edit Tags",
         "bulk_album_metadata_urls": "Bulk Metadata URLs",
+        "generate_playlist": "Generate Playlist",
         "upload_album_cover": "Upload Cover",
         "rescan_library": "Rescan",
         "sync": "Sync",
@@ -55,6 +56,8 @@ def humanize_job_context_key(key: str) -> str:
         "cover_filename": "Cover File",
         "cover_targets": "Cover Folders",
         "operation": "Operation",
+        "mode": "Mode",
+        "limit": "Limit",
         "path": "Root",
         "playlist": "Playlist",
         "track": "Track",
@@ -65,6 +68,7 @@ def humanize_job_context_key(key: str) -> str:
         "roots_scanned": "Roots",
         "tracks_updated": "Tracks",
         "tracks_deleted": "Tracks",
+        "tracks_generated": "Tracks",
         "rows_changed": "Rows Changed",
         "rows_updated": "Rows Updated",
         "rows_cleared": "Rows Cleared",
@@ -121,6 +125,10 @@ def format_job_context_value(key: str, value: object) -> str:
         from .use_case import library_root_filter_label
 
         return library_root_filter_label(str(value))
+    if key == "mode":
+        from .player_navigation import recommendation_mode_label
+
+        return recommendation_mode_label(str(value))
     if key in compact_count_keys:
         return format_compact_count(value)
     if key == "root_position":
@@ -144,6 +152,8 @@ def job_context_items(context: dict[str, object]) -> list[dict[str, str]]:
         "playlist",
         "track",
         "operation",
+        "mode",
+        "limit",
         "album",
         "album_artist",
         "cover_filename",
@@ -154,6 +164,7 @@ def job_context_items(context: dict[str, object]) -> list[dict[str, str]]:
         "roots_scanned",
         "tracks_updated",
         "tracks_deleted",
+        "tracks_generated",
         "rows_changed",
         "rows_updated",
         "rows_cleared",
@@ -181,7 +192,8 @@ def job_context_items(context: dict[str, object]) -> list[dict[str, str]]:
     keys.extend(
         sorted(
             key for key in context
-            if key not in preferred_order and key != "root_position"
+            if key not in preferred_order
+            and key not in {"queue_track_ids", "root_position"}
         )
     )
     items: list[dict[str, str]] = []
@@ -236,7 +248,7 @@ def job_message_text(job: PlayerJobRecord) -> str:
 
 
 def job_payload(job: PlayerJobRecord) -> dict[str, object]:
-    return {
+    payload: dict[str, object] = {
         "job_id": job.job_id,
         "created_at": job.created_at,
         "created_at_label": format_job_timestamp(job.created_at),
@@ -255,6 +267,27 @@ def job_payload(job: PlayerJobRecord) -> dict[str, object]:
         "reason": job.reason,
         "context_items": job_context_items(job.context),
     }
+    queue_track_ids = job_queue_track_ids(job)
+    if queue_track_ids:
+        payload["queue_track_ids"] = queue_track_ids
+    return payload
+
+
+def job_queue_track_ids(job: PlayerJobRecord) -> list[int]:
+    if job.status != "succeeded":
+        return []
+    value = job.context.get("queue_track_ids")
+    if not isinstance(value, list):
+        return []
+    track_ids: list[int] = []
+    for item in value:
+        try:
+            track_id = int(item)
+        except (TypeError, ValueError):
+            continue
+        if track_id > 0:
+            track_ids.append(track_id)
+    return track_ids
 
 
 def job_day_key_and_label(created_at: str) -> tuple[str, str]:

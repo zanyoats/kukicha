@@ -299,10 +299,6 @@ button:disabled,
   margin-left: auto;
 }
 
-.home-daily-recommendations-link {
-  flex: 0 0 auto;
-}
-
 .recommendations-header {
   align-items: flex-start;
 }
@@ -1266,6 +1262,23 @@ button:disabled,
 .track-action-submenu[open] > summary.page-menu-link,
 .track-action-submenu.has-playlist-membership > summary.page-menu-link {
   color: var(--accent-strong);
+}
+
+.recommendation-mode-submenu[open] > summary.page-menu-link {
+  color: var(--accent-strong);
+}
+
+.recommendation-mode-options {
+  display: grid;
+  gap: 2px;
+  border-left: 1px solid var(--line);
+  margin: 0 0 4px 8px;
+  padding: 2px 0 2px 8px;
+}
+
+.recommendation-mode-option {
+  min-height: 30px;
+  font-size: 0.88rem;
 }
 
 .page-menu-divider {
@@ -3502,7 +3515,6 @@ tr.queue-error .queue-status-label {
     margin-left: 0;
   }
 
-  .home-daily-recommendations-link,
   .recommendation-mode-links {
     justify-content: flex-start;
   }

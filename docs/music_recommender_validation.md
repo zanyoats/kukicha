@@ -11,8 +11,8 @@ player database after scanning a personal library.
 ## Automated Fixture Validation
 
 The acceptance fixture tests in `tests/test_recommendations.py` cover the
-source-plan behavior across track radio, album radio, artist radio, daily
-playlists, and all supported modes.
+source-plan behavior across track radio, album radio, artist radio, and all
+supported modes.
 
 Concrete examples from the fixtures:
 
@@ -33,11 +33,6 @@ Concrete examples from the fixtures:
   similar non-seed artist (`Pattern Echo`) while artist-only mode keeps results
   tied to the requested artist through track, album-artist, or split
   album-artist metadata.
-- Daily recommendations are stable for the same date and limit. The daily
-  fixture proves that `Favorite Seed Song` and `Played Seed Song` influence
-  profile matches, default mode lightly penalizes the overplayed seed, discovery
-  suppresses the recently played seed, cold start applies diversity caps, and
-  daily random results reload from persistence.
 
 ## Manual Real-Library Checklist
 
@@ -63,8 +58,6 @@ For each reference, open or request:
 /recommendations/radio/track/<track_id>?mode=random&limit=25
 /recommendations/radio/album/<album_id>?mode=default&limit=25
 /recommendations/radio/artist/<artist>?mode=default&limit=25
-/recommendations/daily?mode=default&limit=30
-/recommendations/daily?mode=random&limit=30
 ```
 
 Expected observations:
@@ -80,15 +73,13 @@ Expected observations:
   appear, but explanations should show lower recency multipliers.
 - Album radio should not include tracks from the seed album by default and
   should reflect more than the first track's metadata.
-- Daily playlists should remain identical when refreshed for the same date,
-  mode, and limit.
 
 ## Deferred Follow-Ups
 
 - MMR reranking remains deferred. The current implementation uses simple
   artist, album, and genre caps, which are easier to inspect and tune.
-- Playlist UI persistence is deferred. Daily playlists are persisted in the
-  recommender tables, but there is not yet a richer generated-playlist UI.
+- Generated playlists are handled as player jobs and can be loaded into the
+  queue when generation completes.
 - Skip counts and completion counts are not used yet; only play count,
   favorite state, and last-played timestamps affect listening adjustments.
 - External artist similarity is not used. Artist-only mode is intentionally a

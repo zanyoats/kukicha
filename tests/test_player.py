@@ -121,6 +121,7 @@ from kukicha.use_case import (
     start_album_delete,
     start_album_edit,
     start_bulk_album_metadata_edit,
+    start_recommendation_playlist,
     update_playback as update_playback_command,
     update_player_job,
     update_queue as update_queue_command,
@@ -144,7 +145,6 @@ from kukicha.player_navigation import (
     playlist_index_url,
     recommendation_album_radio_url,
     recommendation_artist_radio_url,
-    recommendation_daily_url,
     recommendation_track_radio_url,
     search_url,
 )
@@ -433,6 +433,38 @@ class PlayerQueueStateTest(unittest.TestCase):
 
 
 class PlayerRuntimeTest(unittest.TestCase):
+    def test_connect_database_drops_legacy_daily_recommendation_tables(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            database = Path(tempdir) / "kukicha.sqlite"
+            with connect_database(database, migrate=False) as connection:
+                connection.execute(
+                    """
+                    CREATE TABLE recommendation_daily_playlists (
+                        daily_playlist_id INTEGER PRIMARY KEY
+                    )
+                    """
+                )
+                connection.execute(
+                    """
+                    CREATE TABLE recommendation_daily_playlist_items (
+                        daily_playlist_id INTEGER NOT NULL
+                    )
+                    """
+                )
+
+            with connect_database(database, create=False) as connection:
+                rows = connection.execute(
+                    """
+                    SELECT name
+                    FROM sqlite_master
+                    WHERE type = 'table'
+                        AND name LIKE 'recommendation_daily_%'
+                    """
+                )
+                table_names = {str(row["name"]) for row in rows}
+
+        self.assertEqual(table_names, set())
+
     def test_update_queue_keeps_only_valid_playback_ids(self) -> None:
         with TemporaryDirectory() as tempdir:
             database = Path(tempdir) / "kukicha.sqlite"
@@ -1708,13 +1740,17 @@ class PlayerPlaylistMembershipTest(unittest.TestCase):
         self.assertIn("album-action-menu-button", html)
         self.assertIn('data-queue-album data-queue-append', html)
         self.assertIn(
-            'href="/recommendations/radio/album/aphex-twin::selected-ambient-works-volume-ii" data-nav>Album Radio</a>',
+            'data-recommendation-url="/recommendations/radio/album/aphex-twin::selected-ambient-works-volume-ii"',
+            html,
+        )
+        self.assertIn(
+            'data-recommendation-url="/recommendations/radio/album/aphex-twin::selected-ambient-works-volume-ii?mode=discovery"',
             html,
         )
         self.assertIn('class="filter-menu track-action-menu"', html)
         self.assertIn('data-queue-track data-queue-append', html)
         self.assertIn(
-            'href="/recommendations/radio/track/7" data-nav>Track Radio</a>',
+            'data-recommendation-url="/recommendations/radio/track/7"',
             html,
         )
         self.assertEqual(html.count("Add to Queue"), 2)
@@ -3377,10 +3413,6 @@ class PlayerGenreFilterQueryParamsTest(unittest.TestCase):
             recommendation_artist_radio_url("Seed Artist/Guest"),
             "/recommendations/radio/artist/Seed%20Artist%2FGuest",
         )
-        self.assertEqual(
-            recommendation_daily_url(limit=30, date="2026-06-07"),
-            "/recommendations/daily?limit=30&date=2026-06-07",
-        )
 
     def test_parses_sort_param_and_defaults_to_artist(self) -> None:
         default_query = album_list_query_from_params(parse_qs(""))
@@ -3708,34 +3740,11 @@ class PlayerAlbumDetailLinksTest(unittest.TestCase):
 
         self.assertIn('class="filter-menu bulk-actions-menu"', html)
         self.assertIn(
-            'href="/recommendations/radio/artist/Seed%20Artist" data-nav>Artist Radio</a>',
+            'data-recommendation-url="/recommendations/radio/artist/Seed%20Artist"',
             html,
         )
-
-    def test_home_template_renders_daily_recommendations_entry_point(self) -> None:
-        template = build_template_environment().get_template("player/home.html")
-
-        html = template.render(
-            page_key="home",
-            dashboard=SimpleNamespace(
-                recent_albums=(),
-                recently_added_albums=(),
-                recently_added_since="",
-                recently_starred_albums=(),
-                recent_artists=(),
-                recent_tracks=(),
-                recent_playlists=(),
-            ),
-            continue_listening=None,
-            show_history_empty=False,
-            recently_added_heading="Added in the Last Month",
-            played_label=lambda value: value,
-            added_label=lambda value: value,
-            favorited_label=lambda value: value,
-        )
-
         self.assertIn(
-            'href="/recommendations/daily" data-nav>Daily Recommendations</a>',
+            'data-recommendation-url="/recommendations/radio/artist/Seed%20Artist?mode=artist_only"',
             html,
         )
 
@@ -4695,7 +4704,7 @@ class PlayerWebAdapterTest(unittest.TestCase):
 
             page_response = client.get("/help")
             api_response = client.get("/api/jobs/events")
-            recommendation_response = client.get("/recommendations/daily")
+            recommendation_response = client.get("/recommendations/radio/track/1")
             audio_response = client.get("/audio/1")
             static_response = client.get("/static/player.css")
             health_response = client.get("/healthz")
@@ -6658,7 +6667,7 @@ class PlayerWebAdapterTest(unittest.TestCase):
             self.assertEqual(result["explanation"]["matched_decade"], "1990s")
             self.assertFalse(result["explanation"]["same_artist"])
 
-    def test_recommendation_route_renders_playable_html_for_browser_request(self) -> None:
+    def test_recommendation_route_returns_json_for_browser_request(self) -> None:
         with TemporaryDirectory() as tempdir:
             temp_path = Path(tempdir)
             database = temp_path / "kukicha.sqlite"
@@ -6673,35 +6682,63 @@ class PlayerWebAdapterTest(unittest.TestCase):
             )
 
             self.assertEqual(response.status_code, 200)
-            self.assertTrue(response.content_type.startswith("text/html"))
-            html = response.get_data(as_text=True)
-            self.assertIn('<div class="view-page recommendations-page"', html)
-            self.assertLess(
-                html.index('href="/" data-history-back data-nav>&larr; back</a>'),
-                html.index("<h1>Track Radio</h1>"),
-            )
-            self.assertIn("<h1>Track Radio</h1>", html)
-            self.assertIn("Seed Artist - Seed Song", html)
-            self.assertIn(
-                'class="button-link recommendation-mode-link current" href="/recommendations/radio/track/1?limit=1"',
-                html,
-            )
-            self.assertNotIn("recommendation-mode-link primary", html)
-            self.assertIn('href="/recommendations/radio/track/1?limit=1" data-nav', html)
-            self.assertIn(
-                'href="/recommendations/radio/track/1?mode=discovery&amp;limit=1" data-nav',
-                html,
-            )
-            self.assertNotIn("<th>Artist</th>", html)
-            self.assertIn('data-track-id="2"', html)
-            self.assertIn('<td class="track-number">1</td>', html)
-            self.assertNotIn('<td class="track-number">9</td>', html)
-            self.assertNotIn('data-play-track="2"', html)
-            self.assertNotIn("track-action-menu", html)
-            self.assertIn("queue-add-icon", html)
-            self.assertIn("data-queue-track data-queue-append", html)
+            self.assertEqual(response.content_type, "application/json; charset=utf-8")
+            payload = response.get_json()
+            self.assertEqual(payload["type"], "track_radio")
+            self.assertEqual(payload["limit"], 1)
+            self.assertEqual(payload["count"], 1)
 
-    def test_album_artist_and_daily_recommendation_routes_return_json(self) -> None:
+    def test_recommendation_post_route_queues_generation_job(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            runtime = self.make_runtime(temp_path / "kukicha.sqlite")
+            queued_job = PlayerJobRecord(
+                job_id=17,
+                created_at="2026-04-21T10:00:00Z",
+                updated_at="2026-04-21T10:00:00Z",
+                started_at=None,
+                finished_at=None,
+                cancel_requested_at=None,
+                kind="generate_playlist",
+                status="queued",
+                message="Album Radio queued.",
+                reason="",
+                context={
+                    "operation": "Album Radio",
+                    "playlist": "Seed Artist - Seed Album",
+                    "mode": "discovery",
+                    "limit": 10,
+                },
+            )
+            with (
+                patch("kukicha.player_web_adapter.PlayerRuntime", return_value=runtime),
+                patch(
+                    "kukicha.player_web_adapter.start_recommendation_playlist",
+                    return_value={
+                        "message": "Album Radio queued.",
+                        "job": job_payload(queued_job),
+                    },
+                ) as start_playlist,
+            ):
+                app = create_player_app(self.make_options(temp_path))
+                response = app.test_client().post(
+                    "/recommendations/radio/album/album-seed",
+                    query_string={"mode": "discovery", "limit": "10"},
+                )
+
+            self.assertEqual(response.status_code, 202)
+            payload = response.get_json()
+            self.assertEqual(payload["message"], "Album Radio queued.")
+            self.assertEqual(payload["job"]["kind"], "generate_playlist")
+            start_playlist.assert_called_once_with(
+                runtime,
+                "album_radio",
+                "album-seed",
+                mode="discovery",
+                limit=10,
+            )
+
+    def test_album_and_artist_recommendation_routes_return_json(self) -> None:
         with TemporaryDirectory() as tempdir:
             temp_path = Path(tempdir)
             database = temp_path / "kukicha.sqlite"
@@ -6718,11 +6755,6 @@ class PlayerWebAdapterTest(unittest.TestCase):
                 "/recommendations/radio/artist/Seed%20Artist",
                 query_string={"mode": "artist_only", "limit": "1"},
             )
-            daily_response = client.get(
-                "/recommendations/daily",
-                query_string={"date": "2026-06-07", "limit": "1"},
-            )
-
             album_payload = album_response.get_json()
             self.assertEqual(album_response.status_code, 200)
             self.assertEqual(album_payload["type"], "album_radio")
@@ -6742,15 +6774,6 @@ class PlayerWebAdapterTest(unittest.TestCase):
                 artist_payload["results"][0]["track"]["artist"],
                 "Seed Artist",
             )
-
-            daily_payload = daily_response.get_json()
-            self.assertEqual(daily_response.status_code, 200)
-            self.assertEqual(daily_payload["type"], "daily")
-            self.assertEqual(daily_payload["mode"], "default")
-            self.assertEqual(daily_payload["limit"], 1)
-            self.assertEqual(daily_payload["date"], "2026-06-07")
-            self.assertEqual(daily_payload["count"], 1)
-            self.assertEqual(daily_payload["results"][0]["rank"], 1)
 
     def test_recommendation_routes_return_json_errors(self) -> None:
         with TemporaryDirectory() as tempdir:
@@ -10426,6 +10449,39 @@ class PlayerJobLogTest(unittest.TestCase):
             ],
         )
 
+    def test_generated_playlist_job_payload_exposes_queue_track_ids(self) -> None:
+        payload = job_payload(
+            PlayerJobRecord(
+                job_id=3,
+                created_at="2026-04-21T10:00:00Z",
+                updated_at="2026-04-21T10:00:01Z",
+                started_at="2026-04-21T10:00:00Z",
+                finished_at="2026-04-21T10:00:01Z",
+                cancel_requested_at=None,
+                kind="generate_playlist",
+                status="succeeded",
+                message="Album Radio generated 2 tracks.",
+                reason="",
+                context={
+                    "operation": "Album Radio",
+                    "playlist": "Seed Artist - Seed Album",
+                    "mode": "discovery",
+                    "limit": 25,
+                    "tracks_generated": 2,
+                    "queue_track_ids": [2, 3],
+                },
+            )
+        )
+
+        self.assertEqual(payload["kind_label"], "Generate Playlist")
+        self.assertEqual(payload["queue_track_ids"], [2, 3])
+        labels = [item["label"] for item in payload["context_items"]]
+        self.assertIn("Playlist", labels)
+        self.assertIn("Mode", labels)
+        self.assertIn("Limit", labels)
+        self.assertIn("Tracks", labels)
+        self.assertNotIn("Queue Track Ids", labels)
+
 
 class PlayerAlbumTagEditTest(unittest.TestCase):
     def seed_album(
@@ -11231,6 +11287,64 @@ class PlayerAlbumTagEditTest(unittest.TestCase):
             self.assertEqual(enqueue_kwargs["failed_message"], "Cover upload failed for Old Artist - Album.")
             self.assertEqual(enqueue_kwargs["context"]["cover_filename"], "cover.jpg")
             self.assertEqual(enqueue_kwargs["context"]["cover_targets"], 1)
+            self.assertTrue(callable(enqueue_kwargs["runner"]))
+
+    def test_start_recommendation_playlist_queues_background_job(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            database = temp_path / "kukicha.sqlite"
+            first = temp_path / "Album" / "01.mp3"
+            second = temp_path / "Album" / "02.mp3"
+            first.parent.mkdir()
+            first.write_bytes(b"one")
+            second.write_bytes(b"two")
+            self.seed_album(database, (first, second))
+            runtime = Mock()
+            runtime.database = database
+            runtime.enqueue_job.return_value = PlayerJobRecord(
+                job_id=18,
+                created_at="2026-04-21T10:00:00Z",
+                updated_at="2026-04-21T10:00:00Z",
+                started_at=None,
+                finished_at=None,
+                cancel_requested_at=None,
+                kind="generate_playlist",
+                status="queued",
+                message="Album Radio queued.",
+                reason="",
+                context={
+                    "operation": "Album Radio",
+                    "playlist": "Old Artist - Album",
+                    "mode": "genre_only",
+                    "limit": 5,
+                },
+            )
+
+            result = start_recommendation_playlist(
+                runtime,
+                "album_radio",
+                "old-artist::album",
+                mode="genre_only",
+                limit=5,
+            )
+
+            self.assertEqual(result["message"], "Album Radio queued.")
+            self.assertEqual(result["job"]["job_id"], 18)
+            runtime.enqueue_job.assert_called_once()
+            enqueue_kwargs = runtime.enqueue_job.call_args.kwargs
+            self.assertEqual(enqueue_kwargs["kind"], "generate_playlist")
+            self.assertEqual(enqueue_kwargs["queued_message"], "Album Radio queued.")
+            self.assertEqual(enqueue_kwargs["running_message"], "Album Radio running.")
+            self.assertEqual(enqueue_kwargs["failed_message"], "Album Radio failed.")
+            self.assertEqual(
+                enqueue_kwargs["context"],
+                {
+                    "operation": "Album Radio",
+                    "playlist": "Old Artist - Album",
+                    "mode": "genre_only",
+                    "limit": 5,
+                },
+            )
             self.assertTrue(callable(enqueue_kwargs["runner"]))
 
     def test_edit_library_album_musicbrainz_rewrites_remote_audio_and_stores_links(self) -> None:

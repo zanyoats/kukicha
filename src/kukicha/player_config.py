@@ -31,6 +31,7 @@ from .player_navigation import (
     album_summary_text,
     album_url,
     recommendation_album_radio_url,
+    recommendation_mode_menu_items,
     recommendation_track_radio_url,
 )
 from .static_assets import static_asset_url
@@ -1213,5 +1214,6 @@ def build_template_environment() -> Environment:
     environment.filters["display_album_title"] = display_album_title
     environment.filters["album_radio_url"] = recommendation_album_radio_url
     environment.filters["track_radio_url"] = recommendation_track_radio_url
+    environment.globals["recommendation_mode_menu_items"] = recommendation_mode_menu_items
     environment.globals["static_asset_url"] = static_asset_url
     return environment

@@ -4,7 +4,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from math import log1p
 from typing import Any
-from urllib.parse import quote, urlencode
+from urllib.parse import parse_qsl, quote, urlencode, urlsplit, urlunsplit
 
 from .use_case import (
     ALBUM_LIST_SORT_ALBUMS,
@@ -250,20 +250,6 @@ def recommendation_artist_radio_url(
     )
 
 
-def recommendation_daily_url(
-    *,
-    mode: str | None = None,
-    limit: int | None = None,
-    date: str | None = None,
-) -> str:
-    return recommendation_url(
-        "/recommendations/daily",
-        mode=mode,
-        limit=limit,
-        date=date,
-    )
-
-
 def recommendation_url(
     path: str,
     *,
@@ -294,6 +280,39 @@ def recommendation_mode_links(
             "current": mode == current_mode,
         }
         for mode in SUPPORTED_RECOMMENDATION_MODES
+    )
+
+
+def recommendation_mode_menu_items(base_url: str) -> tuple[dict[str, str], ...]:
+    if not base_url:
+        return ()
+    return tuple(
+        {
+            "mode": mode,
+            "label": recommendation_mode_label(mode),
+            "url": recommendation_mode_url(base_url, mode),
+        }
+        for mode in SUPPORTED_RECOMMENDATION_MODES
+    )
+
+
+def recommendation_mode_url(base_url: str, mode: str) -> str:
+    split = urlsplit(base_url)
+    params = [
+        (key, value)
+        for key, value in parse_qsl(split.query, keep_blank_values=True)
+        if key != "mode"
+    ]
+    if mode != RECOMMENDATION_MODE_DEFAULT:
+        params.append(("mode", mode))
+    return urlunsplit(
+        (
+            split.scheme,
+            split.netloc,
+            split.path,
+            urlencode(params),
+            split.fragment,
+        )
     )
 
 

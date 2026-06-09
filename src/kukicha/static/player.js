@@ -1859,6 +1859,19 @@ document.addEventListener("click", (event) => {
     void cancelJob(cancelJobButton);
     return;
   }
+  const loadJobQueueButton = event.target.closest("[data-load-job-queue]");
+  if (loadJobQueueButton) {
+    event.preventDefault();
+    void loadJobQueue(loadJobQueueButton);
+    return;
+  }
+  const generateRecommendationButton = event.target.closest("[data-generate-recommendation]");
+  if (generateRecommendationButton) {
+    event.preventDefault();
+    closeContainingDropdownMenu(generateRecommendationButton);
+    void generateRecommendationPlaylist(generateRecommendationButton);
+    return;
+  }
   const rescanLibraryButton = event.target.closest("[data-rescan-library]");
   if (rescanLibraryButton) {
     event.preventDefault();
@@ -4871,6 +4884,9 @@ function jobToastChildren(job) {
     cancelButton.textContent = job.cancel_requested_at ? "Canceling..." : "Cancel";
     cancelButton.disabled = Boolean(job.cancel_requested_at);
     actions.append(cancelButton);
+  } else if (status === "succeeded" && jobQueueTrackIds(job).length) {
+    actions.append(loadJobQueueButton(jobQueueTrackIds(job)));
+    actions.append(closeJobToastButton(job.job_id));
   } else if (status === "succeeded" && !isTemporaryBookmarkJobToast(job)) {
     const refresh = document.createElement("a");
     refresh.className = "toast-link";
@@ -4886,6 +4902,24 @@ function jobToastChildren(job) {
     children.push(actions);
   }
   return children;
+}
+
+function jobQueueTrackIds(job) {
+  if (!job || typeof job !== "object" || !Array.isArray(job.queue_track_ids)) {
+    return [];
+  }
+  return job.queue_track_ids
+    .map((trackId) => Number(trackId))
+    .filter((trackId) => Number.isInteger(trackId) && trackId > 0);
+}
+
+function loadJobQueueButton(trackIds) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.dataset.loadJobQueue = "";
+  button.dataset.trackIds = JSON.stringify(trackIds);
+  button.textContent = "Load Queue";
+  return button;
 }
 
 function jobBadge(className, status, label) {
@@ -4963,6 +4997,99 @@ async function cancelJob(button) {
   }
 }
 
+async function generateRecommendationPlaylist(button) {
+  if (!(button instanceof HTMLElement)) {
+    return;
+  }
+  const url = (button.dataset.recommendationUrl || button.getAttribute("href") || "").trim();
+  if (!url) {
+    return;
+  }
+  const previousText = button.textContent;
+  if ("disabled" in button) {
+    button.disabled = true;
+  }
+  button.setAttribute("aria-busy", "true");
+  try {
+    const response = await fetch(url, {method: "POST"});
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const message = responsePayloadError(payload, "Unable to generate playlist.");
+      showToast(message, {error: true});
+      return;
+    }
+    if (payload && payload.job) {
+      showJobToast(payload.job);
+    } else {
+      showToast(responsePayloadMessage(payload, "Playlist generation queued."));
+    }
+  } catch {
+    showToast("Unable to generate playlist.", {error: true});
+  } finally {
+    if (button.isConnected) {
+      if ("disabled" in button) {
+        button.disabled = false;
+      }
+      button.removeAttribute("aria-busy");
+      if (previousText !== null) {
+        button.textContent = previousText;
+      }
+    }
+  }
+}
+
+async function loadJobQueue(button) {
+  if (!(button instanceof HTMLElement)) {
+    return;
+  }
+  const trackIds = trackIdsFromDataset(button.dataset.trackIds || "");
+  if (!trackIds.length) {
+    showToast("No generated tracks to load.", {error: true});
+    return;
+  }
+  if ("disabled" in button) {
+    button.disabled = true;
+  }
+  const previousText = button.textContent;
+  button.textContent = "Loading...";
+  button.setAttribute("aria-busy", "true");
+  try {
+    const syncedState = await postGeneratedQueue(trackIds);
+    if (!syncedState) {
+      showToast("Unable to load queue.", {error: true});
+      return;
+    }
+    queueState = syncedState;
+    submittedIndeterminatePlayKeys.clear();
+    clearLoadedPlayback();
+    updatePlaybackUi();
+    await refreshQueuePage();
+    showToast("Queue loaded.");
+  } finally {
+    if (button.isConnected) {
+      if ("disabled" in button) {
+        button.disabled = false;
+      }
+      button.textContent = previousText;
+      button.removeAttribute("aria-busy");
+    }
+  }
+}
+
+function trackIdsFromDataset(value) {
+  try {
+    const parsed = JSON.parse(value);
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+    return parsed
+      .map((trackId) => Number(trackId))
+      .filter((trackId) => Number.isInteger(trackId) && trackId > 0);
+  } catch {
+    return [];
+  }
+}
+
 function updateVisibleJobCard(job) {
   const jobId = Number(job.job_id);
   if (!Number.isInteger(jobId)) {
@@ -4996,7 +5123,14 @@ function updateVisibleJobCard(job) {
     reasonElement.remove();
   }
   if (status !== "queued" && status !== "running") {
+    const trackIds = jobQueueTrackIds(job);
     card.querySelector(".job-card-actions")?.remove();
+    if (trackIds.length) {
+      const actions = document.createElement("div");
+      actions.className = "job-card-actions";
+      actions.append(loadJobQueueButton(trackIds));
+      card.append(actions);
+    }
   }
 }
 
@@ -6541,6 +6675,27 @@ async function postQueueAppend(trackIds) {
     });
     if (!response.ok) {
       throw new Error(`queue append request failed: ${response.status}`);
+    }
+    return normalizeQueueState(await response.json());
+  } catch {
+    return null;
+  }
+}
+
+async function postGeneratedQueue(trackIds) {
+  try {
+    const response = await fetch("/api/queue", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({
+        track_ids: trackIds,
+        position: 0,
+        paused: true,
+        errored_track_ids: []
+      })
+    });
+    if (!response.ok) {
+      throw new Error(`queue request failed: ${response.status}`);
     }
     return normalizeQueueState(await response.json());
   } catch {

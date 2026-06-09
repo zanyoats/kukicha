@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from datetime import datetime, timezone
 import json
 from pathlib import Path
@@ -26,6 +27,15 @@ def normalize_job_context(context: dict[str, object] | None) -> dict[str, object
             continue
         if value is None or isinstance(value, (str, int, float, bool)):
             normalized[key] = value
+            continue
+        if isinstance(value, Iterable) and not isinstance(value, (str, bytes, dict)):
+            normalized_items: list[object] = []
+            for item in value:
+                if item is None or isinstance(item, (str, int, float, bool)):
+                    normalized_items.append(item)
+                else:
+                    normalized_items.append(str(item))
+            normalized[key] = normalized_items
             continue
         normalized[key] = str(value)
     return normalized

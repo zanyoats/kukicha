@@ -894,11 +894,14 @@ function artistRadioBulkMenu(document, href = "/recommendations/radio/artist/Amo
   const menu = document.createElement("details");
   menu.className = "filter-menu bulk-actions-menu";
   menu.dataset.dropdownMenu = "";
-  const link = document.createElement("a");
-  link.href = href;
-  link.setAttribute("href", href);
-  link.textContent = "Artist Radio";
-  menu.append(link);
+  const submenu = document.createElement("details");
+  submenu.className = "recommendation-mode-submenu track-action-submenu";
+  const button = document.createElement("button");
+  button.dataset.generateRecommendation = "";
+  button.dataset.recommendationUrl = href;
+  button.textContent = "Default";
+  submenu.append(button);
+  menu.append(submenu);
   return menu;
 }
 
@@ -1195,7 +1198,7 @@ test("library filter form patch syncs artist radio bulk action with artist filte
   let currentMenu = currentForm.querySelector(".bulk-actions-menu");
   assert.ok(currentMenu);
   assert.equal(
-    currentMenu.children[0].getAttribute("href"),
+    currentMenu.querySelector("[data-generate-recommendation]").dataset.recommendationUrl,
     "/recommendations/radio/artist/Amon%20Tobin"
   );
 
@@ -1386,8 +1389,8 @@ test("navigation links inside dropdown menus close the containing menu", async (
   assert.equal(harness.view.dataset.page, "recommendations");
 });
 
-test("recommendation navigation shows loaded toast until normal timeout", async () => {
-  const pageUrl = "http://localhost/recommendations/daily";
+test("recommendation generation posts a cancelable job and closes the menu", async () => {
+  const generationUrl = "/recommendations/radio/album/album-seed?mode=discovery";
   const harness = createHarness(
     {
       track_ids: [],
@@ -1398,48 +1401,102 @@ test("recommendation navigation shows loaded toast until normal timeout", async 
       unavailable_track_ids: [],
     },
     {
-      toastTimeoutMs: 20,
       fetchResponses: {
-        [pageUrl]: {
-          text: '<div class="view-page recommendations-page" data-page="recommendations"></div>',
+        [generationUrl]: {
+          status: 202,
+          json: {
+            message: "Album Radio queued.",
+            job: {
+              job_id: 42,
+              kind: "generate_playlist",
+              kind_label: "Generate Playlist",
+              status: "queued",
+              status_label: "Queued",
+              message: "Album Radio queued.",
+              updated_at: "2026-04-21T10:00:00Z",
+              context_items: [],
+            },
+          },
         },
       },
     }
   );
-  const link = harness.document.createElement("a");
-  link.href = pageUrl;
-  link.setAttribute("href", pageUrl);
-  link.closest = (selector) => (
-    selector === "a[data-nav]" ? link : null
-  );
+  const menu = harness.document.createElement("details");
+  menu.dataset.dropdownMenu = "";
+  menu.open = true;
+  const button = harness.document.createElement("button");
+  button.dataset.generateRecommendation = "";
+  button.dataset.recommendationUrl = generationUrl;
+  button.textContent = "Discovery";
+  button.closest = (selector) => {
+    if (selector === "[data-generate-recommendation]") {
+      return button;
+    }
+    if (selector === "details[data-dropdown-menu]") {
+      return menu;
+    }
+    return null;
+  };
   let prevented = false;
 
   harness.document.listeners.get("click")[0]({
-    target: link,
+    target: button,
     preventDefault() {
       prevented = true;
     },
   });
+  await harness.flush();
 
-  const loadingToast = harness.document.elements.toast.querySelector(".toast-message");
   assert.equal(prevented, true);
-  assert.equal(harness.document.elements.toast.hidden, false);
-  assert.equal(loadingToast.querySelector(".toast-copy").textContent, "Generating playlist...");
-  assert.equal(loadingToast.getAttribute("role"), "status");
+  assert.equal(menu.open, false);
+  assert.equal(harness.fetchCalls[0].url, generationUrl);
+  assert.equal(harness.fetchCalls[0].request.method, "POST");
+  assert.equal(harness.jobToasts.children.length, 1);
+  assert.equal(
+    harness.jobToasts.children[0].querySelector(".job-toast-message").textContent,
+    "Album Radio queued."
+  );
+});
 
+test("completed generated playlist jobs can replace the queue", async () => {
+  const harness = createHarness({
+    track_ids: [9],
+    position: 0,
+    loaded_track_id: 9,
+    paused: false,
+    errored_track_ids: [],
+    unavailable_track_ids: [],
+  });
+  const button = harness.document.createElement("button");
+  button.dataset.loadJobQueue = "";
+  button.dataset.trackIds = JSON.stringify([2, 3]);
+  button.textContent = "Load Queue";
+  button.closest = (selector) => (
+    selector === "[data-load-job-queue]" ? button : null
+  );
+  let prevented = false;
+
+  harness.document.listeners.get("click")[0]({
+    target: button,
+    preventDefault() {
+      prevented = true;
+    },
+  });
   await harness.flush();
 
-  assert.equal(String(harness.fetchCalls[0].url), pageUrl);
-  assert.equal(harness.view.dataset.page, "recommendations");
-  assert.equal(harness.document.elements.toast.children.length, 1);
-  assert.equal(loadingToast.querySelector(".toast-copy").textContent, "Playlist loaded.");
-  assert.equal(harness.document.elements.toast.hidden, false);
-
-  await new Promise((resolve) => setTimeout(resolve, 30));
-  await harness.flush();
-
-  assert.equal(harness.document.elements.toast.children.length, 0);
-  assert.equal(harness.document.elements.toast.hidden, true);
+  assert.equal(prevented, true);
+  assert.equal(harness.fetchCalls[0].url, "/api/queue");
+  assert.equal(harness.fetchCalls[0].request.method, "POST");
+  assert.deepEqual(harness.fetchCalls[0].body, {
+    track_ids: [2, 3],
+    position: 0,
+    paused: true,
+    errored_track_ids: [],
+  });
+  assert.equal(
+    harness.document.elements.toast.children[0].querySelector(".toast-copy").textContent,
+    "Queue loaded."
+  );
 });
 
 test("selected track url scrolls selected album row into view", () => {

@@ -43,6 +43,11 @@
                   <div class="job-card-actions">
                     <button type="button" data-cancel-job data-job-id="{{ job.job_id }}">Cancel</button>
                   </div>
+                {% elif job.queue_track_ids %}
+                  <div class="job-card-actions">
+                    <button type="button" data-load-job-queue
+                      data-track-ids="{{ job.queue_track_ids|tojson|forceescape }}">Load Queue</button>
+                  </div>
                 {% endif %}
               </article>
             {% endfor %}

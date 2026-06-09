@@ -1,4 +1,4 @@
-{% from "player/_album_action_menu.html" import album_action_menu %}
+{% from "player/_album_action_menu.html" import album_action_menu, recommendation_mode_submenu %}
 {% from "player/_icons.html" import delete_icon, play_icon, search_icon, star_icon, vertical_ellipsis_icon %}
 
 <div class="view-page" data-page="{{ page_key }}">
@@ -99,7 +99,7 @@
               </summary>
               <div class="filter-options bulk-action-options">
                 {% if artist_radio_url is defined and artist_radio_url %}
-                  <a class="page-menu-link" href="{{ artist_radio_url }}" data-nav>Artist Radio</a>
+                  {{ recommendation_mode_submenu("Artist Radio", artist_radio_url) }}
                 {% endif %}
                 {% if artist_radio_url is defined and artist_radio_url and ((bulk_album_star_action_url is defined and bulk_album_star_action_url) or (bulk_metadata_edit_page_url is defined and bulk_metadata_edit_page_url)) %}
                   <hr class="page-menu-divider">
