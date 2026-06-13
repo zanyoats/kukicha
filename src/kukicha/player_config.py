@@ -36,6 +36,7 @@ from .player_navigation import (
 )
 from .static_assets import static_asset_url
 from .use_case import (
+    DEFAULT_GENRE_RADIO_MIN_ALBUM_COUNT,
     DEFAULT_RECOMMENDATION_LIMIT,
     MAX_RECOMMENDATION_LIMIT,
     prepare_player_database,
@@ -57,6 +58,7 @@ DEFAULT_PREFER_MUSICBRAINZ_ENGLISH_ALIASES = True
 DEFAULT_AUTH_COOKIE_MAX_AGE = "180d"
 DEFAULT_AUTH_COOKIE_NAME = "kukicha_cookie"
 DEFAULT_RADIO_LIMIT = DEFAULT_RECOMMENDATION_LIMIT
+DEFAULT_PLAYER_GENRE_RADIO_MIN_ALBUM_COUNT = DEFAULT_GENRE_RADIO_MIN_ALBUM_COUNT
 PLAYER_CONFIG_FILENAME = "kukicha.toml"
 PLAYER_DATABASE_FILENAME = "kukicha.sqlite"
 PLAYER_CONFIG_KEY_ORDER = (
@@ -75,6 +77,7 @@ PLAYER_CONFIG_KEY_ORDER = (
     "accent_color",
     "toast_timeout_ms",
     "radio_limit",
+    "genre_radio_min_album_count",
     "album_artist_split_patterns",
 )
 AUTH_CONFIG_KEY_ORDER = (
@@ -137,6 +140,7 @@ class PlayerServerOptions:
     appearance: str = DEFAULT_APPEARANCE
     toast_timeout_ms: int = DEFAULT_TOAST_TIMEOUT_MS
     radio_limit: int = DEFAULT_RADIO_LIMIT
+    genre_radio_min_album_count: int = DEFAULT_PLAYER_GENRE_RADIO_MIN_ALBUM_COUNT
     album_artist_split_patterns: tuple[str, ...] = DEFAULT_ALBUM_ARTIST_SPLIT_PATTERNS
     youtube_download_root: str | None = None
     prefer_musicbrainz_english_aliases: bool = DEFAULT_PREFER_MUSICBRAINZ_ENGLISH_ALIASES
@@ -359,6 +363,13 @@ def load_player_options(
         key="radio_limit",
         max_value=MAX_RECOMMENDATION_LIMIT,
     )
+    genre_radio_min_album_count = parse_config_nonnegative_int(
+        config.get(
+            "genre_radio_min_album_count",
+            DEFAULT_PLAYER_GENRE_RADIO_MIN_ALBUM_COUNT,
+        ),
+        key="genre_radio_min_album_count",
+    )
     album_artist_split_patterns = parse_album_artist_split_patterns(
         config.get("album_artist_split_patterns", DEFAULT_ALBUM_ARTIST_SPLIT_PATTERNS)
     )
@@ -399,6 +410,7 @@ def load_player_options(
         appearance=appearance,
         toast_timeout_ms=toast_timeout_ms,
         radio_limit=radio_limit,
+        genre_radio_min_album_count=genre_radio_min_album_count,
         album_artist_split_patterns=album_artist_split_patterns,
         prefer_musicbrainz_english_aliases=prefer_musicbrainz_english_aliases,
         auth=auth,
@@ -501,6 +513,7 @@ def player_config_values(
         "appearance": options.appearance,
         "toast_timeout_ms": str(options.toast_timeout_ms),
         "radio_limit": str(options.radio_limit),
+        "genre_radio_min_album_count": str(options.genre_radio_min_album_count),
         "album_artist_split_patterns": format_player_config_string_list(
             options.album_artist_split_patterns
         ),
@@ -839,6 +852,13 @@ def parse_config_bounded_positive_int(
         raise PlayerConfigError(f"{key} must be greater than 0")
     if value > max_value:
         raise PlayerConfigError(f"{key} must be no greater than {max_value}")
+    return value
+
+def parse_config_nonnegative_int(value: object, *, key: str) -> int:
+    if type(value) is not int:
+        raise PlayerConfigError(f"{key} must be an integer")
+    if value < 0:
+        raise PlayerConfigError(f"{key} must be greater than or equal to 0")
     return value
 
 def parse_optional_positive_int(value: object, *, key: str) -> int | None:

@@ -180,6 +180,37 @@ CREATE INDEX IF NOT EXISTS idx_play_genre_stats_recent
     ON play_genre_stats (last_played_at DESC, play_count DESC, genre_key);
 """
 
+RECOMMENDATION_CACHE_SCHEMA = """
+CREATE TABLE IF NOT EXISTS recommendation_track_vectors (
+    track_path TEXT NOT NULL,
+    mode TEXT NOT NULL,
+    fingerprint TEXT NOT NULL,
+    track_id INTEGER,
+    vector_json TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (track_path, mode)
+);
+CREATE INDEX IF NOT EXISTS idx_recommendation_track_vectors_fingerprint
+    ON recommendation_track_vectors (fingerprint, mode);
+
+CREATE TABLE IF NOT EXISTS recommendation_seed_profiles (
+    seed_kind TEXT NOT NULL CHECK (seed_kind IN ('album', 'artist', 'genre')),
+    seed_key TEXT NOT NULL,
+    mode TEXT NOT NULL,
+    fingerprint TEXT NOT NULL,
+    profile_vector_json TEXT NOT NULL,
+    seed_track_paths_json TEXT NOT NULL DEFAULT '[]',
+    seed_track_ids_json TEXT NOT NULL DEFAULT '[]',
+    total_seed_weight REAL NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (seed_kind, seed_key, mode)
+);
+CREATE INDEX IF NOT EXISTS idx_recommendation_seed_profiles_fingerprint
+    ON recommendation_seed_profiles (fingerprint, mode, seed_kind);
+"""
+
 DATABASE_SCHEMA = """
 CREATE TABLE IF NOT EXISTS app_metadata (
     key TEXT PRIMARY KEY,
@@ -626,7 +657,7 @@ CREATE TABLE IF NOT EXISTS itunes_lookup_image_cache (
     data BLOB NOT NULL
 );
 
-""" + LIBRARY_TRACK_ARTWORK_SCHEMA
+""" + LIBRARY_TRACK_ARTWORK_SCHEMA + RECOMMENDATION_CACHE_SCHEMA
 
 
 class ClosingConnection(sqlite3.Connection):

@@ -2,8 +2,10 @@ from __future__ import annotations
 
 from dataclasses import FrozenInstanceError, replace
 from datetime import datetime, timedelta, timezone
+import json
 import math
 from pathlib import Path
+from unittest.mock import patch
 from tempfile import TemporaryDirectory
 import unittest
 
@@ -17,6 +19,7 @@ from kukicha.use_case import (
     DEFAULT_RECOMMENDATION_LIMIT,
     DiversityCaps,
     DIVERSITY_STRENGTH_LOW,
+    GenreRadioThresholdError,
     MAX_RECOMMENDATION_LIMIT,
     RECENT_PLAY_PENALTY_RANDOM_WEIGHTED,
     RANDOM_RECOMMENDATION_CONFIG,
@@ -50,6 +53,7 @@ from kukicha.use_case import (
     load_recommendation_candidates,
     normalize_recommendation_limit,
     normalize_recommendation_mode,
+    genre_radio_album_count,
     recommendation_mode_config,
     rerank_recommendation_results,
     scale_sparse_vector,
@@ -1869,6 +1873,200 @@ class RecommendationServiceTest(unittest.TestCase):
             )
         return database
 
+    def test_track_radio_reuses_cached_track_vectors(self) -> None:
+        database = self.build_database()
+        service = RecommendationService(database)
+
+        first_results = service.get_track_radio(1, limit=3)
+
+        self.assertTrue(first_results)
+        with connect_database(database, create=False) as connection:
+            rows = list(
+                connection.execute(
+                    """
+                    SELECT track_path, mode, fingerprint, vector_json
+                    FROM recommendation_track_vectors
+                    ORDER BY track_path
+                    """
+                )
+            )
+        self.assertEqual(len(rows), 6)
+        self.assertTrue(all(str(row["mode"]) == RECOMMENDATION_MODE_DEFAULT for row in rows))
+        self.assertTrue(all(str(row["fingerprint"]) for row in rows))
+        self.assertTrue(all(isinstance(json.loads(str(row["vector_json"])), dict) for row in rows))
+
+        with patch(
+            "kukicha.use_case.recommendations.build_recommendation_track_vectors",
+            side_effect=AssertionError("track vectors should come from cache"),
+        ):
+            cached_results = service.get_track_radio(1, limit=3)
+
+        self.assertEqual(
+            [result.candidate.metadata.track_id for result in first_results],
+            [result.candidate.metadata.track_id for result in cached_results],
+        )
+
+    def test_album_radio_reuses_cached_seed_profile(self) -> None:
+        database = self.build_database()
+        service = RecommendationService(database)
+
+        first_results = service.get_album_radio("album-1", limit=3)
+
+        self.assertTrue(first_results)
+        with connect_database(database, create=False) as connection:
+            row = connection.execute(
+                """
+                SELECT seed_kind, seed_key, mode, seed_track_paths_json, seed_track_ids_json
+                FROM recommendation_seed_profiles
+                WHERE seed_kind = 'album'
+                    AND seed_key = 'album-1'
+                    AND mode = ?
+                """,
+                (RECOMMENDATION_MODE_DEFAULT,),
+            ).fetchone()
+        self.assertIsNotNone(row)
+        assert row is not None
+        self.assertEqual(str(row["seed_kind"]), "album")
+        self.assertEqual(json.loads(str(row["seed_track_paths_json"])), ["/music/seed/01.flac"])
+        self.assertEqual(json.loads(str(row["seed_track_ids_json"])), [1])
+
+        with patch(
+            "kukicha.use_case.recommendations.build_recommendation_album_profile",
+            side_effect=AssertionError("album seed profile should come from cache"),
+        ):
+            cached_results = service.get_album_radio("album-1", limit=3)
+
+        self.assertEqual(
+            [result.candidate.metadata.track_id for result in first_results],
+            [result.candidate.metadata.track_id for result in cached_results],
+        )
+
+    def test_rescan_fingerprint_makes_track_vector_cache_stale(self) -> None:
+        database = self.build_database()
+        service = RecommendationService(database)
+        service.get_track_radio(1, limit=3)
+
+        with connect_database(database, create=False) as connection:
+            old_fingerprint = str(
+                connection.execute(
+                    """
+                    SELECT fingerprint
+                    FROM recommendation_track_vectors
+                    LIMIT 1
+                    """
+                ).fetchone()["fingerprint"]
+            )
+            connection.execute(
+                """
+                INSERT OR REPLACE INTO app_metadata (key, value)
+                VALUES ('library_generated_at', '2026-06-13T12:00:00+00:00')
+                """
+            )
+
+        with patch(
+            "kukicha.use_case.recommendations.build_recommendation_track_vectors",
+            wraps=build_recommendation_track_vectors,
+        ) as build_vectors:
+            service.get_track_radio(1, limit=3)
+
+        self.assertTrue(build_vectors.called)
+        with connect_database(database, create=False) as connection:
+            new_fingerprint = str(
+                connection.execute(
+                    """
+                    SELECT fingerprint
+                    FROM recommendation_track_vectors
+                    LIMIT 1
+                    """
+                ).fetchone()["fingerprint"]
+            )
+        self.assertNotEqual(old_fingerprint, new_fingerprint)
+
+    def test_rescan_fingerprint_makes_seed_profile_cache_stale(self) -> None:
+        database = self.build_database()
+        service = RecommendationService(database)
+        service.get_album_radio("album-1", limit=3)
+
+        with connect_database(database, create=False) as connection:
+            old_fingerprint = str(
+                connection.execute(
+                    """
+                    SELECT fingerprint
+                    FROM recommendation_seed_profiles
+                    WHERE seed_kind = 'album'
+                        AND seed_key = 'album-1'
+                    """
+                ).fetchone()["fingerprint"]
+            )
+            connection.execute(
+                """
+                INSERT OR REPLACE INTO app_metadata (key, value)
+                VALUES ('library_generated_at', '2026-06-13T12:00:00+00:00')
+                """
+            )
+
+        with patch(
+            "kukicha.use_case.recommendations.build_recommendation_album_profile",
+            wraps=build_recommendation_album_profile,
+        ) as build_profile:
+            service.get_album_radio("album-1", limit=3)
+
+        self.assertTrue(build_profile.called)
+        with connect_database(database, create=False) as connection:
+            new_fingerprint = str(
+                connection.execute(
+                    """
+                    SELECT fingerprint
+                    FROM recommendation_seed_profiles
+                    WHERE seed_kind = 'album'
+                        AND seed_key = 'album-1'
+                    """
+                ).fetchone()["fingerprint"]
+            )
+        self.assertNotEqual(old_fingerprint, new_fingerprint)
+
+    def test_artist_only_does_not_store_track_vectors(self) -> None:
+        database = self.build_database()
+        service = RecommendationService(database)
+
+        results = service.get_track_radio(
+            1,
+            mode=RECOMMENDATION_MODE_ARTIST_ONLY,
+            limit=10,
+        )
+
+        self.assertTrue(results)
+        with connect_database(database, create=False) as connection:
+            row = connection.execute(
+                """
+                SELECT COUNT(*) AS count
+                FROM recommendation_track_vectors
+                WHERE mode = ?
+                """,
+                (RECOMMENDATION_MODE_ARTIST_ONLY,),
+            ).fetchone()
+        self.assertEqual(int(row["count"]), 0)
+
+    def test_genre_radio_threshold_counts_eligible_style_parent_albums(self) -> None:
+        database = self.build_database()
+        with connect_database(database, create=False) as connection:
+            self.assertEqual(genre_radio_album_count(connection, "Rock"), 3)
+            self.assertEqual(genre_radio_album_count(connection, "Electronic"), 2)
+
+        service = RecommendationService(database, genre_radio_min_album_count=4)
+        with self.assertRaisesRegex(
+            GenreRadioThresholdError,
+            "Genre radio requires at least 4 albums for Rock",
+        ):
+            service.get_genre_radio("Rock", limit=10)
+
+        self.assertTrue(
+            RecommendationService(
+                database,
+                genre_radio_min_album_count=3,
+            ).get_genre_radio("Rock", limit=10)
+        )
+
     def build_diversity_database(self) -> Path:
         tempdir = TemporaryDirectory()
         self.addCleanup(tempdir.cleanup)
@@ -2178,7 +2376,11 @@ class RecommendationServiceTest(unittest.TestCase):
         self.assertEqual(default_by_id[2].explanation.matched_decade, "1990s")
         self.assertFalse(default_by_id[2].explanation.same_artist)
 
-        genre_radio_results = service.get_genre_radio("Rock", limit=10)
+        genre_radio_results = service.get_genre_radio(
+            "Rock",
+            limit=10,
+            minimum_album_count=0,
+        )
         genre_radio_by_id = {
             result.candidate.metadata.track_id: result
             for result in genre_radio_results
@@ -2440,7 +2642,11 @@ class RecommendationServiceTest(unittest.TestCase):
         }
         genre_radio_results = {
             result.candidate.metadata.track_id: result
-            for result in service.get_genre_radio("Rock", limit=10)
+            for result in service.get_genre_radio(
+                "Rock",
+                limit=10,
+                minimum_album_count=0,
+            )
         }
 
         self.assertGreater(
@@ -2498,7 +2704,11 @@ class RecommendationServiceTest(unittest.TestCase):
 
         default_results = {
             result.candidate.metadata.track_id: result
-            for result in service.get_genre_radio("Rock", limit=10)
+            for result in service.get_genre_radio(
+                "Rock",
+                limit=10,
+                minimum_album_count=0,
+            )
         }
         discovery_results = {
             result.candidate.metadata.track_id: result
@@ -2506,6 +2716,7 @@ class RecommendationServiceTest(unittest.TestCase):
                 "Rock",
                 mode=RECOMMENDATION_MODE_DISCOVERY,
                 limit=10,
+                minimum_album_count=0,
             )
         }
 
@@ -2515,7 +2726,11 @@ class RecommendationServiceTest(unittest.TestCase):
     def test_genre_radio_includes_style_derived_parent_genre_matches(self) -> None:
         service = RecommendationService(self.build_database())
 
-        results = service.get_genre_radio("Classical", limit=10)
+        results = service.get_genre_radio(
+            "Classical",
+            limit=10,
+            minimum_album_count=0,
+        )
 
         self.assertEqual(
             [result.candidate.metadata.track_id for result in results],
@@ -2647,7 +2862,11 @@ class RecommendationServiceTest(unittest.TestCase):
 
         ambient_results = {
             result.candidate.metadata.track_id: result
-            for result in service.get_genre_radio("Ambient", limit=10)
+            for result in service.get_genre_radio(
+                "Ambient",
+                limit=10,
+                minimum_album_count=0,
+            )
         }
 
         self.assertEqual(set(ambient_results), {2, 3})

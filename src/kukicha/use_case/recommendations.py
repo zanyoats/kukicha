@@ -5,6 +5,7 @@ import json
 import math
 import random as random_module
 import re
+import sqlite3
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
@@ -16,7 +17,12 @@ from typing import Literal, Protocol, cast
 from ..album_artists import normalized_album_artist_values
 from ..models import normalize_genre_values
 from ..text import normalize_text
-from .database import UNKNOWN_GENRE_TAG, connect_existing_database
+from .database import (
+    TAXONOMY_METADATA_KEY,
+    UNKNOWN_GENRE_TAG,
+    connect_existing_database,
+    get_metadata,
+)
 from .library import split_genres_and_styles
 from .queries.library import (
     album_artists_by_album,
@@ -70,6 +76,8 @@ DiversityStrength = Literal["low", "medium", "high"]
 
 DEFAULT_RECOMMENDATION_LIMIT = 25
 MAX_RECOMMENDATION_LIMIT = 500
+DEFAULT_GENRE_RADIO_MIN_ALBUM_COUNT = 5
+RECOMMENDATION_VECTOR_CACHE_VERSION = "1"
 YEAR_PATTERN = re.compile(r"(?<!\d)(\d{4})(?!\d)")
 SparseVector = dict[str, float]
 RECOMMENDATION_SCORE_JSON_FIELDS = (
@@ -101,6 +109,29 @@ class RecommendationModeError(ValueError):
 
 class RecommendationLimitError(ValueError):
     """Raised when a recommendation limit cannot be parsed."""
+
+
+class GenreRadioThresholdError(ValueError):
+    """Raised when a genre has too few eligible albums for genre radio."""
+
+    def __init__(
+        self,
+        genre: object | None,
+        album_count: int,
+        minimum_album_count: int,
+    ) -> None:
+        self.genre = normalized_optional_text(genre) or ""
+        self.album_count = max(0, int(album_count))
+        self.minimum_album_count = max(0, int(minimum_album_count))
+        super().__init__(str(self))
+
+    def __str__(self) -> str:
+        album_label = "album" if self.minimum_album_count == 1 else "albums"
+        genre = self.genre or "this genre"
+        return (
+            f"Genre radio requires at least {self.minimum_album_count} "
+            f"{album_label} for {genre}."
+        )
 
 
 def normalize_recommendation_mode(value: object | None) -> RecommendationMode:
@@ -582,16 +613,71 @@ class RecommendationQueries:
         with connect_existing_database(self.database) as connection:
             return load_recommendation_style_parent_lookup(connection)
 
+    def recommendation_context(
+        self,
+        config: RecommendationModeConfig,
+    ) -> tuple[tuple[RecommendationCandidate, ...], dict[int, SparseVector], str]:
+        with connect_existing_database(self.database) as connection:
+            candidates = load_recommendation_candidates(connection)
+            fingerprint = recommendation_vector_cache_fingerprint(connection, config)
+            track_vectors = load_or_build_recommendation_track_vectors(
+                connection,
+                candidates,
+                config=config,
+                fingerprint=fingerprint,
+            )
+            return candidates, track_vectors, fingerprint
+
+    def cached_seed_profile(
+        self,
+        *,
+        seed_kind: str,
+        seed_key: str,
+        mode: RecommendationMode,
+        fingerprint: str,
+        seed_candidates: Iterable[RecommendationCandidate],
+        build_profile: Callable[[], RecommendationProfile],
+    ) -> RecommendationProfile:
+        with connect_existing_database(self.database) as connection:
+            return load_or_build_recommendation_seed_profile(
+                connection,
+                seed_kind=seed_kind,
+                seed_key=seed_key,
+                mode=mode,
+                fingerprint=fingerprint,
+                seed_candidates=seed_candidates,
+                build_profile=build_profile,
+            )
+
+    def genre_album_counts(self) -> dict[str, int]:
+        with connect_existing_database(self.database) as connection:
+            return genre_radio_album_counts(connection)
+
+    def ensure_genre_album_threshold(
+        self,
+        genre: object | None,
+        *,
+        minimum_album_count: int,
+    ) -> None:
+        with connect_existing_database(self.database) as connection:
+            ensure_genre_radio_album_threshold(
+                connection,
+                genre,
+                minimum_album_count=minimum_album_count,
+            )
+
 class RecommendationService:
     def __init__(
         self,
         database: str | Path,
         *,
         random_source: RecommendationRandomSource | None = None,
+        genre_radio_min_album_count: int = DEFAULT_GENRE_RADIO_MIN_ALBUM_COUNT,
     ) -> None:
         self.queries = RecommendationQueries(database)
         self._random_source_was_provided = random_source is not None
         self.random_source = random_source or random_module.Random()
+        self.genre_radio_min_album_count = max(0, int(genre_radio_min_album_count))
 
     def get_track_radio(
         self,
@@ -600,7 +686,7 @@ class RecommendationService:
         limit: object | None = DEFAULT_RECOMMENDATION_LIMIT,
     ) -> tuple[RecommendationResult, ...]:
         normalized_track_id = int(track_id)
-        config, normalized_limit, candidates, track_vectors = (
+        config, normalized_limit, candidates, track_vectors, _fingerprint = (
             self._recommendation_context(mode, limit)
         )
         seed_candidate = recommendation_candidate_by_track_id(
@@ -639,7 +725,7 @@ class RecommendationService:
         limit: object | None = DEFAULT_RECOMMENDATION_LIMIT,
     ) -> tuple[RecommendationResult, ...]:
         normalized_album_id = normalized_optional_text(album_id)
-        config, normalized_limit, candidates, track_vectors = (
+        config, normalized_limit, candidates, track_vectors, fingerprint = (
             self._recommendation_context(mode, limit)
         )
         seed_candidates = recommendation_candidates_by_album_id(
@@ -649,10 +735,17 @@ class RecommendationService:
         if not seed_candidates:
             raise AlbumNotFoundError(normalized_album_id or "")
 
-        profile = build_recommendation_album_profile(
-            normalized_album_id,
-            candidates,
-            track_vectors,
+        profile = self.queries.cached_seed_profile(
+            seed_kind="album",
+            seed_key=recommendation_seed_cache_key("album", normalized_album_id),
+            mode=config.mode,
+            fingerprint=fingerprint,
+            seed_candidates=seed_candidates,
+            build_profile=lambda: build_recommendation_album_profile(
+                normalized_album_id,
+                candidates,
+                track_vectors,
+            ),
         )
         excluded_track_ids: tuple[int, ...] = ()
         if config.exclude_seed_album_tracks:
@@ -684,7 +777,7 @@ class RecommendationService:
         limit: object | None = DEFAULT_RECOMMENDATION_LIMIT,
     ) -> tuple[RecommendationResult, ...]:
         normalized_artist = normalized_optional_text(artist)
-        config, normalized_limit, candidates, track_vectors = (
+        config, normalized_limit, candidates, track_vectors, fingerprint = (
             self._recommendation_context(mode, limit)
         )
         seed_candidates = recommendation_candidates_by_artist(
@@ -694,10 +787,17 @@ class RecommendationService:
         if not seed_candidates:
             raise ArtistNotFoundError(normalized_artist or "")
 
-        profile = build_recommendation_artist_profile(
-            normalized_artist,
-            candidates,
-            track_vectors,
+        profile = self.queries.cached_seed_profile(
+            seed_kind="artist",
+            seed_key=recommendation_seed_cache_key("artist", normalized_artist),
+            mode=config.mode,
+            fingerprint=fingerprint,
+            seed_candidates=seed_candidates,
+            build_profile=lambda: build_recommendation_artist_profile(
+                normalized_artist,
+                candidates,
+                track_vectors,
+            ),
         )
         return self._rank_profile_results(
             profile,
@@ -717,12 +817,22 @@ class RecommendationService:
         genre: object | None,
         mode: object | None = RECOMMENDATION_MODE_DEFAULT,
         limit: object | None = DEFAULT_RECOMMENDATION_LIMIT,
+        minimum_album_count: object | None = None,
     ) -> tuple[RecommendationResult, ...]:
         normalized_genre = normalized_optional_text(genre)
         if not normalized_genre or is_unknown_genre_value(normalized_genre):
             return ()
         normalized_mode = normalize_seedless_radio_mode(mode, "genre_radio")
-        config, normalized_limit, candidates, track_vectors = (
+        resolved_minimum_album_count = (
+            self.genre_radio_min_album_count
+            if minimum_album_count is None
+            else max(0, int(minimum_album_count))
+        )
+        self.queries.ensure_genre_album_threshold(
+            normalized_genre,
+            minimum_album_count=resolved_minimum_album_count,
+        )
+        config, normalized_limit, candidates, track_vectors, fingerprint = (
             self._recommendation_context(normalized_mode, limit)
         )
         style_parents = self.queries.style_parent_lookup()
@@ -738,9 +848,16 @@ class RecommendationService:
         if not genre_candidates:
             return ()
 
-        profile = build_recommendation_genre_profile(
-            genre_candidates,
-            track_vectors,
+        profile = self.queries.cached_seed_profile(
+            seed_kind="genre",
+            seed_key=recommendation_seed_cache_key("genre", normalized_genre),
+            mode=config.mode,
+            fingerprint=fingerprint,
+            seed_candidates=genre_candidates,
+            build_profile=lambda: build_recommendation_genre_profile(
+                genre_candidates,
+                track_vectors,
+            ),
         )
         return self._rank_profile_results(
             profile,
@@ -776,17 +893,12 @@ class RecommendationService:
         int,
         tuple[RecommendationCandidate, ...],
         dict[int, SparseVector],
+        str,
     ]:
         config = recommendation_mode_config(mode)
         normalized_limit = RECOMMENDATION_CONFIG.normalize_limit(limit)
-        candidates = self.queries.list_candidates()
-        vocabulary = build_recommendation_vocabulary(candidates)
-        track_vectors = build_recommendation_track_vectors(
-            candidates,
-            mode=config.mode,
-            vocabulary=vocabulary,
-        )
-        return config, normalized_limit, candidates, track_vectors
+        candidates, track_vectors, fingerprint = self.queries.recommendation_context(config)
+        return config, normalized_limit, candidates, track_vectors, fingerprint
 
     def _rank_profile_results(
         self,
@@ -914,6 +1026,441 @@ def load_recommendation_style_parent_lookup(connection: Connection) -> dict[str,
         )
         if recommendation_feature_term(row["style"])
     }
+
+
+def recommendation_vector_cache_enabled(mode: object | None) -> bool:
+    normalized_mode = normalize_recommendation_mode(mode)
+    return normalized_mode in {
+        RECOMMENDATION_MODE_DEFAULT,
+        RECOMMENDATION_MODE_DISCOVERY,
+    }
+
+
+def recommendation_vector_cache_fingerprint(
+    connection: Connection,
+    config: RecommendationModeConfig,
+) -> str:
+    payload = {
+        "version": RECOMMENDATION_VECTOR_CACHE_VERSION,
+        "mode": config.mode,
+        "feature_weights": config.feature_weights.as_dict(),
+        "library_generated_at": get_metadata(
+            connection,
+            "library_generated_at",
+            "",
+        ),
+        "taxonomy_tsv_sha256": get_metadata(connection, TAXONOMY_METADATA_KEY, ""),
+    }
+    encoded = json.dumps(payload, separators=(",", ":"), sort_keys=True)
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+def load_cached_recommendation_track_vectors(
+    connection: Connection,
+    candidates: Iterable[RecommendationCandidate],
+    *,
+    mode: RecommendationMode,
+    fingerprint: str,
+) -> dict[int, SparseVector]:
+    candidate_pool = tuple(candidates)
+    paths_by_track_id = {
+        candidate.metadata.track_id: candidate.metadata.path
+        for candidate in candidate_pool
+        if candidate.metadata.path
+    }
+    paths = tuple(dict.fromkeys(paths_by_track_id.values()))
+    if not paths:
+        return {}
+    vectors_by_path: dict[str, SparseVector] = {}
+    try:
+        for batch in batched(paths, size=500):
+            rows = connection.execute(
+                f"""
+                SELECT track_path, vector_json
+                FROM recommendation_track_vectors
+                WHERE mode = ?
+                    AND fingerprint = ?
+                    AND track_path IN ({placeholders_for(batch)})
+                """,
+                (mode, fingerprint, *batch),
+            )
+            for row in rows:
+                vector = recommendation_sparse_vector_from_json(row["vector_json"])
+                if vector is not None:
+                    vectors_by_path[str(row["track_path"])] = vector
+    except sqlite3.Error:
+        return {}
+    return {
+        track_id: vectors_by_path[path]
+        for track_id, path in paths_by_track_id.items()
+        if path in vectors_by_path
+    }
+
+
+def store_cached_recommendation_track_vectors(
+    connection: Connection,
+    candidates: Iterable[RecommendationCandidate],
+    vectors_by_track_id: Mapping[int, Mapping[str, float]],
+    *,
+    mode: RecommendationMode,
+    fingerprint: str,
+) -> None:
+    timestamp = recommendation_datetime_to_iso(datetime.now(timezone.utc))
+    rows = [
+        (
+            candidate.metadata.path,
+            mode,
+            fingerprint,
+            candidate.metadata.track_id,
+            recommendation_sparse_vector_json(
+                vectors_by_track_id.get(candidate.metadata.track_id, {})
+            ),
+            timestamp,
+            timestamp,
+        )
+        for candidate in candidates
+        if candidate.metadata.path
+    ]
+    if not rows:
+        return
+    try:
+        connection.executemany(
+            """
+            INSERT INTO recommendation_track_vectors (
+                track_path,
+                mode,
+                fingerprint,
+                track_id,
+                vector_json,
+                created_at,
+                updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(track_path, mode) DO UPDATE SET
+                fingerprint = excluded.fingerprint,
+                track_id = excluded.track_id,
+                vector_json = excluded.vector_json,
+                updated_at = excluded.updated_at
+            """,
+            rows,
+        )
+    except sqlite3.Error:
+        connection.rollback()
+
+
+def load_or_build_recommendation_track_vectors(
+    connection: Connection,
+    candidates: Iterable[RecommendationCandidate],
+    *,
+    config: RecommendationModeConfig,
+    fingerprint: str,
+) -> dict[int, SparseVector]:
+    candidate_pool = tuple(candidates)
+    if not recommendation_vector_cache_enabled(config.mode):
+        vocabulary = build_recommendation_vocabulary(candidate_pool)
+        return build_recommendation_track_vectors(
+            candidate_pool,
+            mode=config.mode,
+            vocabulary=vocabulary,
+        )
+
+    cached_vectors = load_cached_recommendation_track_vectors(
+        connection,
+        candidate_pool,
+        mode=config.mode,
+        fingerprint=fingerprint,
+    )
+    missing_candidates = tuple(
+        candidate
+        for candidate in candidate_pool
+        if candidate.metadata.track_id not in cached_vectors
+    )
+    if not missing_candidates:
+        return dict(cached_vectors)
+
+    vocabulary = build_recommendation_vocabulary(candidate_pool)
+    missing_vectors = build_recommendation_track_vectors(
+        missing_candidates,
+        mode=config.mode,
+        vocabulary=vocabulary,
+    )
+    store_cached_recommendation_track_vectors(
+        connection,
+        missing_candidates,
+        missing_vectors,
+        mode=config.mode,
+        fingerprint=fingerprint,
+    )
+    return {**cached_vectors, **missing_vectors}
+
+
+def load_cached_recommendation_seed_profile(
+    connection: Connection,
+    *,
+    seed_kind: str,
+    seed_key: str,
+    mode: RecommendationMode,
+    fingerprint: str,
+) -> RecommendationProfile | None:
+    try:
+        row = connection.execute(
+            """
+            SELECT
+                profile_vector_json,
+                seed_track_ids_json,
+                total_seed_weight
+            FROM recommendation_seed_profiles
+            WHERE seed_kind = ?
+                AND seed_key = ?
+                AND mode = ?
+                AND fingerprint = ?
+            """,
+            (seed_kind, seed_key, mode, fingerprint),
+        ).fetchone()
+    except sqlite3.Error:
+        return None
+    if row is None:
+        return None
+    vector = recommendation_sparse_vector_from_json(row["profile_vector_json"])
+    seed_track_ids = recommendation_json_int_tuple(row["seed_track_ids_json"])
+    total_seed_weight = recommendation_json_float(row["total_seed_weight"])
+    if vector is None or seed_track_ids is None or total_seed_weight is None:
+        return None
+    return RecommendationProfile(
+        vector=vector,
+        seed_track_ids=seed_track_ids,
+        total_seed_weight=total_seed_weight,
+    )
+
+
+def store_cached_recommendation_seed_profile(
+    connection: Connection,
+    *,
+    seed_kind: str,
+    seed_key: str,
+    mode: RecommendationMode,
+    fingerprint: str,
+    profile: RecommendationProfile,
+    seed_candidates: Iterable[RecommendationCandidate],
+) -> None:
+    seed_candidate_pool = tuple(seed_candidates)
+    timestamp = recommendation_datetime_to_iso(datetime.now(timezone.utc))
+    seed_track_paths = tuple(
+        candidate.metadata.path
+        for candidate in seed_candidate_pool
+        if candidate.metadata.path
+    )
+    seed_track_ids = tuple(
+        candidate.metadata.track_id
+        for candidate in seed_candidate_pool
+        if candidate.metadata.track_id > 0
+    )
+    try:
+        connection.execute(
+            """
+            INSERT INTO recommendation_seed_profiles (
+                seed_kind,
+                seed_key,
+                mode,
+                fingerprint,
+                profile_vector_json,
+                seed_track_paths_json,
+                seed_track_ids_json,
+                total_seed_weight,
+                created_at,
+                updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(seed_kind, seed_key, mode) DO UPDATE SET
+                fingerprint = excluded.fingerprint,
+                profile_vector_json = excluded.profile_vector_json,
+                seed_track_paths_json = excluded.seed_track_paths_json,
+                seed_track_ids_json = excluded.seed_track_ids_json,
+                total_seed_weight = excluded.total_seed_weight,
+                updated_at = excluded.updated_at
+            """,
+            (
+                seed_kind,
+                seed_key,
+                mode,
+                fingerprint,
+                recommendation_sparse_vector_json(profile.vector),
+                recommendation_text_tuple_json(seed_track_paths),
+                recommendation_int_tuple_json(seed_track_ids),
+                profile.total_seed_weight,
+                timestamp,
+                timestamp,
+            ),
+        )
+    except sqlite3.Error:
+        connection.rollback()
+
+
+def load_or_build_recommendation_seed_profile(
+    connection: Connection,
+    *,
+    seed_kind: str,
+    seed_key: str,
+    mode: RecommendationMode,
+    fingerprint: str,
+    seed_candidates: Iterable[RecommendationCandidate],
+    build_profile: Callable[[], RecommendationProfile],
+) -> RecommendationProfile:
+    if recommendation_vector_cache_enabled(mode):
+        cached = load_cached_recommendation_seed_profile(
+            connection,
+            seed_kind=seed_kind,
+            seed_key=seed_key,
+            mode=mode,
+            fingerprint=fingerprint,
+        )
+        if cached is not None:
+            return cached
+
+    profile = build_profile()
+    if recommendation_vector_cache_enabled(mode):
+        store_cached_recommendation_seed_profile(
+            connection,
+            seed_kind=seed_kind,
+            seed_key=seed_key,
+            mode=mode,
+            fingerprint=fingerprint,
+            profile=profile,
+            seed_candidates=seed_candidates,
+        )
+    return profile
+
+
+def recommendation_sparse_vector_json(vector: Mapping[str, float]) -> str:
+    return json.dumps(
+        sparse_vector_copy(vector),
+        separators=(",", ":"),
+        sort_keys=True,
+    )
+
+
+def recommendation_sparse_vector_from_json(value: object | None) -> SparseVector | None:
+    try:
+        payload = json.loads(str(value or "{}"))
+    except (TypeError, ValueError):
+        return None
+    if not isinstance(payload, Mapping):
+        return None
+    vector: SparseVector = {}
+    for key, raw_value in payload.items():
+        normalized_value = recommendation_json_float(raw_value)
+        if normalized_value is not None and normalized_value:
+            vector[str(key)] = normalized_value
+    return sparse_vector_copy(vector)
+
+
+def recommendation_text_tuple_json(values: Iterable[str]) -> str:
+    return json.dumps(
+        list(values),
+        separators=(",", ":"),
+    )
+
+
+def recommendation_int_tuple_json(values: Iterable[int]) -> str:
+    return json.dumps(
+        [int(value) for value in values],
+        separators=(",", ":"),
+    )
+
+
+def recommendation_json_int_tuple(value: object | None) -> tuple[int, ...] | None:
+    try:
+        payload = json.loads(str(value or "[]"))
+    except (TypeError, ValueError):
+        return None
+    if not isinstance(payload, (list, tuple)):
+        return None
+    try:
+        return tuple(dict.fromkeys(int(item) for item in payload))
+    except (TypeError, ValueError):
+        return None
+
+
+def batched(values: Iterable[str], *, size: int) -> Iterable[tuple[str, ...]]:
+    batch_size = max(1, int(size))
+    batch: list[str] = []
+    for value in values:
+        batch.append(value)
+        if len(batch) >= batch_size:
+            yield tuple(batch)
+            batch = []
+    if batch:
+        yield tuple(batch)
+
+
+def genre_radio_album_counts(connection: Connection) -> dict[str, int]:
+    albums_by_genre: dict[str, set[str]] = {}
+    rows = connection.execute(
+        """
+        SELECT genre, album_id
+        FROM (
+            SELECT track_genres.genre AS genre, tracks.album_id AS album_id
+            FROM library_tracks AS tracks
+            JOIN library_track_genres AS track_genres
+                ON track_genres.track_id = tracks.track_id
+            WHERE COALESCE(tracks.scan_error, '') = ''
+                AND COALESCE(tracks.album_id, '') != ''
+                AND COALESCE(track_genres.genre, '') != ''
+            UNION ALL
+            SELECT taxonomy_styles.parent_genre AS genre, tracks.album_id AS album_id
+            FROM library_tracks AS tracks
+            JOIN library_track_styles AS track_styles
+                ON track_styles.track_id = tracks.track_id
+            JOIN taxonomy_styles
+                ON taxonomy_styles.style = track_styles.style COLLATE NOCASE
+            WHERE COALESCE(tracks.scan_error, '') = ''
+                AND COALESCE(tracks.album_id, '') != ''
+                AND COALESCE(taxonomy_styles.parent_genre, '') != ''
+        )
+        """
+    )
+    for row in rows:
+        term = recommendation_feature_term(row["genre"])
+        if not term or is_unknown_genre_value(term):
+            continue
+        albums_by_genre.setdefault(term, set()).add(str(row["album_id"]))
+    return {
+        genre: len(album_ids)
+        for genre, album_ids in albums_by_genre.items()
+    }
+
+
+def genre_radio_album_count(connection: Connection, genre: object | None) -> int:
+    term = recommendation_feature_term(genre)
+    if not term or is_unknown_genre_value(term):
+        return 0
+    return genre_radio_album_counts(connection).get(term, 0)
+
+
+def ensure_genre_radio_album_threshold(
+    connection: Connection,
+    genre: object | None,
+    *,
+    minimum_album_count: int,
+) -> None:
+    normalized_minimum = max(0, int(minimum_album_count))
+    if normalized_minimum <= 0:
+        return
+    album_count = genre_radio_album_count(connection, genre)
+    if album_count < normalized_minimum:
+        raise GenreRadioThresholdError(genre, album_count, normalized_minimum)
+
+
+def validate_genre_radio_album_threshold(
+    database: str | Path,
+    genre: object | None,
+    *,
+    minimum_album_count: int,
+) -> None:
+    with connect_existing_database(Path(database)) as connection:
+        ensure_genre_radio_album_threshold(
+            connection,
+            genre,
+            minimum_album_count=minimum_album_count,
+        )
 
 
 def build_recommendation_vocabulary(
@@ -2176,6 +2723,14 @@ def recommendation_candidates_by_artist(
     )
 
 
+def recommendation_seed_cache_key(seed_kind: str, seed: object | None) -> str:
+    if seed_kind == "album":
+        return normalized_optional_text(seed) or ""
+    if seed_kind in {"artist", "genre"}:
+        return recommendation_feature_term(seed)
+    return normalized_optional_text(seed) or ""
+
+
 def recommendation_datetime_to_iso(value: datetime) -> str:
     return recommendation_utc_datetime(value).replace(microsecond=0).isoformat()
 
@@ -2982,6 +3537,7 @@ __all__ = [
     "CANDIDATE_FILTER_ARTIST_MATCH_REQUIRED",
     "CANDIDATE_SELECTION_WEIGHTED_RANDOM",
     "DEFAULT_DIVERSITY_CAPS",
+    "DEFAULT_GENRE_RADIO_MIN_ALBUM_COUNT",
     "DEFAULT_RECENCY_PENALTIES",
     "DEFAULT_RECOMMENDATION_LIMIT",
     "DISCOVERY_RECENCY_PENALTIES",
@@ -3011,6 +3567,7 @@ __all__ = [
     "DiversityCaps",
     "DiversityStrength",
     "FeatureWeights",
+    "GenreRadioThresholdError",
     "ListeningStats",
     "RandomRecencyMultipliers",
     "RecentPlayPenaltyStrength",
@@ -3047,6 +3604,8 @@ __all__ = [
     "normalize_recommendation_limit",
     "normalize_recommendation_mode",
     "normalize_sparse_vector",
+    "genre_radio_album_count",
+    "genre_radio_album_counts",
     "normalized_unique_text_tuple",
     "recommendation_feature_key",
     "recommendation_inverse_document_frequency",
@@ -3055,9 +3614,11 @@ __all__ = [
     "recommendation_candidate_matches_parent_genre",
     "recommendation_decade",
     "recommendation_album_artist_terms",
+    "recommendation_seed_cache_key",
     "recommendation_mode_config",
     "recommendation_seed_album_artist_terms",
     "recommendation_track_artist_terms",
+    "validate_genre_radio_album_threshold",
     "rank_recommendation_results",
     "rerank_recommendation_results",
     "scale_sparse_vector",

@@ -325,11 +325,16 @@ def home_radio_choices(runtime: PlayerRuntime) -> tuple[dict[str, Any], ...]:
         recommendation_genre_radio_url,
         recommendation_random_radio_url,
     )
+    from .use_case import RecommendationQueries
+    from .use_case.commands.recommendations import runtime_genre_radio_min_album_count
+    from .use_case.recommendations import recommendation_feature_term
     from .use_case import UNKNOWN_GENRE_TAG
 
     genre_choices: list[dict[str, Any]] = []
     seen_genres: set[str] = set()
     filters = runtime.library_filter_options()
+    minimum_album_count = runtime_genre_radio_min_album_count(runtime)
+    genre_album_counts = RecommendationQueries(runtime.database).genre_album_counts()
     for group in sorted(
         filters.genre_groups,
         key=lambda item: item.genre.casefold(),
@@ -340,6 +345,12 @@ def home_radio_choices(runtime: PlayerRuntime) -> tuple[dict[str, Any], ...]:
             not genre
             or genre_key == UNKNOWN_GENRE_TAG.casefold()
             or genre_key in seen_genres
+        ):
+            continue
+        if (
+            minimum_album_count > 0
+            and genre_album_counts.get(recommendation_feature_term(genre), 0)
+            < minimum_album_count
         ):
             continue
         seen_genres.add(genre_key)

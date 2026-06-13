@@ -9,6 +9,7 @@ from ...player_jobs import job_payload
 from ...player_runtime import PlayerJobCancelToken, PlayerJobResult, PlayerRuntime
 from ..queries import LibraryQueries
 from ..recommendations import (
+    DEFAULT_GENRE_RADIO_MIN_ALBUM_COUNT,
     RECOMMENDATION_CONFIG,
     RECOMMENDATION_MODE_ARTIST_ONLY,
     RECOMMENDATION_MODE_DEFAULT,
@@ -17,6 +18,7 @@ from ..recommendations import (
     RecommendationService,
     RecommendationModeError,
     normalize_recommendation_mode,
+    validate_genre_radio_album_threshold,
 )
 
 RecommendationPlaylistKind = Literal[
@@ -46,6 +48,14 @@ def start_recommendation_playlist(
     }
     if normalized_mode is not None:
         request["mode"] = normalized_mode
+    if kind == "genre_radio":
+        minimum_album_count = runtime_genre_radio_min_album_count(runtime)
+        validate_genre_radio_album_threshold(
+            runtime.database,
+            seed,
+            minimum_album_count=minimum_album_count,
+        )
+        request["genre_radio_min_album_count"] = minimum_album_count
     source_text = recommendation_playlist_source_text(
         runtime.database,
         kind,
@@ -89,7 +99,10 @@ def run_recommendation_playlist_job(
     cancel_token: PlayerJobCancelToken,
 ) -> PlayerJobResult:
     cancel_token.raise_if_canceled()
-    service = RecommendationService(runtime.database)
+    service = RecommendationService(
+        runtime.database,
+        genre_radio_min_album_count=runtime_genre_radio_min_album_count(runtime),
+    )
     kind = str(request["kind"])
     limit = int(request["limit"])
     if kind == "track_radio":
@@ -103,7 +116,12 @@ def run_recommendation_playlist_job(
         results = service.get_artist_radio(str(request["seed"]), mode=mode, limit=limit)
     elif kind == "genre_radio":
         mode = str(request["mode"])
-        results = service.get_genre_radio(str(request["seed"]), mode=mode, limit=limit)
+        results = service.get_genre_radio(
+            str(request["seed"]),
+            mode=mode,
+            limit=limit,
+            minimum_album_count=request.get("genre_radio_min_album_count"),
+        )
     elif kind == "random_playlist":
         mode = str(request["mode"])
         results = service.get_random_playlist(mode=mode, limit=limit)
@@ -167,6 +185,17 @@ def runtime_recommendation_limit(runtime: PlayerRuntime) -> int:
         return RECOMMENDATION_CONFIG.normalize_limit(raw_limit)
     except (TypeError, ValueError):
         return RECOMMENDATION_CONFIG.default_limit
+
+
+def runtime_genre_radio_min_album_count(runtime: PlayerRuntime) -> int:
+    try:
+        raw_count = getattr(runtime, "genre_radio_min_album_count")
+    except AttributeError:
+        raw_count = DEFAULT_GENRE_RADIO_MIN_ALBUM_COUNT
+    try:
+        return max(0, int(raw_count))
+    except (TypeError, ValueError):
+        return DEFAULT_GENRE_RADIO_MIN_ALBUM_COUNT
 
 
 def recommendation_playlist_mode(

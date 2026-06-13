@@ -71,6 +71,7 @@ from kukicha.player_config import (
     DEFAULT_AUTH_COOKIE_MAX_AGE,
     DEFAULT_AUTH_COOKIE_NAME,
     DEFAULT_OPEN_SUBSONIC_SECRET_FILENAME,
+    DEFAULT_PLAYER_GENRE_RADIO_MIN_ALBUM_COUNT,
     DEFAULT_PLAYER_HOST,
     DEFAULT_PLAYER_LOG_LEVEL,
     DEFAULT_PLAYER_PORT,
@@ -2052,6 +2053,7 @@ class PlayerConfigTest(unittest.TestCase):
                         "appearance = 'DaRk'",
                         "toast_timeout_ms = 12000",
                         "radio_limit = 40",
+                        "genre_radio_min_album_count = 9",
                         "album_artist_split_patterns = ['&', '/']",
                         "[opensubsonic]",
                         "mount_prefix = '/sonic/'",
@@ -2083,6 +2085,7 @@ class PlayerConfigTest(unittest.TestCase):
             self.assertEqual(options.appearance, "dark")
             self.assertEqual(options.toast_timeout_ms, 12000)
             self.assertEqual(options.radio_limit, 40)
+            self.assertEqual(options.genre_radio_min_album_count, 9)
             self.assertEqual(options.album_artist_split_patterns, ("&", "/"))
             self.assertIsNotNone(options.auth)
             assert options.auth is not None
@@ -2353,6 +2356,10 @@ class PlayerConfigTest(unittest.TestCase):
             self.assertEqual(options.toast_timeout_ms, DEFAULT_TOAST_TIMEOUT_MS)
             self.assertEqual(options.radio_limit, DEFAULT_RADIO_LIMIT)
             self.assertEqual(
+                options.genre_radio_min_album_count,
+                DEFAULT_PLAYER_GENRE_RADIO_MIN_ALBUM_COUNT,
+            )
+            self.assertEqual(
                 options.album_artist_split_patterns,
                 DEFAULT_ALBUM_ARTIST_SPLIT_PATTERNS,
             )
@@ -2438,6 +2445,27 @@ class PlayerConfigTest(unittest.TestCase):
 
         self.assertEqual(options.radio_limit, 40)
 
+    def test_load_player_options_reads_genre_radio_min_album_count(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            config_path = Path(tempdir) / "kukicha.toml"
+            self.write_config(config_path, "genre_radio_min_album_count = 0\n")
+
+            options = load_player_options(config_path)
+
+        self.assertEqual(options.genre_radio_min_album_count, 0)
+
+    def test_load_player_options_defaults_genre_radio_min_album_count(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            config_path = Path(tempdir) / "kukicha.toml"
+            self.write_config(config_path, "")
+
+            options = load_player_options(config_path)
+
+        self.assertEqual(
+            options.genre_radio_min_album_count,
+            DEFAULT_PLAYER_GENRE_RADIO_MIN_ALBUM_COUNT,
+        )
+
     def test_load_player_options_rejects_invalid_radio_limits(self) -> None:
         with TemporaryDirectory() as tempdir:
             config_path = Path(tempdir) / "kukicha.toml"
@@ -2445,6 +2473,25 @@ class PlayerConfigTest(unittest.TestCase):
                 ("radio_limit = 0\n", "radio_limit must be greater than 0"),
                 ("radio_limit = 501\n", "radio_limit must be no greater than 500"),
                 ("radio_limit = '25'\n", "radio_limit must be an integer"),
+            ):
+                with self.subTest(text=text):
+                    self.write_config(config_path, text)
+
+                    with self.assertRaisesRegex(PlayerConfigError, message):
+                        load_player_options(config_path)
+
+    def test_load_player_options_rejects_invalid_genre_radio_min_album_counts(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            config_path = Path(tempdir) / "kukicha.toml"
+            for text, message in (
+                (
+                    "genre_radio_min_album_count = -1\n",
+                    "genre_radio_min_album_count must be greater than or equal to 0",
+                ),
+                (
+                    "genre_radio_min_album_count = '5'\n",
+                    "genre_radio_min_album_count must be an integer",
+                ),
             ):
                 with self.subTest(text=text):
                     self.write_config(config_path, text)
@@ -2598,7 +2645,8 @@ class PlayerConfigTest(unittest.TestCase):
                 "Supported keys:\n  log_level\n  database_path\n  roots\n  remote_roots\n  remote_workers\n  ffmpeg_path\n"
                 "  youtube_download_root\n  prefer_musicbrainz_english_aliases\n  host\n  port\n"
                 "  trusted_proxy_headers\n  appearance\n  accent_color\n  toast_timeout_ms\n"
-                "  radio_limit\n  album_artist_split_patterns\n  auth.username\n  auth.password_hash_file\n"
+                "  radio_limit\n  genre_radio_min_album_count\n  album_artist_split_patterns\n"
+                "  auth.username\n  auth.password_hash_file\n"
                 "  auth.cookie_max_age\n  auth.cookie_name\n"
                 "  opensubsonic.mount_prefix\n  opensubsonic.secret_file",
                 help_text,
@@ -5143,6 +5191,7 @@ class PlayerWebAdapterTest(unittest.TestCase):
                 database,
             )
             runtime = self.make_runtime(database)
+            runtime.genre_radio_min_album_count = 1
             with patch("kukicha.player_web_adapter.PlayerRuntime", return_value=runtime):
                 app = create_player_app(self.make_options(temp_path))
                 response = app.test_client().get("/")
@@ -5181,6 +5230,54 @@ class PlayerWebAdapterTest(unittest.TestCase):
         self.assertNotIn("Artist-Only", radio_section)
         self.assertLess(html.index(">Electronic</summary>"), html.index(">Rock</summary>"))
         self.assertLess(html.index(">Rock</summary>"), html.index(">Random</summary>"))
+
+    def test_home_radio_section_hides_genres_below_min_album_count(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            database = temp_path / "kukicha.sqlite"
+            save_library(
+                MusicLibrary(
+                    roots=["/music"],
+                    tracks=[
+                        TrackRecord(
+                            path="/music/Rock/01.flac",
+                            root_position=0,
+                            file_type="flac",
+                            artist="Rock Artist",
+                            album_artist="Rock Artist",
+                            album="Rock Album",
+                            title="Rock Track",
+                            genres=["Rock"],
+                        ),
+                        TrackRecord(
+                            path="/music/Drone/01.flac",
+                            root_position=0,
+                            file_type="flac",
+                            artist="Drone Artist",
+                            album_artist="Drone Artist",
+                            album="Drone Album",
+                            title="Drone Track",
+                            styles=["Drone"],
+                        ),
+                    ],
+                    supported_extensions=[".flac"],
+                    generated_at="2026-05-01T00:00:00+00:00",
+                ),
+                database,
+            )
+            runtime = self.make_runtime(database)
+            runtime.genre_radio_min_album_count = 2
+            with patch("kukicha.player_web_adapter.PlayerRuntime", return_value=runtime):
+                app = create_player_app(self.make_options(temp_path))
+                response = app.test_client().get("/")
+
+        html = response.data.decode()
+        self.assertNotIn("/recommendations/radio/genre/Electronic", html)
+        self.assertNotIn("/recommendations/radio/genre/Rock", html)
+        self.assertIn(
+            'data-recommendation-url="/recommendations/radio/random"',
+            html,
+        )
 
     def test_home_shows_recently_added_albums_from_file_created_at(self) -> None:
         class FixedDateTime(datetime):
@@ -6921,6 +7018,23 @@ class PlayerWebAdapterTest(unittest.TestCase):
         self.assertEqual(genre_response.status_code, 400)
         self.assertEqual(random_response.status_code, 400)
 
+    def test_genre_recommendation_post_route_rejects_below_threshold_genre(
+        self,
+    ) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            database = temp_path / "kukicha.sqlite"
+            self.seed_recommendation_database(database)
+
+            app = create_player_app(self.make_options(temp_path))
+            response = app.test_client().post("/recommendations/radio/genre/Rock")
+
+        self.assertEqual(response.status_code, 400)
+        self.assertIn(
+            "Genre radio requires at least 5 albums for Rock.",
+            response.get_json()["error"],
+        )
+
     def test_recommendation_routes_return_json_errors(self) -> None:
         with TemporaryDirectory() as tempdir:
             temp_path = Path(tempdir)
@@ -7489,6 +7603,7 @@ class PlayerWebAdapterTest(unittest.TestCase):
                         "accent_color = 'cyan'",
                         "appearance = 'dim'",
                         "radio_limit = 40",
+                        "genre_radio_min_album_count = 7",
                         "album_artist_split_patterns = ['&', '/']",
                     )
                 ),
@@ -7549,6 +7664,8 @@ class PlayerWebAdapterTest(unittest.TestCase):
             self.assertIn(b"<code>dim</code>", response.data)
             self.assertIn(b"<code>radio_limit</code>", response.data)
             self.assertIn(b"<code>40</code>", response.data)
+            self.assertIn(b"<code>genre_radio_min_album_count</code>", response.data)
+            self.assertIn(b"<code>7</code>", response.data)
             self.assertIn(b"<code>roots</code>", response.data)
             self.assertIn(b'class="config-array-value"', response.data)
             self.assertIn(f"<code>{(temp_path / 'music-a').resolve()}</code>".encode(), response.data)
