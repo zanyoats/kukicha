@@ -201,7 +201,7 @@ class RandomRecencyMultipliers:
 @dataclass(frozen=True, slots=True)
 class DiversityCaps:
     max_tracks_per_artist: int = 3
-    max_tracks_per_album: int = 2
+    max_tracks_per_album: int = 1
     max_tracks_per_genre: int = 8
     top_track_count: int = 25
     apply_artist_cap: bool = True
@@ -225,8 +225,8 @@ class RecommendationModeConfig:
     candidate_filter: CandidateFilter | None = None
     candidate_selection: CandidateSelection | None = None
     artist_only_fallback: ArtistOnlyFallback = ARTIST_ONLY_FALLBACK_RETURN_FEWER
-    exclude_seed_track: bool = True
-    exclude_seed_album_tracks: bool = True
+    exclude_seed_track: bool = False
+    exclude_seed_album_tracks: bool = False
     random_recency_multipliers: RandomRecencyMultipliers | None = None
     random_track_play_count_weight: float = 0.0
 
@@ -1442,12 +1442,7 @@ def recommendation_shuffle_candidate_indexes(
     selected: list[RecommendationResult],
     config: RecommendationModeConfig,
 ) -> tuple[int, ...]:
-    ranked_indexes = recommendation_album_reuse_candidate_indexes(
-        results,
-        tuple(selectable_indexes),
-        selected,
-        config,
-    )
+    ranked_indexes = tuple(selectable_indexes)
     if not ranked_indexes:
         return ()
     window = recommendation_shuffle_candidate_window(config)
@@ -1458,46 +1453,6 @@ def recommendation_shuffle_candidate_indexes(
         for index in ranked_indexes[:window]
         if best_score - results[index].final_score <= score_tolerance
     ) or (ranked_indexes[0],)
-
-
-def recommendation_album_reuse_candidate_indexes(
-    results: list[RecommendationResult],
-    selectable_indexes: tuple[int, ...],
-    selected: list[RecommendationResult],
-    config: RecommendationModeConfig,
-) -> tuple[int, ...]:
-    if not config.diversity_caps.apply_album_cap or not selected:
-        return selectable_indexes
-    selected_album_keys = {
-        key
-        for result in selected
-        if (key := recommendation_diversity_album_key(result.candidate.metadata))
-    }
-    if not selected_album_keys:
-        return selectable_indexes
-    unseen_album_indexes = tuple(
-        index
-        for index in selectable_indexes
-        if recommendation_diversity_album_key(results[index].candidate.metadata)
-        not in selected_album_keys
-    )
-    if not unseen_album_indexes:
-        return selectable_indexes
-    best_score = results[selectable_indexes[0]].final_score
-    best_unseen_score = results[unseen_album_indexes[0]].final_score
-    if best_score - best_unseen_score <= recommendation_album_reuse_score_tolerance(
-        config
-    ):
-        return unseen_album_indexes
-    return selectable_indexes
-
-
-def recommendation_album_reuse_score_tolerance(config: RecommendationModeConfig) -> float:
-    if config.diversity_strength == DIVERSITY_STRENGTH_HIGH:
-        return 0.18
-    if config.diversity_strength == DIVERSITY_STRENGTH_LOW:
-        return 0.04
-    return 0.12
 
 
 def recommendation_shuffle_candidate_window(config: RecommendationModeConfig) -> int:
@@ -1558,6 +1513,23 @@ def recommendation_spacing_penalty(
     previous = selected[-1]
     if caps.apply_artist_cap and recommendation_results_share_artist(result, previous):
         penalty += 1
+    period_limit = recommendation_cadence_period_limit(config)
+    if caps.apply_album_cap:
+        penalty += recommendation_result_cadence_penalty(
+            result,
+            selected,
+            recommendation_result_album_key,
+            max_period=period_limit,
+            weight=4,
+        )
+    if caps.apply_artist_cap:
+        penalty += recommendation_result_cadence_penalty(
+            result,
+            selected,
+            recommendation_result_artist_key,
+            max_period=period_limit,
+            weight=3,
+        )
     return penalty
 
 
@@ -1569,26 +1541,62 @@ def recommendation_album_spacing_window(config: RecommendationModeConfig) -> int
     return 4
 
 
+def recommendation_cadence_period_limit(config: RecommendationModeConfig) -> int:
+    if config.diversity_strength == DIVERSITY_STRENGTH_HIGH:
+        return 10
+    return 8
+
+
+def recommendation_result_cadence_penalty(
+    result: RecommendationResult,
+    selected: list[RecommendationResult],
+    key_for_result: Callable[[RecommendationResult], str],
+    *,
+    max_period: int,
+    weight: int,
+) -> int:
+    key = key_for_result(result)
+    if not key:
+        return 0
+    selected_keys = [key_for_result(selected_result) for selected_result in selected]
+    strongest_match = 0
+    for period in range(2, min(max_period, len(selected_keys)) + 1):
+        if selected_keys[-period] != key:
+            continue
+        matches = 1
+        max_offsets = min(period - 1, len(selected_keys) - period)
+        for offset in range(1, max_offsets + 1):
+            previous_key = selected_keys[-offset]
+            if not previous_key or previous_key != selected_keys[-period - offset]:
+                break
+            matches += 1
+        if matches >= 2:
+            strongest_match = max(strongest_match, matches)
+    return weight * strongest_match
+
+
+def recommendation_result_album_key(result: RecommendationResult) -> str:
+    return recommendation_diversity_album_key(result.candidate.metadata)
+
+
+def recommendation_result_artist_key(result: RecommendationResult) -> str:
+    return recommendation_diversity_artist_key(result.candidate.metadata)
+
+
 def recommendation_results_share_album(
     left: RecommendationResult,
     right: RecommendationResult,
 ) -> bool:
-    left_key = recommendation_diversity_album_key(left.candidate.metadata)
-    return bool(
-        left_key
-        and left_key == recommendation_diversity_album_key(right.candidate.metadata)
-    )
+    left_key = recommendation_result_album_key(left)
+    return bool(left_key and left_key == recommendation_result_album_key(right))
 
 
 def recommendation_results_share_artist(
     left: RecommendationResult,
     right: RecommendationResult,
 ) -> bool:
-    left_key = recommendation_diversity_artist_key(left.candidate.metadata)
-    return bool(
-        left_key
-        and left_key == recommendation_diversity_artist_key(right.candidate.metadata)
-    )
+    left_key = recommendation_result_artist_key(left)
+    return bool(left_key and left_key == recommendation_result_artist_key(right))
 
 
 def recommendation_result_is_selectable_for_diversity(
@@ -2821,7 +2829,7 @@ DISCOVERY_RECENCY_PENALTIES = RecencyPenalties(
 )
 DEFAULT_DIVERSITY_CAPS = DiversityCaps(
     max_tracks_per_artist=3,
-    max_tracks_per_album=2,
+    max_tracks_per_album=1,
     max_tracks_per_genre=8,
     top_track_count=25,
 )
@@ -2880,7 +2888,7 @@ RECOMMENDATION_MODE_CONFIGS: Mapping[RecommendationMode, RecommendationModeConfi
                 recency_penalties=DEFAULT_RECENCY_PENALTIES,
                 diversity_caps=DiversityCaps(
                     max_tracks_per_artist=3,
-                    max_tracks_per_album=2,
+                    max_tracks_per_album=1,
                     max_tracks_per_genre=8,
                     top_track_count=25,
                     apply_artist_cap=False,

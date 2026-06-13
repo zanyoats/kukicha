@@ -136,7 +136,7 @@ class RecommendationModeConfigTest(unittest.TestCase):
         self.assertEqual(config.recency_penalties.played_last_30_days, 0.05)
         self.assertEqual(config.recent_play_suppression_days, 1.0)
         self.assertEqual(config.diversity_caps.max_tracks_per_artist, 3)
-        self.assertEqual(config.diversity_caps.max_tracks_per_album, 2)
+        self.assertEqual(config.diversity_caps.max_tracks_per_album, 1)
         self.assertEqual(config.diversity_caps.max_tracks_per_genre, 8)
         self.assertEqual(config.artist_only_fallback, ARTIST_ONLY_FALLBACK_RETURN_FEWER)
 
@@ -166,8 +166,8 @@ class RecommendationModeConfigTest(unittest.TestCase):
         self.assertFalse(artist_only.diversity_caps.apply_artist_cap)
         self.assertEqual(artist_only.recent_play_suppression_days, 1.0)
         self.assertEqual(artist_only.artist_only_fallback, ARTIST_ONLY_FALLBACK_RETURN_FEWER)
-        self.assertTrue(artist_only.exclude_seed_track)
-        self.assertTrue(artist_only.exclude_seed_album_tracks)
+        self.assertFalse(artist_only.exclude_seed_track)
+        self.assertFalse(artist_only.exclude_seed_album_tracks)
 
     def test_random_mode_recency_multipliers_match_plan_values(self) -> None:
         config = RANDOM_RECOMMENDATION_CONFIG
@@ -177,8 +177,8 @@ class RecommendationModeConfigTest(unittest.TestCase):
         self.assertEqual(config.recent_play_penalty_strength, RECENT_PLAY_PENALTY_RANDOM_WEIGHTED)
         self.assertEqual(config.random_track_play_count_weight, 0.15)
         self.assertIsNone(config.recent_play_suppression_days)
-        self.assertTrue(config.exclude_seed_track)
-        self.assertTrue(config.exclude_seed_album_tracks)
+        self.assertFalse(config.exclude_seed_track)
+        self.assertFalse(config.exclude_seed_album_tracks)
         self.assertIsNotNone(multipliers)
         assert multipliers is not None
         self.assertEqual(multipliers.played_last_24_hours, 0.10)
@@ -965,8 +965,10 @@ class RecommendationDiversityRerankingTest(unittest.TestCase):
 
         self.assertEqual(
             [result.candidate.metadata.track_id for result in reranked],
-            [1, 4, 5, 6, 3, 2],
+            [1, 4, 5, 6],
         )
+        self.assertNotIn(2, [result.candidate.metadata.track_id for result in reranked])
+        self.assertNotIn(3, [result.candidate.metadata.track_id for result in reranked])
         self.assertNotEqual(
             [
                 result.candidate.metadata.album_id
@@ -982,23 +984,24 @@ class RecommendationDiversityRerankingTest(unittest.TestCase):
             ],
         )
 
-    def test_reranking_prefers_close_unseen_albums_before_album_reuse(self) -> None:
+    def test_reranking_caps_album_reuse_at_one_track(self) -> None:
+        config = replace(
+            recommendation_mode_config(),
+            diversity_strength=DIVERSITY_STRENGTH_LOW,
+        )
         results = (
             self.result(1, artist="Artist A1", album_id="album-a", base_similarity=0.99),
             self.result(2, artist="Artist B", album_id="album-b", base_similarity=0.98),
-            self.result(3, artist="Artist C", album_id="album-c", base_similarity=0.97),
-            self.result(4, artist="Artist D", album_id="album-d", base_similarity=0.96),
-            self.result(5, artist="Artist E", album_id="album-e", base_similarity=0.95),
-            self.result(6, artist="Artist A2", album_id="album-a", base_similarity=0.94),
-            self.result(7, artist="Artist F", album_id="album-f", base_similarity=0.93),
-            self.result(8, artist="Artist G", album_id="album-g", base_similarity=0.92),
+            self.result(3, artist="Artist A2", album_id="album-a", base_similarity=0.97),
+            self.result(4, artist="Artist C", album_id="album-c", base_similarity=0.96),
+            self.result(5, artist="Artist D", album_id="album-d", base_similarity=0.95),
         )
 
-        reranked = rerank_recommendation_results(results, 8)
+        reranked = rerank_recommendation_results(results, 5, config=config)
 
         self.assertEqual(
             [result.candidate.metadata.track_id for result in reranked],
-            [1, 7, 2, 3, 5, 8, 4, 6],
+            [1, 2, 4, 5],
         )
         self.assertEqual(
             [
@@ -1006,7 +1009,93 @@ class RecommendationDiversityRerankingTest(unittest.TestCase):
                 for index, result in enumerate(reranked)
                 if result.candidate.metadata.album_id == "album-a"
             ],
-            [0, 7],
+            [0],
+        )
+
+    def test_reranking_penalizes_repeated_artist_cadence(self) -> None:
+        config = replace(
+            recommendation_mode_config(),
+            diversity_strength=DIVERSITY_STRENGTH_LOW,
+            diversity_caps=DiversityCaps(
+                max_tracks_per_artist=3,
+                max_tracks_per_album=3,
+                max_tracks_per_genre=20,
+            ),
+        )
+        results = (
+            self.result(1, artist="Artist A", album_id="album-a1", base_similarity=0.99),
+            self.result(2, artist="Artist B", album_id="album-b1", base_similarity=0.98),
+            self.result(3, artist="Artist C", album_id="album-c1", base_similarity=0.97),
+            self.result(4, artist="Artist D", album_id="album-d1", base_similarity=0.96),
+            self.result(5, artist="Artist E", album_id="album-e1", base_similarity=0.95),
+            self.result(6, artist="Artist A", album_id="album-a2", base_similarity=0.94),
+            self.result(7, artist="Artist B", album_id="album-b2", base_similarity=0.93),
+            self.result(8, artist="Artist C", album_id="album-c2", base_similarity=0.92),
+            self.result(9, artist="Artist D", album_id="album-d2", base_similarity=0.91),
+            self.result(10, artist="Artist E", album_id="album-e2", base_similarity=0.90),
+            self.result(11, artist="Artist F", album_id="album-f", base_similarity=0.89),
+        )
+
+        reranked = rerank_recommendation_results(results, 11, config=config)
+
+        self.assertEqual(
+            [
+                result.candidate.metadata.artist
+                for result in reranked[:8]
+            ],
+            [
+                "Artist A",
+                "Artist B",
+                "Artist C",
+                "Artist D",
+                "Artist E",
+                "Artist A",
+                "Artist C",
+                "Artist B",
+            ],
+        )
+
+    def test_reranking_penalizes_repeated_album_cadence(self) -> None:
+        config = replace(
+            recommendation_mode_config(),
+            diversity_strength=DIVERSITY_STRENGTH_LOW,
+            diversity_caps=DiversityCaps(
+                max_tracks_per_artist=3,
+                max_tracks_per_album=3,
+                max_tracks_per_genre=20,
+            ),
+        )
+        results = (
+            self.result(1, artist="Artist 1", album_id="album-a", base_similarity=0.99),
+            self.result(2, artist="Artist 2", album_id="album-b", base_similarity=0.98),
+            self.result(3, artist="Artist 3", album_id="album-c", base_similarity=0.97),
+            self.result(4, artist="Artist 4", album_id="album-d", base_similarity=0.96),
+            self.result(5, artist="Artist 5", album_id="album-e", base_similarity=0.95),
+            self.result(6, artist="Artist 6", album_id="album-a", base_similarity=0.94),
+            self.result(7, artist="Artist 7", album_id="album-b", base_similarity=0.93),
+            self.result(8, artist="Artist 8", album_id="album-c", base_similarity=0.92),
+            self.result(9, artist="Artist 9", album_id="album-d", base_similarity=0.91),
+            self.result(10, artist="Artist 10", album_id="album-e", base_similarity=0.90),
+            self.result(11, artist="Artist 11", album_id="album-f", base_similarity=0.89),
+        )
+
+        reranked = rerank_recommendation_results(results, 11, config=config)
+
+        self.assertEqual(
+            [
+                result.candidate.metadata.album_id
+                for result in reranked[:8]
+            ],
+            [
+                "album-a",
+                "album-b",
+                "album-c",
+                "album-d",
+                "album-e",
+                "album-a",
+                "album-c",
+                "album-b",
+            ],
         )
 
     def test_artist_only_reranking_is_exempt_from_same_artist_cap(self) -> None:
@@ -2076,8 +2165,9 @@ class RecommendationServiceTest(unittest.TestCase):
             for result in default_results
         ]
 
-        self.assertNotIn(1, default_track_ids)
-        self.assertEqual(default_track_ids[0], 2)
+        self.assertIn(1, default_track_ids)
+        self.assertEqual(default_track_ids[0], 1)
+        self.assertEqual(default_track_ids[1], 2)
         self.assertEqual(default_by_id[2].explanation.matched_genres, ("Rock",))
         self.assertEqual(
             default_by_id[2].explanation.matched_styles,
@@ -2111,7 +2201,7 @@ class RecommendationServiceTest(unittest.TestCase):
                 result.candidate.metadata.track_id
                 for result in artist_only_results
             ],
-            [3],
+            [1, 3],
         )
 
         discovery_by_id = {
@@ -2153,8 +2243,16 @@ class RecommendationServiceTest(unittest.TestCase):
             for result in album_results
         }
 
-        self.assertNotIn(1, album_track_ids)
-        self.assertNotIn(2, album_track_ids)
+        self.assertEqual(len({1, 2}.intersection(album_track_ids)), 1)
+        self.assertEqual(
+            len(
+                {
+                    result.candidate.metadata.album_id
+                    for result in album_results
+                }
+            ),
+            len(album_results),
+        )
         self.assertGreater(album_by_id[3].score.base_similarity, 0.0)
         self.assertEqual(album_by_id[3].explanation.matched_genres, ("Ambient",))
         self.assertEqual(album_by_id[3].explanation.matched_styles, ("Drone",))
@@ -2199,7 +2297,7 @@ class RecommendationServiceTest(unittest.TestCase):
                 result.candidate.metadata.track_id
                 for result in random_playlist_results
             ],
-            [1, 2],
+            [1, 3],
         )
 
     def test_album_radio_relaxes_genre_cap_and_omits_decade_only_fill(
@@ -2210,7 +2308,7 @@ class RecommendationServiceTest(unittest.TestCase):
         results = service.get_album_radio("album-seed", limit=12)
 
         track_ids = [result.candidate.metadata.track_id for result in results]
-        self.assertCountEqual(track_ids, list(range(2, 12)))
+        self.assertCountEqual(track_ids, list(range(1, 12)))
         self.assertNotEqual(track_ids, list(range(2, 12)))
         self.assertNotIn(12, track_ids)
         self.assertNotIn(13, track_ids)
@@ -2218,15 +2316,14 @@ class RecommendationServiceTest(unittest.TestCase):
             self.assertEqual(result.candidate.metadata.genres, ("Electronic",))
             self.assertEqual(result.explanation.matched_genres, ("Electronic",))
 
-    def test_track_radio_excludes_seed_and_ranks_default_similarity(self) -> None:
+    def test_track_radio_includes_seed_and_ranks_default_similarity(self) -> None:
         service = RecommendationService(self.build_database())
 
         results = service.get_track_radio(1, limit=10)
 
         track_ids = [result.candidate.metadata.track_id for result in results]
-        self.assertEqual(track_ids, [2, 4, 3])
+        self.assertEqual(track_ids, [1, 2, 4, 3])
         self.assertLess(track_ids.index(4), track_ids.index(3))
-        self.assertNotIn(1, track_ids)
         self.assertNotIn(5, track_ids)
         self.assertNotIn(6, track_ids)
 
@@ -2327,8 +2424,8 @@ class RecommendationServiceTest(unittest.TestCase):
         ]
         self.assertNotIn(2, default_track_ids)
         self.assertNotIn(2, discovery_track_ids)
-        self.assertEqual(default_track_ids[0], 4)
-        self.assertEqual(discovery_track_ids[0], 4)
+        self.assertEqual(default_track_ids[:2], [1, 4])
+        self.assertEqual(discovery_track_ids[:2], [1, 4])
 
     def test_genre_radio_uses_default_features_with_hard_parent_genre_filter(
         self,
@@ -2385,7 +2482,7 @@ class RecommendationServiceTest(unittest.TestCase):
 
         self.assertEqual(
             [result.candidate.metadata.track_id for result in results],
-            [3],
+            [1, 3],
         )
         for result in results:
             self.assertTrue(result.explanation.same_artist)
@@ -2400,7 +2497,7 @@ class RecommendationServiceTest(unittest.TestCase):
 
         self.assertEqual(
             [result.candidate.metadata.track_id for result in results],
-            [2, 4],
+            [1, 2],
         )
 
     def test_default_track_radio_applies_diversity_caps(self) -> None:
@@ -2409,7 +2506,7 @@ class RecommendationServiceTest(unittest.TestCase):
         results = service.get_track_radio(1, limit=5)
 
         track_ids = [result.candidate.metadata.track_id for result in results]
-        self.assertEqual(track_ids, [2, 8, 5, 7, 6])
+        self.assertEqual(track_ids, [1, 5, 7, 2, 8])
         self.assertNotIn(3, track_ids)
         self.assertNotIn(4, track_ids)
         for previous, current in zip(results, results[1:]):
@@ -2433,7 +2530,7 @@ class RecommendationServiceTest(unittest.TestCase):
                 result.candidate.metadata.album_id == "album-dominant-a"
                 for result in results
             ),
-            2,
+            1,
         )
 
     def test_track_radio_missing_seed_raises_track_not_found(self) -> None:
@@ -2442,14 +2539,22 @@ class RecommendationServiceTest(unittest.TestCase):
         with self.assertRaises(TrackNotFoundError):
             service.get_track_radio(404)
 
-    def test_album_radio_excludes_seed_album_and_uses_all_album_tracks(self) -> None:
+    def test_album_radio_allows_one_seed_album_track_and_uses_all_album_tracks(self) -> None:
         service = RecommendationService(self.build_multi_seed_database())
 
         results = service.get_album_radio("album-seed", limit=10)
 
         track_ids = [result.candidate.metadata.track_id for result in results]
-        self.assertNotIn(1, track_ids)
-        self.assertNotIn(2, track_ids)
+        self.assertEqual(len({1, 2}.intersection(track_ids)), 1)
+        self.assertEqual(
+            len(
+                {
+                    result.candidate.metadata.album_id
+                    for result in results
+                }
+            ),
+            len(results),
+        )
 
         results_by_id = {
             result.candidate.metadata.track_id: result
@@ -2468,8 +2573,7 @@ class RecommendationServiceTest(unittest.TestCase):
         results = service.get_artist_radio("Seed Artist", limit=10)
 
         track_ids = [result.candidate.metadata.track_id for result in results]
-        self.assertIn(1, track_ids)
-        self.assertIn(2, track_ids)
+        self.assertEqual(len({1, 2}.intersection(track_ids)), 1)
         self.assertIn(6, track_ids)
 
         results_by_id = {
@@ -2515,8 +2619,7 @@ class RecommendationServiceTest(unittest.TestCase):
         )
 
         track_ids = [result.candidate.metadata.track_id for result in results]
-        self.assertEqual(set(track_ids), {3, 4, 6})
-        self.assertNotIn(1, track_ids)
+        self.assertEqual(set(track_ids), {1, 3, 4, 6})
         self.assertNotIn(2, track_ids)
         self.assertNotIn(5, track_ids)
         self.assertNotIn(7, track_ids)
@@ -2635,7 +2738,7 @@ class RecommendationServiceTest(unittest.TestCase):
 
         self.assertEqual(
             [result.candidate.metadata.track_id for result in results],
-            [1, 2],
+            [1, 3],
         )
 
     def test_random_playlist_applies_artist_and_album_caps(self) -> None:
@@ -2649,9 +2752,9 @@ class RecommendationServiceTest(unittest.TestCase):
         )
 
         track_ids = [result.candidate.metadata.track_id for result in results]
-        self.assertEqual(track_ids, [1, 2, 3, 5, 7])
+        self.assertEqual(track_ids, [1, 2, 5, 6, 7])
         self.assertNotIn(4, track_ids)
-        self.assertNotIn(6, track_ids)
+        self.assertNotIn(3, track_ids)
         self.assertLessEqual(
             sum(
                 result.candidate.metadata.artist == "Dominant Artist"
@@ -2664,7 +2767,7 @@ class RecommendationServiceTest(unittest.TestCase):
                 result.candidate.metadata.album_id == "album-dominant-a"
                 for result in results
             ),
-            2,
+            1,
         )
 
     def test_random_playlist_samples_available_library(self) -> None:
