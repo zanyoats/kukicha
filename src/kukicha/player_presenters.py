@@ -162,6 +162,7 @@ def track_playback_payloads(tracks: Iterable[TrackView]) -> tuple[dict[str, obje
 def track_playback_payload(track: TrackView) -> dict[str, object]:
     return {
         "trackId": track.track_id,
+        "libraryTrackId": track.library_track_id,
         "albumId": track.album_id,
         "audioUrl": track.audio_url,
         "artUrl": track.art_url,

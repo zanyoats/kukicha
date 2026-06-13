@@ -114,7 +114,6 @@
   {% set track = row.track %}
   {{ cover_cell(track) }}
   {{ track_artist_cell(track) }}
-  <td class="track-number">{{ track.track_number }}</td>
   <td>{{ track.queue_title }}</td>
   {{ duration_cell(track) }}
   <td class="queue-status"><span class="queue-status-label">{{ row.queue_status }}</span></td>
@@ -156,7 +155,7 @@
 {% set show_playlist_track_menu = show_playlist_track_menu|default(true) %}
 {% set show_grouping_rows = show_grouping_rows|default(true) %}
 {% set selected_track_id = selected_track_id|default(none) %}
-{% set column_count = (7 if show_track_artist else 6) if is_queue else (6 if show_track_artist else 5) %}
+{% set column_count = (6 if show_track_artist else 5) if is_queue else (6 if show_track_artist else 5) %}
 
 <div class="table-wrap">
   <table>
@@ -164,7 +163,6 @@
       <colgroup>
         <col>
         {% if show_track_artist %}<col>{% endif %}
-        <col>
         <col>
         <col>
         <col class="queue-status-col">
@@ -175,7 +173,7 @@
       <tr>
         <th>Cover</th>
         {% if show_track_artist %}<th>Artist</th>{% endif %}
-        <th>Track</th>
+        {% if not is_queue %}<th>Track</th>{% endif %}
         <th>Title</th>
         <th>Duration</th>
         {% if not is_queue %}<th class="track-actions-head"></th>{% endif %}

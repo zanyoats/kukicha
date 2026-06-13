@@ -1896,6 +1896,8 @@ class PlayerPlaylistMembershipTest(unittest.TestCase):
             queue_state=PlayerQueueState(track_ids=[7], errored_track_ids=[7]),
         )
 
+        self.assertNotIn("<th>Track</th>", html)
+        self.assertNotIn('class="track-number"', html)
         self.assertIn('<th class="queue-status-head">Queue</th>', html)
         self.assertIn('<span class="queue-status-label">Error</span>', html)
 
@@ -1949,6 +1951,8 @@ class PlayerPlaylistMembershipTest(unittest.TestCase):
 
         self.assertNotIn("grouping-row", html)
         self.assertNotIn("Work Header", html)
+        self.assertIn("Save to Playlist", html)
+        self.assertIn("data-queue-playlist-create-form", html)
         self.assertIn('data-track-id="7"', html)
         self.assertIn('<span class="queue-status-label">Next</span>', html)
 
@@ -8564,8 +8568,9 @@ class PlayerWebAdapterTest(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.get_json()["track_snapshots"][0]["trackNumber"], "1")
         html = queue_response.get_data(as_text=True)
-        self.assertIn('<td class="track-number">1</td>', html)
-        self.assertNotIn('<td class="track-number">9</td>', html)
+        self.assertIn('data-track-number="1"', html)
+        self.assertNotIn('data-track-number="9"', html)
+        self.assertNotIn('<td class="track-number">', html)
 
     def test_full_document_load_pauses_persisted_queue_without_clearing_it(self) -> None:
         with TemporaryDirectory() as tempdir:

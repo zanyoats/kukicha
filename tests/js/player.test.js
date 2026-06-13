@@ -2498,6 +2498,63 @@ test("playlist delete posts and navigates to playlist index after confirmation",
   assert.equal(button.getAttribute("aria-busy"), null);
 });
 
+test("queue playlist create posts current queue library track ids in order", async () => {
+  const harness = createHarness({
+    track_ids: [-12, 8, -99],
+    position: 0,
+    loaded_track_id: -12,
+    paused: true,
+    errored_track_ids: [],
+    unavailable_track_ids: [],
+  }, {
+    fetchResponses: {
+      "/api/playlists": {
+        status: 201,
+        json: {
+          playlist_id: 4,
+          name: "Road Queue",
+          message: "Playlist created: Road Queue.",
+        },
+      },
+    },
+  });
+  const form = harness.document.createElement("form");
+  form.action = "/api/playlists";
+  const nameInput = harness.document.createElement("input");
+  nameInput.value = "Road Queue";
+  const button = harness.document.createElement("button");
+  const status = harness.document.createElement("div");
+  form.setQueryResult("[data-queue-playlist-name-input]", nameInput);
+  form.setQueryResult("[data-create-queue-playlist]", button);
+  form.setQueryResult("[data-queue-playlist-create-status]", status);
+
+  const playlistBackedRow = harness.document.createElement("tr");
+  playlistBackedRow.dataset.queuePosition = "0";
+  playlistBackedRow.dataset.libraryTrackId = "7";
+  const normalRow = harness.document.createElement("tr");
+  normalRow.dataset.queuePosition = "1";
+  normalRow.dataset.libraryTrackId = "";
+  const streamRow = harness.document.createElement("tr");
+  streamRow.dataset.queuePosition = "2";
+  harness.view.append(playlistBackedRow, normalRow, streamRow);
+
+  await harness.context.submitQueuePlaylistCreateForm(form);
+  await harness.flush();
+
+  assert.equal(harness.fetchCalls.length, 1);
+  assert.equal(harness.fetchCalls[0].url, "/api/playlists");
+  assert.equal(harness.fetchCalls[0].request.method, "POST");
+  assert.deepEqual(harness.fetchCalls[0].body, {
+    name: "Road Queue",
+    track_ids: [7, 8],
+  });
+  assert.equal(status.textContent, "Playlist created: Road Queue.");
+  assert.equal(nameInput.value, "");
+  assert.equal(nameInput.disabled, false);
+  assert.equal(button.disabled, false);
+  assert.equal(button.getAttribute("aria-busy"), null);
+});
+
 test("playlist cover upload sends selected image after confirmation", async () => {
   const harness = createHarness({
     track_ids: [],

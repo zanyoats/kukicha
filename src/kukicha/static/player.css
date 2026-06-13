@@ -195,6 +195,57 @@ button:not(:disabled):not(.disabled):active,
   display: none;
 }
 
+.queue-save-menu {
+  margin-left: auto;
+}
+
+.queue-save-menu > summary.queue-save-button {
+  gap: 7px;
+  min-width: 0;
+}
+
+.queue-playlist-create-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px;
+  width: min(300px, calc(100vw - 32px));
+  text-align: left;
+}
+
+.queue-playlist-create-field {
+  min-width: 0;
+}
+
+.queue-playlist-create-field input {
+  width: 100%;
+  min-height: 34px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  line-height: 1.2;
+  padding: 6px 8px;
+}
+
+.queue-playlist-create-form button {
+  min-height: 34px;
+  border-radius: 6px;
+  padding: 6px 8px;
+}
+
+.queue-playlist-create-status {
+  grid-column: 1 / -1;
+  min-height: 16px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.25;
+}
+
+.queue-playlist-create-status.error {
+  color: var(--danger);
+}
+
 .filter-options.playlist-track-options-floating {
   display: block;
   position: fixed;
@@ -2901,12 +2952,12 @@ button:disabled,
   gap: 8px 12px;
   align-items: center;
   position: fixed;
-  left: 50%;
+  left: max(16px, calc((100% - 1120px) / 2));
+  right: max(16px, calc((100% - 1120px) / 2));
   bottom: 0;
   z-index: 10;
-  width: min(1120px, calc(100% - 32px));
+  width: auto;
   padding: 8px 10px;
-  transform: translateX(-50%);
   border: 1px solid var(--line);
   border-radius: 8px 8px 0 0;
   background: var(--surface);
@@ -3606,7 +3657,9 @@ tr.queue-error .queue-status-label {
   }
 
   .controls {
-    width: 100%;
+    left: 0;
+    right: 0;
+    width: auto;
     border-radius: 0;
     border-left: 0;
     border-right: 0;

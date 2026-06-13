@@ -2052,6 +2052,12 @@ document.addEventListener("submit", (event) => {
     void submitPlaylistCreateForm(playlistCreateForm);
     return;
   }
+  const queuePlaylistCreateForm = event.target.closest("form[data-queue-playlist-create-form]");
+  if (queuePlaylistCreateForm) {
+    event.preventDefault();
+    void submitQueuePlaylistCreateForm(queuePlaylistCreateForm);
+    return;
+  }
   const playlistImportForm = event.target.closest("form[data-playlist-import-form]");
   if (playlistImportForm) {
     event.preventDefault();
@@ -3230,7 +3236,10 @@ async function submitTrackPlaylistCreateForm(form) {
   }
 }
 
-function addCreatedPlaylistOptionToTrackMenus({playlistId, playlistName, selectedTrackId}) {
+function addCreatedPlaylistOptionToTrackMenus({playlistId, playlistName, selectedTrackId, selectedTrackIds}) {
+  const selectedTrackIdSet = selectedTrackIds instanceof Set
+    ? selectedTrackIds
+    : new Set(selectedTrackId ? [selectedTrackId] : []);
   document.querySelectorAll("[data-playlist-options]:not([data-playlist-floating-options])").forEach((options) => {
     if (!(options instanceof HTMLElement)) {
       return;
@@ -3243,20 +3252,65 @@ function addCreatedPlaylistOptionToTrackMenus({playlistId, playlistName, selecte
       playlistId,
       playlistName,
       trackId,
-      checked: trackId === selectedTrackId,
+      checked: selectedTrackIdSet.has(trackId),
     });
     updatePlaylistBookmarkForOptions(options);
   });
   if (activePlaylistOptions instanceof HTMLElement) {
+    const activeTrackId = playlistOptionsTrackId(activePlaylistOptions) || selectedTrackId;
+    if (!activeTrackId) {
+      return;
+    }
     appendPlaylistOption(activePlaylistOptions, {
       playlistId,
       playlistName,
-      trackId: selectedTrackId,
-      checked: true,
+      trackId: activeTrackId,
+      checked: selectedTrackIdSet.has(activeTrackId),
     });
     updatePlaylistBookmarkForOptions(activePlaylistOptions);
     positionActivePlaylistMenu();
   }
+}
+
+function currentQueueLibraryTrackIds() {
+  const rowsByPosition = new Map();
+  view.querySelectorAll("[data-queue-position]").forEach((row) => {
+    if (!(row instanceof HTMLElement)) {
+      return;
+    }
+    const position = Number(row.dataset.queuePosition);
+    if (Number.isInteger(position) && position >= 0) {
+      rowsByPosition.set(position, row);
+    }
+  });
+
+  const trackIds = [];
+  for (let index = 0; index < queueState.track_ids.length; index += 1) {
+    const rowTrackId = positiveIntegerOrNull(rowsByPosition.get(index)?.dataset.libraryTrackId);
+    if (rowTrackId) {
+      trackIds.push(rowTrackId);
+      continue;
+    }
+    const track = trackById(queueState.track_ids[index]);
+    const cachedTrackId = positiveIntegerOrNull(track && track.libraryTrackId);
+    if (cachedTrackId) {
+      trackIds.push(cachedTrackId);
+      continue;
+    }
+    const playbackId = positiveIntegerOrNull(queueState.track_ids[index]);
+    if (playbackId) {
+      trackIds.push(playbackId);
+    }
+  }
+
+  if (trackIds.length || queueState.track_ids.length) {
+    return trackIds;
+  }
+
+  return Array.from(rowsByPosition.entries())
+    .sort(([left], [right]) => left - right)
+    .map(([, row]) => positiveIntegerOrNull(row.dataset.libraryTrackId))
+    .filter(Boolean);
 }
 
 function playlistOptionsTrackId(options) {
@@ -4219,6 +4273,72 @@ async function submitPlaylistCreateForm(form) {
   }
 }
 
+async function submitQueuePlaylistCreateForm(form) {
+  if (!(form instanceof HTMLFormElement)) {
+    return;
+  }
+  const submitButton = form.querySelector("[data-create-queue-playlist]");
+  const nameInput = form.querySelector("[data-queue-playlist-name-input]");
+  if (!(submitButton instanceof HTMLButtonElement) || !(nameInput instanceof HTMLInputElement)) {
+    return;
+  }
+  const name = nameInput.value.trim();
+  if (!name) {
+    setQueuePlaylistCreateStatus(form, "Playlist name is required.", true);
+    return;
+  }
+  const trackIds = currentQueueLibraryTrackIds();
+  if (!trackIds.length) {
+    setQueuePlaylistCreateStatus(form, "Queue has no library tracks to save.", true);
+    return;
+  }
+
+  submitButton.disabled = true;
+  submitButton.setAttribute("aria-busy", "true");
+  nameInput.disabled = true;
+  setQueuePlaylistCreateStatus(form, "Creating playlist...");
+  try {
+    const response = await fetch(form.action, {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({name, track_ids: trackIds}),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const message = responsePayloadError(payload, "Unable to create playlist.");
+      setQueuePlaylistCreateStatus(form, message, true);
+      showToast(message, {error: true});
+      return;
+    }
+    const playlistId = Number(payload.playlist_id || "");
+    const playlistName = String(payload.name || name).trim() || (
+      Number.isInteger(playlistId) && playlistId > 0 ? `Playlist ${playlistId}` : name
+    );
+    if (Number.isInteger(playlistId) && playlistId > 0) {
+      addCreatedPlaylistOptionToTrackMenus({
+        playlistId,
+        playlistName,
+        selectedTrackIds: new Set(trackIds),
+      });
+    }
+    nameInput.value = "";
+    const message = responsePayloadMessage(payload, "Playlist created.");
+    setQueuePlaylistCreateStatus(form, message);
+    showToast(message);
+  } catch {
+    setQueuePlaylistCreateStatus(form, "Unable to create playlist.", true);
+    showToast("Unable to create playlist.", {error: true});
+  } finally {
+    if (nameInput.isConnected) {
+      nameInput.disabled = false;
+    }
+    if (submitButton.isConnected) {
+      submitButton.disabled = false;
+      submitButton.removeAttribute("aria-busy");
+    }
+  }
+}
+
 async function submitPlaylistImportForm(form) {
   if (!(form instanceof HTMLFormElement)) {
     return;
@@ -4624,6 +4744,10 @@ function setPlaylistCoverStatus(formOrElement, message, isError = false) {
 
 function setPlaylistCreateStatus(formOrElement, message, isError = false) {
   setStatusMessage(formOrElement, "[data-playlist-create-status]", message, isError);
+}
+
+function setQueuePlaylistCreateStatus(formOrElement, message, isError = false) {
+  setStatusMessage(formOrElement, "[data-queue-playlist-create-status]", message, isError);
 }
 
 function setPlaylistImportStatus(formOrElement, message, isError = false) {
@@ -5354,8 +5478,10 @@ function normalizeTrackPayload(payload) {
   }
   const durationIsIndeterminate = Boolean(payload.durationIsIndeterminate);
   const durationSeconds = Number(payload.durationSeconds);
+  const libraryTrackId = positiveIntegerOrNull(payload && payload.libraryTrackId);
   return {
     trackId,
+    libraryTrackId: libraryTrackId || (trackId > 0 ? trackId : null),
     albumId: typeof payload.albumId === "string" ? payload.albumId : "",
     audioUrl: typeof payload.audioUrl === "string" && payload.audioUrl
       ? payload.audioUrl
@@ -5400,6 +5526,11 @@ function normalizeAlbumArtists(value, fallback) {
     artists.push(fallbackArtist);
   }
   return artists;
+}
+
+function positiveIntegerOrNull(value) {
+  const number = Number(value);
+  return Number.isInteger(number) && number > 0 ? number : null;
 }
 
 function albumArtistsFromRow(row) {
@@ -5800,8 +5931,10 @@ function trackFromRow(row) {
   }
   const durationIsIndeterminate = row.dataset.durationIsIndeterminate === "1";
   const durationSeconds = Number(row.dataset.durationSeconds);
+  const libraryTrackId = positiveIntegerOrNull(row.dataset.libraryTrackId);
   return {
     trackId,
+    libraryTrackId: libraryTrackId || (trackId > 0 ? trackId : null),
     albumId: row.dataset.albumId || "",
     audioUrl: row.dataset.audioUrl || `/audio/${trackId}`,
     artUrl: row.dataset.artUrl || `/art/32/${trackId}`,
@@ -5829,6 +5962,7 @@ function trackById(trackId) {
   }
   return trackCache.get(resolvedId) || {
     trackId: resolvedId,
+    libraryTrackId: resolvedId > 0 ? resolvedId : null,
     albumId: "",
     audioUrl: `/audio/${resolvedId}`,
     artUrl: `/art/32/${resolvedId}`,
