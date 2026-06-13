@@ -268,8 +268,16 @@ button:not(:disabled):not(.disabled):active,
   display: block;
   width: 18px;
   height: 18px;
-  color: var(--accent);
   flex: 0 0 auto;
+}
+
+.queue-add-icon,
+.play-icon,
+.playlist-icon,
+.vertical-ellipsis-icon,
+.delete-icon,
+.clear-icon {
+  color: var(--accent);
 }
 
 .playlist-icon-filled .playlist-icon-shape {
@@ -1067,7 +1075,7 @@ button:disabled,
   border: 1px solid transparent;
   border-radius: 0 7px 7px 0;
   background: var(--surface-alt);
-  color: var(--accent);
+  color: var(--muted);
   padding: 7px 0;
   align-self: stretch;
 }
