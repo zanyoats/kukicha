@@ -2892,6 +2892,7 @@ RECOMMENDATION_MODE_CONFIGS: Mapping[RecommendationMode, RecommendationModeConfi
                     max_tracks_per_genre=8,
                     top_track_count=25,
                     apply_artist_cap=False,
+                    apply_album_cap=False,
                 ),
                 recent_play_penalty_strength=RECENT_PLAY_PENALTY_MEDIUM,
                 recent_play_suppression_days=1.0,

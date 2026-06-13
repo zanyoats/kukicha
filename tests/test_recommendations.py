@@ -164,6 +164,7 @@ class RecommendationModeConfigTest(unittest.TestCase):
         self.assertEqual(artist_only.candidate_filter, CANDIDATE_FILTER_ARTIST_MATCH_REQUIRED)
         self.assertEqual(artist_only.diversity_strength, DIVERSITY_STRENGTH_LOW)
         self.assertFalse(artist_only.diversity_caps.apply_artist_cap)
+        self.assertFalse(artist_only.diversity_caps.apply_album_cap)
         self.assertEqual(artist_only.recent_play_suppression_days, 1.0)
         self.assertEqual(artist_only.artist_only_fallback, ARTIST_ONLY_FALLBACK_RETURN_FEWER)
         self.assertFalse(artist_only.exclude_seed_track)
@@ -1098,12 +1099,12 @@ class RecommendationDiversityRerankingTest(unittest.TestCase):
             ],
         )
 
-    def test_artist_only_reranking_is_exempt_from_same_artist_cap(self) -> None:
+    def test_artist_only_reranking_is_exempt_from_same_artist_and_album_caps(self) -> None:
         results = tuple(
             self.result(
                 track_id,
                 artist="Seed Artist",
-                album_id=f"album-{track_id}",
+                album_id="seed-album",
                 base_similarity=1.0 - (track_id / 100.0),
             )
             for track_id in range(1, 5)
@@ -2619,8 +2620,7 @@ class RecommendationServiceTest(unittest.TestCase):
         )
 
         track_ids = [result.candidate.metadata.track_id for result in results]
-        self.assertEqual(set(track_ids), {1, 3, 4, 6})
-        self.assertNotIn(2, track_ids)
+        self.assertEqual(set(track_ids), {1, 2, 3, 4, 6})
         self.assertNotIn(5, track_ids)
         self.assertNotIn(7, track_ids)
 
