@@ -989,6 +989,51 @@ test("filter form submit helper closes search menu", () => {
   assert.equal(menu.open, false);
 });
 
+test("floating dropdown menus are clamped inside the viewport", () => {
+  const harness = createHarness({
+    track_ids: [],
+    position: 0,
+    loaded_track_id: null,
+    paused: true,
+    errored_track_ids: [],
+    unavailable_track_ids: [],
+  });
+  harness.context.window.innerWidth = 400;
+  harness.context.window.innerHeight = 320;
+
+  const menu = harness.document.createElement("details");
+  menu.setAttribute("data-floating-dropdown-menu", "");
+  menu.open = true;
+  const summary = harness.document.createElement("summary");
+  summary.getBoundingClientRect = () => ({
+    top: 40,
+    right: 70,
+    bottom: 70,
+    left: 34,
+  });
+  const options = harness.document.createElement("div");
+  options.classList.add("filter-options", "album-cover-action-options");
+  menu.append(summary, options);
+
+  harness.context.openFloatingDropdownMenu(menu);
+
+  assert.equal(options.parentNode, harness.document.body);
+  assert.equal(options.classList.contains("dropdown-options-floating"), true);
+  assert.equal(options.getAttribute("data-floating-dropdown-options"), "");
+  assert.equal(options.style.left, "16px");
+  assert.equal(options.style.top, "74px");
+  assert.equal(options.style.width, "190px");
+
+  harness.context.restoreFloatingDropdownMenu(menu);
+
+  assert.equal(options.parentNode, menu);
+  assert.equal(options.classList.contains("dropdown-options-floating"), false);
+  assert.equal(options.hasAttribute("data-floating-dropdown-options"), false);
+  assert.equal(options.style.left, "");
+  assert.equal(options.style.top, "");
+  assert.equal(options.style.width, "");
+});
+
 test("browser-local dates are rendered from datetime attributes", () => {
   const previousTimezone = process.env.TZ;
   process.env.TZ = "America/New_York";

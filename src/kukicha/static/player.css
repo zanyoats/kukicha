@@ -1292,6 +1292,18 @@ button:disabled,
   display: none;
 }
 
+.filter-options.dropdown-options-floating {
+  display: block;
+  position: fixed;
+  top: auto;
+  right: auto;
+  z-index: 1000;
+}
+
+.filter-options.dropdown-options-floating[hidden] {
+  display: none;
+}
+
 .page-menu-heading {
   color: var(--muted);
   font-size: 0.72rem;

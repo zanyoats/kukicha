@@ -18,7 +18,7 @@
 {%- endmacro %}
 
 {% macro album_action_menu(label, album_radio_url="", title="Album actions") -%}
-  <details class="filter-menu album-cover-action-menu" data-dropdown-menu>
+  <details class="filter-menu album-cover-action-menu" data-dropdown-menu data-floating-dropdown-menu>
     <summary class="album-cover-action album-action-menu-button" aria-label="{{ title }}" title="{{ title }}">
       <span class="visually-hidden">{{ title }}</span>
       {{ vertical_ellipsis_icon() }}

@@ -58,6 +58,8 @@ let manualPauseRequested = false;
 let activePlaylistMenu = null;
 let activePlaylistOptions = null;
 let activePlaylistSourceOptions = null;
+let activeFloatingDropdownMenu = null;
+let activeFloatingDropdownOptions = null;
 let activeTrackActionMenu = null;
 let activeTrackActionOptions = null;
 let pageIsUnloading = false;
@@ -2165,6 +2167,9 @@ document.addEventListener("toggle", (event) => {
     return;
   }
   if (!event.target.open) {
+    if (isDropdownMenu) {
+      restoreFloatingDropdownMenu(event.target);
+    }
     if (isDropdownMenu && activePlaylistMenu && event.target.contains(activePlaylistMenu)) {
       closeActivePlaylistMenu();
     }
@@ -2183,8 +2188,14 @@ document.addEventListener("toggle", (event) => {
     document.querySelectorAll(`${dropdownMenuSelector}[open]`).forEach((details) => {
       if (details !== event.target && !details.contains(event.target)) {
         details.open = false;
+        if (details === activeFloatingDropdownMenu) {
+          restoreFloatingDropdownMenu(details);
+        }
       }
     });
+    if (event.target.hasAttribute("data-floating-dropdown-menu")) {
+      openFloatingDropdownMenu(event.target);
+    }
     if (event.target.matches("[data-search-menu]")) {
       focusSearchMenuInput(event.target);
     }
@@ -2197,6 +2208,7 @@ document.addEventListener("click", (event) => {
   }
   if (
     event.target.closest(dropdownMenuSelector)
+    || event.target.closest("[data-floating-dropdown-options]")
     || event.target.closest("[data-playlist-options]")
     || event.target.closest("[data-track-action-options]")
   ) {
@@ -2216,12 +2228,14 @@ window.addEventListener("popstate", (event) => {
 });
 
 window.addEventListener("scroll", () => {
+  positionActiveFloatingDropdownMenu();
   positionActiveTrackActionMenu();
   positionActivePlaylistMenu();
   scheduleScrollStateSave();
 }, {passive: true});
 
 window.addEventListener("resize", () => {
+  positionActiveFloatingDropdownMenu();
   positionActiveTrackActionMenu();
   positionActivePlaylistMenu();
 }, {passive: true});
@@ -2946,6 +2960,140 @@ function restoreAlbumArtistMappingCard(card) {
     form.remove();
   }
   card.classList.remove("active");
+}
+
+function openFloatingDropdownMenu(menu) {
+  if (!(menu instanceof HTMLDetailsElement) || !menu.hasAttribute("data-floating-dropdown-menu")) {
+    return;
+  }
+  if (activeFloatingDropdownMenu && activeFloatingDropdownMenu !== menu) {
+    activeFloatingDropdownMenu.open = false;
+    restoreFloatingDropdownMenu(activeFloatingDropdownMenu);
+  }
+  const sourceOptions = floatingDropdownOptions(menu);
+  if (!(sourceOptions instanceof HTMLElement)) {
+    return;
+  }
+  activeFloatingDropdownMenu = menu;
+  activeFloatingDropdownOptions = sourceOptions;
+  sourceOptions.classList.add("dropdown-options-floating");
+  sourceOptions.setAttribute("data-floating-dropdown-options", "");
+  sourceOptions.hidden = false;
+  document.body.append(sourceOptions);
+  positionActiveFloatingDropdownMenu();
+}
+
+function restoreFloatingDropdownMenu(menu = activeFloatingDropdownMenu) {
+  if (!(menu instanceof HTMLDetailsElement) || menu !== activeFloatingDropdownMenu) {
+    return;
+  }
+  if (activeFloatingDropdownOptions) {
+    activeFloatingDropdownOptions.hidden = true;
+    activeFloatingDropdownOptions.classList.remove("dropdown-options-floating");
+    activeFloatingDropdownOptions.removeAttribute("data-floating-dropdown-options");
+    activeFloatingDropdownOptions.style.left = "";
+    activeFloatingDropdownOptions.style.top = "";
+    activeFloatingDropdownOptions.style.right = "";
+    activeFloatingDropdownOptions.style.bottom = "";
+    activeFloatingDropdownOptions.style.width = "";
+    activeFloatingDropdownOptions.style.minWidth = "";
+    activeFloatingDropdownOptions.style.maxHeight = "";
+    menu.append(activeFloatingDropdownOptions);
+  }
+  activeFloatingDropdownMenu = null;
+  activeFloatingDropdownOptions = null;
+}
+
+function closeActiveFloatingDropdownMenu() {
+  if (activeFloatingDropdownMenu) {
+    activeFloatingDropdownMenu.open = false;
+  }
+  restoreFloatingDropdownMenu(activeFloatingDropdownMenu);
+}
+
+function floatingDropdownOptions(menu) {
+  if (menu === activeFloatingDropdownMenu && activeFloatingDropdownOptions instanceof HTMLElement) {
+    return activeFloatingDropdownOptions;
+  }
+  for (const child of menu.children) {
+    if (child instanceof HTMLElement && child.classList.contains("filter-options")) {
+      return child;
+    }
+  }
+  return null;
+}
+
+function floatingDropdownSummary(menu) {
+  for (const child of menu.children) {
+    if (child instanceof HTMLElement && child.tagName === "SUMMARY") {
+      return child;
+    }
+  }
+  const summary = menu.querySelector("summary");
+  return summary instanceof HTMLElement ? summary : null;
+}
+
+function floatingDropdownViewportWidth() {
+  const width = Number(window.innerWidth);
+  return Number.isFinite(width) && width > 0 ? width : 1024;
+}
+
+function floatingDropdownViewportHeight() {
+  const height = Number(window.innerHeight);
+  return Number.isFinite(height) && height > 0 ? height : 768;
+}
+
+function floatingDropdownPreferredWidth(options) {
+  if (options.classList.contains("album-cover-action-options")) {
+    return 190;
+  }
+  if (options.classList.contains("home-radio-options")) {
+    return 180;
+  }
+  if (options.classList.contains("bulk-action-options") || options.classList.contains("page-menu-options")) {
+    return 220;
+  }
+  if (options.classList.contains("queue-playlist-create-form")) {
+    return 300;
+  }
+  return 320;
+}
+
+function positionActiveFloatingDropdownMenu() {
+  if (!(activeFloatingDropdownMenu instanceof HTMLDetailsElement) || !(activeFloatingDropdownOptions instanceof HTMLElement)) {
+    return;
+  }
+  const summary = floatingDropdownSummary(activeFloatingDropdownMenu);
+  if (!(summary instanceof HTMLElement)) {
+    return;
+  }
+  const bounds = summary.getBoundingClientRect();
+  const viewportWidth = floatingDropdownViewportWidth();
+  const viewportHeight = floatingDropdownViewportHeight();
+  const horizontalMargin = viewportWidth < 360 ? 10 : 16;
+  const verticalMargin = 8;
+  const availableWidth = Math.max(120, viewportWidth - (horizontalMargin * 2));
+  const width = Math.min(floatingDropdownPreferredWidth(activeFloatingDropdownOptions), availableWidth);
+  const alignsLeft = activeFloatingDropdownOptions.classList.contains("home-radio-options")
+    || activeFloatingDropdownOptions.classList.contains("page-menu-options");
+  const preferredLeft = alignsLeft ? bounds.left : bounds.right - width;
+  const maxLeft = Math.max(horizontalMargin, viewportWidth - width - horizontalMargin);
+  const left = clampNumber(preferredLeft, horizontalMargin, maxLeft);
+  const spaceBelow = viewportHeight - bounds.bottom - verticalMargin;
+  const spaceAbove = bounds.top - verticalMargin;
+  const opensAbove = spaceBelow < 140 && spaceAbove > spaceBelow;
+  const maxHeight = Math.max(80, opensAbove ? spaceAbove - 4 : spaceBelow - 4);
+  activeFloatingDropdownOptions.style.width = `${width}px`;
+  activeFloatingDropdownOptions.style.minWidth = "0";
+  activeFloatingDropdownOptions.style.left = `${left}px`;
+  activeFloatingDropdownOptions.style.maxHeight = `${maxHeight}px`;
+  if (opensAbove) {
+    activeFloatingDropdownOptions.style.top = "";
+    activeFloatingDropdownOptions.style.bottom = `${viewportHeight - bounds.top + 4}px`;
+  } else {
+    activeFloatingDropdownOptions.style.top = `${bounds.bottom + 4}px`;
+    activeFloatingDropdownOptions.style.bottom = "";
+  }
 }
 
 function openTrackActionMenu(menu) {
@@ -5670,6 +5818,10 @@ function closeOpenDropdownMenus() {
     details.open = false;
     closed = true;
   });
+  if (activeFloatingDropdownMenu) {
+    closeActiveFloatingDropdownMenu();
+    closed = true;
+  }
   if (activeTrackActionMenu) {
     closeActiveTrackActionMenu();
     closed = true;
@@ -5683,6 +5835,9 @@ function closeOpenDropdownMenus() {
 
 function closeContainingDropdownMenu(element) {
   let menu = element.closest(dropdownMenuSelector);
+  if (!(menu instanceof HTMLDetailsElement) && activeFloatingDropdownOptions && activeFloatingDropdownOptions.contains(element)) {
+    menu = activeFloatingDropdownMenu;
+  }
   if (!(menu instanceof HTMLDetailsElement) && activeTrackActionOptions && activeTrackActionOptions.contains(element)) {
     menu = activeTrackActionMenu;
   }
@@ -5690,6 +5845,10 @@ function closeContainingDropdownMenu(element) {
     return;
   }
   menu.open = false;
+  if (menu === activeFloatingDropdownMenu) {
+    closeActiveFloatingDropdownMenu();
+    return;
+  }
   if (menu === activeTrackActionMenu) {
     closeActiveTrackActionMenu();
     return;
