@@ -185,6 +185,7 @@ class RecommendationModeConfigTest(unittest.TestCase):
         self.assertEqual(multipliers.played_last_24_hours, 0.10)
         self.assertEqual(multipliers.played_last_7_days, 0.35)
         self.assertEqual(multipliers.played_last_30_days, 0.70)
+        self.assertEqual(multipliers.played_last_180_days, 1.00)
         self.assertEqual(multipliers.older_or_never_played, 1.00)
         self.assertEqual(multipliers.multiplier_for_age_days(0.5), 0.10)
         self.assertEqual(multipliers.multiplier_for_age_days(3), 0.35)
@@ -2462,6 +2463,55 @@ class RecommendationServiceTest(unittest.TestCase):
         )
         self.assertEqual(genre_radio_results[2].explanation.matched_decade, "1990s")
 
+    def test_genre_radio_discovery_uses_discovery_listening_penalties(self) -> None:
+        database = self.build_database()
+        with connect_database(database, create=False) as connection:
+            connection.execute(
+                """
+                INSERT INTO play_track_stats (
+                    track_path,
+                    play_count,
+                    last_played_at,
+                    track_id,
+                    album_id,
+                    path,
+                    title,
+                    artist,
+                    album
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    "/music/closest/01.flac",
+                    20,
+                    (
+                        datetime.now(timezone.utc) - timedelta(days=90)
+                    ).isoformat(),
+                    2,
+                    "album-2",
+                    "/music/closest/01.flac",
+                    "Closest Song",
+                    "Other Artist",
+                    "Closest Album",
+                ),
+            )
+        service = RecommendationService(database)
+
+        default_results = {
+            result.candidate.metadata.track_id: result
+            for result in service.get_genre_radio("Rock", limit=10)
+        }
+        discovery_results = {
+            result.candidate.metadata.track_id: result
+            for result in service.get_genre_radio(
+                "Rock",
+                mode=RECOMMENDATION_MODE_DISCOVERY,
+                limit=10,
+            )
+        }
+
+        self.assertAlmostEqual(default_results[2].score.track_play_penalty, 0.05)
+        self.assertAlmostEqual(discovery_results[2].score.track_play_penalty, 0.60)
+
     def test_genre_radio_includes_style_derived_parent_genre_matches(self) -> None:
         service = RecommendationService(self.build_database())
 
@@ -2726,6 +2776,73 @@ class RecommendationServiceTest(unittest.TestCase):
         self.assertEqual(result.score.random_play_count_multiplier, 1.0)
         self.assertEqual(result.score.random_selection_weight, 0.10)
 
+    def test_random_playlist_discovery_increases_play_count_weighting(self) -> None:
+        database = self.build_database()
+        with connect_database(database, create=False) as connection:
+            connection.execute(
+                """
+                INSERT INTO play_track_stats (
+                    track_path,
+                    play_count,
+                    last_played_at,
+                    track_id,
+                    album_id,
+                    path,
+                    title,
+                    artist,
+                    album
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    "/music/closest/01.flac",
+                    20,
+                    (
+                        datetime.now(timezone.utc) - timedelta(days=90)
+                    ).isoformat(),
+                    2,
+                    "album-2",
+                    "/music/closest/01.flac",
+                    "Closest Song",
+                    "Other Artist",
+                    "Closest Album",
+                ),
+            )
+
+        default_results = {
+            result.candidate.metadata.track_id: result
+            for result in RecommendationService(
+                database,
+                random_source=FixedRandomSource(0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
+            ).get_random_playlist(limit=10)
+        }
+        discovery_results = {
+            result.candidate.metadata.track_id: result
+            for result in RecommendationService(
+                database,
+                random_source=FixedRandomSource(0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
+            ).get_random_playlist(
+                mode=RECOMMENDATION_MODE_DISCOVERY,
+                limit=10,
+            )
+        }
+
+        self.assertAlmostEqual(
+            default_results[2].score.random_play_count_multiplier,
+            0.85,
+        )
+        self.assertEqual(
+            default_results[2].score.random_recency_multiplier,
+            1.0,
+        )
+        self.assertAlmostEqual(
+            discovery_results[2].score.random_play_count_multiplier,
+            0.40,
+        )
+        self.assertEqual(
+            discovery_results[2].score.random_recency_multiplier,
+            0.75,
+        )
+
     def test_random_playlist_includes_former_seed_tracks(self) -> None:
         service = RecommendationService(
             self.build_multi_seed_database(),
@@ -2811,6 +2928,10 @@ class RecommendationServiceTest(unittest.TestCase):
             service.get_album_radio("album-seed", mode="ambient_only")
         with self.assertRaises(RecommendationModeError):
             service.get_artist_radio("Seed Artist", mode="ambient_only")
+        with self.assertRaises(RecommendationModeError):
+            service.get_genre_radio("Ambient", mode="artist_only")
+        with self.assertRaises(RecommendationModeError):
+            service.get_random_playlist(mode="artist_only")
 
     def test_album_and_artist_radio_missing_seeds_raise_query_errors(self) -> None:
         service = RecommendationService(self.build_multi_seed_database())

@@ -5157,9 +5157,30 @@ class PlayerWebAdapterTest(unittest.TestCase):
             'data-recommendation-url="/recommendations/radio/genre/Rock"',
             html,
         )
+        self.assertIn(
+            'data-recommendation-url="/recommendations/radio/genre/Rock?mode=discovery"',
+            html,
+        )
+        self.assertIn(
+            'data-recommendation-url="/recommendations/radio/random"',
+            html,
+        )
+        self.assertIn(
+            'data-recommendation-url="/recommendations/radio/random?mode=discovery"',
+            html,
+        )
         self.assertNotIn("/recommendations/radio/genre/__Unknown", html)
-        self.assertLess(html.index(">Electronic</button>"), html.index(">Rock</button>"))
-        self.assertLess(html.index(">Rock</button>"), html.index(">Random</button>"))
+        radio_section_start = html.index(
+            '<section class="home-section home-radio-section"'
+        )
+        radio_section_end = html.index(
+            '<section class="home-empty"',
+            radio_section_start,
+        )
+        radio_section = html[radio_section_start:radio_section_end]
+        self.assertNotIn("Artist-Only", radio_section)
+        self.assertLess(html.index(">Electronic</summary>"), html.index(">Rock</summary>"))
+        self.assertLess(html.index(">Rock</summary>"), html.index(">Random</summary>"))
 
     def test_home_shows_recently_added_albums_from_file_created_at(self) -> None:
         class FixedDateTime(datetime):
@@ -6860,18 +6881,45 @@ class PlayerWebAdapterTest(unittest.TestCase):
             ):
                 app = create_player_app(self.make_options(temp_path))
                 client = app.test_client()
-                genre_response = client.post("/recommendations/radio/genre/Rock")
-                random_response = client.post("/recommendations/radio/random")
+                genre_response = client.post(
+                    "/recommendations/radio/genre/Rock",
+                    query_string={"mode": "discovery"},
+                )
+                random_response = client.post(
+                    "/recommendations/radio/random",
+                    query_string={"mode": "discovery"},
+                )
 
             self.assertEqual(genre_response.status_code, 202)
             self.assertEqual(random_response.status_code, 202)
             self.assertEqual(
                 start_playlist.call_args_list,
                 [
-                    call(runtime, "genre_radio", "Rock"),
-                    call(runtime, "random_playlist"),
+                    call(runtime, "genre_radio", "Rock", mode="discovery"),
+                    call(runtime, "random_playlist", mode="discovery"),
                 ],
             )
+
+    def test_genre_and_random_recommendation_post_routes_reject_artist_only_mode(
+        self,
+    ) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            runtime = self.make_runtime(temp_path / "kukicha.sqlite")
+            with patch("kukicha.player_web_adapter.PlayerRuntime", return_value=runtime):
+                app = create_player_app(self.make_options(temp_path))
+                client = app.test_client()
+                genre_response = client.post(
+                    "/recommendations/radio/genre/Rock",
+                    query_string={"mode": "artist_only"},
+                )
+                random_response = client.post(
+                    "/recommendations/radio/random",
+                    query_string={"mode": "artist_only"},
+                )
+
+        self.assertEqual(genre_response.status_code, 400)
+        self.assertEqual(random_response.status_code, 400)
 
     def test_recommendation_routes_return_json_errors(self) -> None:
         with TemporaryDirectory() as tempdir:

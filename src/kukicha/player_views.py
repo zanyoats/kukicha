@@ -319,14 +319,15 @@ def build_home_context(runtime: PlayerRuntime) -> dict[str, Any]:
     return context
 
 
-def home_radio_choices(runtime: PlayerRuntime) -> tuple[dict[str, str], ...]:
+def home_radio_choices(runtime: PlayerRuntime) -> tuple[dict[str, Any], ...]:
     from .player_navigation import (
+        HOME_RADIO_RECOMMENDATION_MODES,
         recommendation_genre_radio_url,
         recommendation_random_radio_url,
     )
     from .use_case import UNKNOWN_GENRE_TAG
 
-    genre_choices: list[dict[str, str]] = []
+    genre_choices: list[dict[str, Any]] = []
     seen_genres: set[str] = set()
     filters = runtime.library_filter_options()
     for group in sorted(
@@ -347,6 +348,7 @@ def home_radio_choices(runtime: PlayerRuntime) -> tuple[dict[str, str], ...]:
                 "label": genre,
                 "url": recommendation_genre_radio_url(genre),
                 "action_label": f"{genre} Radio",
+                "modes": HOME_RADIO_RECOMMENDATION_MODES,
             }
         )
     genre_choices.append(
@@ -354,6 +356,7 @@ def home_radio_choices(runtime: PlayerRuntime) -> tuple[dict[str, str], ...]:
             "label": "Random",
             "url": recommendation_random_radio_url(),
             "action_label": "Random Playlist",
+            "modes": HOME_RADIO_RECOMMENDATION_MODES,
         }
     )
     return tuple(genre_choices)

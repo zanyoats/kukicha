@@ -48,6 +48,10 @@ RECOMMENDATION_MODE_LABELS = {
     RECOMMENDATION_MODE_DISCOVERY: "Discovery",
     RECOMMENDATION_MODE_ARTIST_ONLY: "Artist-Only",
 }
+HOME_RADIO_RECOMMENDATION_MODES = (
+    RECOMMENDATION_MODE_DEFAULT,
+    RECOMMENDATION_MODE_DISCOVERY,
+)
 PLAYER_PAGE_LINKS = (
     ("home", "Home", "/"),
     ("search", "Search", "/search"),
@@ -242,15 +246,23 @@ def recommendation_artist_radio_url(
 
 def recommendation_genre_radio_url(
     genre: str,
+    *,
+    mode: str | None = None,
 ) -> str:
     genre_value = str(genre).strip()
     if not genre_value:
         return ""
-    return f"/recommendations/radio/genre/{quote(genre_value, safe='')}"
+    return recommendation_url(
+        f"/recommendations/radio/genre/{quote(genre_value, safe='')}",
+        mode=mode,
+    )
 
 
-def recommendation_random_radio_url() -> str:
-    return "/recommendations/radio/random"
+def recommendation_random_radio_url(
+    *,
+    mode: str | None = None,
+) -> str:
+    return recommendation_url("/recommendations/radio/random", mode=mode)
 
 
 def recommendation_url(
@@ -268,16 +280,24 @@ def recommendation_url(
     return f"{path}?{encoded}" if encoded else path
 
 
-def recommendation_mode_menu_items(base_url: str) -> tuple[dict[str, str], ...]:
+def recommendation_mode_menu_items(
+    base_url: str,
+    modes: Iterable[str] | None = None,
+) -> tuple[dict[str, str], ...]:
     if not base_url:
         return ()
+    mode_values = (
+        tuple(modes)
+        if modes is not None
+        else SUPPORTED_RECOMMENDATION_MODES
+    )
     return tuple(
         {
             "mode": mode,
             "label": recommendation_mode_label(mode),
             "url": recommendation_mode_url(base_url, mode),
         }
-        for mode in SUPPORTED_RECOMMENDATION_MODES
+        for mode in mode_values
     )
 
 

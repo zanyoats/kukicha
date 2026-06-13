@@ -10,8 +10,12 @@ from ...player_runtime import PlayerJobCancelToken, PlayerJobResult, PlayerRunti
 from ..queries import LibraryQueries
 from ..recommendations import (
     RECOMMENDATION_CONFIG,
+    RECOMMENDATION_MODE_ARTIST_ONLY,
+    RECOMMENDATION_MODE_DEFAULT,
+    RECOMMENDATION_MODE_DISCOVERY,
     RecommendationResult,
     RecommendationService,
+    RecommendationModeError,
     normalize_recommendation_mode,
 )
 
@@ -98,9 +102,11 @@ def run_recommendation_playlist_job(
         mode = str(request["mode"])
         results = service.get_artist_radio(str(request["seed"]), mode=mode, limit=limit)
     elif kind == "genre_radio":
-        results = service.get_genre_radio(str(request["seed"]), limit=limit)
+        mode = str(request["mode"])
+        results = service.get_genre_radio(str(request["seed"]), mode=mode, limit=limit)
     elif kind == "random_playlist":
-        results = service.get_random_playlist(limit=limit)
+        mode = str(request["mode"])
+        results = service.get_random_playlist(mode=mode, limit=limit)
     else:
         raise ValueError(f"unsupported recommendation playlist kind: {kind}")
     cancel_token.raise_if_canceled()
@@ -169,6 +175,21 @@ def recommendation_playlist_mode(
 ) -> str | None:
     if str(kind) in {"track_radio", "album_radio", "artist_radio"}:
         return normalize_recommendation_mode(mode)
+    if str(kind) in {"genre_radio", "random_playlist"}:
+        normalized_mode = normalize_recommendation_mode(mode)
+        if normalized_mode == RECOMMENDATION_MODE_ARTIST_ONLY:
+            supported = ", ".join(
+                repr(value)
+                for value in (
+                    RECOMMENDATION_MODE_DEFAULT,
+                    RECOMMENDATION_MODE_DISCOVERY,
+                )
+            )
+            raise RecommendationModeError(
+                f"unsupported {kind} recommendation mode: {normalized_mode!r}; "
+                f"expected one of: {supported}"
+            )
+        return normalized_mode
     return None
 
 

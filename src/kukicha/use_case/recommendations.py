@@ -186,16 +186,19 @@ class RandomRecencyMultipliers:
     played_last_24_hours: float = 0.10
     played_last_7_days: float = 0.35
     played_last_30_days: float = 0.70
+    played_last_180_days: float = 1.00
     older_or_never_played: float = 1.00
 
     def multiplier_for_age_days(self, days_since_played: float | None) -> float:
-        if days_since_played is None or days_since_played > 30:
+        if days_since_played is None or days_since_played > 180:
             return self.older_or_never_played
         if days_since_played <= 1:
             return self.played_last_24_hours
         if days_since_played <= 7:
             return self.played_last_7_days
-        return self.played_last_30_days
+        if days_since_played <= 30:
+            return self.played_last_30_days
+        return self.played_last_180_days
 
 
 @dataclass(frozen=True, slots=True)
@@ -712,13 +715,15 @@ class RecommendationService:
     def get_genre_radio(
         self,
         genre: object | None,
+        mode: object | None = RECOMMENDATION_MODE_DEFAULT,
         limit: object | None = DEFAULT_RECOMMENDATION_LIMIT,
     ) -> tuple[RecommendationResult, ...]:
         normalized_genre = normalized_optional_text(genre)
         if not normalized_genre or is_unknown_genre_value(normalized_genre):
             return ()
+        normalized_mode = normalize_seedless_radio_mode(mode, "genre_radio")
         config, normalized_limit, candidates, track_vectors = (
-            self._recommendation_context(RECOMMENDATION_MODE_DEFAULT, limit)
+            self._recommendation_context(normalized_mode, limit)
         )
         style_parents = self.queries.style_parent_lookup()
         genre_candidates = tuple(
@@ -748,8 +753,10 @@ class RecommendationService:
 
     def get_random_playlist(
         self,
+        mode: object | None = RECOMMENDATION_MODE_DEFAULT,
         limit: object | None = DEFAULT_RECOMMENDATION_LIMIT,
     ) -> tuple[RecommendationResult, ...]:
+        config = random_recommendation_config(mode)
         normalized_limit = RECOMMENDATION_CONFIG.normalize_limit(limit)
         candidates = self.queries.list_candidates()
         return self._rank_profile_results(
@@ -757,7 +764,7 @@ class RecommendationService:
             candidates,
             {},
             normalized_limit=normalized_limit,
-            config=RANDOM_RECOMMENDATION_CONFIG,
+            config=config,
         )
 
     def _recommendation_context(
@@ -832,6 +839,47 @@ class RecommendationService:
 
 def recommendation_mode_config(mode: object | None = None) -> RecommendationModeConfig:
     return RECOMMENDATION_CONFIG.mode_config(mode)
+
+
+def normalize_seedless_radio_mode(
+    mode: object | None = None,
+    radio_kind: str = "radio",
+) -> RecommendationMode:
+    normalized_mode = normalize_recommendation_mode(mode)
+    if normalized_mode != RECOMMENDATION_MODE_ARTIST_ONLY:
+        return normalized_mode
+    supported = ", ".join(
+        repr(value)
+        for value in (
+            RECOMMENDATION_MODE_DEFAULT,
+            RECOMMENDATION_MODE_DISCOVERY,
+        )
+    )
+    raise RecommendationModeError(
+        f"unsupported {radio_kind} recommendation mode: {normalized_mode!r}; "
+        f"expected one of: {supported}"
+    )
+
+
+def random_recommendation_config(
+    mode: object | None = RECOMMENDATION_MODE_DEFAULT,
+) -> RecommendationModeConfig:
+    normalized_mode = normalize_seedless_radio_mode(mode, "random_playlist")
+    if normalized_mode == RECOMMENDATION_MODE_DEFAULT:
+        return RANDOM_RECOMMENDATION_CONFIG
+    discovery = recommendation_mode_config(RECOMMENDATION_MODE_DISCOVERY)
+    return replace(
+        RANDOM_RECOMMENDATION_CONFIG,
+        mode=RECOMMENDATION_MODE_DISCOVERY,
+        random_recency_multipliers=RandomRecencyMultipliers(
+            played_last_24_hours=0.05,
+            played_last_7_days=0.20,
+            played_last_30_days=0.45,
+            played_last_180_days=0.75,
+        ),
+        random_track_play_count_weight=discovery.track_play_penalty,
+        diversity_strength=discovery.diversity_strength,
+    )
 
 
 def load_recommendation_candidates(

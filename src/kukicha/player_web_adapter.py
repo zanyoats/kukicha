@@ -318,18 +318,22 @@ def create_player_app(options: PlayerServerOptions) -> Flask:
 
     @app.post("/recommendations/radio/genre/<path:genre>")
     def start_recommendation_genre_radio(genre: str) -> Response:
+        mode = recommendation_mode_param()
         result = start_recommendation_playlist(
             player_context().runtime,
             "genre_radio",
             genre,
+            mode=mode,
         )
         return json_response(result, status=202)
 
     @app.post("/recommendations/radio/random")
     def start_recommendation_random_playlist() -> Response:
+        mode = recommendation_mode_param()
         result = start_recommendation_playlist(
             player_context().runtime,
             "random_playlist",
+            mode=mode,
         )
         return json_response(result, status=202)
 
