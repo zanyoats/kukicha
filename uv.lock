@@ -584,7 +584,7 @@ wheels = [
 
 [[package]]
 name = "kukicha"
-version = "0.1.0a2"
+version = "0.1.0a3"
 source = { editable = "." }
 dependencies = [
     { name = "argon2-cffi" },
