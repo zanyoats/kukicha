@@ -126,6 +126,28 @@ The repo-local taxonomy tool builds the TSV consumed by the runtime `kukicha`
 package. It is intentionally outside `src/kukicha` so the installed CLI does not
 carry the Discogs construction flow.
 
+## Build Spec PDFs
+
+Convert Markdown specs under `docs/specs/` to sibling PDF files:
+
+```bash
+uv run python -m tools.specs_to_pdf
+```
+
+The script requires Pandoc plus a PDF engine. It automatically uses the first
+available engine from `typst`, `xelatex`, `lualatex`, `pdflatex`,
+`wkhtmltopdf`, and `weasyprint`. Install one if needed:
+
+```bash
+brew install typst
+```
+
+Or pass an explicit engine:
+
+```bash
+uv run python -m tools.specs_to_pdf --pdf-engine xelatex
+```
+
 Build and review taxonomy sources, then export the TSV that ships with the
 package:
 
