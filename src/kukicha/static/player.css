@@ -2604,6 +2604,43 @@ button:disabled,
   margin-top: 1px;
 }
 
+.album-tag-edit-danger-section {
+  border-left: 3px solid var(--danger);
+  padding-left: 12px;
+}
+
+.album-audio-tag-edit-header {
+  display: grid;
+  gap: 10px;
+  align-items: start;
+}
+
+.album-audio-tag-enable {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+  justify-self: start;
+  color: var(--danger);
+  font-weight: 700;
+}
+
+.album-audio-tag-enable input {
+  margin: 0;
+}
+
+.album-audio-tag-fieldset {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.album-audio-tag-fieldset:disabled {
+  opacity: 0.58;
+}
+
 .album-edit-form {
   display: grid;
   gap: 14px;

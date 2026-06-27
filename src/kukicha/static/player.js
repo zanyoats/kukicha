@@ -902,6 +902,10 @@ function syncAlbumMusicBrainzFormValues() {
 }
 
 function syncAlbumEditAlbumLevelFields(scope = view) {
+  syncAlbumEditAudioTagFields(scope);
+}
+
+function syncAlbumEditAudioTagFields(scope = view) {
   if (!(scope instanceof Element)) {
     return;
   }
@@ -912,37 +916,21 @@ function syncAlbumEditAlbumLevelFields(scope = view) {
     if (!(form instanceof HTMLFormElement)) {
       return;
     }
-    let groupCount = form.querySelectorAll("[data-metadata-group]").length;
-    if (!groupCount) {
-      groupCount = form.querySelectorAll("[data-musicbrainz-group]").length;
+    const enableInput = form.querySelector("[data-enable-audio-tags]");
+    const enabled = enableInput instanceof HTMLInputElement && enableInput.checked;
+    const fieldset = form.querySelector("[data-audio-tag-fieldset]");
+    if (fieldset instanceof HTMLElement) {
+      fieldset.disabled = !enabled;
     }
-    if (groupCount > 1) {
-      return;
-    }
-    const metadataUrlInput = (
-      form.querySelector("[data-metadata-url-input]")
-      || form.querySelector("[data-musicbrainz-url-input]")
-    );
-    const hasMetadataUrl = (
-      metadataUrlInput instanceof HTMLInputElement
-      && metadataUrlInput.value.trim() !== ""
-    );
-    [
-      form.querySelector("[data-album-input]"),
-      form.querySelector("[data-album-artist-input]"),
-      form.querySelector("[data-album-genre-input]")
-    ].forEach((input) => {
-      if (input instanceof HTMLInputElement) {
-        input.disabled = hasMetadataUrl;
+    form.querySelectorAll("[data-audio-tag-control]").forEach((control) => {
+      if (
+        control instanceof HTMLInputElement
+        || control instanceof HTMLTextAreaElement
+        || control instanceof HTMLSelectElement
+      ) {
+        control.disabled = !enabled;
       }
     });
-    const note = (
-      form.querySelector("[data-album-level-metadata-note]")
-      || form.querySelector("[data-album-level-musicbrainz-note]")
-    );
-    if (note instanceof HTMLElement) {
-      note.hidden = !hasMetadataUrl;
-    }
   });
 }
 
@@ -2141,6 +2129,17 @@ document.addEventListener("change", (event) => {
     : null;
   if (playlistToggle) {
     void toggleTrackPlaylist(playlistToggle);
+    return;
+  }
+
+  if (
+    event.target instanceof HTMLInputElement
+    && event.target.hasAttribute("data-enable-audio-tags")
+  ) {
+    const albumEditForm = event.target.closest("form[data-album-edit-form]");
+    if (albumEditForm) {
+      syncAlbumEditAudioTagFields(albumEditForm);
+    }
     return;
   }
 
@@ -4067,7 +4066,12 @@ async function submitAlbumEditForm(form) {
     return;
   }
 
-  const hasTagFields = Boolean(
+  const enableAudioTagsInput = form.querySelector("[data-enable-audio-tags]");
+  const audioTagEditsEnabled = (
+    enableAudioTagsInput instanceof HTMLInputElement
+    && enableAudioTagsInput.checked
+  );
+  const hasTagFields = audioTagEditsEnabled && Boolean(
     form.querySelector("[data-album-input]")
     || form.querySelector("[data-album-artist-input]")
     || form.querySelector("[data-album-genre-input]")
@@ -4089,6 +4093,7 @@ async function submitAlbumEditForm(form) {
   const requestBody = {};
   if (tagRequest.payload) {
     requestBody.tags = tagRequest.payload;
+    requestBody.update_audio_tags = true;
   }
   if (metadataRequest.payload) {
     requestBody.metadata = metadataRequest.payload;
@@ -4123,7 +4128,7 @@ async function submitAlbumEditForm(form) {
     }
     const message = payload && typeof payload.message === "string" && payload.message.trim()
       ? payload.message
-      : "Tag edit queued.";
+      : (requestBody.tags ? "Tag edit queued." : "Metadata URL edit queued.");
     setAlbumEditStatus(form, message);
     if (payload && payload.job) {
       showJobToast(payload.job);

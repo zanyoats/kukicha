@@ -323,6 +323,8 @@ def prepare_album_edit_job(
     tag_payload = payload.get("tags")
     if not isinstance(tag_payload, dict):
         raise ValueError("tag edit payload is required")
+    if payload.get("update_audio_tags") is not True:
+        raise ValueError("Audio tag updates must be explicitly enabled.")
 
     tag_job = prepare_album_tag_edit_job(database, album_id, tag_payload)
     musicbrainz_payload = combined_album_musicbrainz_payload(payload)
@@ -1060,6 +1062,7 @@ def edit_library_album_musicbrainz(
     prefer_musicbrainz_english_aliases: bool = True,
     cancel_check: Callable[[], None] | None = None,
 ) -> AlbumMusicBrainzEditResult:
+    del album_artist_split_patterns, prefer_musicbrainz_english_aliases
     connection = connect_existing_database(database)
     try:
         connection.execute("SAVEPOINT edit_album_musicbrainz")
@@ -1093,8 +1096,6 @@ def edit_library_album_musicbrainz(
 
             total_tracks_updated = 0
             combined_genre_resolution = GenreResolutionStats()
-            first_tag_values: AlbumMusicBrainzAudioTags | None = None
-            first_genre_text = ""
             for group in pending_groups:
                 if cancel_check is not None:
                     cancel_check()
@@ -1104,42 +1105,20 @@ def edit_library_album_musicbrainz(
                     if group.request.provider == METADATA_PROVIDER_DISCOGS
                     else MusicBrainzLookupStats()
                 )
-                payloads, related_entity_type, related_entity_id = load_album_metadata_edit_payloads(
+                _payloads, related_entity_type, related_entity_id = load_album_metadata_edit_payloads(
                     connection,
                     group.request,
                     lookup_stats,
                 )
-                tag_values, genre_resolution = album_musicbrainz_audio_tags(
-                    connection,
-                    payloads,
-                    prefer_musicbrainz_english_aliases=prefer_musicbrainz_english_aliases,
+                genre_resolution = GenreResolutionStats(
+                    musicbrainz_api_calls=lookup_stats.api_calls,
+                    musicbrainz_cached_calls=lookup_stats.cached_calls,
+                    musicbrainz_rate_limit_retries=lookup_stats.rate_limit_retries,
+                    musicbrainz_fetch_failures=lookup_stats.fetch_failures,
                 )
-                genre_resolution.musicbrainz_api_calls = lookup_stats.api_calls
-                genre_resolution.musicbrainz_cached_calls = lookup_stats.cached_calls
-                genre_resolution.musicbrainz_rate_limit_retries = lookup_stats.rate_limit_retries
-                genre_resolution.musicbrainz_fetch_failures = lookup_stats.fetch_failures
                 add_genre_resolution_stats(combined_genre_resolution, genre_resolution)
 
-                genre_text = "; ".join(tag_values.genres)
-                if first_tag_values is None:
-                    first_tag_values = tag_values
-                    first_genre_text = genre_text
-                for snapshot in group.tracks:
-                    if cancel_check is not None:
-                        cancel_check()
-                    write_album_edit_album_tags(
-                        snapshot,
-                        album_artist=tag_values.album_artist,
-                        album=tag_values.album,
-                        genre=genre_text,
-                    )
-                    total_tracks_updated += 1
-
-                target_file_album_id = musicbrainz_audio_tag_file_album_id(
-                    connection,
-                    tag_values,
-                    split_patterns=album_artist_split_patterns,
-                )
+                target_file_album_id = file_album_id_from_album_id(job.request.album_id)
                 store_album_metadata_link(
                     connection,
                     target_file_album_id,
@@ -1150,6 +1129,8 @@ def edit_library_album_musicbrainz(
                     related_entity_id=related_entity_id,
                 )
                 for snapshot in group.tracks:
+                    if cancel_check is not None:
+                        cancel_check()
                     store_album_metadata_track_link(
                         connection,
                         snapshot.path,
@@ -1160,6 +1141,7 @@ def edit_library_album_musicbrainz(
                         related_entity_type=related_entity_type,
                         related_entity_id=related_entity_id,
                     )
+                    total_tracks_updated += 1
             if cancel_check is not None:
                 cancel_check()
             connection.execute("RELEASE SAVEPOINT edit_album_musicbrainz")
@@ -1174,9 +1156,9 @@ def edit_library_album_musicbrainz(
 
     return AlbumMusicBrainzEditResult(
         album_label=job.request.album_label,
-        album=first_tag_values.album if first_tag_values is not None else job.request.album_name,
-        album_artist=first_tag_values.album_artist if first_tag_values is not None else "",
-        genre=first_genre_text,
+        album=job.request.album_name,
+        album_artist="",
+        genre="",
         tracks_updated=total_tracks_updated,
         ids_cleared=False,
         genre_resolution=combined_genre_resolution,
@@ -1676,26 +1658,11 @@ def edit_library_album_edit(
             cancel_check=cancel_check,
         )
 
-    musicbrainz_wrote_tags = (
-        musicbrainz_result is not None
-        and not musicbrainz_result.ids_cleared
-    )
     return AlbumEditResult(
         album_label=job.album_label,
-        album=(
-            musicbrainz_result.album
-            if musicbrainz_wrote_tags and musicbrainz_result is not None
-            else job.tag_job.request.album
-        ),
-        album_artist=(
-            musicbrainz_result.album_artist
-            if musicbrainz_wrote_tags and musicbrainz_result is not None
-            else job.tag_job.request.album_artist
-        ),
-        tracks_updated=max(
-            tag_result.tracks_updated,
-            musicbrainz_result.tracks_updated if musicbrainz_result is not None else 0,
-        ),
+        album=job.tag_job.request.album,
+        album_artist=job.tag_job.request.album_artist,
+        tracks_updated=tag_result.tracks_updated,
         musicbrainz_ids_cleared=(
             musicbrainz_result.ids_cleared if musicbrainz_result is not None else False
         ),
@@ -2016,12 +1983,12 @@ def run_edit_album_musicbrainz_job(
     duration_seconds = perf_counter() - started_at
     if result.ids_cleared:
         LOGGER.info(
-            "Metadata override cleared for %s (duration=%.2fs)",
+            "Metadata URL cleared for %s (duration=%.2fs)",
             result.album_label,
             duration_seconds,
         )
         return PlayerJobResult(
-            message=f"Metadata override cleared for {job.request.album_label}.",
+            message=f"Metadata URL cleared for {job.request.album_label}.",
             context={
                 "album": job.request.album_name,
                 "duration_seconds": duration_seconds,
@@ -2029,20 +1996,19 @@ def run_edit_album_musicbrainz_job(
         )
 
     LOGGER.info(
-        "MusicBrainz tag edit completed for %s (tracks_updated=%s, duration=%.2fs)",
+        "Metadata URL edit completed for %s (track_links_updated=%s, duration=%.2fs)",
         result.album_label,
         result.tracks_updated,
         duration_seconds,
     )
     return PlayerJobResult(
         message=(
-            f"Tags saved for {job.request.album_label}. "
-            "Rescan the library to update library filters, artists, and stats."
+            f"Metadata URL saved for {job.request.album_label}. "
+            "Rescan the library to apply saved metadata links."
         ),
         context={
             "album": result.album,
-            "album_artist": result.album_artist,
-            "tracks_updated": result.tracks_updated,
+            "track_links_updated": result.tracks_updated,
             "duration_seconds": duration_seconds,
             "rescan_recommended": True,
         },
@@ -2076,7 +2042,7 @@ def run_bulk_album_metadata_edit_job(
         "rows_cleared": result.rows_cleared,
         "rows_skipped": result.rows_skipped,
         "rows_failed": result.rows_failed,
-        "tracks_updated": result.tracks_updated,
+        "track_links_updated": result.tracks_updated,
         "duration_seconds": duration_seconds,
     }
     if result.rows_updated:
@@ -2103,7 +2069,7 @@ def bulk_album_metadata_edit_message(result: BulkAlbumMetadataEditResult) -> str
     ]
     message = f"Bulk metadata URL edit finished: {', '.join(parts)}."
     if result.rows_updated:
-        message += " Rescan the library to update library filters, artists, and stats."
+        message += " Rescan the library to apply saved metadata links."
     return message
 
 

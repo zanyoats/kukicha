@@ -1953,6 +1953,8 @@ test("combined album edit submit includes prefilled and cleared metadata URLs", 
   const topButton = harness.document.createElement("button");
   const bottomButton = harness.document.createElement("button");
   const status = harness.document.createElement("div");
+  const enableAudioTags = harness.document.createElement("input");
+  enableAudioTags.checked = true;
   const albumInput = harness.document.createElement("input");
   const albumArtistInput = harness.document.createElement("input");
   const genreInput = harness.document.createElement("input");
@@ -2010,6 +2012,7 @@ test("combined album edit submit includes prefilled and cleared metadata URLs", 
 
   form.setQueryResult("[data-apply-album-edit]", [topButton, bottomButton]);
   form.setQueryResult("[data-album-edit-status]", status);
+  form.setQueryResult("[data-enable-audio-tags]", enableAudioTags);
   form.setQueryResult("[data-album-input]", albumInput);
   form.setQueryResult("[data-album-artist-input]", albumArtistInput);
   form.setQueryResult("[data-album-genre-input]", genreInput);
@@ -2021,6 +2024,7 @@ test("combined album edit submit includes prefilled and cleared metadata URLs", 
   form.setQueryResult("input, textarea, select, button", [
     topButton,
     bottomButton,
+    enableAudioTags,
     albumInput,
     albumArtistInput,
     genreInput,
@@ -2044,6 +2048,7 @@ test("combined album edit submit includes prefilled and cleared metadata URLs", 
   assert.equal(harness.fetchCalls.length, 1);
   assert.equal(harness.fetchCalls[0].url, "/api/albums/old-artist::album/edit");
   assert.deepEqual(harness.fetchCalls[0].body, {
+    update_audio_tags: true,
     tags: {
       album: "Manual Album",
       album_artist: "Manual Artist",
@@ -2151,7 +2156,7 @@ test("album edit submit can send metadata-only groups", async () => {
       ],
     },
   });
-  assert.equal(status.textContent, "Tag edit queued.");
+  assert.equal(status.textContent, "Metadata URL edit queued.");
   assert.equal(topButton.disabled, false);
   assert.equal(bottomButton.getAttribute("aria-busy"), null);
 });
@@ -2790,7 +2795,7 @@ test("playlist cover upload sends selected image after confirmation", async () =
   assert.equal(button.getAttribute("aria-busy"), null);
 });
 
-test("album edit metadata URL disables only album-level tag fields", () => {
+test("album edit audio tag controls are disabled until explicitly enabled", () => {
   const harness = createHarness({
     track_ids: [],
     position: 0,
@@ -2802,45 +2807,45 @@ test("album edit metadata URL disables only album-level tag fields", () => {
 
   const form = harness.document.createElement("form");
   form.setAttribute("data-album-edit-form", "");
-  const group = harness.document.createElement("section");
-  const urlInput = harness.document.createElement("input");
+  const enableAudioTags = harness.document.createElement("input");
+  const fieldset = harness.document.createElement("fieldset");
   const albumInput = harness.document.createElement("input");
   const albumArtistInput = harness.document.createElement("input");
   const genreInput = harness.document.createElement("input");
   const trackArtistInput = harness.document.createElement("input");
   const trackNumberInput = harness.document.createElement("input");
   const trackTitleInput = harness.document.createElement("input");
-  const note = harness.document.createElement("p");
-  note.hidden = true;
 
-  form.setQueryResult("[data-musicbrainz-group]", [group]);
-  form.setQueryResult("[data-musicbrainz-url-input]", urlInput);
-  form.setQueryResult("[data-album-input]", albumInput);
-  form.setQueryResult("[data-album-artist-input]", albumArtistInput);
-  form.setQueryResult("[data-album-genre-input]", genreInput);
-  form.setQueryResult("[data-album-level-musicbrainz-note]", note);
-
-  urlInput.value = "https://musicbrainz.org/release/11111111-1111-1111-1111-111111111111";
+  form.setQueryResult("[data-enable-audio-tags]", enableAudioTags);
+  form.setQueryResult("[data-audio-tag-fieldset]", fieldset);
+  form.setQueryResult("[data-audio-tag-control]", [
+    albumInput,
+    albumArtistInput,
+    genreInput,
+    trackArtistInput,
+    trackNumberInput,
+    trackTitleInput,
+  ]);
   harness.context.syncAlbumEditAlbumLevelFields(form);
 
+  assert.equal(fieldset.disabled, true);
   assert.equal(albumInput.disabled, true);
   assert.equal(albumArtistInput.disabled, true);
   assert.equal(genreInput.disabled, true);
-  assert.equal(trackArtistInput.disabled, false);
-  assert.equal(trackNumberInput.disabled, false);
-  assert.equal(trackTitleInput.disabled, false);
-  assert.equal(note.hidden, false);
+  assert.equal(trackArtistInput.disabled, true);
+  assert.equal(trackNumberInput.disabled, true);
+  assert.equal(trackTitleInput.disabled, true);
 
-  urlInput.value = "";
+  enableAudioTags.checked = true;
   harness.context.syncAlbumEditAlbumLevelFields(form);
 
+  assert.equal(fieldset.disabled, false);
   assert.equal(albumInput.disabled, false);
   assert.equal(albumArtistInput.disabled, false);
   assert.equal(genreInput.disabled, false);
   assert.equal(trackArtistInput.disabled, false);
   assert.equal(trackNumberInput.disabled, false);
   assert.equal(trackTitleInput.disabled, false);
-  assert.equal(note.hidden, true);
 });
 
 test("play restarts from the first playable track after a non-empty queue is exhausted", async () => {

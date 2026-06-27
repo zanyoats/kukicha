@@ -4067,17 +4067,13 @@ class PlayerAlbumDetailLinksTest(unittest.TestCase):
         self.assertLess(tags_index, notice_index)
         self.assertLess(notice_index, form_index)
         self.assertIn(
-            "These actions queue jobs that edit the metadata stored in the audio files",
+            "Metadata URL edits save provider links in Kukicha",
             html,
         )
-        self.assertIn("On rescan", html)
-        self.assertIn("extract the updated metadata into Kukicha's library database", html)
+        self.assertIn("Audio files are treated as read-only unless", html)
         self.assertIn("Saves a MusicBrainz release or release-group URL", normalized_html)
-        self.assertIn("album artist, album, and genres", normalized_html)
-        self.assertIn("resolves genres against Kukicha's taxonomy", normalized_html)
-        self.assertIn("writes provider-derived album artist", normalized_html)
-        self.assertIn("Track titles", normalized_html)
-        self.assertIn("track numbers are not changed", normalized_html)
+        self.assertIn("stores the link for future rescans and resyncs", normalized_html)
+        self.assertIn("without editing the matching audio files", normalized_html)
         self.assertIn("Clearing the URL removes the saved metadata override without", html)
         self.assertNotIn(
             "Writes the album, album artist, genre, track artist, track number, and title fields",
@@ -4176,7 +4172,9 @@ class PlayerAlbumDetailLinksTest(unittest.TestCase):
         self.assertIn('data-delete-url="/api/albums/brian-eno::ambient-1/delete"', html)
         self.assertIn('data-upload-url="/api/albums/brian-eno::ambient-1/cover"', html)
         self.assertEqual(html.count("data-metadata-group"), 1)
-        self.assertIn("Update Audio Tags", html)
+        self.assertIn("Dangerous: Update Audio Tags", html)
+        self.assertIn("data-enable-audio-tags", html)
+        self.assertIn("data-audio-tag-fieldset disabled", html)
         notice_index = html.index("album-edit-notice-icon")
         delete_index = html.index("data-album-delete-form")
         cover_index = html.index("data-album-cover-form")
@@ -4187,7 +4185,7 @@ class PlayerAlbumDetailLinksTest(unittest.TestCase):
         self.assertLess(tags_index, notice_index)
         self.assertLess(notice_index, apply_index)
         self.assertIn(
-            "These actions queue jobs that edit the metadata stored in the audio files. On rescan, Kukicha will extract the updated metadata into Kukicha's library database.",
+            "Metadata URL edits save provider links in Kukicha for future rescans and resyncs. Audio files are treated as read-only unless dangerous audio tag edits are explicitly enabled.",
             html,
         )
         self.assertIn("data-album-input", html)
@@ -4196,14 +4194,12 @@ class PlayerAlbumDetailLinksTest(unittest.TestCase):
         self.assertIn("data-track-artist-input", html)
         self.assertIn("data-track-number-input", html)
         self.assertIn("data-track-title-input", html)
-        self.assertNotIn("data-album-input disabled", html)
-        self.assertNotIn("data-album-artist-input disabled", html)
-        self.assertNotIn("data-album-genre-input disabled", html)
-        note_start = html.index("data-album-level-metadata-note")
-        note_end = html.index(">", note_start)
-        self.assertIn("hidden", html[note_start:note_end])
+        self.assertIn("data-album-input data-audio-tag-control disabled", html)
+        self.assertIn("data-album-artist-input data-audio-tag-control disabled", html)
+        self.assertIn("data-album-genre-input data-audio-tag-control disabled", html)
+        self.assertNotIn("data-album-level-metadata-note", html)
 
-    def test_album_edit_template_disables_single_group_album_fields_with_musicbrainz_url(self) -> None:
+    def test_album_edit_template_keeps_audio_tag_fields_disabled_with_musicbrainz_url(self) -> None:
         album = AlbumDetails(
             album_id="brian-eno::ambient-1",
             artist="Brian Eno",
@@ -4254,27 +4250,17 @@ class PlayerAlbumDetailLinksTest(unittest.TestCase):
         )
 
         self.assertEqual(html.count("data-album-edit-form"), 1)
-        self.assertIn("data-album-input disabled", html)
-        self.assertIn("data-album-artist-input disabled", html)
-        self.assertIn("data-album-genre-input disabled", html)
-        self.assertEqual(html.count(" disabled>"), 3)
+        self.assertIn("data-audio-tag-fieldset disabled", html)
+        self.assertIn("data-album-input data-audio-tag-control disabled", html)
+        self.assertIn("data-album-artist-input data-audio-tag-control disabled", html)
+        self.assertIn("data-album-genre-input data-audio-tag-control disabled", html)
+        self.assertIn("data-enable-audio-tags", html)
         self.assertIn("data-track-artist-input", html)
         self.assertIn("data-track-number-input", html)
         self.assertIn("data-track-title-input", html)
-        note_start = html.index("data-album-level-metadata-note")
-        note_end = html.index(">", note_start)
-        self.assertNotIn("hidden", html[note_start:note_end])
         normalized_html = " ".join(html.split())
-        self.assertIn(
-            "Album, album artist, and genre are locked while a metadata URL is set",
-            normalized_html,
-        )
-        self.assertIn("Clear the URL to edit them manually.", normalized_html)
-        self.assertIn("album-level-musicbrainz-note-icon", html)
-        self.assertLess(
-            html.index("album-level-musicbrainz-note-icon"),
-            html.index("Album, album artist, and genre are locked"),
-        )
+        self.assertIn("Kukicha stores the link for future rescans and resyncs", normalized_html)
+        self.assertNotIn("Album, album artist, and genre are locked", normalized_html)
 
     def test_album_edit_template_prefills_group_musicbrainz_urls(self) -> None:
         album = AlbumDetails(
@@ -11704,7 +11690,7 @@ class PlayerAlbumTagEditTest(unittest.TestCase):
             )
             self.assertTrue(callable(enqueue_kwargs["runner"]))
 
-    def test_edit_library_album_musicbrainz_rewrites_remote_audio_and_stores_links(self) -> None:
+    def test_edit_library_album_musicbrainz_stores_remote_links_without_rewriting_audio(self) -> None:
         with TemporaryDirectory() as tempdir:
             database = Path(tempdir) / "kukicha.sqlite"
             self.seed_remote_album(database)
@@ -11744,35 +11730,22 @@ class PlayerAlbumTagEditTest(unittest.TestCase):
                 self.assertEqual(mbid, "22222222-2222-2222-2222-222222222222")
                 return release_group_payload
 
-            client = FakeRemoteEditS3Client(b"remote musicbrainz audio")
-            write_calls: list[tuple[Path, dict[str, object]]] = []
-
-            def fake_write(path: Path, **kwargs: object) -> None:
-                self.assertEqual(path.read_bytes(), b"remote musicbrainz audio")
-                path.write_bytes(b"edited musicbrainz audio")
-                write_calls.append((path, kwargs))
-
             with (
                 patch(
                     "kukicha.use_case.commands.album_edits.get_musicbrainz_entity",
                     side_effect=fake_get_musicbrainz_entity,
                 ),
-                patch("kukicha.use_case.commands.album_edits.create_s3_client", return_value=client),
-                patch(
-                    "kukicha.use_case.commands.album_edits.write_album_audio_tags",
-                    side_effect=fake_write,
-                ),
+                patch("kukicha.use_case.commands.album_edits.create_s3_client") as create_s3_client,
+                patch("kukicha.use_case.commands.album_edits.write_album_audio_tags") as write_album_tags,
             ):
                 result = edit_library_album_musicbrainz(database, job)
 
-            self.assertEqual(result.album, "Remote Album")
-            self.assertEqual(result.album_artist, "Remote Artist")
-            self.assertEqual(result.genre, "Electronic; Ambient")
+            self.assertEqual(result.album, "Album")
+            self.assertEqual(result.album_artist, "")
+            self.assertEqual(result.genre, "")
             self.assertEqual(result.tracks_updated, 1)
-            self.assertEqual(write_calls[0][1]["album_artist"], "Remote Artist")
-            self.assertEqual(write_calls[0][1]["album"], "Remote Album")
-            self.assertEqual(write_calls[0][1]["genre"], "Electronic; Ambient")
-            self.assertEqual(client.puts[0]["Body"], b"edited musicbrainz audio")
+            create_s3_client.assert_not_called()
+            write_album_tags.assert_not_called()
 
             connection = connect_database(database, create=False)
             try:
@@ -11782,7 +11755,7 @@ class PlayerAlbumTagEditTest(unittest.TestCase):
                     FROM album_musicbrainz_links
                     WHERE file_album_id = ?
                     """,
-                    ("remote-artist::remote-album",),
+                    ("old-artist::album",),
                 ).fetchone()
                 track_link_row = connection.execute(
                     """
@@ -11805,7 +11778,7 @@ class PlayerAlbumTagEditTest(unittest.TestCase):
                 "22222222-2222-2222-2222-222222222222",
             )
             self.assertIsNotNone(track_link_row)
-            self.assertEqual(str(track_link_row["file_album_id"]), "remote-artist::remote-album")
+            self.assertEqual(str(track_link_row["file_album_id"]), "old-artist::album")
             self.assertEqual(
                 str(track_link_row["release_mbid"]),
                 "11111111-1111-1111-1111-111111111111",
@@ -11981,7 +11954,7 @@ class PlayerAlbumTagEditTest(unittest.TestCase):
                 "0e7a233f-81f8-3e63-ad07-6cdfe2faecc3",
             )
 
-    def test_edit_library_album_musicbrainz_writes_musicbrainz_tags_without_reconciling_database(self) -> None:
+    def test_edit_library_album_musicbrainz_stores_musicbrainz_links_without_rewriting_tags(self) -> None:
         with TemporaryDirectory() as tempdir:
             temp_path = Path(tempdir)
             database = temp_path / "kukicha.sqlite"
@@ -12041,29 +12014,13 @@ class PlayerAlbumTagEditTest(unittest.TestCase):
             ):
                 result = edit_library_album_musicbrainz(database, job)
 
-            self.assertEqual(
-                write_album_tags.call_args_list,
-                [
-                    call(
-                        paths[0],
-                        album_artist="Brian Eno & Robert Fripp",
-                        album="Foo",
-                        genre="Electronic; Ambient",
-                    ),
-                    call(
-                        paths[1],
-                        album_artist="Brian Eno & Robert Fripp",
-                        album="Foo",
-                        genre="Electronic; Ambient",
-                    ),
-                ],
-            )
-            self.assertEqual(result.album, "Foo")
-            self.assertEqual(result.album_artist, "Brian Eno & Robert Fripp")
-            self.assertEqual(result.genre, "Electronic; Ambient")
+            write_album_tags.assert_not_called()
+            self.assertEqual(result.album, "Album")
+            self.assertEqual(result.album_artist, "")
+            self.assertEqual(result.genre, "")
             self.assertEqual(result.tracks_updated, 2)
             self.assertFalse(result.ids_cleared)
-            self.assertEqual(result.genre_resolution.musicbrainz_album_overrides, 1)
+            self.assertEqual(result.genre_resolution.musicbrainz_album_overrides, 0)
 
             connection = connect_database(database, create=False)
             try:
@@ -12073,7 +12030,7 @@ class PlayerAlbumTagEditTest(unittest.TestCase):
                     FROM album_musicbrainz_links
                     WHERE file_album_id = ?
                     """,
-                    ("brian-eno-robert-fripp::foo",),
+                    ("old-artist::album",),
                 ).fetchone()
                 self.assertIsNotNone(row)
                 self.assertEqual(str(row["release_mbid"]), "11111111-1111-1111-1111-111111111111")
@@ -12098,19 +12055,19 @@ class PlayerAlbumTagEditTest(unittest.TestCase):
                     [
                         (
                             str(paths[0]),
-                            "brian-eno-robert-fripp::foo",
+                            "old-artist::album",
                             "11111111-1111-1111-1111-111111111111",
                             "22222222-2222-2222-2222-222222222222",
                         ),
                         (
                             str(paths[1]),
-                            "brian-eno-robert-fripp::foo",
+                            "old-artist::album",
                             "11111111-1111-1111-1111-111111111111",
                             "22222222-2222-2222-2222-222222222222",
                         ),
                     ],
                 )
-                self.assertIsNone(
+                self.assertIsNotNone(
                     connection.execute(
                         """
                         SELECT 1
@@ -12166,7 +12123,7 @@ class PlayerAlbumTagEditTest(unittest.TestCase):
             finally:
                 connection.close()
 
-    def test_edit_library_album_metadata_writes_discogs_tags_and_stores_link(self) -> None:
+    def test_edit_library_album_metadata_stores_discogs_link_without_rewriting_tags(self) -> None:
         with TemporaryDirectory() as tempdir:
             temp_path = Path(tempdir)
             database = temp_path / "kukicha.sqlite"
@@ -12236,26 +12193,10 @@ class PlayerAlbumTagEditTest(unittest.TestCase):
             ):
                 result = edit_library_album_musicbrainz(database, job)
 
-            self.assertEqual(
-                write_album_tags.call_args_list,
-                [
-                    call(
-                        paths[0],
-                        album_artist="Sun Ra And His Arkestra",
-                        album="Super-Sonic Jazz (Expanded Edition)",
-                        genre="Jazz; Bop; Avant-garde Jazz",
-                    ),
-                    call(
-                        paths[1],
-                        album_artist="Sun Ra And His Arkestra",
-                        album="Super-Sonic Jazz (Expanded Edition)",
-                        genre="Jazz; Bop; Avant-garde Jazz",
-                    ),
-                ],
-            )
-            self.assertEqual(result.album, "Super-Sonic Jazz (Expanded Edition)")
-            self.assertEqual(result.album_artist, "Sun Ra And His Arkestra")
-            self.assertEqual(result.genre, "Jazz; Bop; Avant-garde Jazz")
+            write_album_tags.assert_not_called()
+            self.assertEqual(result.album, "Album")
+            self.assertEqual(result.album_artist, "")
+            self.assertEqual(result.genre, "")
             self.assertEqual(result.tracks_updated, 2)
 
             connection = connect_database(database, create=False)
@@ -12271,7 +12212,7 @@ class PlayerAlbumTagEditTest(unittest.TestCase):
                     FROM album_metadata_links
                     WHERE file_album_id = ?
                     """,
-                    ("sun-ra-and-his-arkestra::super-sonic-jazz-expanded-edition",),
+                    ("old-artist::album",),
                 ).fetchone()
                 self.assertIsNotNone(row)
                 self.assertEqual(str(row["provider"]), "discogs")
@@ -12375,26 +12316,10 @@ class PlayerAlbumTagEditTest(unittest.TestCase):
             ):
                 result = edit_library_album_musicbrainz(database, job)
 
-            self.assertEqual(
-                write_album_tags.call_args_list,
-                [
-                    call(
-                        paths[0],
-                        album_artist="Hiroshi Yoshimura",
-                        album="Quiet Forest",
-                        genre="Electronic; Ambient",
-                    ),
-                    call(
-                        paths[1],
-                        album_artist="Hiroshi Yoshimura",
-                        album="Quiet Forest",
-                        genre="Electronic; Ambient",
-                    ),
-                ],
-            )
-            self.assertEqual(result.album, "Quiet Forest")
-            self.assertEqual(result.album_artist, "Hiroshi Yoshimura")
-            self.assertEqual(result.genre, "Electronic; Ambient")
+            write_album_tags.assert_not_called()
+            self.assertEqual(result.album, "<unknown album>")
+            self.assertEqual(result.album_artist, "")
+            self.assertEqual(result.genre, "")
             self.assertEqual(result.tracks_updated, 2)
 
             connection = connect_database(database, create=False)
@@ -12405,7 +12330,7 @@ class PlayerAlbumTagEditTest(unittest.TestCase):
                     FROM album_musicbrainz_links
                     WHERE file_album_id = ?
                     """,
-                    ("hiroshi-yoshimura::quiet-forest",),
+                    ("unknown::unknown",),
                 ).fetchone()
                 self.assertIsNotNone(row)
                 self.assertEqual(
@@ -12464,7 +12389,7 @@ class PlayerAlbumTagEditTest(unittest.TestCase):
             "吉村弘 & 芦川聡",
         )
 
-    def test_edit_library_album_musicbrainz_writes_each_group_from_its_payload(self) -> None:
+    def test_edit_library_album_musicbrainz_stores_each_group_link_from_its_payload(self) -> None:
         with TemporaryDirectory() as tempdir:
             temp_path = Path(tempdir)
             database = temp_path / "kukicha.sqlite"
@@ -12546,25 +12471,9 @@ class PlayerAlbumTagEditTest(unittest.TestCase):
             ):
                 result = edit_library_album_musicbrainz(database, job)
 
-            self.assertEqual(
-                write_album_tags.call_args_list,
-                [
-                    call(
-                        paths[0],
-                        album_artist="Aphex Twin",
-                        album="Selected Ambient Works Volume II",
-                        genre="Electronic; Ambient",
-                    ),
-                    call(
-                        paths[1],
-                        album_artist="Aphex Twin",
-                        album="Selected Ambient Works Volume II",
-                        genre="Electronic; Ambient",
-                    ),
-                ],
-            )
+            write_album_tags.assert_not_called()
             self.assertEqual(result.tracks_updated, 2)
-            self.assertEqual(result.genre_resolution.musicbrainz_album_overrides, 2)
+            self.assertEqual(result.genre_resolution.musicbrainz_album_overrides, 0)
 
             connection = connect_database(database, create=False)
             try:
@@ -12578,7 +12487,7 @@ class PlayerAlbumTagEditTest(unittest.TestCase):
                         """
                         SELECT file_album_id, release_mbid, release_group_mbid
                         FROM album_musicbrainz_links
-                        ORDER BY file_album_id, release_mbid
+                        ORDER BY release_mbid
                         """
                     )
                 ]
@@ -12586,12 +12495,12 @@ class PlayerAlbumTagEditTest(unittest.TestCase):
                     rows,
                     [
                         (
-                            "aphex-twin::selected-ambient-works-volume-ii",
+                            "old-artist::album",
                             "11111111-1111-1111-1111-111111111111",
                             "33333333-3333-3333-3333-333333333333",
                         ),
                         (
-                            "aphex-twin::selected-ambient-works-volume-ii",
+                            "old-artist::album",
                             "22222222-2222-2222-2222-222222222222",
                             "44444444-4444-4444-4444-444444444444",
                         ),
@@ -12617,13 +12526,13 @@ class PlayerAlbumTagEditTest(unittest.TestCase):
                     [
                         (
                             str(paths[0]),
-                            "aphex-twin::selected-ambient-works-volume-ii",
+                            "old-artist::album",
                             "11111111-1111-1111-1111-111111111111",
                             "33333333-3333-3333-3333-333333333333",
                         ),
                         (
                             str(paths[1]),
-                            "aphex-twin::selected-ambient-works-volume-ii",
+                            "old-artist::album",
                             "22222222-2222-2222-2222-222222222222",
                             "44444444-4444-4444-4444-444444444444",
                         ),
@@ -12777,9 +12686,11 @@ class PlayerAlbumTagEditTest(unittest.TestCase):
                     "kukicha.use_case.commands.album_edits.get_musicbrainz_entity",
                     side_effect=fake_get_musicbrainz_entity,
                 ),
-                patch("kukicha.use_case.commands.album_edits.write_album_audio_tags"),
+                patch("kukicha.use_case.commands.album_edits.write_album_audio_tags") as write_album_tags,
             ):
                 edit_library_album_musicbrainz(database, job)
+
+            write_album_tags.assert_not_called()
 
             connection = connect_database(database, create=False)
             try:
@@ -12807,7 +12718,7 @@ class PlayerAlbumTagEditTest(unittest.TestCase):
             finally:
                 connection.close()
 
-    def test_run_edit_album_musicbrainz_job_uses_tag_edit_completion_message(self) -> None:
+    def test_run_edit_album_musicbrainz_job_uses_metadata_url_completion_message(self) -> None:
         from kukicha.use_case.commands.album_edits import (
             AlbumMusicBrainzEditResult,
             run_edit_album_musicbrainz_job,
@@ -12859,13 +12770,12 @@ class PlayerAlbumTagEditTest(unittest.TestCase):
             self.assertEqual(
                 result.message,
                 (
-                    "Tags saved for Old Artist - Album. "
-                    "Rescan the library to update library filters, artists, and stats."
+                    "Metadata URL saved for Old Artist - Album. "
+                    "Rescan the library to apply saved metadata links."
                 ),
             )
             self.assertEqual(result.context["album"], "Foo")
-            self.assertEqual(result.context["album_artist"], "Brian Eno & Robert Fripp")
-            self.assertEqual(result.context["tracks_updated"], 1)
+            self.assertEqual(result.context["track_links_updated"], 1)
             self.assertTrue(result.context["rescan_recommended"])
             self.assertEqual(
                 edit_musicbrainz.call_args.kwargs["prefer_musicbrainz_english_aliases"],
@@ -13138,6 +13048,7 @@ class PlayerAlbumTagEditTest(unittest.TestCase):
                     runtime,
                     "old-artist::album",
                     {
+                        "update_audio_tags": True,
                         "tags": {
                             "album": "New Album",
                             "genre": "Electronic; Score",
@@ -13172,6 +13083,49 @@ class PlayerAlbumTagEditTest(unittest.TestCase):
             self.assertEqual(enqueue_kwargs["context"]["tracks_updated"], 2)
             self.assertTrue(callable(enqueue_kwargs["runner"]))
 
+    def test_start_album_edit_rejects_tags_without_explicit_audio_update_flag(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            database = temp_path / "kukicha.sqlite"
+            self.seed_album(
+                database,
+                (
+                    temp_path / "Album" / "01.mp3",
+                    temp_path / "Album" / "02.mp3",
+                ),
+            )
+            runtime = Mock()
+            runtime.database = database
+
+            with self.assertRaisesRegex(ValueError, "Audio tag updates must be explicitly enabled"):
+                start_album_edit(
+                    runtime,
+                    "old-artist::album",
+                    {
+                        "tags": {
+                            "album": "New Album",
+                            "genre": "Electronic; Score",
+                            "album_artist": "Various Artists",
+                            "tracks": [
+                                {
+                                    "track_id": 1,
+                                    "artist": "Wendy Carlos & Rachel Elkind",
+                                    "track_number": "1",
+                                    "title": "Main Title",
+                                },
+                                {
+                                    "track_id": 2,
+                                    "artist": "The Shining",
+                                    "track_number": "2",
+                                    "title": "Rocky Mountains",
+                                },
+                            ],
+                        },
+                    },
+                )
+
+            runtime.enqueue_job.assert_not_called()
+
     def test_start_album_edit_accepts_musicbrainz_only_payload(self) -> None:
         with TemporaryDirectory() as tempdir:
             temp_path = Path(tempdir)
@@ -13194,11 +13148,11 @@ class PlayerAlbumTagEditTest(unittest.TestCase):
                 cancel_requested_at=None,
                 kind="edit_album_musicbrainz",
                 status="queued",
-                message="Tag edit queued for Old Artist - Album.",
+                message="Metadata URL edit queued for Old Artist - Album.",
                 reason="",
                 context={
                     "album": "Album",
-                    "tracks_updated": 2,
+                    "track_links_updated": 2,
                 },
             )
 
@@ -13220,13 +13174,13 @@ class PlayerAlbumTagEditTest(unittest.TestCase):
                 },
             )
 
-            self.assertEqual(result["message"], "Tag edit queued for Old Artist - Album.")
+            self.assertEqual(result["message"], "Metadata URL edit queued for Old Artist - Album.")
             self.assertEqual(result["job"]["job_id"], 13)
             runtime.enqueue_job.assert_called_once()
             enqueue_kwargs = runtime.enqueue_job.call_args.kwargs
             self.assertEqual(enqueue_kwargs["kind"], "edit_album_musicbrainz")
-            self.assertEqual(enqueue_kwargs["queued_message"], "Tag edit queued for Old Artist - Album.")
-            self.assertEqual(enqueue_kwargs["context"]["tracks_updated"], 2)
+            self.assertEqual(enqueue_kwargs["queued_message"], "Metadata URL edit queued for Old Artist - Album.")
+            self.assertEqual(enqueue_kwargs["context"]["track_links_updated"], 2)
             self.assertTrue(callable(enqueue_kwargs["runner"]))
 
     def test_start_album_edit_starts_single_background_combined_job(self) -> None:
@@ -13264,6 +13218,7 @@ class PlayerAlbumTagEditTest(unittest.TestCase):
                 runtime,
                 "old-artist::album",
                 {
+                    "update_audio_tags": True,
                     "tags": {
                         "album": "New Album",
                         "genre": "Electronic; Score",
@@ -13517,6 +13472,7 @@ class PlayerAlbumTagEditTest(unittest.TestCase):
                 database,
                 "old-artist::album",
                 {
+                    "update_audio_tags": True,
                     "tags": {
                         "album": "Manual Album",
                         "genre": "Manual Genre",
@@ -13604,19 +13560,12 @@ class PlayerAlbumTagEditTest(unittest.TestCase):
 
             self.assertEqual(
                 [event[0] for event in write_events],
-                ["manual", "manual", "musicbrainz", "musicbrainz"],
+                ["manual", "manual"],
             )
             self.assertEqual(write_events[0][1], str(paths[0]))
-            self.assertEqual(write_events[2][1], str(paths[0]))
             self.assertEqual(write_events[0][2]["album"], "Manual Album")
-            self.assertEqual(write_events[2][2]["album"], "MusicBrainz Album")
-            self.assertEqual(
-                write_events[2][2]["album_artist"],
-                "Brian Eno & Robert Fripp",
-            )
-            self.assertEqual(write_events[2][2]["genre"], "Electronic; Ambient")
-            self.assertEqual(result.album, "MusicBrainz Album")
-            self.assertEqual(result.album_artist, "Brian Eno & Robert Fripp")
+            self.assertEqual(result.album, "Manual Album")
+            self.assertEqual(result.album_artist, "Manual Artist")
             self.assertEqual(result.tracks_updated, 2)
             self.assertFalse(result.musicbrainz_ids_cleared)
 

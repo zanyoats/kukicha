@@ -1087,13 +1087,13 @@ def start_album_edit(
         )
         queued_job = runtime.enqueue_job(
             kind="edit_album_musicbrainz",
-            queued_message=f"Tag edit queued for {job.request.album_label}.",
-            running_message=f"Tag edit running for {job.request.album_label}.",
-            canceled_message=f"Tag edit canceled for {job.request.album_label}.",
-            failed_message=f"Tag edit failed for {job.request.album_label}.",
+            queued_message=f"Metadata URL edit queued for {job.request.album_label}.",
+            running_message=f"Metadata URL edit running for {job.request.album_label}.",
+            canceled_message=f"Metadata URL edit canceled for {job.request.album_label}.",
+            failed_message=f"Metadata URL edit failed for {job.request.album_label}.",
             context={
                 "album": job.request.album_name,
-                "tracks_updated": len(job.tracks),
+                "track_links_updated": len(job.tracks),
             },
             runner=lambda cancel_token: run_edit_album_musicbrainz_job(
                 runtime,
@@ -1103,7 +1103,7 @@ def start_album_edit(
         )
 
         return {
-            "message": f"Tag edit queued for {job.request.album_label}.",
+            "message": f"Metadata URL edit queued for {job.request.album_label}.",
             "job": job_payload(queued_job),
         }
 
