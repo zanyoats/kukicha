@@ -2,48 +2,53 @@
 
 [![Tests](https://github.com/zanyoats/kukicha/actions/workflows/tests.yml/badge.svg?branch=main)](https://github.com/zanyoats/kukicha/actions/workflows/tests.yml)
 
-`kukicha` focuses on managing and streaming your audio library using a http server backed by single sqlite database file. It comes with a simple and fast builtin web UI.
+`kukicha` focuses on managing and streaming your audio library with an HTTP
+server backed by a single SQLite database file. It comes with a simple and fast
+built-in web UI.
 
 Some noteworthy features:
 - It supports both POSIX and Windows.
-- Text/token based search & filters.
+- Text/token based search and filters.
 - Artist tag cloud page
 - Albums grid page
 - Easily sync library root paths
 - Supports most audio formats
 - Never transcodes audio streams
-- Playlist are ordinary m3u, m3u8, pls files
+- Playlists are ordinary m3u, m3u8, pls files
 - Genre/style taxonomy provides clean data
 - Artist split patterns overrides (avoid artist names like `Brian Eno with Jon Hopkins & Leo Abrahams`)
 - iTunes cover art lookup
 - Musicbrainz release group & release IDs overrides
 - Overwrite album-level audio tags for album artist, genre
 - Overwrite track-level audio tags for artist, album title
-
-Roadmap
 - Mount remote library roots (S3, etc.)
-- Support subset of Opensonic API to support different clients
-- Live stream a playlist
+- Supports a subset of the OpenSubsonic API for external clients
+- Queue, playlist, and radio generation tools in the browser player
+- *Very* basic recommendation engine for radios and random playlists
 
 ## Install With uv
 
-Kukicha is not published to PyPI yet. Install it from a checked-out project root
-with `uv`:
+Kukicha releases are published to PyPI. The project is currently distributed as
+an alpha, so allow pre-releases when installing from the package index:
 
 ```bash
-# from the project root
-uv tool install .
+uv tool install --prerelease allow kukicha
 ```
 
 Verify the install:
 
 ```bash
 which kukicha
-uv tool list
 kukicha --help
 ```
 
-Updates can be installed using force flag:
+How to upgrade:
+
+```bash
+uv tool upgrade --prerelease allow kukicha
+```
+
+To install this checkout instead of the published package:
 
 ```bash
 uv tool install --force .
@@ -87,7 +92,17 @@ log_level = "INFO"
 roots = ["/Users/YOUR_USERNAME/Music"]
 youtube_download_root = "/Users/YOUR_USERNAME/Music"
 prefer_musicbrainz_english_aliases = true
+remote_workers = 8
 radio_limit = 25
+genre_radio_min_album_count = 5
+
+[[remote_roots]]
+name = "archive"
+endpoint_url = "https://s3.example.com"
+bucket = "music-bucket"
+prefix = "library/"
+profile = "music-archive"
+region = "us-east-1"
 
 [auth]
 username = "listener"
@@ -103,6 +118,15 @@ Supported keys:
   config file directory.
 - `roots`: music library folders to scan. Relative paths are resolved from the
   config file directory. Roots can also be managed from the Roots page.
+- `remote_roots`: S3-compatible remote library roots to scan and optional
+  destinations for YouTube downloads and `copy-to-remote`. Configure each root
+  as a `[[remote_roots]]` table with required `name`, `endpoint_url`, and
+  `bucket`, plus optional `prefix`, `profile`, `region`, and
+  `addressing_style` (`auto`, `path`, or `virtual`). Credentials come from the
+  normal botocore/AWS environment or profile; inline credentials in TOML are
+  rejected.
+- `remote_workers`: positive parallel worker count for remote scans and uploads.
+  Defaults to an automatic value based on CPU count.
 - `ffmpeg_path`: optional path to an executable `ffmpeg`; leave empty to unset.
 - `youtube_download_root`: configured local root path or remote root name where
   YouTube audio downloads are written under `.kukicha/yt`.
@@ -123,6 +147,9 @@ Supported keys:
 - `toast_timeout_ms`: positive toast timeout in milliseconds.
 - `radio_limit`: positive track limit for all radio playlist generation.
   Defaults to `25`.
+- `genre_radio_min_album_count`: minimum eligible albums required before genre
+  radio can run for a genre. Set to `0` to disable the threshold. Defaults to
+  `5`.
 - `album_artist_split_patterns`: strings used when splitting album artist names.
 - `[auth].username`: browser login username.
 - `[auth].password_hash_file`: Argon2id password hash path. Relative paths are
@@ -179,10 +206,11 @@ existing browser login cookies for that config. If you wrote `[auth]` into the
 config before creating `password_hash_file`, use this command to bootstrap that
 file.
 
-The player provides album browsing, playback, full-text search, and filters for
-library roots, artists, genres, styles, and album properties. Search indexes
-album titles, album artists, and track titles. Quoted terms match exact token
-phrases, spaces mean AND, semicolons mean OR, and a leading `-` excludes a term.
+The player provides album browsing, queue playback, playlist management,
+recommendation radios, full-text search, and filters for library roots, artists,
+genres, styles, and album properties. Search indexes album titles, album
+artists, and track titles. Quoted terms match exact token phrases, spaces mean
+AND, semicolons mean OR, and a leading `-` excludes a term.
 
 ## Mount The OpenSubsonic API
 
@@ -240,6 +268,23 @@ kukicha tools bulk-tag-edit \
 The command recurses with the same supported audio extensions used by the scanner
 and only writes album artist, album title, and genre tags. It has been convenient for a bulk tag edit (album level) in some circumstances
 
+## Copy To Remote
+
+Upload a local folder to a configured remote root:
+
+```bash
+kukicha tools copy-to-remote \
+  --remote archive \
+  --source "/Users/YOUR_USERNAME/Music/New Album" \
+  --destination-prefix "incoming/"
+```
+
+`copy-to-remote` uses `[[remote_roots]]` from the config and can run without an
+`[auth]` section. By default, the source folder is uploaded under the remote
+prefix. Pass `--source-children` to upload each immediate child under the remote
+prefix, `--delete-source` to remove only successfully uploaded source items, and
+`--remote-workers N` to override the configured or automatic worker count.
+
 ## YouTube Audio
 
 Download audio-only YouTube media. Video URLs are downloaded as one audio file
@@ -285,70 +330,3 @@ roots write under `<root>/.kukicha/yt`; remote roots upload under
 `<prefix>.kukicha/yt`. The tool checks that `ffmpeg`, `ffprobe`, and Deno 2.0.0
 or newer are available. yt-dlp temporary and staged files are kept in the user's
 OS temp folder and are cleaned up when the command exits.
-
-## Run With launchd
-
-Save this as `~/Library/LaunchAgents/com.kukicha.player.plist` and adjust paths
-as needed:
-
-```xml
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
-  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0">
-<dict>
-  <key>Label</key>
-  <string>com.kukicha.player</string>
-
-  <key>ProgramArguments</key>
-  <array>
-    <string>/Users/YOUR_USERNAME/.local/bin/kukicha</string>
-    <string>-c</string>
-    <string>/Users/YOUR_USERNAME/.config/kukicha/kukicha.toml</string>
-  </array>
-
-  <key>RunAtLoad</key>
-  <true/>
-
-  <key>KeepAlive</key>
-  <dict>
-    <key>SuccessfulExit</key>
-    <false/>
-  </dict>
-
-  <key>StandardOutPath</key>
-  <string>/Users/YOUR_USERNAME/Library/Logs/kukicha-player.log</string>
-
-  <key>StandardErrorPath</key>
-  <string>/Users/YOUR_USERNAME/Library/Logs/kukicha-player.err.log</string>
-</dict>
-</plist>
-```
-
-Load and start it:
-
-```bash
-launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.kukicha.player.plist
-```
-
-Show the status
-```bash
-launchctl print gui/$(id -u)/com.kukicha.player
-```
-
-Restart the running server:
-
-```bash
-launchctl kickstart -k gui/$(id -u)/com.kukicha.player
-```
-
-Shut it down and unload it:
-
-```bash
-launchctl bootout gui/$(id -u) ~/Library/LaunchAgents/com.kukicha.player.plist
-```
-
-After changing the plist, unload it with `bootout`, then load it again with
-`bootstrap`. The `bootout` and `kickstart -k` commands trigger normal process
-shutdown, and Kukicha logs shutdown with the same timestamped stdout/stderr
-logging as startup.
