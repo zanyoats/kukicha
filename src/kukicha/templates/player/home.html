@@ -1,4 +1,5 @@
-{% from "player/_icons.html" import pause_icon, play_icon, queue_add_icon, search_icon %}
+{% from "player/_album_action_menu.html" import album_action_menu %}
+{% from "player/_icons.html" import pause_icon, play_icon, search_icon %}
 
 <div class="view-page home-page" data-page="{{ page_key }}">
   <header class="view-header home-header">
@@ -16,18 +17,6 @@
       </div>
     </form>
   </header>
-
-  {% if show_history_empty %}
-    <section class="home-empty" aria-label="No listening history">
-      <h2>No listening history yet</h2>
-      <p>Start with the library, browse artists, or pick a playlist. This page will fill in as you listen.</p>
-      <nav class="home-empty-actions" aria-label="Library shortcuts">
-        <a class="button-link primary" href="/albums" data-nav>Albums</a>
-        <a class="button-link" href="/artists" data-nav>Artists</a>
-        <a class="button-link" href="/playlists" data-nav>Playlists</a>
-      </nav>
-    </section>
-  {% endif %}
 
   {% if continue_listening %}
     {% set feature = continue_listening.album %}
@@ -66,6 +55,40 @@
     </section>
   {% endif %}
 
+  {% if home_radio_choices %}
+    <section class="home-section home-radio-section" aria-labelledby="home-radio-title">
+      <div class="home-section-heading">
+        <h2 id="home-radio-title">What do you want to listen to?</h2>
+      </div>
+      <div class="home-radio-grid">
+        {% for item in home_radio_choices %}
+          <details class="filter-menu home-radio-menu" data-dropdown-menu>
+            <summary class="button-link home-radio-button">{{ item.label }}</summary>
+            <div class="filter-options home-radio-options">
+              {% for mode_item in recommendation_mode_menu_items(item.url, item.modes) %}
+                <button class="page-menu-link page-menu-button" type="button"
+                  data-generate-recommendation data-recommendation-url="{{ mode_item.url }}"
+                  data-recommendation-label="{{ item.action_label }} - {{ mode_item.label }}">{{ mode_item.label }}</button>
+              {% endfor %}
+            </div>
+          </details>
+        {% endfor %}
+      </div>
+    </section>
+  {% endif %}
+
+  {% if show_history_empty %}
+    <section class="home-empty" aria-label="No listening history">
+      <h2>No listening history yet</h2>
+      <p>Start with the library, browse artists, or pick a playlist. This page will fill in as you listen.</p>
+      <nav class="home-empty-actions" aria-label="Library shortcuts">
+        <a class="button-link primary" href="/albums" data-nav>Albums</a>
+        <a class="button-link" href="/artists" data-nav>Artists</a>
+        <a class="button-link" href="/playlists" data-nav>Playlists</a>
+      </nav>
+    </section>
+  {% endif %}
+
   {% if dashboard.recent_albums %}
     <section class="home-section" aria-label="Recently listened albums">
       <div class="home-section-heading">
@@ -90,9 +113,7 @@
                   <button class="album-cover-action play-icon-button" type="button" data-play-album
                     aria-label="Play {{ album.artist }} - {{ album.album|display_album_title }}"
                     title="Play">{{ play_icon() }}</button>
-                  <button class="album-cover-action queue-icon-button" type="button" data-queue-album data-queue-append
-                    aria-label="Add {{ album.artist }} - {{ album.album|display_album_title }} to the queue"
-                    title="Add to queue">{{ queue_add_icon() }}</button>
+                  {{ album_action_menu(album.artist ~ " - " ~ (album.album|display_album_title), album|album_radio_url) }}
                 </div>
               {% endif %}
             </div>
@@ -136,9 +157,7 @@
                   <button class="album-cover-action play-icon-button" type="button" data-play-album
                     aria-label="Play {{ album.artist }} - {{ album.album|display_album_title }}"
                     title="Play">{{ play_icon() }}</button>
-                  <button class="album-cover-action queue-icon-button" type="button" data-queue-album data-queue-append
-                    aria-label="Add {{ album.artist }} - {{ album.album|display_album_title }} to the queue"
-                    title="Add to queue">{{ queue_add_icon() }}</button>
+                  {{ album_action_menu(album.artist ~ " - " ~ (album.album|display_album_title), album|album_radio_url) }}
                 </div>
               {% endif %}
             </div>
@@ -182,9 +201,7 @@
                   <button class="album-cover-action play-icon-button" type="button" data-play-album
                     aria-label="Play {{ album.artist }} - {{ album.album|display_album_title }}"
                     title="Play">{{ play_icon() }}</button>
-                  <button class="album-cover-action queue-icon-button" type="button" data-queue-album data-queue-append
-                    aria-label="Add {{ album.artist }} - {{ album.album|display_album_title }} to the queue"
-                    title="Add to queue">{{ queue_add_icon() }}</button>
+                  {{ album_action_menu(album.artist ~ " - " ~ (album.album|display_album_title), album|album_radio_url) }}
                 </div>
               {% endif %}
             </div>

@@ -1,4 +1,5 @@
-{% from "player/_icons.html" import delete_icon, infinity_icon, playlist_icon, queue_add_icon %}
+{% from "player/_album_action_menu.html" import recommendation_mode_submenu %}
+{% from "player/_icons.html" import delete_icon, infinity_icon, playlist_icon, queue_add_icon, vertical_ellipsis_icon %}
 
 {% macro cover_cell(track) -%}
   <td class="cover-cell">
@@ -35,11 +36,84 @@
   </td>
 {%- endmacro %}
 
+{% macro playlist_track_options(track) -%}
+  <div class="filter-options playlist-track-options" data-playlist-options>
+    {% if track.playlist_options is not none %}
+        {% if track.playlist_options %}
+        {% for playlist in track.playlist_options %}
+          <label class="filter-option">
+            <input type="checkbox" data-playlist-toggle data-track-id="{{ track.library_track_id }}" data-playlist-id="{{ playlist.playlist_id }}" {% if playlist.checked %}checked{% endif %}>
+            <span>{{ playlist.name or ("Playlist " ~ playlist.playlist_id) }}</span>
+          </label>
+        {% endfor %}
+      {% else %}
+        <div class="empty-small">No playlists found.</div>
+      {% endif %}
+    {% else %}
+      <div class="empty-small">No playlists found.</div>
+    {% endif %}
+    <form class="playlist-track-create-form" action="/api/playlists" method="post" autocomplete="off" data-playlist-create-for-track data-track-id="{{ track.library_track_id }}">
+      <label class="playlist-track-create-field">
+        <span class="visually-hidden">New playlist name</span>
+        <input type="text" name="name" placeholder="New playlist" data-playlist-create-track-name>
+      </label>
+      <button type="submit" data-create-track-playlist>Create</button>
+      <div class="playlist-track-create-status" data-playlist-create-track-status aria-live="polite"></div>
+    </form>
+  </div>
+{%- endmacro %}
+
+{% macro playlist_track_menu(track) -%}
+  {% if track.library_track_id %}
+    <details class="filter-menu playlist-track-menu{% if track.has_playlist_membership %} has-playlist-membership{% endif %}" data-dropdown-menu data-playlist-menu data-library-track-id="{{ track.library_track_id }}">
+      <summary class="playlist-icon-button" aria-label="Add to Playlists" title="Add to Playlists">
+        <span class="visually-hidden">Add to Playlists</span>
+        {{ playlist_icon(filled=track.has_playlist_membership) }}
+      </summary>
+      {{ playlist_track_options(track) }}
+    </details>
+  {% else %}
+    <button class="playlist-icon-button" type="button" aria-label="Add to Playlists" title="Add to Playlists" disabled>
+      <span class="visually-hidden">Add to Playlists</span>
+      {{ playlist_icon() }}
+    </button>
+  {% endif %}
+{%- endmacro %}
+
+{% macro track_action_menu(track) -%}
+  <details class="filter-menu track-action-menu" data-dropdown-menu data-track-action-menu>
+    <summary class="track-action-menu-button"
+      aria-label="Track actions for {{ track.display_title }}"
+      title="Track actions">
+      <span class="visually-hidden">Track actions</span>
+      {{ vertical_ellipsis_icon() }}
+    </summary>
+    <div class="filter-options track-action-options" data-track-action-options>
+      <button class="page-menu-link page-menu-button" type="button" data-queue-track data-queue-append>
+        Add to Queue
+      </button>
+      {% set track_radio_url = track|track_radio_url %}
+      {{ recommendation_mode_submenu("Track Radio", track_radio_url) }}
+      {% if show_playlist_track_menu %}
+        {% if track.library_track_id %}
+          <details class="playlist-track-menu track-action-submenu{% if track.has_playlist_membership %} has-playlist-membership{% endif %}" data-playlist-menu data-library-track-id="{{ track.library_track_id }}">
+            <summary class="page-menu-link track-action-submenu-summary" title="Bookmark">
+              Bookmark
+            </summary>
+            {{ playlist_track_options(track) }}
+          </details>
+        {% else %}
+          <button class="page-menu-link page-menu-button" type="button" disabled>Bookmark</button>
+        {% endif %}
+      {% endif %}
+    </div>
+  </details>
+{%- endmacro %}
+
 {% macro queue_cells(row) -%}
   {% set track = row.track %}
   {{ cover_cell(track) }}
   {{ track_artist_cell(track) }}
-  <td class="track-number">{{ track.track_number }}</td>
   <td>{{ track.queue_title }}</td>
   {{ duration_cell(track) }}
   <td class="queue-status"><span class="queue-status-label">{{ row.queue_status }}</span></td>
@@ -61,46 +135,14 @@
       {% if show_track_play_button %}
         <button type="button" data-play-track="{{ track.track_id }}">Play</button>
       {% endif %}
-      <button class="queue-icon-button" type="button" data-queue-track data-queue-append
-        aria-label="Add {{ track.display_title }} by {{ track.artist or track.album_artist or 'unknown artist' }} to the queue"
-        title="Add to queue">{{ queue_add_icon() }}</button>
-      {% if show_playlist_track_menu %}
-        {% if track.library_track_id %}
-          <details class="filter-menu playlist-track-menu{% if track.has_playlist_membership %} has-playlist-membership{% endif %}" data-dropdown-menu data-playlist-menu data-library-track-id="{{ track.library_track_id }}">
-            <summary class="playlist-icon-button" aria-label="Add to Playlists" title="Add to Playlists">
-              <span class="visually-hidden">Add to Playlists</span>
-              {{ playlist_icon(filled=track.has_playlist_membership) }}
-            </summary>
-            <div class="filter-options playlist-track-options" data-playlist-options>
-              {% if track.playlist_options is not none %}
-                  {% if track.playlist_options %}
-                  {% for playlist in track.playlist_options %}
-                    <label class="filter-option">
-                      <input type="checkbox" data-playlist-toggle data-track-id="{{ track.library_track_id }}" data-playlist-id="{{ playlist.playlist_id }}" {% if playlist.checked %}checked{% endif %}>
-                      <span>{{ playlist.name or ("Playlist " ~ playlist.playlist_id) }}</span>
-                    </label>
-                  {% endfor %}
-                {% else %}
-                  <div class="empty-small">No playlists found.</div>
-                {% endif %}
-              {% else %}
-                <div class="empty-small">No playlists found.</div>
-              {% endif %}
-              <form class="playlist-track-create-form" action="/api/playlists" method="post" autocomplete="off" data-playlist-create-for-track data-track-id="{{ track.library_track_id }}">
-                <label class="playlist-track-create-field">
-                  <span class="visually-hidden">New playlist name</span>
-                  <input type="text" name="name" placeholder="New playlist" data-playlist-create-track-name>
-                </label>
-                <button type="submit" data-create-track-playlist>Create</button>
-                <div class="playlist-track-create-status" data-playlist-create-track-status aria-live="polite"></div>
-              </form>
-            </div>
-          </details>
-        {% else %}
-          <button class="playlist-icon-button" type="button" aria-label="Add to Playlists" title="Add to Playlists" disabled>
-            <span class="visually-hidden">Add to Playlists</span>
-            {{ playlist_icon() }}
-          </button>
+      {% if show_track_action_menu %}
+        {{ track_action_menu(track) }}
+      {% else %}
+        <button class="queue-icon-button" type="button" data-queue-track data-queue-append
+          aria-label="Add {{ track.display_title }} by {{ track.artist or track.album_artist or 'unknown artist' }} to the queue"
+          title="Add to queue">{{ queue_add_icon() }}</button>
+        {% if show_playlist_track_menu %}
+          {{ playlist_track_menu(track) }}
         {% endif %}
       {% endif %}
     </div>
@@ -109,9 +151,11 @@
 
 {% set show_track_artist = show_track_artist|default(false) %}
 {% set show_track_play_button = show_track_play_button|default(true) %}
+{% set show_track_action_menu = show_track_action_menu|default(false) %}
 {% set show_playlist_track_menu = show_playlist_track_menu|default(true) %}
+{% set show_grouping_rows = show_grouping_rows|default(true) %}
 {% set selected_track_id = selected_track_id|default(none) %}
-{% set column_count = (7 if show_track_artist else 6) if is_queue else (6 if show_track_artist else 5) %}
+{% set column_count = (6 if show_track_artist else 5) if is_queue else (6 if show_track_artist else 5) %}
 
 <div class="table-wrap">
   <table>
@@ -119,7 +163,6 @@
       <colgroup>
         <col>
         {% if show_track_artist %}<col>{% endif %}
-        <col>
         <col>
         <col>
         <col class="queue-status-col">
@@ -130,7 +173,7 @@
       <tr>
         <th>Cover</th>
         {% if show_track_artist %}<th>Artist</th>{% endif %}
-        <th>Track</th>
+        {% if not is_queue %}<th>Track</th>{% endif %}
         <th>Title</th>
         <th>Duration</th>
         {% if not is_queue %}<th class="track-actions-head"></th>{% endif %}
@@ -140,7 +183,7 @@
     </thead>
     <tbody>
       {% for row in table_rows %}
-        {% if row.group_label %}
+        {% if show_grouping_rows and row.group_label %}
           <tr class="grouping-row">
             <td colspan="{{ column_count }}">{{ row.group_label }}</td>
           </tr>
@@ -152,6 +195,7 @@
             data-library-track-id="{{ track.library_track_id if track.library_track_id is not none else '' }}"
             data-album-id="{{ track.album_id }}"
             data-queue-position="{{ row.queue_position }}"
+            data-track-number="{{ track.track_number }}"
             data-audio-url="{{ track.audio_url }}"
             data-art-url="{{ track.art_url }}"
             data-title="{{ track.display_title }}"
@@ -175,6 +219,7 @@
             data-track-id="{{ track.track_id }}"
             data-library-track-id="{{ track.library_track_id if track.library_track_id is not none else '' }}"
             data-album-id="{{ track.album_id }}"
+            data-track-number="{{ track.track_number }}"
             data-audio-url="{{ track.audio_url }}"
             data-art-url="{{ track.art_url }}"
             data-title="{{ track.display_title }}"

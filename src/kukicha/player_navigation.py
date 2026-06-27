@@ -4,7 +4,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass
 from math import log1p
 from typing import Any
-from urllib.parse import quote, urlencode
+from urllib.parse import parse_qsl, quote, urlencode, urlsplit, urlunsplit
 
 from .use_case import (
     ALBUM_LIST_SORT_ALBUMS,
@@ -14,6 +14,10 @@ from .use_case import (
     ALBUM_LIST_SORT_RECENT,
     ALBUM_LIST_SORT_RECENTLY_ADDED,
     ALBUM_LIST_SORT_STARRED,
+    RECOMMENDATION_MODE_ARTIST_ONLY,
+    RECOMMENDATION_MODE_DEFAULT,
+    RECOMMENDATION_MODE_DISCOVERY,
+    SUPPORTED_RECOMMENDATION_MODES,
     AlbumDetails,
     AlbumListQuery,
     AlbumSummary,
@@ -38,6 +42,15 @@ ALBUM_SORT_OPTIONS = (
     (ALBUM_LIST_SORT_RECENTLY_ADDED, "Recently Added"),
     (ALBUM_LIST_SORT_GENRE, "Genre"),
     (ALBUM_LIST_SORT_STARRED, "Starred"),
+)
+RECOMMENDATION_MODE_LABELS = {
+    RECOMMENDATION_MODE_DEFAULT: "Default",
+    RECOMMENDATION_MODE_DISCOVERY: "Discovery",
+    RECOMMENDATION_MODE_ARTIST_ONLY: "Artist-Only",
+}
+HOME_RADIO_RECOMMENDATION_MODES = (
+    RECOMMENDATION_MODE_DEFAULT,
+    RECOMMENDATION_MODE_DISCOVERY,
 )
 PLAYER_PAGE_LINKS = (
     ("home", "Home", "/"),
@@ -181,6 +194,142 @@ def album_bulk_star_action_url(query: AlbumListQuery) -> str:
     )
     encoded = urlencode(album_query_params(bulk_query), doseq=True, safe="[]")
     return f"/api/albums/star?{encoded}" if encoded else "/api/albums/star"
+
+
+def recommendation_mode_label(mode: str) -> str:
+    return RECOMMENDATION_MODE_LABELS.get(mode, mode.replace("_", " ").title())
+
+
+def recommendation_track_radio_url(
+    track: Any,
+    *,
+    mode: str | None = None,
+) -> str:
+    track_id = recommendation_track_id(track)
+    if track_id is None:
+        return ""
+    return recommendation_url(
+        f"/recommendations/radio/track/{track_id}",
+        mode=mode,
+    )
+
+
+def recommendation_album_radio_url(
+    album: Any,
+    *,
+    mode: str | None = None,
+) -> str:
+    if bool(getattr(album, "is_playlist", False)):
+        return ""
+    album_id = str(getattr(album, "album_id", album)).strip()
+    if not album_id:
+        return ""
+    return recommendation_url(
+        f"/recommendations/radio/album/{quote(album_id, safe=':')}",
+        mode=mode,
+    )
+
+
+def recommendation_artist_radio_url(
+    artist: str,
+    *,
+    mode: str | None = None,
+) -> str:
+    artist_value = str(artist).strip()
+    if not artist_value:
+        return ""
+    return recommendation_url(
+        f"/recommendations/radio/artist/{quote(artist_value, safe='')}",
+        mode=mode,
+    )
+
+
+def recommendation_genre_radio_url(
+    genre: str,
+    *,
+    mode: str | None = None,
+) -> str:
+    genre_value = str(genre).strip()
+    if not genre_value:
+        return ""
+    return recommendation_url(
+        f"/recommendations/radio/genre/{quote(genre_value, safe='')}",
+        mode=mode,
+    )
+
+
+def recommendation_random_radio_url(
+    *,
+    mode: str | None = None,
+) -> str:
+    return recommendation_url("/recommendations/radio/random", mode=mode)
+
+
+def recommendation_url(
+    path: str,
+    *,
+    mode: str | None = None,
+    date: str | None = None,
+) -> str:
+    params: dict[str, str] = {}
+    if mode and mode != RECOMMENDATION_MODE_DEFAULT:
+        params["mode"] = mode
+    if date:
+        params["date"] = date
+    encoded = urlencode(params)
+    return f"{path}?{encoded}" if encoded else path
+
+
+def recommendation_mode_menu_items(
+    base_url: str,
+    modes: Iterable[str] | None = None,
+) -> tuple[dict[str, str], ...]:
+    if not base_url:
+        return ()
+    mode_values = (
+        tuple(modes)
+        if modes is not None
+        else SUPPORTED_RECOMMENDATION_MODES
+    )
+    return tuple(
+        {
+            "mode": mode,
+            "label": recommendation_mode_label(mode),
+            "url": recommendation_mode_url(base_url, mode),
+        }
+        for mode in mode_values
+    )
+
+
+def recommendation_mode_url(base_url: str, mode: str) -> str:
+    split = urlsplit(base_url)
+    params = [
+        (key, value)
+        for key, value in parse_qsl(split.query, keep_blank_values=True)
+        if key != "mode"
+    ]
+    if mode != RECOMMENDATION_MODE_DEFAULT:
+        params.append(("mode", mode))
+    return urlunsplit(
+        (
+            split.scheme,
+            split.netloc,
+            split.path,
+            urlencode(params),
+            split.fragment,
+        )
+    )
+
+
+def recommendation_track_id(track: Any) -> int | None:
+    track_id = getattr(track, "library_track_id", None)
+    if track_id is None:
+        track_id = getattr(track, "track_id", track)
+    try:
+        resolved_id = int(track_id)
+    except (TypeError, ValueError):
+        return None
+    return resolved_id if resolved_id > 0 else None
 
 
 def playlist_index_url(_query: AlbumListQuery, *, offset: int | None = None) -> str:

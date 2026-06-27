@@ -4,15 +4,31 @@
     <a class="back-link" href="/albums" data-nav>&uarr; albums</a>
   </div>
 
-  <header class="view-header">
+  <header class="view-header queue-header">
     <div>
       <h1>Queue</h1>
       <div class="count" data-queue-meta data-duration-text="{{ queue_duration_text }}">{{ queue_meta }}</div>
     </div>
+    {% if queue_rows %}
+      <details class="filter-menu queue-save-menu" data-dropdown-menu>
+        <summary class="button-link queue-save-button" title="Save queue to playlist">
+          <span>Save to Playlist</span>
+        </summary>
+        <form class="filter-options queue-playlist-create-form" action="/api/playlists" method="post" autocomplete="off" data-queue-playlist-create-form>
+          <label class="queue-playlist-create-field">
+            <span class="visually-hidden">Playlist name</span>
+            <input type="text" name="name" placeholder="Playlist name" data-queue-playlist-name-input>
+          </label>
+          <button type="submit" data-create-queue-playlist>Create</button>
+          <div class="queue-playlist-create-status" data-queue-playlist-create-status aria-live="polite"></div>
+        </form>
+      </details>
+    {% endif %}
   </header>
 
   {% if queue_rows %}
     {% set is_queue = true %}
+    {% set show_grouping_rows = false %}
     {% include "player/_track_table.html" %}
   {% else %}
     <div class="empty">Queue is empty.</div>

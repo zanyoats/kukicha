@@ -12,6 +12,8 @@ import logging
 from .album_artists import DEFAULT_ALBUM_ARTIST_SPLIT_PATTERNS
 
 LOGGER = logging.getLogger("kukicha.player")
+DEFAULT_RUNTIME_RADIO_LIMIT = 25
+DEFAULT_RUNTIME_GENRE_RADIO_MIN_ALBUM_COUNT = 5
 LIBRARY_FILTER_OPTIONS_INVALIDATING_JOB_KINDS = frozenset(
     {
         "rescan_library",
@@ -278,6 +280,20 @@ class PlayerRuntime:
     @property
     def prefer_musicbrainz_english_aliases(self) -> bool:
         return bool(getattr(self.options, "prefer_musicbrainz_english_aliases", True))
+
+    @property
+    def radio_limit(self) -> int:
+        return int(getattr(self.options, "radio_limit", DEFAULT_RUNTIME_RADIO_LIMIT))
+
+    @property
+    def genre_radio_min_album_count(self) -> int:
+        return int(
+            getattr(
+                self.options,
+                "genre_radio_min_album_count",
+                DEFAULT_RUNTIME_GENRE_RADIO_MIN_ALBUM_COUNT,
+            )
+        )
 
     def queue_state_copy(self) -> PlayerQueueState:
         from .use_case.commands.player import load_queue_state_database

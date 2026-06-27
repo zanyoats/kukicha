@@ -109,6 +109,7 @@ def build_index_context(runtime: PlayerRuntime, query_string: str) -> dict[str, 
         selected_genre_filter_count,
         selected_genre_values,
         selected_style_values,
+        recommendation_artist_radio_url,
     )
     from .use_case import DEFAULT_ALBUMS_SIZE
 
@@ -154,6 +155,11 @@ def build_index_context(runtime: PlayerRuntime, query_string: str) -> dict[str, 
         default_size=DEFAULT_ALBUMS_SIZE,
         bulk_metadata_edit_page_url=album_bulk_metadata_edit_url(query),
         bulk_album_star_action_url=album_bulk_star_action_url(query),
+        artist_radio_url=(
+            recommendation_artist_radio_url(query.artists[0])
+            if len(query.artists) == 1
+            else ""
+        ),
     )
     context.update(player_page_context("library"))
     return context
@@ -306,10 +312,65 @@ def build_home_context(runtime: PlayerRuntime) -> dict[str, Any]:
     context.update(
         count_text="Listening history, recent favorites, and new additions.",
         continue_listening=continue_listening,
+        home_radio_choices=home_radio_choices(runtime),
         show_history_empty=not dashboard.has_listening_history and continue_listening is None,
     )
     context.update(player_page_context("home"))
     return context
+
+
+def home_radio_choices(runtime: PlayerRuntime) -> tuple[dict[str, Any], ...]:
+    from .player_navigation import (
+        HOME_RADIO_RECOMMENDATION_MODES,
+        recommendation_genre_radio_url,
+        recommendation_random_radio_url,
+    )
+    from .use_case import RecommendationQueries
+    from .use_case.commands.recommendations import runtime_genre_radio_min_album_count
+    from .use_case.recommendations import recommendation_feature_term
+    from .use_case import UNKNOWN_GENRE_TAG
+
+    genre_choices: list[dict[str, Any]] = []
+    seen_genres: set[str] = set()
+    filters = runtime.library_filter_options()
+    minimum_album_count = runtime_genre_radio_min_album_count(runtime)
+    genre_album_counts = RecommendationQueries(runtime.database).genre_album_counts()
+    for group in sorted(
+        filters.genre_groups,
+        key=lambda item: item.genre.casefold(),
+    ):
+        genre = group.genre.strip()
+        genre_key = genre.casefold()
+        if (
+            not genre
+            or genre_key == UNKNOWN_GENRE_TAG.casefold()
+            or genre_key in seen_genres
+        ):
+            continue
+        if (
+            minimum_album_count > 0
+            and genre_album_counts.get(recommendation_feature_term(genre), 0)
+            < minimum_album_count
+        ):
+            continue
+        seen_genres.add(genre_key)
+        genre_choices.append(
+            {
+                "label": genre,
+                "url": recommendation_genre_radio_url(genre),
+                "action_label": f"{genre} Radio",
+                "modes": HOME_RADIO_RECOMMENDATION_MODES,
+            }
+        )
+    genre_choices.append(
+        {
+            "label": "Random",
+            "url": recommendation_random_radio_url(),
+            "action_label": "Random Playlist",
+            "modes": HOME_RADIO_RECOMMENDATION_MODES,
+        }
+    )
+    return tuple(genre_choices)
 
 
 def build_search_context(runtime: PlayerRuntime, query_string: str) -> dict[str, Any]:

@@ -642,6 +642,9 @@ function createHarness(initialQueueState, options = {}) {
   };
   elements["confirmation-dialog"].hidden = true;
   elements["keyboard-shortcuts-dialog"].hidden = true;
+  if (Number.isInteger(options.toastTimeoutMs) && options.toastTimeoutMs > 0) {
+    elements.toast.dataset.toastTimeoutMs = String(options.toastTimeoutMs);
+  }
   elements.audio.deferPlay = Boolean(options.deferAudioPlay);
   elements["queue-state"].textContent = JSON.stringify(initialQueueState);
 
@@ -887,6 +890,21 @@ function bulkAlbumStarButton(document, actionUrl = "/api/albums/star") {
   return button;
 }
 
+function artistRadioBulkMenu(document, href = "/recommendations/radio/artist/Amon%20Tobin") {
+  const menu = document.createElement("details");
+  menu.className = "filter-menu bulk-actions-menu";
+  menu.dataset.dropdownMenu = "";
+  const submenu = document.createElement("details");
+  submenu.className = "recommendation-mode-submenu track-action-submenu";
+  const button = document.createElement("button");
+  button.dataset.generateRecommendation = "";
+  button.dataset.recommendationUrl = href;
+  button.textContent = "Default";
+  submenu.append(button);
+  menu.append(submenu);
+  return menu;
+}
+
 function sourceForUrl(context, url) {
   return context.sources.find((source) => source.buffer && source.buffer.url === url);
 }
@@ -969,6 +987,51 @@ test("filter form submit helper closes search menu", () => {
   harness.context.closeSearchMenu(form);
 
   assert.equal(menu.open, false);
+});
+
+test("floating dropdown menus are clamped inside the viewport", () => {
+  const harness = createHarness({
+    track_ids: [],
+    position: 0,
+    loaded_track_id: null,
+    paused: true,
+    errored_track_ids: [],
+    unavailable_track_ids: [],
+  });
+  harness.context.window.innerWidth = 400;
+  harness.context.window.innerHeight = 320;
+
+  const menu = harness.document.createElement("details");
+  menu.setAttribute("data-floating-dropdown-menu", "");
+  menu.open = true;
+  const summary = harness.document.createElement("summary");
+  summary.getBoundingClientRect = () => ({
+    top: 40,
+    right: 70,
+    bottom: 70,
+    left: 34,
+  });
+  const options = harness.document.createElement("div");
+  options.classList.add("filter-options", "album-cover-action-options");
+  menu.append(summary, options);
+
+  harness.context.openFloatingDropdownMenu(menu);
+
+  assert.equal(options.parentNode, harness.document.body);
+  assert.equal(options.classList.contains("dropdown-options-floating"), true);
+  assert.equal(options.getAttribute("data-floating-dropdown-options"), "");
+  assert.equal(options.style.left, "16px");
+  assert.equal(options.style.top, "74px");
+  assert.equal(options.style.width, "190px");
+
+  harness.context.restoreFloatingDropdownMenu(menu);
+
+  assert.equal(options.parentNode, menu);
+  assert.equal(options.classList.contains("dropdown-options-floating"), false);
+  assert.equal(options.hasAttribute("data-floating-dropdown-options"), false);
+  assert.equal(options.style.left, "");
+  assert.equal(options.style.top, "");
+  assert.equal(options.style.width, "");
 });
 
 test("browser-local dates are rendered from datetime attributes", () => {
@@ -1146,6 +1209,56 @@ test("library filter form patch updates bulk action urls from current filters", 
   assert.equal(unstarUrl.toString(), starUrl.toString());
 });
 
+test("library filter form patch syncs artist radio bulk action with artist filter", () => {
+  const harness = createHarness({
+    track_ids: [],
+    position: 0,
+    loaded_track_id: null,
+    paused: true,
+    errored_track_ids: [],
+    unavailable_track_ids: [],
+  });
+  const document = harness.document;
+  const clearButton = document.createElement("a");
+  clearButton.className = "button-link clear-filter-button";
+  const currentForm = filterForm(document, [
+    testInput(document, {type: "hidden", name: "size", value: ""}),
+    searchControls(document, [clearButton]),
+  ]);
+  const nextForm = filterForm(document, [
+    testInput(document, {type: "hidden", name: "size", value: ""}),
+    testInput(document, {type: "hidden", name: "artist", value: "Amon Tobin"}),
+    searchControls(document, [
+      artistRadioBulkMenu(document, "/recommendations/radio/artist/Amon%20Tobin"),
+      document.createElement("a"),
+    ]),
+  ]);
+  const currentPage = document.createElement("div");
+  const nextPage = document.createElement("div");
+  currentPage.setQueryResult("form[data-filter-form]", currentForm);
+  nextPage.setQueryResult("form[data-filter-form]", nextForm);
+
+  harness.context.syncLibraryFilterForm(currentPage, nextPage);
+
+  let currentMenu = currentForm.querySelector(".bulk-actions-menu");
+  assert.ok(currentMenu);
+  assert.equal(
+    currentMenu.querySelector("[data-generate-recommendation]").dataset.recommendationUrl,
+    "/recommendations/radio/artist/Amon%20Tobin"
+  );
+
+  const clearedForm = filterForm(document, [
+    testInput(document, {type: "hidden", name: "size", value: ""}),
+    searchControls(document, [document.createElement("a")]),
+  ]);
+  nextPage.setQueryResult("form[data-filter-form]", clearedForm);
+
+  harness.context.syncLibraryFilterForm(currentPage, nextPage);
+
+  currentMenu = currentForm.querySelector(".bulk-actions-menu");
+  assert.equal(currentMenu, null);
+});
+
 test("album filter form urls add genre search and sort params to current params", () => {
   const harness = createHarness({
     track_ids: [],
@@ -1271,6 +1384,215 @@ test("preserve scroll navigation links do not scroll after fragment render", asy
   assert.equal(harness.context.history.state.kukichaScrollY, 320);
 });
 
+test("navigation links inside dropdown menus close the containing menu", async () => {
+  const pageUrl = "http://localhost/albums";
+  const harness = createHarness(
+    {
+      track_ids: [],
+      position: 0,
+      loaded_track_id: null,
+      paused: true,
+      errored_track_ids: [],
+      unavailable_track_ids: [],
+    },
+    {
+      fetchResponses: {
+        [pageUrl]: {
+          text: '<div class="view-page index-page" data-page="library"></div>',
+        },
+      },
+    }
+  );
+  const menu = harness.document.createElement("details");
+  menu.dataset.dropdownMenu = "";
+  menu.open = true;
+  const link = harness.document.createElement("a");
+  link.href = pageUrl;
+  link.setAttribute("href", pageUrl);
+  link.closest = (selector) => {
+    if (selector === "a[data-nav]") {
+      return link;
+    }
+    if (selector === "details[data-dropdown-menu]") {
+      return menu;
+    }
+    return null;
+  };
+  let prevented = false;
+
+  harness.document.listeners.get("click")[0]({
+    target: link,
+    preventDefault() {
+      prevented = true;
+    },
+  });
+  await harness.flush();
+
+  assert.equal(prevented, true);
+  assert.equal(menu.open, false);
+  assert.equal(String(harness.fetchCalls[0].url), pageUrl);
+  assert.equal(harness.view.dataset.page, "library");
+});
+
+test("recommendation generation posts a cancelable job and closes the menu", async () => {
+  const generationUrl = "/recommendations/radio/album/album-seed?mode=discovery";
+  const harness = createHarness(
+    {
+      track_ids: [],
+      position: 0,
+      loaded_track_id: null,
+      paused: true,
+      errored_track_ids: [],
+      unavailable_track_ids: [],
+    },
+    {
+      fetchResponses: {
+        [generationUrl]: {
+          status: 202,
+          json: {
+            message: "Album Radio queued.",
+            job: {
+              job_id: 42,
+              kind: "generate_playlist",
+              kind_label: "Generate Playlist",
+              status: "queued",
+              status_label: "Queued",
+              message: "Album Radio queued.",
+              updated_at: "2026-04-21T10:00:00Z",
+              context_items: [],
+            },
+          },
+        },
+      },
+    }
+  );
+  const menu = harness.document.createElement("details");
+  menu.dataset.dropdownMenu = "";
+  menu.open = true;
+  const button = harness.document.createElement("button");
+  button.dataset.generateRecommendation = "";
+  button.dataset.recommendationUrl = generationUrl;
+  button.textContent = "Discovery";
+  button.closest = (selector) => {
+    if (selector === "[data-generate-recommendation]") {
+      return button;
+    }
+    if (selector === "details[data-dropdown-menu]") {
+      return menu;
+    }
+    return null;
+  };
+  let prevented = false;
+
+  harness.document.listeners.get("click")[0]({
+    target: button,
+    preventDefault() {
+      prevented = true;
+    },
+  });
+  await harness.flush();
+
+  assert.equal(prevented, true);
+  assert.equal(menu.open, false);
+  assert.equal(harness.fetchCalls[0].url, generationUrl);
+  assert.equal(harness.fetchCalls[0].request.method, "POST");
+  assert.equal(harness.jobToasts.children.length, 1);
+  assert.equal(
+    harness.jobToasts.children[0].querySelector(".job-toast-message").textContent,
+    "Album Radio queued."
+  );
+});
+
+test("completed generated playlist jobs can play the queue and dismiss the toast", async () => {
+  const harness = createHarness({
+    track_ids: [9],
+    position: 0,
+    loaded_track_id: 9,
+    paused: false,
+    errored_track_ids: [],
+    unavailable_track_ids: [],
+  });
+  const toast = harness.document.createElement("div");
+  toast.dataset.jobToastId = "42";
+  harness.jobToasts.append(toast);
+  const button = harness.document.createElement("button");
+  button.dataset.loadJobQueue = "";
+  button.dataset.jobId = "42";
+  button.dataset.trackIds = JSON.stringify([2, 3]);
+  button.textContent = "Play";
+  button.closest = (selector) => (
+    selector === "[data-load-job-queue]" ? button : null
+  );
+  let prevented = false;
+
+  harness.document.listeners.get("click")[0]({
+    target: button,
+    preventDefault() {
+      prevented = true;
+    },
+  });
+  await harness.flush();
+
+  assert.equal(prevented, true);
+  assert.equal(harness.fetchCalls[0].url, "/api/queue");
+  assert.equal(harness.fetchCalls[0].request.method, "POST");
+  assert.deepEqual(harness.fetchCalls[0].body, {
+    track_ids: [2, 3],
+    position: 0,
+    loaded_track_id: 2,
+    paused: false,
+    errored_track_ids: [],
+    track_snapshots: [
+      {trackId: 2, trackNumber: ""},
+      {trackId: 3, trackNumber: ""},
+    ],
+  });
+  assert.equal(harness.audio.playCalls, 1);
+  assert.equal(harness.audio.src, "/audio/2");
+  assert.equal(harness.jobToasts.children.length, 0);
+  assert.equal(harness.document.elements.toast.children.length, 0);
+});
+
+test("completed generated playlist job toast offers play and cancel", () => {
+  const harness = createHarness({
+    track_ids: [],
+    position: 0,
+    loaded_track_id: null,
+    paused: true,
+    errored_track_ids: [],
+    unavailable_track_ids: [],
+  });
+
+  harness.context.showJobToast({
+    job_id: 42,
+    kind: "generate_playlist",
+    kind_label: "Generate Playlist",
+    status: "succeeded",
+    status_label: "Succeeded",
+    message: "Album Radio generated 2 tracks.",
+    queue_track_ids: [2, 3],
+    updated_at: "2026-05-05T11:27:26Z",
+  });
+
+  const toast = harness.jobToasts.children[0];
+  const playButton = toast.querySelector("[data-load-job-queue]");
+  const cancelButton = toast.querySelector("[data-close-job-toast]");
+  assert.ok(playButton);
+  assert.ok(cancelButton);
+  assert.equal(playButton.textContent, "Play");
+  assert.equal(cancelButton.textContent, "Cancel");
+
+  cancelButton.closest = (selector) => (
+    selector === "[data-close-job-toast]" ? cancelButton : null
+  );
+  harness.document.listeners.get("click")[0]({
+    target: cancelButton,
+    preventDefault() {},
+  });
+
+  assert.equal(harness.jobToasts.children.length, 0);
+});
+
 test("selected track url scrolls selected album row into view", () => {
   const harness = createHarness({
     track_ids: [],
@@ -1370,6 +1692,46 @@ test("album track play ignores nested controls with track ids", async () => {
   assert.deepEqual(queueCall.body.track_ids, [1, 2]);
   assert.equal(queueCall.body.loaded_track_id, 1);
   assert.equal(queueCall.body.paused, false);
+});
+
+test("recommendation rows queue display track numbers", async () => {
+  const harness = createHarness({
+    track_ids: [],
+    position: 0,
+    loaded_track_id: null,
+    paused: true,
+    errored_track_ids: [],
+    unavailable_track_ids: [],
+  });
+  const document = harness.document;
+  const firstRow = document.createElement("tr");
+  firstRow.dataset.trackId = "7";
+  firstRow.dataset.audioUrl = "/audio/7";
+  firstRow.dataset.title = "First";
+  firstRow.dataset.trackNumber = "1";
+  const secondRow = document.createElement("tr");
+  secondRow.dataset.trackId = "8";
+  secondRow.dataset.audioUrl = "/audio/8";
+  secondRow.dataset.title = "Second";
+  secondRow.dataset.trackNumber = "2";
+  document.setQueryResult(trackRowSelector, [firstRow, secondRow]);
+  harness.view.setQueryResult(trackRowSelector, [firstRow, secondRow]);
+
+  harness.context.playFromRow(firstRow);
+  await harness.flush();
+
+  const queueCall = harness.fetchCalls.find((call) => call.url === "/api/queue");
+  assert.deepEqual(queueCall.body.track_ids, [7, 8]);
+  assert.deepEqual(
+    queueCall.body.track_snapshots.map((snapshot) => ({
+      trackId: snapshot.trackId,
+      trackNumber: snapshot.trackNumber,
+    })),
+    [
+      {trackId: 7, trackNumber: "1"},
+      {trackId: 8, trackNumber: "2"},
+    ]
+  );
 });
 
 test("album track play highlights table row before queue request resolves", async () => {
@@ -2177,6 +2539,63 @@ test("playlist delete posts and navigates to playlist index after confirmation",
   assert.equal(harness.fetchCalls[1].url, "/playlists");
   assert.equal(harness.fetchCalls[1].request.headers["X-Kukicha-Fragment"], "1");
   assert.equal(status.textContent, "Playlist deleted: Road Mix.");
+  assert.equal(button.disabled, false);
+  assert.equal(button.getAttribute("aria-busy"), null);
+});
+
+test("queue playlist create posts current queue library track ids in order", async () => {
+  const harness = createHarness({
+    track_ids: [-12, 8, -99],
+    position: 0,
+    loaded_track_id: -12,
+    paused: true,
+    errored_track_ids: [],
+    unavailable_track_ids: [],
+  }, {
+    fetchResponses: {
+      "/api/playlists": {
+        status: 201,
+        json: {
+          playlist_id: 4,
+          name: "Road Queue",
+          message: "Playlist created: Road Queue.",
+        },
+      },
+    },
+  });
+  const form = harness.document.createElement("form");
+  form.action = "/api/playlists";
+  const nameInput = harness.document.createElement("input");
+  nameInput.value = "Road Queue";
+  const button = harness.document.createElement("button");
+  const status = harness.document.createElement("div");
+  form.setQueryResult("[data-queue-playlist-name-input]", nameInput);
+  form.setQueryResult("[data-create-queue-playlist]", button);
+  form.setQueryResult("[data-queue-playlist-create-status]", status);
+
+  const playlistBackedRow = harness.document.createElement("tr");
+  playlistBackedRow.dataset.queuePosition = "0";
+  playlistBackedRow.dataset.libraryTrackId = "7";
+  const normalRow = harness.document.createElement("tr");
+  normalRow.dataset.queuePosition = "1";
+  normalRow.dataset.libraryTrackId = "";
+  const streamRow = harness.document.createElement("tr");
+  streamRow.dataset.queuePosition = "2";
+  harness.view.append(playlistBackedRow, normalRow, streamRow);
+
+  await harness.context.submitQueuePlaylistCreateForm(form);
+  await harness.flush();
+
+  assert.equal(harness.fetchCalls.length, 1);
+  assert.equal(harness.fetchCalls[0].url, "/api/playlists");
+  assert.equal(harness.fetchCalls[0].request.method, "POST");
+  assert.deepEqual(harness.fetchCalls[0].body, {
+    name: "Road Queue",
+    track_ids: [7, 8],
+  });
+  assert.equal(status.textContent, "Playlist created: Road Queue.");
+  assert.equal(nameInput.value, "");
+  assert.equal(nameInput.disabled, false);
   assert.equal(button.disabled, false);
   assert.equal(button.getAttribute("aria-busy"), null);
 });

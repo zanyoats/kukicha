@@ -1,0 +1,34 @@
+{% from "player/_icons.html" import vertical_ellipsis_icon %}
+
+{% macro recommendation_mode_submenu(label, recommendation_url="", title="") -%}
+  {% if recommendation_url %}
+    <details class="recommendation-mode-submenu track-action-submenu">
+      <summary class="page-menu-link track-action-submenu-summary" title="{{ title or label }}">
+        {{ label }}
+      </summary>
+      <div class="recommendation-mode-options">
+        {% for item in recommendation_mode_menu_items(recommendation_url) %}
+          <button class="page-menu-link page-menu-button recommendation-mode-option" type="button"
+            data-generate-recommendation data-recommendation-url="{{ item.url }}"
+            data-recommendation-label="{{ label }} - {{ item.label }}">{{ item.label }}</button>
+        {% endfor %}
+      </div>
+    </details>
+  {% endif %}
+{%- endmacro %}
+
+{% macro album_action_menu(label, album_radio_url="", title="Album actions") -%}
+  <details class="filter-menu album-cover-action-menu" data-dropdown-menu data-floating-dropdown-menu>
+    <summary class="album-cover-action album-action-menu-button" aria-label="{{ title }}" title="{{ title }}">
+      <span class="visually-hidden">{{ title }}</span>
+      {{ vertical_ellipsis_icon() }}
+    </summary>
+    <div class="filter-options album-cover-action-options">
+      <button class="page-menu-link page-menu-button" type="button" data-queue-album data-queue-append
+        aria-label="Add {{ label }} to the queue">
+        Add to Queue
+      </button>
+      {{ recommendation_mode_submenu("Album Radio", album_radio_url) }}
+    </div>
+  </details>
+{%- endmacro %}

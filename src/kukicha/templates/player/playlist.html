@@ -1,4 +1,5 @@
-{% from "player/_icons.html" import play_icon, queue_add_icon %}
+{% from "player/_album_action_menu.html" import album_action_menu %}
+{% from "player/_icons.html" import play_icon %}
 
 <div class="view-page album-view playlist-view" data-page="playlist">
   <div class="album-view-nav">
@@ -16,9 +17,7 @@
             <button class="album-cover-action play-icon-button" type="button" data-play-album
               aria-label="Play {{ playlist.name }}"
               title="Play">{{ play_icon() }}</button>
-            <button class="album-cover-action queue-icon-button" type="button" data-queue-album data-queue-append
-              aria-label="Add {{ playlist.name }} to the queue"
-              title="Add to queue">{{ queue_add_icon() }}</button>
+            {{ album_action_menu(playlist.name, title="Playlist actions") }}
           </div>
         {% endif %}
       </div>

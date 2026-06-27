@@ -87,6 +87,7 @@ log_level = "INFO"
 roots = ["/Users/YOUR_USERNAME/Music"]
 youtube_download_root = "/Users/YOUR_USERNAME/Music"
 prefer_musicbrainz_english_aliases = true
+radio_limit = 25
 
 [auth]
 username = "listener"
@@ -120,6 +121,8 @@ Supported keys:
   browser's `prefers-color-scheme`, using `light` for light mode and `dim` for
   dark mode. Defaults to `system`.
 - `toast_timeout_ms`: positive toast timeout in milliseconds.
+- `radio_limit`: positive track limit for all radio playlist generation.
+  Defaults to `25`.
 - `album_artist_split_patterns`: strings used when splitting album artist names.
 - `[auth].username`: browser login username.
 - `[auth].password_hash_file`: Argon2id password hash path. Relative paths are

@@ -37,6 +37,7 @@ from .use_case import (
     start_album_delete,
     start_album_edit,
     start_bulk_album_metadata_edit,
+    start_recommendation_playlist,
     start_rescan_library,
     start_sync,
     track_artwork,
@@ -51,9 +52,11 @@ from .use_case import (
 )
 from .use_case import (
     AlbumNotFoundError,
+    ArtistNotFoundError,
     PlaylistItemNotFoundError,
     PlaylistNotFoundError,
     TrackNotFoundError,
+    normalize_recommendation_mode,
 )
 from .player_config import (
     LOGGER,
@@ -213,6 +216,7 @@ def create_player_app(options: PlayerServerOptions) -> Flask:
 
     @app.errorhandler(PlayerNotFoundError)
     @app.errorhandler(AlbumNotFoundError)
+    @app.errorhandler(ArtistNotFoundError)
     @app.errorhandler(PlaylistNotFoundError)
     @app.errorhandler(PlaylistItemNotFoundError)
     @app.errorhandler(TrackNotFoundError)
@@ -278,6 +282,60 @@ def create_player_app(options: PlayerServerOptions) -> Flask:
     @app.get("/api/playlists/<int:playlist_id>/cover")
     def playlist_cover(playlist_id: int) -> Response:
         return playlist_cover_response(playlist_id)
+
+    @app.post("/recommendations/radio/track/<int:track_id>")
+    def start_recommendation_track_radio(track_id: int) -> Response:
+        mode = recommendation_mode_param()
+        result = start_recommendation_playlist(
+            player_context().runtime,
+            "track_radio",
+            track_id,
+            mode=mode,
+        )
+        return json_response(result, status=202)
+
+    @app.post("/recommendations/radio/album/<path:album_id>")
+    def start_recommendation_album_radio(album_id: str) -> Response:
+        mode = recommendation_mode_param()
+        result = start_recommendation_playlist(
+            player_context().runtime,
+            "album_radio",
+            album_id,
+            mode=mode,
+        )
+        return json_response(result, status=202)
+
+    @app.post("/recommendations/radio/artist/<path:artist>")
+    def start_recommendation_artist_radio(artist: str) -> Response:
+        mode = recommendation_mode_param()
+        result = start_recommendation_playlist(
+            player_context().runtime,
+            "artist_radio",
+            artist,
+            mode=mode,
+        )
+        return json_response(result, status=202)
+
+    @app.post("/recommendations/radio/genre/<path:genre>")
+    def start_recommendation_genre_radio(genre: str) -> Response:
+        mode = recommendation_mode_param()
+        result = start_recommendation_playlist(
+            player_context().runtime,
+            "genre_radio",
+            genre,
+            mode=mode,
+        )
+        return json_response(result, status=202)
+
+    @app.post("/recommendations/radio/random")
+    def start_recommendation_random_playlist() -> Response:
+        mode = recommendation_mode_param()
+        result = start_recommendation_playlist(
+            player_context().runtime,
+            "random_playlist",
+            mode=mode,
+        )
+        return json_response(result, status=202)
 
     @app.get("/healthz")
     def healthz() -> Response:
@@ -687,7 +745,18 @@ def player_context() -> PlayerWebContext:
 
 
 def wants_json_error() -> bool:
-    return request.path.startswith("/api/") or request.method == "POST"
+    return (
+        request.path.startswith("/api/")
+        or (
+            request.path.startswith("/recommendations/")
+            and not wants_recommendation_page()
+        )
+        or request.method == "POST"
+    )
+
+
+def wants_recommendation_page() -> bool:
+    return False
 
 
 def is_public_path() -> bool:
@@ -716,11 +785,15 @@ def is_mounted_open_subsonic_path() -> bool:
 def should_return_auth_unauthorized() -> bool:
     if request.method not in {"GET", "HEAD"}:
         return True
-    return request.path.startswith(("/api/", "/audio/", "/playlist-audio/", "/art/"))
+    if request.path.startswith("/recommendations/"):
+        return not wants_recommendation_page()
+    return request.path.startswith(
+        ("/api/", "/recommendations/", "/audio/", "/playlist-audio/", "/art/")
+    )
 
 
 def auth_required_response() -> Response:
-    if request.path.startswith("/api/"):
+    if request.path.startswith(("/api/", "/recommendations/")):
         return json_response({"error": "authentication required"}, status=401)
     return Response(
         "authentication required",
@@ -873,6 +946,10 @@ def rendered_response(context: dict[str, Any], *, status: int = 200) -> Response
     template_name = context["view_template"] if wants_fragment() else "player/base.html"
     html = render_template(template_name, **context)
     return html_response(html, status=status)
+
+
+def recommendation_mode_param() -> str:
+    return normalize_recommendation_mode(request.args.get("mode"))
 
 
 def html_response(html: str, *, status: int = 200) -> Response:
