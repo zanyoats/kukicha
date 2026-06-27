@@ -335,6 +335,61 @@ def update_manual_playlist(
     )
 
 
+def reorder_manual_playlist_items(
+    database: Path,
+    playlist_id: int,
+    *,
+    playlist_item_ids: Sequence[int],
+) -> PlaylistMutationResult:
+    requested_ids = normalized_playlist_item_ids(playlist_item_ids)
+    with connect_existing_database(database) as connection:
+        playlist_row = editable_playlist_row(connection, playlist_id)
+        current_rows = tuple(
+            connection.execute(
+                """
+                SELECT playlist_item_id, position
+                FROM library_playlist_items
+                WHERE playlist_id = ?
+                ORDER BY position, playlist_item_id
+                """,
+                (playlist_id,),
+            )
+        )
+        current_ids = tuple(int(row["playlist_item_id"]) for row in current_rows)
+        if set(requested_ids) != set(current_ids) or len(requested_ids) != len(current_ids):
+            raise ValueError("playlist item ids must match playlist items")
+        max_position = max((int(row["position"]) for row in current_rows), default=-1)
+        position_offset = max_position + len(current_rows) + 1
+        connection.execute(
+            """
+            UPDATE library_playlist_items
+            SET position = position + ?
+            WHERE playlist_id = ?
+            """,
+            (position_offset, playlist_id),
+        )
+        for position, playlist_item_id in enumerate(requested_ids):
+            connection.execute(
+                """
+                UPDATE library_playlist_items
+                SET position = ?
+                WHERE playlist_id = ?
+                    AND playlist_item_id = ?
+                """,
+                (position, playlist_id, playlist_item_id),
+            )
+        touch_playlist(connection, playlist_id)
+        kind = playlist_kind(connection, playlist_id)
+        connection.commit()
+    return PlaylistMutationResult(
+        playlist_id=playlist_id,
+        name=str(playlist_row["name"]),
+        kind=kind,
+        source=PLAYLIST_SOURCE_MANUAL,
+        item_count=len(requested_ids),
+    )
+
+
 def import_playlist_file(
     database: Path,
     *,
@@ -833,6 +888,15 @@ def normalized_playlist_item_indexes(
     if out_of_range:
         raise ValueError("playlist item index is out of range")
     return indexes
+
+
+def normalized_playlist_item_ids(values: Sequence[int]) -> tuple[int, ...]:
+    ids = tuple(int(value) for value in values)
+    if any(playlist_item_id <= 0 for playlist_item_id in ids):
+        raise ValueError("playlist item ids must be positive")
+    if len(set(ids)) != len(ids):
+        raise ValueError("playlist item ids must be unique")
+    return ids
 
 
 def track_rows_for_playlist(

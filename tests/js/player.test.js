@@ -2543,6 +2543,126 @@ test("playlist delete posts and navigates to playlist index after confirmation",
   assert.equal(button.getAttribute("aria-busy"), null);
 });
 
+test("playlist order drag handle reorders rows before save", async () => {
+  const harness = createHarness({
+    track_ids: [],
+    position: 0,
+    loaded_track_id: null,
+    paused: true,
+    errored_track_ids: [],
+    unavailable_track_ids: [],
+  }, {
+    fetchResponses: {
+      "/api/playlists/1/items/reorder": {
+        json: {
+          message: "Playlist order updated for Road Mix.",
+        },
+      },
+    },
+  });
+  const form = harness.document.createElement("form");
+  form.action = "/api/playlists/1/items/reorder";
+  form.setAttribute("data-playlist-order-form", "");
+  form.dataset.playlistOrderForm = "";
+  const list = harness.document.createElement("ol");
+  list.dataset.playlistOrderList = "";
+  const status = harness.document.createElement("div");
+  status.dataset.playlistOrderStatus = "";
+  const saveButton = harness.document.createElement("button");
+  saveButton.dataset.savePlaylistOrder = "";
+  form.setQueryResult("[data-save-playlist-order]", saveButton);
+  form.setQueryResult("[data-playlist-order-status]", status);
+
+  const rows = [1, 2, 3].map((playlistItemId) => {
+    const item = harness.document.createElement("li");
+    item.dataset.playlistOrderItem = "";
+    item.dataset.playlistItemId = String(playlistItemId);
+    item.getBoundingClientRect = () => {
+      const index = list.children.indexOf(item);
+      const top = index * 50;
+      return {top, bottom: top + 40, height: 40};
+    };
+    const handle = harness.document.createElement("button");
+    handle.dataset.playlistOrderDragHandle = "";
+    const position = harness.document.createElement("span");
+    position.dataset.playlistOrderPosition = "";
+    item.append(handle, position);
+    handle.closest = (selector) => {
+      if (selector === "[data-playlist-order-drag-handle]") {
+        return handle;
+      }
+      if (selector === "[data-playlist-order-item]") {
+        return item;
+      }
+      if (selector === "[data-playlist-order-list]") {
+        return list;
+      }
+      if (selector === "[data-playlist-order-form]") {
+        return form;
+      }
+      return null;
+    };
+    return {handle, item, position};
+  });
+  list.append(...rows.map((row) => row.item));
+  form.append(list, saveButton, status);
+  harness.view.append(form);
+
+  harness.context.syncPlaylistOrderForms(form);
+  assert.equal(saveButton.disabled, true);
+
+  const pointerDownListeners = harness.document.listeners.get("pointerdown") || [];
+  const pointerMoveListeners = harness.document.listeners.get("pointermove") || [];
+  const pointerUpListeners = harness.document.listeners.get("pointerup") || [];
+  assert.equal(pointerDownListeners.length, 1);
+  assert.equal(pointerMoveListeners.length, 1);
+  assert.equal(pointerUpListeners.length, 1);
+
+  pointerDownListeners[0]({
+    target: rows[0].handle,
+    button: 0,
+    isPrimary: true,
+    pointerId: 4,
+    preventDefault() {},
+  });
+  assert.equal(form.classList.contains("playlist-order-drag-active"), true);
+  assert.equal(list.classList.contains("playlist-order-list-dragging"), true);
+  assert.equal(rows[0].item.classList.contains("playlist-order-dragging"), true);
+
+  pointerMoveListeners[0]({
+    pointerId: 4,
+    clientY: 125,
+    preventDefault() {},
+  });
+  pointerUpListeners[0]({
+    pointerId: 4,
+    preventDefault() {},
+  });
+
+  assert.deepEqual(
+    list.children.map((item) => Number(item.dataset.playlistItemId)),
+    [2, 3, 1],
+  );
+  assert.deepEqual(
+    rows.map((row) => row.position.textContent),
+    ["3", "1", "2"],
+  );
+  assert.equal(form.classList.contains("playlist-order-drag-active"), false);
+  assert.equal(list.classList.contains("playlist-order-list-dragging"), false);
+  assert.equal(rows[0].item.classList.contains("playlist-order-dragging"), false);
+  assert.equal(saveButton.disabled, false);
+
+  await harness.context.submitPlaylistOrderForm(form);
+  await harness.flush();
+
+  assert.equal(harness.fetchCalls.length, 1);
+  assert.deepEqual(harness.fetchCalls[0].body, {
+    playlist_item_ids: [2, 3, 1],
+  });
+  assert.equal(status.textContent, "Playlist order updated for Road Mix.");
+  assert.equal(saveButton.disabled, true);
+});
+
 test("queue playlist create posts current queue library track ids in order", async () => {
   const harness = createHarness({
     track_ids: [-12, 8, -99],

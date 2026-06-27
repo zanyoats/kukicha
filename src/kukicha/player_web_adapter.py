@@ -30,6 +30,7 @@ from .use_case import (
     playlist_audio_resource,
     prepare_player_database,
     record_playback,
+    reorder_manual_playlist_items,
     remove_queue_item as remove_queue_item_command,
     reset_listening_data,
     save_album_artist_split_mapping,
@@ -527,6 +528,21 @@ def create_player_app(options: PlayerServerOptions) -> Flask:
         )
         return json_response(
             result.payload(message=f"Playlist cover updated for {result.name}.")
+        )
+
+    @app.post("/api/playlists/<int:playlist_id>/items/reorder")
+    def reorder_playlist_items(playlist_id: int) -> Response:
+        payload = read_json_body()
+        item_ids = payload.get("playlist_item_ids") or ()
+        if not isinstance(item_ids, list | tuple):
+            raise ValueError("playlist_item_ids must be a list")
+        result = reorder_manual_playlist_items(
+            player_context().database,
+            playlist_id,
+            playlist_item_ids=tuple(int(item_id) for item_id in item_ids),
+        )
+        return json_response(
+            result.payload(message=f"Playlist order updated for {result.name}.")
         )
 
     @app.post("/api/playlists/<int:playlist_id>/delete")

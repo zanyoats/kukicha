@@ -8976,6 +8976,92 @@ class PlayerWebAdapterTest(unittest.TestCase):
         self.assertEqual(item_count, 0)
         self.assertEqual(stats_count, 0)
 
+    def test_playlist_edit_reorder_route_updates_manual_playlist_positions(self) -> None:
+        with TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            database = temp_path / "kukicha.sqlite"
+            track_paths = [
+                temp_path / "music" / "Artist" / "Album" / "01.flac",
+                temp_path / "music" / "Artist" / "Album" / "02.flac",
+                temp_path / "music" / "Artist" / "Album" / "03.flac",
+            ]
+            save_library(
+                MusicLibrary(
+                    roots=[str(temp_path / "music")],
+                    tracks=[
+                        TrackRecord(
+                            path=str(track_path),
+                            track_id=index,
+                            root_position=0,
+                            file_type="flac",
+                            artist="Artist",
+                            album_artist="Artist",
+                            album="Album",
+                            title=f"Track {index}",
+                        )
+                        for index, track_path in enumerate(track_paths, start=1)
+                    ],
+                    playlists=[
+                        PlaylistRecord(
+                            playlist_id=1,
+                            name="Road Mix",
+                            source="manual",
+                            items=[
+                                PlaylistItemRecord(path=str(track_path), track_id=index)
+                                for index, track_path in enumerate(track_paths, start=1)
+                            ],
+                        )
+                    ],
+                    supported_extensions=[".flac"],
+                    generated_at="2026-05-30T00:00:00+00:00",
+                ),
+                database,
+            )
+            app = create_player_app(self.make_options(temp_path))
+            client = app.test_client()
+
+            edit_response = client.get("/playlists/1/edit")
+            with connect_database(database, create=False) as connection:
+                original_item_ids = [
+                    int(row["playlist_item_id"])
+                    for row in connection.execute(
+                        """
+                        SELECT playlist_item_id
+                        FROM library_playlist_items
+                        WHERE playlist_id = 1
+                        ORDER BY position, playlist_item_id
+                        """
+                    )
+                ]
+            reordered_item_ids = list(reversed(original_item_ids))
+
+            reorder_response = client.post(
+                "/api/playlists/1/items/reorder",
+                json={"playlist_item_ids": reordered_item_ids},
+            )
+            with connect_database(database, create=False) as connection:
+                stored_item_ids = [
+                    int(row["playlist_item_id"])
+                    for row in connection.execute(
+                        """
+                        SELECT playlist_item_id
+                        FROM library_playlist_items
+                        WHERE playlist_id = 1
+                        ORDER BY position, playlist_item_id
+                        """
+                    )
+                ]
+
+        self.assertEqual(edit_response.status_code, 200)
+        self.assertIn(b'data-playlist-order-form', edit_response.data)
+        self.assertIn(b'data-playlist-order-item', edit_response.data)
+        self.assertEqual(reorder_response.status_code, 200)
+        self.assertEqual(
+            reorder_response.get_json()["message"],
+            "Playlist order updated for Road Mix.",
+        )
+        self.assertEqual(stored_item_ids, reordered_item_ids)
+
     def test_static_file_and_favicon_are_served(self) -> None:
         with TemporaryDirectory() as tempdir:
             temp_path = Path(tempdir)

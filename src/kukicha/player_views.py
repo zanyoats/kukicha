@@ -980,15 +980,24 @@ def build_playlist_edit_context(
         playlist_cover_url,
         playlist_index_url,
     )
+    from .player_presenters import playlist_item_view
 
     api = LibraryQueries(runtime.database)
     query = playlist_index_query_from_query_string(_query_string)
     playlist = api.get_playlist(playlist_id)
+    playlist_order_items = tuple(
+        {
+            "playlist_item_id": item.playlist_item_id,
+            "track": playlist_item_view(item, playlist, display_position=index),
+        }
+        for index, item in enumerate(playlist.items)
+    )
     return base_player_context(
         runtime,
         page_name="playlist-edit",
         view_template="player/playlist_edit.html",
         playlist=playlist,
+        playlist_order_items=playlist_order_items,
         playlist_back_url=f"/playlists/{playlist.playlist_id}",
         playlist_index_url=playlist_index_url(query),
         playlist_cover_url=playlist_cover_url(
@@ -998,6 +1007,9 @@ def build_playlist_edit_context(
             cover_mime_type=playlist.cover_mime_type,
         ),
         playlist_cover_upload_action_url=f"/api/playlists/{playlist.playlist_id}/cover",
+        playlist_reorder_action_url=(
+            f"/api/playlists/{playlist.playlist_id}/items/reorder"
+        ),
         playlist_delete_action_url=f"/api/playlists/{playlist.playlist_id}/delete",
     )
 

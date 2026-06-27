@@ -2622,6 +2622,10 @@ button:disabled,
   border-left: 3px solid var(--accent);
 }
 
+.playlist-order-panel {
+  border-left: 3px solid var(--line);
+}
+
 .album-edit-tags-panel {
   border-left: 3px solid var(--line);
 }
@@ -2652,6 +2656,108 @@ button:disabled,
 
 .album-edit-cover-input {
   max-width: min(100%, 320px);
+}
+
+.playlist-order-form {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+
+.playlist-order-list {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.playlist-order-item {
+  display: grid;
+  grid-template-columns: 34px 3ch 40px minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  min-width: 0;
+  padding: 7px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  transition:
+    border-color 120ms ease,
+    box-shadow 120ms ease,
+    opacity 120ms ease;
+}
+
+.playlist-order-item.playlist-order-dragging {
+  border-color: var(--accent);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.14);
+}
+
+.playlist-order-list.playlist-order-list-dragging .playlist-order-item:not(.playlist-order-dragging) {
+  opacity: 0.72;
+}
+
+.playlist-order-drag-handle {
+  width: 34px;
+  min-width: 34px;
+  height: 34px;
+  min-height: 34px;
+  padding: 6px;
+  color: var(--muted);
+  cursor: grab;
+  touch-action: none;
+}
+
+.playlist-order-drag-handle:active,
+.playlist-order-dragging .playlist-order-drag-handle {
+  cursor: grabbing;
+}
+
+.playlist-order-drag-handle svg {
+  width: 18px;
+  height: 18px;
+}
+
+.playlist-order-position {
+  color: var(--muted);
+  font-size: 0.88rem;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.playlist-order-cover {
+  width: 40px;
+  height: 40px;
+  background: var(--surface-hover);
+  object-fit: cover;
+}
+
+.playlist-order-copy {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.playlist-order-title {
+  overflow: hidden;
+  color: var(--text);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.playlist-order-meta,
+.playlist-order-empty {
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+.playlist-order-footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
 }
 
 .album-edit-field {

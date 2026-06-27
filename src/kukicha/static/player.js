@@ -69,6 +69,7 @@ let confirmationResolve = null;
 let rescanLibraryPending = false;
 let activeRecommendationLoadingToast = null;
 let recommendationNavigationLoadCount = 0;
+let playlistOrderDragState = null;
 const submittedIndeterminatePlayKeys = new Set();
 let activePlaybackEngine = null;
 let pendingEngineStartKey = "";
@@ -766,6 +767,7 @@ syncAlbumMusicBrainzFormValues();
 syncAlbumEditAlbumLevelFields();
 syncAlbumArtistMappingForms();
 syncBulkMetadataEditForms();
+syncPlaylistOrderForms();
 localizeBrowserTimes();
 syncJobsStream();
 
@@ -1020,6 +1022,7 @@ function renderFragment(html, url, options = {}) {
   syncAlbumEditAlbumLevelFields();
   syncAlbumArtistMappingForms();
   syncBulkMetadataEditForms();
+  syncPlaylistOrderForms();
   localizeBrowserTimes();
   syncJobsStream();
   if (options.restoreScroll) {
@@ -2026,6 +2029,30 @@ document.addEventListener("keydown", (event) => {
   handleKeyboardShortcut(event);
 });
 
+document.addEventListener("pointerdown", (event) => {
+  if (!(event.target instanceof Element)) {
+    return;
+  }
+  const playlistOrderDragHandle = event.target.closest("[data-playlist-order-drag-handle]");
+  if (playlistOrderDragHandle) {
+    startPlaylistOrderDrag(playlistOrderDragHandle, event);
+  }
+});
+
+document.addEventListener("pointermove", (event) => {
+  if (dragPlaylistOrderItem(event)) {
+    return;
+  }
+}, {passive: false});
+
+document.addEventListener("pointerup", (event) => {
+  endPlaylistOrderDrag(event);
+});
+
+document.addEventListener("pointercancel", (event) => {
+  endPlaylistOrderDrag(event);
+});
+
 document.addEventListener("dblclick", (event) => {
   if (!(event.target instanceof Element)) {
     return;
@@ -2064,6 +2091,12 @@ document.addEventListener("submit", (event) => {
   if (playlistImportForm) {
     event.preventDefault();
     void submitPlaylistImportForm(playlistImportForm);
+    return;
+  }
+  const playlistOrderForm = event.target.closest("[data-playlist-order-form]");
+  if (playlistOrderForm) {
+    event.preventDefault();
+    void submitPlaylistOrderForm(playlistOrderForm);
     return;
   }
   const albumEditForm = event.target.closest("form[data-album-edit-form]");
@@ -2252,6 +2285,7 @@ window.addEventListener("pageshow", (event) => {
     syncAlbumMusicBrainzFormValues();
     syncAlbumEditAlbumLevelFields();
     syncBulkMetadataEditForms();
+    syncPlaylistOrderForms();
   }
   syncJobsStream();
   updatePlaybackUi();
@@ -4541,6 +4575,228 @@ async function submitPlaylistImportForm(form) {
   }
 }
 
+function syncPlaylistOrderForms(scope = view) {
+  if (!(scope instanceof Element)) {
+    return;
+  }
+  const forms = scope instanceof HTMLFormElement && scope.hasAttribute("data-playlist-order-form")
+    ? [scope]
+    : Array.from(scope.querySelectorAll("[data-playlist-order-form]"));
+  forms.forEach((form) => {
+    if (!(form instanceof HTMLFormElement)) {
+      return;
+    }
+    if (typeof form.dataset.initialPlaylistItemIds !== "string") {
+      form.dataset.initialPlaylistItemIds = playlistOrderItemIds(form).join(",");
+    }
+    syncPlaylistOrderControls(form);
+  });
+}
+
+function startPlaylistOrderDrag(handle, event) {
+  if (!(handle instanceof HTMLElement)) {
+    return;
+  }
+  if (event.button !== undefined && event.button !== 0) {
+    return;
+  }
+  if (event.isPrimary === false) {
+    return;
+  }
+  const item = handle.closest("[data-playlist-order-item]");
+  const list = handle.closest("[data-playlist-order-list]");
+  const form = handle.closest("[data-playlist-order-form]");
+  if (
+    !(item instanceof HTMLElement)
+    || !(list instanceof HTMLElement)
+    || !(form instanceof HTMLFormElement)
+  ) {
+    return;
+  }
+  event.preventDefault();
+  playlistOrderDragState = {
+    form,
+    handle,
+    item,
+    list,
+    pointerId: event.pointerId,
+    moved: false,
+  };
+  form.classList.add("playlist-order-drag-active");
+  list.classList.add("playlist-order-list-dragging");
+  item.classList.add("playlist-order-dragging");
+  if (typeof handle.setPointerCapture === "function" && event.pointerId !== undefined) {
+    try {
+      handle.setPointerCapture(event.pointerId);
+    } catch {
+      // Some browsers refuse capture when the pointer is no longer active.
+    }
+  }
+}
+
+function dragPlaylistOrderItem(event) {
+  if (!playlistOrderDragState || !playlistOrderPointerMatches(event)) {
+    return false;
+  }
+  event.preventDefault();
+  const moved = reorderPlaylistOrderItemForPointer(
+    playlistOrderDragState,
+    Number(event.clientY),
+  );
+  if (moved) {
+    playlistOrderDragState.moved = true;
+    syncPlaylistOrderControls(playlistOrderDragState.form);
+    setPlaylistOrderStatus(playlistOrderDragState.form, "");
+  }
+  return true;
+}
+
+function endPlaylistOrderDrag(event) {
+  if (!playlistOrderDragState || !playlistOrderPointerMatches(event)) {
+    return false;
+  }
+  event.preventDefault();
+  const state = playlistOrderDragState;
+  playlistOrderDragState = null;
+  state.form.classList.remove("playlist-order-drag-active");
+  state.list.classList.remove("playlist-order-list-dragging");
+  state.item.classList.remove("playlist-order-dragging");
+  if (typeof state.handle.releasePointerCapture === "function" && event.pointerId !== undefined) {
+    try {
+      state.handle.releasePointerCapture(event.pointerId);
+    } catch {
+      // Capture may already have been released by the browser.
+    }
+  }
+  if (state.moved) {
+    syncPlaylistOrderControls(state.form);
+  }
+  return true;
+}
+
+function playlistOrderPointerMatches(event) {
+  return (
+    !playlistOrderDragState
+    || event.pointerId === undefined
+    || playlistOrderDragState.pointerId === undefined
+    || event.pointerId === playlistOrderDragState.pointerId
+  );
+}
+
+function reorderPlaylistOrderItemForPointer(state, pointerY) {
+  if (!Number.isFinite(pointerY)) {
+    return false;
+  }
+  const orderedItems = playlistOrderItems(state.list);
+  const beforeIndex = orderedItems.indexOf(state.item);
+  if (beforeIndex === -1) {
+    return false;
+  }
+  const siblings = orderedItems.filter((item) => item !== state.item);
+  let referenceItem = null;
+  for (const item of siblings) {
+    if (pointerY < playlistOrderItemMidpoint(item)) {
+      referenceItem = item;
+      break;
+    }
+  }
+  if (referenceItem) {
+    state.list.insertBefore(state.item, referenceItem);
+  } else {
+    state.list.append(state.item);
+  }
+  return playlistOrderItems(state.list).indexOf(state.item) !== beforeIndex;
+}
+
+function playlistOrderItemMidpoint(item) {
+  const rect = item.getBoundingClientRect();
+  const top = Number(rect.top);
+  const height = Number(rect.height);
+  if (Number.isFinite(top) && Number.isFinite(height) && height > 0) {
+    return top + height / 2;
+  }
+  const bottom = Number(rect.bottom);
+  if (Number.isFinite(top) && Number.isFinite(bottom)) {
+    return top + (bottom - top) / 2;
+  }
+  return Number.isFinite(top) ? top : 0;
+}
+
+async function submitPlaylistOrderForm(form) {
+  if (!(form instanceof HTMLFormElement)) {
+    return;
+  }
+  const submitButton = form.querySelector("[data-save-playlist-order]");
+  if (!(submitButton instanceof HTMLButtonElement) || submitButton.disabled) {
+    return;
+  }
+  const playlistItemIds = playlistOrderItemIds(form);
+  if (!playlistItemIds.length) {
+    return;
+  }
+  submitButton.disabled = true;
+  submitButton.setAttribute("aria-busy", "true");
+  setPlaylistOrderStatus(form, "Saving playlist order...");
+  try {
+    const response = await fetch(form.action, {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({playlist_item_ids: playlistItemIds}),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const message = responsePayloadError(payload, "Unable to save playlist order.");
+      setPlaylistOrderStatus(form, message, true);
+      showToast(message, {error: true});
+      return;
+    }
+    form.dataset.initialPlaylistItemIds = playlistItemIds.join(",");
+    const message = responsePayloadMessage(payload, "Playlist order updated.");
+    setPlaylistOrderStatus(form, message);
+    showToast(message);
+  } catch {
+    setPlaylistOrderStatus(form, "Unable to save playlist order.", true);
+    showToast("Unable to save playlist order.", {error: true});
+  } finally {
+    if (submitButton.isConnected) {
+      submitButton.disabled = false;
+      submitButton.removeAttribute("aria-busy");
+    }
+    syncPlaylistOrderControls(form);
+  }
+}
+
+function playlistOrderItems(listOrForm) {
+  if (!(listOrForm instanceof Element)) {
+    return [];
+  }
+  return Array.from(listOrForm.querySelectorAll("[data-playlist-order-item]"))
+    .filter((item) => item instanceof HTMLElement);
+}
+
+function playlistOrderItemIds(form) {
+  return playlistOrderItems(form)
+    .map((item) => Number(item.dataset.playlistItemId))
+    .filter((playlistItemId) => Number.isInteger(playlistItemId) && playlistItemId > 0);
+}
+
+function syncPlaylistOrderControls(form) {
+  if (!(form instanceof HTMLFormElement)) {
+    return;
+  }
+  const items = playlistOrderItems(form);
+  items.forEach((item, index) => {
+    const position = item.querySelector("[data-playlist-order-position]");
+    if (position instanceof HTMLElement) {
+      position.textContent = String(index + 1);
+    }
+  });
+  const submitButton = form.querySelector("[data-save-playlist-order]");
+  if (submitButton instanceof HTMLButtonElement && !submitButton.hasAttribute("aria-busy")) {
+    submitButton.disabled = form.dataset.initialPlaylistItemIds === playlistOrderItemIds(form).join(",");
+  }
+}
+
 function responsePayloadError(payload, fallback) {
   return payload && typeof payload.error === "string" && payload.error.trim()
     ? payload.error
@@ -4888,6 +5144,10 @@ function setPlaylistDeleteStatus(formOrElement, message, isError = false) {
 
 function setPlaylistCoverStatus(formOrElement, message, isError = false) {
   setStatusMessage(formOrElement, "[data-playlist-cover-status]", message, isError);
+}
+
+function setPlaylistOrderStatus(formOrElement, message, isError = false) {
+  setStatusMessage(formOrElement, "[data-playlist-order-status]", message, isError);
 }
 
 function setPlaylistCreateStatus(formOrElement, message, isError = false) {

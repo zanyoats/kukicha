@@ -1,3 +1,5 @@
+{% from "player/_icons.html" import grip_icon %}
+
 <div class="view-page album-view playlist-edit-view" data-page="playlist-edit">
   <div class="album-view-nav">
     <a class="back-link" href="{{ playlist_back_url }}" data-history-back data-nav>&larr; back</a>
@@ -23,6 +25,76 @@
   </header>
 
   <div class="album-edit-sections">
+    <section class="album-edit-panel settings-panel album-edit-section playlist-order-panel" data-playlist-order-section>
+      <form
+        class="playlist-order-form"
+        action="{{ playlist_reorder_action_url }}"
+        method="post"
+        autocomplete="off"
+        data-playlist-order-form
+      >
+        <div class="album-edit-section-copy">
+          <h4 class="album-edit-form-title">Track Order</h4>
+          <p class="album-edit-form-description">
+            {{ playlist_order_items|length }} item{% if playlist_order_items|length != 1 %}s{% endif %}
+          </p>
+        </div>
+        {% if playlist.source == "manual" and playlist_order_items|length > 1 %}
+          <ol class="playlist-order-list" data-playlist-order-list>
+            {% for order_item in playlist_order_items %}
+              {% set track = order_item.track %}
+              <li
+                class="playlist-order-item"
+                data-playlist-order-item
+                data-playlist-item-id="{{ order_item.playlist_item_id }}"
+              >
+                <button
+                  class="playlist-order-drag-handle"
+                  type="button"
+                  data-playlist-order-drag-handle
+                  aria-label="Drag {{ track.table_title }} to reorder"
+                  title="Drag to reorder"
+                >{{ grip_icon() }}</button>
+                <span class="playlist-order-position" data-playlist-order-position>{{ loop.index }}</span>
+                <img
+                  class="playlist-order-cover{% if track.uses_playlist_cover %} playlist-cover-image{% endif %}"
+                  src="{{ track.art_url }}"
+                  alt=""
+                  loading="lazy"
+                >
+                <span class="playlist-order-copy">
+                  <span class="playlist-order-title">{{ track.table_title }}</span>
+                  {% if track.duration %}
+                    <span class="playlist-order-meta">{{ track.duration }}</span>
+                  {% endif %}
+                </span>
+              </li>
+            {% endfor %}
+          </ol>
+          <div class="playlist-order-footer">
+            <button
+              type="submit"
+              data-save-playlist-order
+              disabled
+            >Save Order</button>
+            <div
+              class="settings-status"
+              data-playlist-order-status
+              aria-live="polite"
+            ></div>
+          </div>
+        {% else %}
+          <div class="playlist-order-empty">
+            {% if playlist.source != "manual" %}
+              File-import playlists are read-only.
+            {% else %}
+              Playlist needs at least two items to reorder.
+            {% endif %}
+          </div>
+        {% endif %}
+      </form>
+    </section>
+
     <section class="album-edit-panel settings-panel album-edit-section album-edit-delete-panel" data-playlist-delete-section>
       <form
         class="album-edit-action-form"
