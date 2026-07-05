@@ -54,6 +54,7 @@ SUPPORTED_EXTENSIONS = {
     ".m4b",
     ".m4p",
     ".m4r",
+    ".m4v",
     ".mp3",
     ".oga",
     ".ogg",
@@ -147,7 +148,7 @@ IGNORED_RAW_TAG_PREFIXES = {
     "priv",
     "ufid",
 }
-ITUNES_STORE_FILE_TYPES = {"m4a", "m4b", "m4p", "m4r"}
+ITUNES_STORE_FILE_TYPES = {"m4a", "m4b", "m4p", "m4r", "m4v"}
 PLAYLIST_NAME_PREFIX = "#PLAYLIST:"
 EXTINF_PREFIX = "#EXTINF:"
 EXTGENRE_PREFIX = "#EXTGENRE:"

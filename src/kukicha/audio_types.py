@@ -10,6 +10,7 @@ KNOWN_AUDIO_MIME_TYPES = {
     ".m4b": "audio/mp4",
     ".m4p": "audio/mp4",
     ".m4r": "audio/mp4",
+    ".m4v": "audio/mp4",
     ".mp3": "audio/mpeg",
     ".oga": "audio/ogg",
     ".ogg": "audio/ogg",

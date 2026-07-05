@@ -1050,6 +1050,7 @@ class PlayerAudioMimeTypeTest(unittest.TestCase):
             ".m4b": "audio/mp4",
             ".m4p": "audio/mp4",
             ".m4r": "audio/mp4",
+            ".m4v": "audio/mp4",
             ".mp3": "audio/mpeg",
             ".oga": "audio/ogg",
             ".ogg": "audio/ogg",
@@ -1095,7 +1096,13 @@ class PlayerAudioMimeTypeTest(unittest.TestCase):
         )
 
     def test_mpeg4_audio_extensions_use_mp4_audio_mime_type(self) -> None:
-        for name in ("track.m4a", "track.m4b", "track.m4p", "track.m4r"):
+        for name in (
+            "track.m4a",
+            "track.m4b",
+            "track.m4p",
+            "track.m4r",
+            "track.m4v",
+        ):
             with self.subTest(name=name):
                 self.assertEqual(audio_mime_type(Path(name)), "audio/mp4")
 
@@ -1107,7 +1114,13 @@ class PlayerAudioMimeTypeTest(unittest.TestCase):
 
     def test_mpeg4_audio_extensions_use_mp4_codec_detection(self) -> None:
         audio = SimpleNamespace(info=SimpleNamespace(codec="mp4a.40.2"))
-        for name in ("track.m4a", "track.m4b", "track.m4p", "track.m4r"):
+        for name in (
+            "track.m4a",
+            "track.m4b",
+            "track.m4p",
+            "track.m4r",
+            "track.m4v",
+        ):
             with (
                 self.subTest(name=name),
                 patch("mutagen.File", return_value=audio) as mutagen_file,

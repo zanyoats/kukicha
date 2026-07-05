@@ -65,7 +65,7 @@ class ScannerTagNormalizationTest(unittest.TestCase):
 
     def test_scan_track_captures_itunes_store_identifiers_from_mp4_tags(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
-            for extension in (".m4a", ".m4b", ".m4p", ".m4r"):
+            for extension in (".m4a", ".m4b", ".m4p", ".m4r", ".m4v"):
                 with self.subTest(extension=extension):
                     path = Path(tempdir) / f"01 Test{extension}"
                     path.write_bytes(b"not real audio; mutagen is mocked")
@@ -92,7 +92,7 @@ class ScannerTagNormalizationTest(unittest.TestCase):
     def test_additional_browser_safe_audio_extensions_are_scanned(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
             root = Path(tempdir)
-            for extension in (".m4b", ".m4r", ".oga"):
+            for extension in (".m4b", ".m4r", ".m4v", ".oga"):
                 (root / f"01 Test{extension}").write_bytes(
                     b"not real audio; mutagen is mocked"
                 )
@@ -110,12 +110,16 @@ class ScannerTagNormalizationTest(unittest.TestCase):
             with patch("kukicha.scanner.MutagenFile", return_value=audio):
                 library = build_library([root])
 
-        self.assertTrue({".m4b", ".m4r", ".oga"}.issubset(library.supported_extensions))
+        self.assertTrue(
+            {".m4b", ".m4r", ".m4v", ".oga"}.issubset(
+                library.supported_extensions
+            )
+        )
         self.assertNotIn(".wav", library.supported_extensions)
         self.assertNotIn(".wave", library.supported_extensions)
         self.assertEqual(
             {track.file_type for track in library.tracks},
-            {"m4b", "m4r", "oga"},
+            {"m4b", "m4r", "m4v", "oga"},
         )
 
     def test_opus_files_are_scanned_with_vorbis_comment_tags(self) -> None:

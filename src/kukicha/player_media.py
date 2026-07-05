@@ -109,7 +109,7 @@ def audio_unsupported_reason_for_path(path: Path) -> str:
     return ""
 
 def mpeg4_audio_codec_for_path(path: Path) -> str:
-    if path.suffix.casefold() not in {".m4a", ".m4b", ".m4p", ".m4r"}:
+    if path.suffix.casefold() not in {".m4a", ".m4b", ".m4p", ".m4r", ".m4v"}:
         return ""
 
     try:
