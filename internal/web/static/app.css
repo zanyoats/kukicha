@@ -1,0 +1,85 @@
+/*
+body grid
+├── header: natural height
+├── main: fills remaining space
+└── player: natural height, sticky at bottom
+*/
+
+:root {
+    color-scheme: dark;
+    font-family:
+        system-ui,
+        -apple-system,
+        BlinkMacSystemFont,
+        "Segoe UI",
+        sans-serif;
+    background: #171713;
+    color: #f2f0e8;
+}
+
+/* Normally, an element’s padding and border are added outside its declared width.
+With border-box, the width includes its content, padding, and border. */
+* {
+    box-sizing: border-box;
+}
+
+html {
+    min-height: 100%;
+}
+
+body {
+    /* 100vh means 100% of the viewport height—the visible browser window. */
+    min-height: 100vh;
+    /* Browsers normally add a small margin around the <body>. This removes it: */
+    margin: 0;
+
+    /* The body becomes a CSS Grid container with 3 rows */
+    display: grid;
+    /* These correspond to:
+        1. Header: auto
+        2. Main content: 1fr
+        3. Player: auto
+    auto means the row should be only as tall as its contents require.
+    1fr means the main row receives the remaining available space. This pushes
+    the player to the bottom. */
+    grid-template-rows: auto 1fr auto;
+}
+
+.site-header {
+    padding: 1rem 1.5rem;
+    border-bottom: 1px solid #3a3932;
+    background: #20201b;
+}
+
+.site-title {
+    color: inherit;
+    font-size: 1.25rem;
+    font-weight: 700;
+    text-decoration: none;
+}
+
+.page-content {
+    /* This keeps the main content responsive while preventing it from becoming
+    excessively wide. */
+    width: min(100%, 72rem);
+    /* margin-inline means the horizontal margins in left-to-right languages. Setting both to auto centers the content
+    when it is narrower than the browser window */
+    margin-inline: auto;
+    /* keep content away from the edges */
+    padding: 1.5rem;
+}
+
+.player {
+    /* These rules make it stick to the bottom during scrolling */
+    position: sticky;
+    bottom: 0;
+
+    padding: 0.75rem 1.5rem;
+    border-top: 1px solid #3a3932;
+    background: #20201b;
+}
+
+.player audio {
+  display: block;
+  width: 100%;
+}

@@ -1,0 +1,35 @@
+{{define "layout.html"}}
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1"
+  >
+
+  <title>Kukicha</title>
+
+  <link
+    rel="stylesheet"
+    href="{{.StylesheetURL}}"
+  >
+</head>
+
+<body>
+  <header class="site-header">
+    <a class="site-title" href="{{.AppBasePath}}">
+      Kukicha
+    </a>
+  </header>
+
+  <main class="page-content" up-main>
+    <!-- Album pages and other navigable content will render here. -->
+  </main>
+
+  <div id="player" class="player" up-keep>
+    <audio controls></audio>
+  </div>
+</body>
+</html>
+{{end}}
