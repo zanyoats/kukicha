@@ -6,12 +6,10 @@ import (
 	"io"
 	"strconv"
 	"strings"
-)
+	"unicode/utf8"
 
-type mp4BoxHeader struct {
-	Name string
-	End  int64
-}
+	"github.com/zanyoats/kukicha/internal/app"
+)
 
 type mp4Item struct {
 	Name       string
@@ -26,6 +24,11 @@ type mp4Data struct {
 	Payload []byte
 }
 
+type mp4BoxHeader struct {
+	Name string
+	End  int64
+}
+
 func readMP4ItemList(r io.ReadSeeker) ([]mp4Item, error) {
 	end, err := r.Seek(0, io.SeekEnd)
 	if err != nil {
@@ -37,6 +40,76 @@ func readMP4ItemList(r io.ReadSeeker) ([]mp4Item, error) {
 	return walkMP4Boxes(r, end)
 }
 
+func applyMP4TrackFields(scannedFile *app.ScannedFile, items []mp4Item) {
+	record := scannedFile.Metadata
+	byName := indexMP4Items(items)
+
+	if values := mp4TextValues(items, "\xa9ART", "\xa9art", "artist"); len(values) > 0 {
+		record.Artists = values
+	}
+	if values := mp4TextValues(items, "soar", "artistsort", "artist_sort"); len(values) > 0 {
+		record.ArtistSort = values
+	}
+	if values := mp4TextValues(items, "aART", "albumartist", "album_artist"); len(values) > 0 {
+		record.AlbumArtists = values
+	}
+	if values := mp4TextValues(items, "soaa", "albumartistsort", "album_artist_sort"); len(values) > 0 {
+		record.AlbumArtistSort = values
+	}
+	if values := mp4TextValues(items, "performer", "performers"); len(values) > 0 {
+		record.Performers = values
+	}
+	setIfZero(&record.Composer, firstMP4Text(byName, "\xa9wrt", "composer"))
+	setIfZero(&record.Album, firstMP4Text(byName, "\xa9alb", "album"))
+	setIfZero(&record.AlbumSort, firstMP4Text(byName, "soal", "albumsort", "album_sort"))
+	setIfZero(&record.Title, firstMP4Text(byName, "\xa9nam", "title"))
+	setIfZero(&record.Work, firstMP4Text(byName, "\xa9wrk", "work"))
+	setIfZero(&record.Grouping, firstMP4Text(byName, "\xa9grp", "grouping"))
+	setIfZero(&record.MovementName, firstMP4Text(byName, "\xa9mvn", "movementname"))
+	setIfZero(&record.MovementNumber, firstMP4Int(byName, "\xa9mvi", "movementnumber"))
+	setIfZero(&record.MovementCount, firstMP4Int(byName, "\xa9mvc", "movementcount"))
+	if value, ok := firstMP4Bool(byName, "shwm", "showmovement"); ok {
+		record.ShowMovement = value
+	}
+	if number, count, ok := firstMP4IntPair(byName, "trkn", "tracknumber", "track_number"); ok {
+		setIfZero(&record.TrackNumber, number)
+		setIfZero(&record.TrackCount, count)
+	}
+	setIfZero(&record.TrackNumber, firstMP4Int(byName, "tracknumber", "track_number"))
+	setIfZero(&record.TrackCount, firstMP4Int(byName, "tracktotal", "track_total", "totaltracks", "total_tracks", "trackcount", "track_count"))
+	if number, count, ok := firstMP4IntPair(byName, "disk", "discnumber", "disc_number"); ok {
+		setIfZero(&record.DiscNumber, number)
+		setIfZero(&record.DiscCount, count)
+	}
+	setIfZero(&record.DiscNumber, firstMP4Int(byName, "discnumber", "disc_number"))
+	setIfZero(&record.DiscCount, firstMP4Int(byName, "disctotal", "disc_total", "totaldiscs", "total_discs", "disccount", "disc_count"))
+	setIfZero(&record.ReleaseDate, firstMP4Text(byName, "\xa9day"))
+	setIfZero(&record.OriginalReleaseDate, firstMP4Text(byName, "originalreleasedate", "original_release_date", "originaldate", "original_date", "originalyear", "original_year"))
+	setIfZero(&record.RecordedDate, firstMP4Text(byName, "recordeddate", "recorded_date", "recordingdate", "recording_date"))
+	setIfZero(&record.ItunesStoreTrackId, firstMP4Int64(byName, "cnID"))
+	setIfZero(&record.ItunesStoreAlbumId, firstMP4Int64(byName, "plID"))
+	setIfZero(&record.PurchaseDate, firstMP4Text(byName, "purd"))
+	if value, ok := firstMP4Bool(byName, "cpil"); ok {
+		record.IsCompilation = &value
+	}
+	if genres := mp4Genres(items); len(genres) > 0 {
+		record.Genres = genres
+	}
+}
+
+// MP4 files are trees of boxes:
+//
+//	size(4) type(4) [large-size(8)] payload...
+//	moov movie metadata container
+//	  udta user data
+//	    meta metadata FullBox
+//	      ilst iTunes-style item list
+//	        item tag box, such as "\xa9nam", "trkn", or "----"
+//	          data/mean/name typed value and optional custom-key pieces
+//	mdat media data payload; for audio files, encoded audio samples
+//
+// This walker follows the metadata containers to collect iTunes-style item
+// boxes while skipping unrelated payloads such as media data.
 func walkMP4Boxes(r io.ReadSeeker, end int64) ([]mp4Item, error) {
 	var items []mp4Item
 
@@ -48,6 +121,8 @@ func walkMP4Boxes(r io.ReadSeeker, end int64) ([]mp4Item, error) {
 		if pos >= end {
 			return items, nil
 		}
+		// Every MP4 box starts with an 8-byte size/name header. Fewer remaining
+		// bytes cannot form another complete box, so treat them as trailing data.
 		if end-pos < 8 {
 			return items, nil
 		}
@@ -93,6 +168,11 @@ func walkMP4Boxes(r io.ReadSeeker, end int64) ([]mp4Item, error) {
 				return nil, err
 			}
 			items = append(items, childItems...)
+
+		case "mdat":
+			// "mdat" is the media sample payload. For the audio files this
+			// scanner handles, that means encoded audio samples rather than tag
+			// boxes, so the final seek below skips over it.
 		}
 
 		if _, err := r.Seek(box.End, io.SeekStart); err != nil {
@@ -412,6 +492,21 @@ func mp4TextDataValue(data mp4Data) (string, bool) {
 	return "", false
 }
 
+func looksLikeText(b []byte) bool {
+	if len(b) == 0 || !utf8.Valid(b) {
+		return false
+	}
+	for _, r := range string(b) {
+		if r == '\n' || r == '\r' || r == '\t' {
+			continue
+		}
+		if r < 0x20 {
+			return false
+		}
+	}
+	return true
+}
+
 func mp4ItemText(item mp4Item) string {
 	for _, data := range item.Data {
 		switch item.Name {
@@ -520,7 +615,8 @@ func mp4Genres(items []mp4Item) []string {
 	return genres
 }
 
-func mp4Artwork(items []mp4Item) *embeddedArtwork {
+func mp4Artwork(items []mp4Item) []artwork {
+	var result []artwork
 	for _, item := range items {
 		if !mp4ItemMatches(item, "covr") {
 			continue
@@ -529,13 +625,14 @@ func mp4Artwork(items []mp4Item) *embeddedArtwork {
 			if len(data.Payload) == 0 {
 				continue
 			}
-			return &embeddedArtwork{
-				MIMEType: mp4ArtworkMIMEType(data),
-				Data:     data.Payload,
-			}
+			result = append(result, artwork{
+				PictureType: artworkPictureTypeFrontCover, // assumes "covr" for front cover
+				MIMEType:    mp4ArtworkMIMEType(data),
+				Data:        data.Payload,
+			})
 		}
 	}
-	return nil
+	return result
 }
 
 func mp4ArtworkMIMEType(data mp4Data) string {
@@ -564,7 +661,7 @@ func mp4ItemGenreValues(item mp4Item) []string {
 			continue
 		}
 		if value, ok := mp4TextDataValue(data); ok {
-			genres = append(genres, splitFieldList(value)...)
+			genres = append(genres, value)
 		}
 	}
 	return genres
@@ -577,4 +674,12 @@ func mp4GenreName(code int) string {
 		return ""
 	}
 	return id3v1Genres[index]
+}
+
+func bigEndianUint(b []byte) uint64 {
+	var n uint64
+	for _, x := range b {
+		n = n<<8 | uint64(x)
+	}
+	return n
 }

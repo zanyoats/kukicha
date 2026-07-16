@@ -9,7 +9,172 @@ import (
 	"strconv"
 	"strings"
 	"unicode/utf16"
+
+	"github.com/zanyoats/kukicha/internal/app"
+	"github.com/zanyoats/kukicha/internal/textkey"
 )
+
+func applyID3TrackFields(
+	scannedFile *app.ScannedFile,
+	format string,
+	frames id3TextFrameMap,
+) {
+	if len(frames) == 0 {
+		return
+	}
+
+	record := scannedFile.Metadata
+
+	if values := frames.values("TP1", "TPE1"); len(values) > 0 {
+		record.Artists = cleanStringValues(values...)
+	}
+	if len(record.ArtistSort) == 0 {
+		values := frames.values("TSOP")
+		if len(values) == 0 {
+			values = frames.userTextValues("ARTISTSORT", "ARTIST SORT")
+		}
+		record.ArtistSort = cleanStringValues(values...)
+	}
+	if values := frames.values("TP2", "TPE2"); len(values) > 0 {
+		record.AlbumArtists = cleanStringValues(values...)
+	}
+	if len(record.AlbumArtistSort) == 0 {
+		values := frames.values("TSO2")
+		if len(values) == 0 {
+			values = frames.userTextValues("ALBUMARTISTSORT", "ALBUM ARTIST SORT")
+		}
+		record.AlbumArtistSort = cleanStringValues(values...)
+	}
+	if values := id3PerformerValues(frames); len(values) > 0 {
+		record.Performers = values
+	}
+	setIfZero(&record.Composer, frames.first("TCM", "TCOM"))
+	setIfZero(&record.Album, frames.first("TAL", "TALB"))
+	setIfZero(&record.AlbumSort, textkey.FirstNonZeroValue(
+		frames.first("TSOA"),
+		frames.firstUserText("ALBUMSORT", "ALBUM SORT"),
+	))
+	setIfZero(&record.Title, frames.first("TT2", "TIT2"))
+	setIfZero(&record.Work, frames.firstUserText("WORK"))
+	setIfZero(&record.Grouping, textkey.FirstNonZeroValue(
+		frames.first("TT1", "TIT1"),
+		frames.firstUserText("GROUPING", "CONTENTGROUP"),
+	))
+	setIfZero(&record.MovementName, textkey.FirstNonZeroValue(
+		frames.first("MVNM"),
+		frames.firstUserText("MOVEMENTNAME", "MOVEMENT NAME"),
+	))
+
+	setIfZero(&record.MovementNumber, textkey.FirstNonZeroValue(
+		frames.firstInt("MVIN"),
+		frames.firstUserTextInt("MOVEMENTNUMBER", "MOVEMENT NUMBER"),
+	))
+	setIfZero(&record.MovementCount, textkey.FirstNonZeroValue(
+		frames.firstSlashCount("MVIN"),
+		frames.firstUserTextInt("MOVEMENTCOUNT", "MOVEMENT COUNT", "MOVEMENTTOTAL", "MOVEMENT TOTAL"),
+	))
+	if value, ok := frames.firstUserTextBool("SHOWMOVEMENT", "SHOW MOVEMENT"); ok {
+		record.ShowMovement = value
+	}
+
+	if number, count := parseSlashPair(frames.first("TRK", "TRCK")); number != 0 || count != 0 {
+		setIfZero(&record.TrackNumber, number)
+		setIfZero(&record.TrackCount, count)
+	}
+	if number, count := parseSlashPair(frames.first("TPA", "TPOS")); number != 0 || count != 0 {
+		setIfZero(&record.DiscNumber, number)
+		setIfZero(&record.DiscCount, count)
+	}
+
+	setIfZero(&record.ReleaseDate, id3ReleaseDate(frames, format))
+	setIfZero(&record.OriginalReleaseDate, id3OriginalReleaseDate(frames, format))
+	setIfZero(&record.RecordedDate, id3RecordedDate(frames, format))
+	setIfZero(&record.OriginalReleaseYear, yearFromDate(record.OriginalReleaseDate))
+
+	setIfZero(&record.ItunesStoreTrackId, textkey.FirstNonZeroValue(
+		id3FirstUserTextInt64(frames, "ITUNESSTORETRACKID", "ITUNES STORE TRACK ID", "CNID"),
+		id3TextInt64(frames, "UFID"),
+	))
+	setIfZero(&record.ItunesStoreAlbumId, id3FirstUserTextInt64(frames, "ITUNESSTOREALBUMID", "ITUNES STORE ALBUM ID", "PLID"))
+	setIfZero(&record.PurchaseDate, frames.firstUserText("PURCHASEDATE", "PURCHASE DATE"))
+	if value, ok := frames.firstBool("TCP", "TCMP"); ok {
+		record.IsCompilation = &value
+	} else if value, ok := frames.firstUserTextBool("COMPILATION", "ISCOMPILATION", "ITUNESCOMPILATION"); ok {
+		record.IsCompilation = &value
+	}
+
+	if genres := id3GenreValues(frames.values("TCO", "TCON")); len(genres) > 0 {
+		record.Genres = genres
+	}
+}
+
+func applyID3v1TrackFields(scannedFile *app.ScannedFile, metadata id3v1Metadata) {
+	record := scannedFile.Metadata
+
+	if metadata.Artist != "" {
+		record.Artists = cleanStringValues(metadata.Artist)
+	}
+	setIfZero(&record.Album, metadata.Album)
+	setIfZero(&record.Title, metadata.Title)
+	setIfZero(&record.TrackNumber, metadata.Track)
+	setIfZero(&record.ReleaseYear, metadata.Year)
+	if metadata.Genre != "" {
+		record.Genres = []string{metadata.Genre}
+	}
+}
+
+func id3ReleaseDate(frames id3TextFrameMap, format string) string {
+	switch format {
+	case formatID3v22:
+		return combineID3Date(frames.first("TYE"), frames.first("TDA"))
+	case formatID3v23:
+		return combineID3Date(frames.first("TYER"), frames.first("TDAT"))
+	case formatID3v24:
+		return frames.first("TDRL", "TDRC")
+	default:
+		return ""
+	}
+}
+
+func id3OriginalReleaseDate(frames id3TextFrameMap, format string) string {
+	switch format {
+	case formatID3v22:
+		return frames.first("TOR")
+	case formatID3v23:
+		return frames.first("TORY")
+	case formatID3v24:
+		return frames.first("TDOR")
+	default:
+		return ""
+	}
+}
+
+func id3RecordedDate(frames id3TextFrameMap, format string) string {
+	switch format {
+	case formatID3v22:
+		return frames.first("TRD")
+	case formatID3v23:
+		return frames.first("TRDA")
+	case formatID3v24:
+		return frames.first("TDRC")
+	default:
+		return ""
+	}
+}
+
+func id3FirstUserTextInt64(frames id3TextFrameMap, descriptions ...string) int64 {
+	if value, ok := parseInt64Text(frames.firstUserText(descriptions...)); ok {
+		return value
+	}
+	return 0
+}
+
+func id3TextInt64(frames id3TextFrameMap, keys ...string) int64 {
+	if value, ok := parseInt64Text(frames.first(keys...)); ok {
+		return value
+	}
+	return 0
+}
 
 var (
 	errNoID3v2 = errors.New("expected ID3 header")
@@ -19,7 +184,7 @@ var (
 type id3Metadata struct {
 	Format     string
 	TextFrames id3TextFrameMap
-	Artwork    *embeddedArtwork
+	Artwork    []artwork
 }
 
 type id3TextFrame struct {
@@ -86,12 +251,12 @@ func (frames id3TextFrameMap) values(keys ...string) []string {
 func (frames id3TextFrameMap) firstUserText(descriptions ...string) string {
 	for _, frame := range frames["TXX"] {
 		if descriptionMatches(frame.Description, descriptions...) {
-			return firstNonEmpty(frame.Values...)
+			return textkey.FirstNonZeroValue(frame.Values...)
 		}
 	}
 	for _, frame := range frames["TXXX"] {
 		if descriptionMatches(frame.Description, descriptions...) {
-			return firstNonEmpty(frame.Values...)
+			return textkey.FirstNonZeroValue(frame.Values...)
 		}
 	}
 	return ""
@@ -134,9 +299,7 @@ func removeID3Unsynchronisation(data []byte) []byte {
 func id3GenreValues(values []string) []string {
 	var genres []string
 	for _, value := range values {
-		for _, genre := range splitFieldList(decodeID3Genre(value)) {
-			genres = append(genres, genre)
-		}
+		genres = append(genres, decodeID3Genre(value))
 	}
 	return genres
 }
@@ -206,25 +369,34 @@ func isID3PerformerRole(role string) bool {
 	}
 }
 
-func isID3v2Format(format string) bool {
-	switch format {
-	case formatID3v22, formatID3v23, formatID3v24:
-		return true
-	default:
-		return false
-	}
-}
-
-func readID3TextFrames(r io.ReadSeeker) (id3TextFrameMap, error) {
-	metadata, err := readID3Metadata(r)
-	return metadata.TextFrames, err
-}
-
+// readID3Metadata reads the leading ID3v2 tag from an MP3 file:
+//
+//	ID3v2 tag
+//	  header: "ID3" version revision flags size
+//	  optional extended header
+//	  frame: text, URL, picture, private data, ...
+//	  frame: ...
+//	  padding
+//	  optional ID3v2.4 footer
+//	MPEG audio frames
+//	optional ID3v1 "TAG" trailer
+//
+// The tag header tells us how many bytes belong to ID3v2, so this reader stays
+// inside that tag body and never scans into the audio frames. An ID3v2.4 footer
+// may sit between the tag body and audio, and the optional trailing ID3v1 tag is
+// handled separately by readID3v1Metadata.
 func readID3Metadata(r io.ReadSeeker) (id3Metadata, error) {
+	// ID3v2, when present, lives at the beginning of the file before the MPEG
+	// audio frames.
 	if _, err := r.Seek(0, io.SeekStart); err != nil {
 		return id3Metadata{}, err
 	}
 
+	// The fixed ID3v2 header is 10 bytes:
+	//
+	//	"ID3" major-version revision flags syncsafe-size
+	//
+	// The syncsafe size covers only the tag body after this header.
 	var header [10]byte
 	if _, err := io.ReadFull(r, header[:]); err != nil {
 		return id3Metadata{}, err
@@ -238,23 +410,39 @@ func readID3Metadata(r io.ReadSeeker) (id3Metadata, error) {
 		return id3Metadata{}, fmt.Errorf("unsupported ID3v2.%d", version)
 	}
 
+	// ID3v2 sizes are stored as syncsafe integers so no byte looks like an MPEG
+	// frame sync marker. Once this body is read, the frame parser below only
+	// walks the in-memory ID3 body slice, not any following footer or audio data.
 	tagSize := int(syncsafeUint32(header[6:10]))
 	body := make([]byte, tagSize)
 	if _, err := io.ReadFull(r, body); err != nil {
 		return id3Metadata{}, err
 	}
 	if header[5]&0x80 != 0 {
+		// Unsynchronisation inserts 0x00 after 0xff bytes to avoid accidental
+		// MPEG sync patterns in tag data; remove those inserted bytes before
+		// decoding frames.
 		body = removeID3Unsynchronisation(body)
 	}
 
+	// v2.3 and v2.4 may include an extended header before the first frame. v2.2
+	// does not use the extended-header flag handled here.
 	offset, err := id3FrameStartOffset(version, header[5], body)
 	if err != nil {
 		return id3Metadata{}, err
 	}
 
 	frames := make(id3TextFrameMap)
-	var artwork *embeddedArtwork
+	var pics []artwork
 	for offset < len(body) {
+		// Frame headers vary by ID3v2 version:
+		//
+		//	v2.2: id(3) size(3) payload
+		//	v2.3: id(4) size(4) flags(2) payload
+		//	v2.4: id(4) syncsafe-size(4) flags(2) payload
+		//
+		// readID3NamedFrame returns ok=false at padding or malformed trailing
+		// bytes, which marks the logical end of the tag before audio begins.
 		id, payload, next, ok, err := readID3NamedFrame(version, body, offset)
 		if err != nil {
 			return id3Metadata{}, err
@@ -263,6 +451,8 @@ func readID3Metadata(r io.ReadSeeker) (id3Metadata, error) {
 			break
 		}
 		if payload == nil {
+			// Encrypted or compressed frames are intentionally skipped by
+			// prepareID3FramePayload because this scanner cannot decode them.
 			offset = next
 			continue
 		}
@@ -274,11 +464,14 @@ func readID3Metadata(r io.ReadSeeker) (id3Metadata, error) {
 			if len(frame.Values) > 0 {
 				frames[id] = append(frames[id], frame)
 			}
-		} else if artwork == nil && isID3PictureFrame(id) {
-			artwork, err = decodeID3PictureFrame(id, payload)
+		} else if isID3PictureFrame(id) {
+			// ID3v2.2 uses PIC and v2.3/v2.4 use APIC. Both carry picture type,
+			// MIME/type information, an optional description, and the image bytes.
+			pic, err := decodeID3PictureFrame(id, payload)
 			if err != nil {
 				return id3Metadata{}, err
 			}
+			pics = append(pics, pic)
 		}
 		offset = next
 	}
@@ -286,7 +479,7 @@ func readID3Metadata(r io.ReadSeeker) (id3Metadata, error) {
 	return id3Metadata{
 		Format:     id3Format(version),
 		TextFrames: frames,
-		Artwork:    artwork,
+		Artwork:    pics,
 	}, nil
 }
 
@@ -317,23 +510,6 @@ func id3FrameStartOffset(version int, flags byte, body []byte) (int, error) {
 	default:
 		return 0, nil
 	}
-}
-
-func readID3NamedTextFrame(version int, body []byte, offset int) (string, id3TextFrame, int, bool, error) {
-	id, payload, next, ok, err := readID3NamedFrame(version, body, offset)
-	if err != nil || !ok {
-		return "", id3TextFrame{}, offset, ok, err
-	}
-	if !isID3TextFrame(id) {
-		return id, id3TextFrame{}, next, true, nil
-	}
-
-	frame, err := decodeID3NamedTextFrame(id, payload)
-	if err != nil {
-		return "", id3TextFrame{}, offset, false, err
-	}
-
-	return id, frame, next, true, nil
 }
 
 func readID3NamedFrame(version int, body []byte, offset int) (string, []byte, int, bool, error) {
@@ -570,61 +746,71 @@ func splitID3TextValues(text string) []string {
 	return values
 }
 
-func decodeID3PictureFrame(id string, payload []byte) (*embeddedArtwork, error) {
+func decodeID3PictureFrame(id string, payload []byte) (artwork, error) {
 	switch id {
 	case "PIC":
 		return decodeID3PICFrame(payload)
 	case "APIC":
 		return decodeID3APICFrame(payload)
 	default:
-		return nil, nil
+		return artwork{}, nil
 	}
 }
 
-func decodeID3PICFrame(payload []byte) (*embeddedArtwork, error) {
+func decodeID3PICFrame(payload []byte) (artwork artwork, err error) {
 	if len(payload) < 5 {
-		return nil, fmt.Errorf("invalid PIC frame")
+		err = fmt.Errorf("invalid PIC frame")
+		return
 	}
 
 	encoding := payload[0]
 	format := strings.ToLower(string(payload[1:4]))
+	pictureType := normalizeArtworkPictureType(uint32(payload[4]))
 	rest := payload[5:]
 	_, data, ok := splitID3EncodedString(rest, encoding)
 	if !ok {
-		return nil, fmt.Errorf("invalid PIC description")
+		err = fmt.Errorf("invalid PIC description")
+		return
 	}
 
-	return &embeddedArtwork{
-		MIMEType: id3PictureFormatMIMEType(format),
-		Data:     data,
-	}, nil
+	artwork.PictureType = pictureType
+	artwork.MIMEType = id3PictureFormatMIMEType(format)
+	artwork.Data = data
+
+	return
 }
 
-func decodeID3APICFrame(payload []byte) (*embeddedArtwork, error) {
+func decodeID3APICFrame(payload []byte) (artwork artwork, err error) {
 	if len(payload) == 0 {
-		return nil, fmt.Errorf("invalid APIC frame")
+		err = fmt.Errorf("invalid APIC frame")
+		return
 	}
 
 	encoding := payload[0]
 	mimeEnd := bytes.IndexByte(payload[1:], 0)
 	if mimeEnd < 0 {
-		return nil, fmt.Errorf("invalid APIC MIME type")
+		err = fmt.Errorf("invalid APIC MIME type")
+		return
 	}
 	mime := string(payload[1 : 1+mimeEnd])
 	rest := payload[1+mimeEnd+1:]
 	if len(rest) == 0 {
-		return nil, fmt.Errorf("invalid APIC picture type")
+		err = fmt.Errorf("invalid APIC picture type")
+		return
 	}
 
+	pictureType := normalizeArtworkPictureType(uint32(rest[0]))
 	_, data, ok := splitID3EncodedString(rest[1:], encoding)
 	if !ok {
-		return nil, fmt.Errorf("invalid APIC description")
+		err = fmt.Errorf("invalid APIC description")
+		return
 	}
 
-	return &embeddedArtwork{
-		MIMEType: normalizeImageMIMEType(mime),
-		Data:     data,
-	}, nil
+	artwork.PictureType = pictureType
+	artwork.MIMEType = normalizeImageMIMEType(mime)
+	artwork.Data = data
+
+	return
 }
 
 func splitID3EncodedString(data []byte, encoding byte) ([]byte, []byte, bool) {
@@ -714,135 +900,6 @@ func readID3v1Metadata(r io.ReadSeeker) (id3v1Metadata, error) {
 	}, nil
 }
 
-var id3v1Genres = []string{
-	"Blues",
-	"Classic Rock",
-	"Country",
-	"Dance",
-	"Disco",
-	"Funk",
-	"Grunge",
-	"Hip-Hop",
-	"Jazz",
-	"Metal",
-	"New Age",
-	"Oldies",
-	"Other",
-	"Pop",
-	"R&B",
-	"Rap",
-	"Reggae",
-	"Rock",
-	"Techno",
-	"Industrial",
-	"Alternative",
-	"Ska",
-	"Death Metal",
-	"Pranks",
-	"Soundtrack",
-	"Euro-Techno",
-	"Ambient",
-	"Trip-Hop",
-	"Vocal",
-	"Jazz+Funk",
-	"Fusion",
-	"Trance",
-	"Classical",
-	"Instrumental",
-	"Acid",
-	"House",
-	"Game",
-	"Sound Clip",
-	"Gospel",
-	"Noise",
-	"AlternRock",
-	"Bass",
-	"Soul",
-	"Punk",
-	"Space",
-	"Meditative",
-	"Instrumental Pop",
-	"Instrumental Rock",
-	"Ethnic",
-	"Gothic",
-	"Darkwave",
-	"Techno-Industrial",
-	"Electronic",
-	"Pop-Folk",
-	"Eurodance",
-	"Dream",
-	"Southern Rock",
-	"Comedy",
-	"Cult",
-	"Gangsta",
-	"Top 40",
-	"Christian Rap",
-	"Pop/Funk",
-	"Jungle",
-	"Native American",
-	"Cabaret",
-	"New Wave",
-	"Psychedelic",
-	"Rave",
-	"Showtunes",
-	"Trailer",
-	"Lo-Fi",
-	"Tribal",
-	"Acid Punk",
-	"Acid Jazz",
-	"Polka",
-	"Retro",
-	"Musical",
-	"Rock & Roll",
-	"Hard Rock",
-	"Folk",
-	"Folk-Rock",
-	"National Folk",
-	"Swing",
-	"Fast Fusion",
-	"Bebob",
-	"Latin",
-	"Revival",
-	"Celtic",
-	"Bluegrass",
-	"Avantgarde",
-	"Gothic Rock",
-	"Progressive Rock",
-	"Psychedelic Rock",
-	"Symphonic Rock",
-	"Slow Rock",
-	"Big Band",
-	"Chorus",
-	"Easy Listening",
-	"Acoustic",
-	"Humour",
-	"Speech",
-	"Chanson",
-	"Opera",
-	"Chamber Music",
-	"Sonata",
-	"Symphony",
-	"Booty Bass",
-	"Primus",
-	"Porn Groove",
-	"Satire",
-	"Slow Jam",
-	"Club",
-	"Tango",
-	"Samba",
-	"Folklore",
-	"Ballad",
-	"Power Ballad",
-	"Rhythmic Soul",
-	"Freestyle",
-	"Duet",
-	"Punk Rock",
-	"Drum Solo",
-	"Acapella",
-	"Euro-House",
-	"Dance Hall",
-}
-
 func combineID3Date(year, date string) string {
 	year = strings.TrimSpace(year)
 	date = strings.TrimSpace(date)
@@ -853,4 +910,21 @@ func combineID3Date(year, date string) string {
 		return fmt.Sprintf("%s-%s-%s", year, date[2:4], date[0:2])
 	}
 	return year
+}
+
+func syncsafeUint32(b []byte) uint32 {
+	if len(b) < 4 {
+		return 0
+	}
+	return uint32(b[0]&0x7f)<<21 | uint32(b[1]&0x7f)<<14 | uint32(b[2]&0x7f)<<7 | uint32(b[3]&0x7f)
+}
+
+func descriptionMatches(value string, descriptions ...string) bool {
+	normalized := normalizeDescriptor(value)
+	for _, description := range descriptions {
+		if normalized == normalizeDescriptor(description) {
+			return true
+		}
+	}
+	return false
 }

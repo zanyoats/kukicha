@@ -1,0 +1,45 @@
+# Directory where kukicha.db will be stored.
+# This directory must already exist.
+# database_path = "..."
+
+# Music roots must already exist.
+# roots = []
+
+[album_artist_split_tokens]
+"with" = true
+"and"  = true
+"&"    = true
+","    = true
+";"    = true
+"/"    = true
+"-"    = true
+"="    = true
+
+[album_artist_split_auto_tokens]
+"&" = true
+"/" = true
+
+[recognized_sidecar_artwork]
+"cover"    = true
+"folder"   = true
+"front"    = true
+"album"    = true
+"artwork"  = true
+"albumart" = true
+
+[primary_genre_split_tokens]
+";" = true
+"|" = true
+
+[secondary_genre_split_tokens]
+"," = true
+"/" = true
+
+[genre_style_aliases]
+"altrock"      = "alternative rock"
+"alt rock"     = "alternative rock"
+"alternative"  = "alternative rock"
+"dance&dj"     = "dance-pop"
+"dance & dj"   = "dance-pop"
+"dance and dj" = "dance-pop"
+"dance"        = "dance-pop"
