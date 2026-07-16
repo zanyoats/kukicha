@@ -6,10 +6,14 @@ import (
 	"fmt"
 	"io/fs"
 	"maps"
+	"net"
 	"os"
+	"path"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
+	"unicode"
 
 	"github.com/BurntSushi/toml"
 )
@@ -26,8 +30,12 @@ type AppConfig struct {
 	DbPath    string
 	DbPragmas string
 	Settings  struct {
-		DatabasePath              string            `toml:"database_path"`
-		Roots                     []string          `toml:"roots"`
+		DatabasePath string   `toml:"database_path"`
+		Roots        []string `toml:"roots"`
+		HTTP         struct {
+			ServerAddress string `toml:"server_address"`
+			AppBasePath   string `toml:"app_base_path"`
+		} `toml:"http"`
 		AlbumArtistSplitTokens    map[string]bool   `toml:"album_artist_split_tokens"`
 		AlbumArtistSplitAuto      map[string]bool   `toml:"album_artist_split_auto_tokens"`
 		RecognizedSidecarArtwork  map[string]bool   `toml:"recognized_sidecar_artwork"`
@@ -137,6 +145,14 @@ func LoadAppConfig(catalog *Catalog) (appConfig *AppConfig, err error) {
 		appConfig.DbPath = filepath.Join(norm, DbFileName)
 	}
 
+	// valid http settings...
+	if err := validateServerAddress(appConfig.Settings.HTTP.ServerAddress); err != nil {
+		return nil, HeresWhyErr("Your http.server_address setting was not valid.", err)
+	}
+	if err := validateAppBasePath(appConfig.Settings.HTTP.AppBasePath); err != nil {
+		return nil, HeresWhyErr("Your http.app_base_path setting was not valid.", err)
+	}
+
 	return
 }
 
@@ -240,4 +256,57 @@ func normalizeFolderPath(baseDir, path string) (result string, err error) {
 	}
 
 	return
+}
+
+func validateServerAddress(address string) error {
+	if address == "" {
+		return errors.New("HTTP server address cannot be empty")
+	}
+
+	if strings.IndexFunc(address, unicode.IsSpace) >= 0 {
+		return errors.New("HTTP server address cannot contain whitespace")
+	}
+
+	_, portText, err := net.SplitHostPort(address)
+	if err != nil {
+		return fmt.Errorf(
+			"HTTP server address must use host:port format: %w",
+			err,
+		)
+	}
+
+	port, err := strconv.Atoi(portText)
+	if err != nil {
+		return fmt.Errorf("HTTP server port %q must be numeric", portText)
+	}
+
+	if port < 1 || port > 65535 {
+		return fmt.Errorf(
+			"HTTP server port %d must be between 1 and 65535",
+			port,
+		)
+	}
+
+	return nil
+}
+
+func validateAppBasePath(basePath string) error {
+	switch {
+	case basePath == "":
+		return errors.New("HTTP app base path cannot be empty")
+
+	case !strings.HasPrefix(basePath, "/"):
+		return errors.New("HTTP app base path must start with '/'")
+
+	case strings.HasPrefix(basePath, "//"):
+		return errors.New("HTTP app base path must start with exactly one '/'")
+
+	case path.Clean(basePath) != basePath:
+		return errors.New("HTTP app base path must be clean")
+
+	case strings.ContainsAny(basePath, "{}?#"):
+		return errors.New("HTTP app base path cannot contain route wildcards, a query, or a fragment")
+	}
+
+	return nil
 }

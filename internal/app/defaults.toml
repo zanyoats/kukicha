@@ -5,6 +5,14 @@
 # Music roots must already exist.
 # roots = []
 
+[http]
+# HTTP server listening address in format "host:port".
+# Host can also be empty for all available interfaces ":4533".
+server_address = "127.0.0.1:4533"
+# Prefix base address for kukicha web app.
+# Can just be "/", but not empty ("")
+app_base_path = "/kukicha/app"
+
 [album_artist_split_tokens]
 "with" = true
 "and"  = true

@@ -3,14 +3,18 @@ package main
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
+	"time"
 
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/zanyoats/kukicha/internal/app"
 	"github.com/zanyoats/kukicha/internal/scan"
 	"github.com/zanyoats/kukicha/internal/usecase/command"
+	"github.com/zanyoats/kukicha/internal/web"
 )
 
 func main() {
@@ -54,6 +58,22 @@ func main() {
 	for _, genreResolution := range result.GenreResolutionResult {
 		log.Printf("%s: %q (%s)",
 			genreResolution.LogMessage, genreResolution.Path, genreResolution.Status)
+	}
+
+	server := &http.Server{
+		Addr:              appConfig.Settings.HTTP.ServerAddress,
+		Handler:           web.NewHandler(appConfig.Settings.HTTP.AppBasePath),
+		ReadHeaderTimeout: 5 * time.Second,
+	}
+
+	log.Printf(
+		"Kukicha web server listening at http://%s%s",
+		appConfig.Settings.HTTP.ServerAddress,
+		appConfig.Settings.HTTP.AppBasePath,
+	)
+
+	if err = server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		fail(err)
 	}
 }
 
