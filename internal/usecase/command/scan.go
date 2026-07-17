@@ -35,7 +35,7 @@ func PrepareScanResults(ctx context.Context, conn *sql.Conn) error {
 
 			PRIMARY KEY (root_pos, path)                          ,
 			CHECK (
-				    json_valid(track_metadata) 
+				    json_valid(track_metadata)
 				and json_valid(normalized_metadata)
 				and (
 					   file_type != %[1]d
@@ -190,14 +190,14 @@ func InsertScannedFile(ctx context.Context, conn *sql.Conn, r *app.ScannedFile) 
 	normalizedMetadata := string(b)
 
 	_, err = conn.ExecContext(ctx, `
-        INSERT INTO scan_tracks (
+		INSERT INTO scan_tracks (
 			root_pos, root_path, album_key,
 			path_dir, stem, ext, path,
 			file_type, file_size, file_mtime_unix_nano,
 			track_metadata, normalized_metadata, scan_error
-        )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, json(?), json(?), ?)
-    `,
+		)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, json(?), json(?), ?)
+	`,
 		r.RootPos,
 		r.RootPath,
 		r.NormalizedMetadata.AlbumKey,

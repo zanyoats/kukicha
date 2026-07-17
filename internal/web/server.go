@@ -6,8 +6,11 @@ import (
 )
 
 type pageData struct {
-	AppBasePath   string
-	StylesheetURL string
+	AppBasePath         string
+	UnpolyStylesheetURL string
+	StylesheetURL       string
+	UnpolyJavaScriptURL string
+	PlayerJavaScriptURL string
 }
 
 func NewHandler(appBasePath string) http.Handler {
@@ -44,8 +47,11 @@ func appRoot(
 	appBasePath string,
 ) {
 	data := pageData{
-		AppBasePath:   appBasePath,
-		StylesheetURL: pathAtAppBase(appBasePath, "/assets/app.css"),
+		AppBasePath:         appBasePath,
+		UnpolyStylesheetURL: pathAtAppBase(appBasePath, "/assets/unpoly.min.css"),
+		StylesheetURL:       pathAtAppBase(appBasePath, "/assets/app.css"),
+		UnpolyJavaScriptURL: pathAtAppBase(appBasePath, "/assets/unpoly.min.js"),
+		PlayerJavaScriptURL: pathAtAppBase(appBasePath, "/assets/player.js"),
 	}
 
 	var rendered bytes.Buffer
