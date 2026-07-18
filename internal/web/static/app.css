@@ -62,18 +62,112 @@ body {
     /* This keeps the main content responsive while preventing it from becoming
     excessively wide. */
     width: min(100%, 72rem);
-    /* margin-inline means the horizontal margins in left-to-right languages. Setting both to auto centers the content
-    when it is narrower than the browser window */
+    /* margin-inline means the horizontal margins in left-to-right languages.
+    Setting both to auto centers the content when it is narrower than the
+    browser window */
     margin-inline: auto;
     /* keep content away from the edges */
     padding: 1.5rem;
 }
 
+/*
+Album metadata
+*/
+
+.album-header {
+    margin-bottom: 2rem;
+}
+
+.album-title {
+    margin: 0;
+    /* clamp(minimum, preferred, maximum) means
+    Never smaller than minimum.
+    Preferred viewport width (in this case Prefer 5vw, which is 5%).
+    Never larger than maximum. */
+    font-size: clamp(2rem, 5vw, 3.5rem);
+    line-height: 1.05;
+}
+
+.album-artists {
+    margin: 0.6rem 0 0;
+    color: #c8c5b9;
+    font-size: 1.1rem;
+}
+
+.album-facts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.75rem 1.5rem;
+    margin: 1.25rem 0 0;
+}
+
+.album-facts div {
+    display: flex;
+    gap: 0.4rem;
+}
+
+.album-facts dt {
+    color: #9d9a8f;
+}
+
+.album-facts dd {
+    margin: 0;
+}
+
+/*
+Track list
+*/
+
+.track-list {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    border-top: 1px solid #3a3932;
+}
+
+.track-row {
+    display: grid;
+    grid-template-columns: 5rem minmax(0, 1fr);
+    gap: 1rem;
+    align-items: center;
+    padding: 0.85rem 0.5rem;
+    border-bottom: 1px solid #3a3932;
+}
+
+.track-position {
+    color: #9d9a8f;
+    font-variant-numeric: tabular-nums;
+}
+
+.track-details,
+.track-title,
+.track-artists {
+    display: block;
+}
+
+.track-title {
+    font-weight: 650;
+}
+
+.track-artists {
+    margin-top: 0.2rem;
+    color: #aaa79c;
+    font-size: 0.9rem;
+}
+
+.track-list-empty {
+    padding: 1rem 0.5rem;
+    color: #aaa79c;
+}
+
+/*
+Persistent player
+*/
+
 .player {
     /* These rules make it stick to the bottom during scrolling */
     position: sticky;
     bottom: 0;
-
     padding: 0.75rem 1.5rem;
     border-top: 1px solid #3a3932;
     background: #20201b;

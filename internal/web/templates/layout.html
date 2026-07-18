@@ -1,48 +1,132 @@
 {{define "layout.html"}}
 <!doctype html>
 <html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta
-    name="viewport"
-    content="width=device-width, initial-scale=1"
-  >
 
-  <title>Kukicha</title>
+    <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title>
+            {{if .PageTitle}}
+            {{.PageTitle}} - Kukicha
+            {{else}}
+            Kukicha
+            {{end}}
+        </title>
+        <link rel="stylesheet" href="{{.UnpolyStylesheetURL}}">
+        <link rel="stylesheet" href="{{.StylesheetURL}}">
+        <script src="{{.UnpolyJavaScriptURL}}" defer></script>
+        <script src="{{.PlayerJavaScriptURL}}" defer></script>
+    </head>
 
-  <link
-    rel="stylesheet"
-    href="{{.UnpolyStylesheetURL}}"
-  >
-  <link
-    rel="stylesheet"
-    href="{{.StylesheetURL}}"
-  >
+    <body>
+        <header class="site-header">
+            <a class="site-title" href="{{.AppBasePath}}">
+                Kukicha
+            </a>
+        </header>
 
-  <script
-    src="{{.UnpolyJavaScriptURL}}"
-    defer
-  ></script>
-  <script
-    src="{{.PlayerJavaScriptURL}}"
-    defer
-  ></script>
-</head>
+        <main class="page-content" up-main>
+            {{if .Album}}
+            {{template "album" .}}
+            {{end}}
+        </main>
 
-<body>
-  <header class="site-header">
-    <a class="site-title" href="{{.AppBasePath}}">
-      Kukicha
-    </a>
-  </header>
+        <div id="player" class="player" up-keep>
+            <audio controls></audio>
+        </div>
+    </body>
 
-  <main class="page-content" up-main>
-    <!-- Album pages and other navigable content will render here. -->
-  </main>
-
-  <div id="player" class="player" up-keep>
-    <audio controls></audio>
-  </div>
-</body>
 </html>
+{{end}}
+
+
+{{define "album"}}
+<article class="album-page">
+    <header class="album-header">
+        <h1 class="album-title">
+            {{.Album.Title}}
+        </h1>
+
+        {{with .Album.Artists}}
+        <p class="album-artists">
+            {{range $index, $artist := .}}
+            {{if $index}}, {{end}}{{$artist}}
+            {{end}}
+        </p>
+        {{end}}
+
+        <dl class="album-facts">
+            {{with .Album.ReleaseDate}}
+            <div>
+                <dt>Released</dt>
+                <dd>{{.}}</dd>
+            </div>
+            {{else}}
+            {{with .Album.ReleaseYear}}
+            <div>
+                <dt>Released</dt>
+                <dd>{{.}}</dd>
+            </div>
+            {{end}}
+            {{end}}
+
+            {{with .Album.Format}}
+            <div>
+                <dt>Format</dt>
+                <dd>{{.}}</dd>
+            </div>
+            {{end}}
+
+            {{with .Album.DiscCount}}
+            <div>
+                <dt>Discs</dt>
+                <dd>{{.}}</dd>
+            </div>
+            {{end}}
+
+            {{with .Album.TrackCount}}
+            <div>
+                <dt>Tracks</dt>
+                <dd>{{.}}</dd>
+            </div>
+            {{end}}
+        </dl>
+    </header>
+
+    <ol class="track-list">
+        {{range .Album.Tracks}}
+        <li class="track-row" data-track-id="{{.ID}}">
+            <span class="track-position">
+                {{with .DiscNumber}}
+                D{{.}}
+                {{end}}
+
+                {{with .TrackNumber}}
+                T{{.}}
+                {{else}}
+                —
+                {{end}}
+            </span>
+
+            <span class="track-details">
+                <span class="track-title">
+                    {{.Title}}
+                </span>
+
+                {{with .Artists}}
+                <span class="track-artists">
+                    {{range $index, $artist := .}}
+                    {{if $index}}, {{end}}{{$artist}}
+                    {{end}}
+                </span>
+                {{end}}
+            </span>
+        </li>
+        {{else}}
+        <li class="track-list-empty">
+            This album has no tracks.
+        </li>
+        {{end}}
+    </ol>
+</article>
 {{end}}

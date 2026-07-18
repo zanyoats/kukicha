@@ -28,27 +28,27 @@ func main() {
 	ctx := context.Background()
 	dsn := fmt.Sprintf("%s?%s", appConfig.DbPath, appConfig.DbPragmas)
 
-	writerDb, err := sql.Open("sqlite3", dsn)
+	db, err := sql.Open("sqlite3", dsn)
 	if err != nil {
 		fail(err)
 	}
-	defer writerDb.Close()
+	defer db.Close()
 
-	writerDb.SetMaxOpenConns(1)
+	db.SetMaxOpenConns(1)
 
-	if _, err = writerDb.ExecContext(ctx, `PRAGMA journal_mode = WAL`); err != nil {
+	if _, err = db.ExecContext(ctx, `PRAGMA journal_mode = WAL`); err != nil {
 		fail(err)
 	}
 
-	if err = command.Migrate(ctx, writerDb); err != nil {
+	if err = command.Migrate(ctx, db); err != nil {
 		fail(err)
 	}
 
-	if err = command.SeedTaxonomy(ctx, writerDb, catalog, scan.UnknownItem); err != nil {
+	if err = command.SeedTaxonomy(ctx, db, catalog, scan.UnknownItem); err != nil {
 		fail(err)
 	}
 
-	result, err := scan.Sync(ctx, writerDb, appConfig)
+	result, err := scan.Sync(ctx, db, appConfig)
 	if err != nil {
 		fail(err)
 	}
@@ -61,8 +61,11 @@ func main() {
 	}
 
 	server := &http.Server{
-		Addr:              appConfig.Settings.HTTP.ServerAddress,
-		Handler:           web.NewHandler(appConfig.Settings.HTTP.AppBasePath),
+		Addr: appConfig.Settings.HTTP.ServerAddress,
+		Handler: web.NewHandler(
+			appConfig.Settings.HTTP.AppBasePath,
+			db,
+		),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
