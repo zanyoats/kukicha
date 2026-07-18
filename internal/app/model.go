@@ -6,7 +6,8 @@ type FileType int
 
 const (
 	FileTypeAudio FileType = iota
-	FileTypeSidecar
+	FileTypeSidecarCover
+	FileTypeSidecarOther
 	FileTypePlaylist
 )
 

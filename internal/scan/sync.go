@@ -45,7 +45,7 @@ func localFolderWalk(ctx context.Context, appConfig *app.AppConfig, conn *sql.Co
 		case app.FileTypeAudio:
 			err = processFileTypeAudio(ctx, appConfig, conn, scannedFile)
 
-		case app.FileTypeSidecar:
+		case app.FileTypeSidecarCover, app.FileTypeSidecarOther:
 			err = processFileTypeSidecar(scannedFile)
 
 		default: // app.FileTypePlaylist

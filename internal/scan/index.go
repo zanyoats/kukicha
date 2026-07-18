@@ -39,13 +39,13 @@ var RecognizedPlaylistExtensions = map[string]bool{
 	".pls":  true,
 }
 
-// TODO allow pdf and other types of files
 var RecognizedSidecarExtensions = map[string]bool{
 	".jpg":  true,
 	".jpeg": true,
 	".png":  true,
 	".webp": true,
 	".gif":  true,
+	".pdf":  true,
 }
 
 type artworkPictureType int

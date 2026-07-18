@@ -103,6 +103,7 @@ var migrations = []migration{
 				stem                 TEXT    NOT NULL                 ,
 				ext                  TEXT    NOT NULL                 ,
 				path                 TEXT    NOT NULL                 ,
+				file_type            INTEGER NOT NULL                 ,
 				file_size            INTEGER NOT NULL                 ,
 				file_mtime_unix_nano INTEGER NOT NULL                 ,
 
@@ -115,6 +116,19 @@ var migrations = []migration{
 				id                   INTEGER PRIMARY KEY AUTOINCREMENT,
 				track_id             INTEGER NOT NULL                 ,
 				picture_type         TEXT    NOT NULL                 ,
+				artwork_content_type TEXT                             ,
+				artwork_content_size INTEGER NOT NULL                 ,
+				artwork_bytes        BLOB    NOT NULL                 ,
+
+				FOREIGN KEY (track_id)
+				  REFERENCES library_tracks (id)
+				  ON DELETE CASCADE
+			);
+
+			CREATE TABLE library_track_artwork (
+				id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+				track_id             INTEGER NOT NULL                 ,
+				width_px             INTEGER NOT NULL                 ,
 				artwork_content_type TEXT                             ,
 				artwork_content_size INTEGER NOT NULL                 ,
 				artwork_bytes        BLOB    NOT NULL                 ,

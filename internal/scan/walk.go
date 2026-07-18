@@ -129,6 +129,12 @@ func isRecognizable(name string, recognizedSidecarArtwork map[string]bool) (file
 
 	for ext_ := range RecognizedSidecarExtensions {
 		if strings.EqualFold(ext, ext_) {
+			if ext_ == ".pdf" {
+				ok = true
+				filetype = app.FileTypeSidecarOther
+				return
+			}
+
 			for sidecar_, enabled := range recognizedSidecarArtwork {
 				if !enabled {
 					continue
@@ -136,10 +142,14 @@ func isRecognizable(name string, recognizedSidecarArtwork map[string]bool) (file
 
 				if strings.EqualFold(sidecar, sidecar_) {
 					ok = true
-					filetype = app.FileTypeSidecar
+					filetype = app.FileTypeSidecarCover
 					return
 				}
 			}
+
+			ok = true
+			filetype = app.FileTypeSidecarOther
+			return
 		}
 	}
 

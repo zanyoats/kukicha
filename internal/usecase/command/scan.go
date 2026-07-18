@@ -1,14 +1,27 @@
 package command
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"image"
+	_ "image/gif"
+	"image/jpeg"
+	"image/png"
+	"os"
 	"path/filepath"
 	"slices"
 
 	"github.com/zanyoats/kukicha/internal/app"
+	"golang.org/x/image/draw"
+	_ "golang.org/x/image/webp"
+)
+
+const (
+	AlbumThumbnail = 32
+	AlbumFull      = 250
 )
 
 func PrepareScanResults(ctx context.Context, conn *sql.Conn) error {
@@ -144,6 +157,11 @@ func BuildLibraryFromScan(
 	}
 
 	if err = buildLibraryTrackSidecars(ctx, tx); err != nil {
+		_ = tx.Rollback()
+		return result, err
+	}
+
+	if err = buildLibraryTrackArtwork(ctx, tx); err != nil {
 		_ = tx.Rollback()
 		return result, err
 	}
@@ -289,6 +307,7 @@ func resetLibrary(ctx context.Context, tx *sql.Tx) error {
 	if _, err := tx.ExecContext(ctx, `
 		DELETE FROM library_track_styles;
 		DELETE FROM library_track_genres;
+		DELETE FROM library_track_artwork;
 		DELETE FROM library_track_sidecars;
 		DELETE FROM library_track_embedded_artwork;
 		DELETE FROM library_tracks;
@@ -304,6 +323,7 @@ func resetLibrary(ctx context.Context, tx *sql.Tx) error {
 			'library_tracks',
 			'library_track_embedded_artwork',
 			'library_track_sidecars',
+			'library_track_artwork',
 			'library_track_genres',
 			'library_track_styles'
 		);
@@ -957,6 +977,7 @@ func buildLibraryTrackSidecars(ctx context.Context, tx *sql.Tx) error {
 			stem,
 			ext,
 			path,
+			file_type,
 			file_size,
 			file_mtime_unix_nano
 		)
@@ -965,6 +986,7 @@ func buildLibraryTrackSidecars(ctx context.Context, tx *sql.Tx) error {
 			sidecars.stem,
 			sidecars.ext,
 			sidecars.path,
+			sidecars.file_type,
 			sidecars.file_size,
 			sidecars.file_mtime_unix_nano
 		FROM scan_tracks AS sidecars
@@ -980,13 +1002,199 @@ func buildLibraryTrackSidecars(ctx context.Context, tx *sql.Tx) error {
 		JOIN library_tracks AS tracks
 			ON tracks.root_id = roots.id
 			AND tracks.path = audio.path
-		WHERE sidecars.file_type = ?
+		WHERE sidecars.file_type in (?, ?)
 		ORDER BY tracks.id, sidecars.path;
-	`, app.FileTypeAudio, app.FileTypeSidecar); err != nil {
+	`, app.FileTypeAudio, app.FileTypeSidecarCover, app.FileTypeSidecarOther); err != nil {
 		return fmt.Errorf("build library track sidecars: %w", err)
 	}
 
 	return nil
+}
+
+func buildLibraryTrackArtwork(ctx context.Context, tx *sql.Tx) error {
+	rows, err := tx.QueryContext(ctx, `
+		SELECT
+			tracks.id,
+			roots.path
+		FROM library_tracks AS tracks
+		JOIN library_roots AS roots
+			ON roots.id = tracks.root_id
+		ORDER BY tracks.id;
+	`)
+	if err != nil {
+		return fmt.Errorf("query library tracks for artwork: %w", err)
+	}
+
+	type libraryTrackArtworkSource struct {
+		trackID  int64
+		rootPath string
+	}
+	var sources []libraryTrackArtworkSource
+
+	for rows.Next() {
+		var source libraryTrackArtworkSource
+		if err := rows.Scan(&source.trackID, &source.rootPath); err != nil {
+			rows.Close()
+			return fmt.Errorf("scan library track for artwork: %w", err)
+		}
+		sources = append(sources, source)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return fmt.Errorf("iterate library tracks for artwork: %w", err)
+	}
+	if err := rows.Close(); err != nil {
+		return fmt.Errorf("close library track artwork source rows: %w", err)
+	}
+
+	for _, source := range sources {
+		artwork, sourceFormat, err := resolveLibraryTrackArtwork(ctx, tx, source.trackID, source.rootPath)
+		if err != nil {
+			return err
+		}
+		if artwork == nil {
+			continue
+		}
+
+		for _, width := range []int{AlbumThumbnail, AlbumFull} {
+			artworkBytes, contentType, err := encodeLibraryTrackArtwork(
+				resizeToWidth(artwork, width),
+				sourceFormat,
+			)
+			if err != nil {
+				return fmt.Errorf("encode library track %d artwork at width %d: %w", source.trackID, width, err)
+			}
+
+			if _, err := tx.ExecContext(ctx, `
+				INSERT INTO library_track_artwork (
+					track_id,
+					width_px,
+					artwork_content_type,
+					artwork_content_size,
+					artwork_bytes
+				)
+				VALUES (?, ?, ?, ?, ?);
+			`, source.trackID, width, contentType, len(artworkBytes), artworkBytes); err != nil {
+				return fmt.Errorf("insert library track %d artwork at width %d: %w", source.trackID, width, err)
+			}
+		}
+	}
+
+	return nil
+}
+
+func resolveLibraryTrackArtwork(
+	ctx context.Context,
+	tx *sql.Tx,
+	trackID int64,
+	rootPath string,
+) (image.Image, string, error) {
+	rows, err := tx.QueryContext(ctx, `
+		SELECT path
+		FROM library_track_sidecars
+		WHERE track_id = ?
+		AND file_type = ?
+		ORDER BY path;
+	`, trackID, app.FileTypeSidecarCover)
+	if err != nil {
+		return nil, "", fmt.Errorf("query library track %d sidecar artwork: %w", trackID, err)
+	}
+
+	var resolved image.Image
+	var sourceFormat string
+	for rows.Next() {
+		var sidecarPath string
+		if err := rows.Scan(&sidecarPath); err != nil {
+			rows.Close()
+			return nil, "", fmt.Errorf("scan library track %d sidecar artwork: %w", trackID, err)
+		}
+
+		artwork, format, err := decodeImageFile(filepath.Join(rootPath, sidecarPath))
+		if err == nil {
+			resolved = artwork
+			sourceFormat = format
+			break
+		}
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, "", fmt.Errorf("iterate library track %d sidecar artwork: %w", trackID, err)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, "", fmt.Errorf("close library track %d sidecar artwork rows: %w", trackID, err)
+	}
+	if resolved != nil {
+		return resolved, sourceFormat, nil
+	}
+
+	rows, err = tx.QueryContext(ctx, `
+		SELECT artwork_bytes
+		FROM library_track_embedded_artwork
+		WHERE track_id = ?
+		AND picture_type = 'front_cover'
+		ORDER BY id;
+	`, trackID)
+	if err != nil {
+		return nil, "", fmt.Errorf("query library track %d embedded artwork: %w", trackID, err)
+	}
+
+	for rows.Next() {
+		var artworkBytes []byte
+		if err := rows.Scan(&artworkBytes); err != nil {
+			rows.Close()
+			return nil, "", fmt.Errorf("scan library track %d embedded artwork: %w", trackID, err)
+		}
+
+		artwork, format, err := image.Decode(bytes.NewReader(artworkBytes))
+		if err == nil {
+			resolved = artwork
+			sourceFormat = format
+			break
+		}
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, "", fmt.Errorf("iterate library track %d embedded artwork: %w", trackID, err)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, "", fmt.Errorf("close library track %d embedded artwork rows: %w", trackID, err)
+	}
+
+	return resolved, sourceFormat, nil
+}
+
+func decodeImageFile(path string) (image.Image, string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, "", err
+	}
+	defer f.Close()
+
+	return image.Decode(f)
+}
+
+func encodeLibraryTrackArtwork(src image.Image, sourceFormat string) ([]byte, string, error) {
+	var encoded bytes.Buffer
+
+	if sourceFormat == "jpeg" {
+		err := jpeg.Encode(&encoded, src, &jpeg.Options{Quality: 90})
+		return encoded.Bytes(), "image/jpeg", err
+	}
+
+	err := png.Encode(&encoded, src)
+	return encoded.Bytes(), "image/png", err
+}
+
+func resizeToWidth(src image.Image, width int) image.Image {
+	srcBounds := src.Bounds()
+	height := int(float64(srcBounds.Dy())/float64(srcBounds.Dx())*float64(width) + 0.5)
+	if height < 1 {
+		height = 1
+	}
+
+	dst := image.NewNRGBA(image.Rect(0, 0, width, height))
+	draw.CatmullRom.Scale(dst, dst.Bounds(), src, srcBounds, draw.Over, nil)
+	return dst
 }
 
 func setBuildLibraryAppMetadata(
