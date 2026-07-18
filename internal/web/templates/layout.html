@@ -43,54 +43,58 @@
 {{define "album"}}
 <article class="album-page">
     <header class="album-header">
-        <h1 class="album-title">
-            {{.Album.Title}}
-        </h1>
+        <img class="album-artwork" src="{{.AlbumArtworkURL}}" alt="Artwork for {{.Album.Title}}" width="250">
 
-        {{with .Album.Artists}}
-        <p class="album-artists">
-            {{range $index, $artist := .}}
-            {{if $index}}, {{end}}{{$artist}}
-            {{end}}
-        </p>
-        {{end}}
+        <div class="album-summary">
+            <h1 class="album-title">
+                {{.Album.Title}}
+            </h1>
 
-        <dl class="album-facts">
-            {{with .Album.ReleaseDate}}
-            <div>
-                <dt>Released</dt>
-                <dd>{{.}}</dd>
-            </div>
-            {{else}}
-            {{with .Album.ReleaseYear}}
-            <div>
-                <dt>Released</dt>
-                <dd>{{.}}</dd>
-            </div>
-            {{end}}
+            {{with .Album.Artists}}
+            <p class="album-artists">
+                {{range $index, $artist := .}}
+                {{if $index}}, {{end}}{{$artist}}
+                {{end}}
+            </p>
             {{end}}
 
-            {{with .Album.Format}}
-            <div>
-                <dt>Format</dt>
-                <dd>{{.}}</dd>
-            </div>
-            {{end}}
+            <dl class="album-facts">
+                {{with .Album.ReleaseDate}}
+                <div>
+                    <dt>Released</dt>
+                    <dd>{{.}}</dd>
+                </div>
+                {{else}}
+                {{with .Album.ReleaseYear}}
+                <div>
+                    <dt>Released</dt>
+                    <dd>{{.}}</dd>
+                </div>
+                {{end}}
+                {{end}}
 
-            {{with .Album.DiscCount}}
-            <div>
-                <dt>Discs</dt>
-                <dd>{{.}}</dd>
-            </div>
-            {{end}}
+                {{with .Album.Format}}
+                <div>
+                    <dt>Format</dt>
+                    <dd>{{.}}</dd>
+                </div>
+                {{end}}
 
-            {{with .Album.TrackCount}}
-            <div>
-                <dt>Tracks</dt>
-                <dd>{{.}}</dd>
-            </div>
-            {{end}}
-        </dl>
+                {{with .Album.DiscCount}}
+                <div>
+                    <dt>Discs</dt>
+                    <dd>{{.}}</dd>
+                </div>
+                {{end}}
+
+                {{with .Album.TrackCount}}
+                <div>
+                    <dt>Tracks</dt>
+                    <dd>{{.}}</dd>
+                </div>
+                {{end}}
+            </dl>
+        </div>
     </header>
 
     <ol class="track-list">

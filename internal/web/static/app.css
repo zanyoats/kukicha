@@ -75,7 +75,33 @@ Album metadata
 */
 
 .album-header {
+    display: grid;
+    grid-template-columns: minmax(10rem, 15.625rem) minmax(0, 1fr);
+    gap: 1.5rem;
+    align-items: start;
     margin-bottom: 2rem;
+}
+
+.album-artwork {
+    display: block;
+    width: 100%;
+    height: auto;
+    border: 1px solid #3a3932;
+    background: #2c2c26;
+}
+
+.album-summary {
+    min-width: 0;
+}
+
+@media (max-width: 42rem) {
+    .album-header {
+        grid-template-columns: 1fr;
+    }
+
+    .album-artwork {
+        width: min(100%, 15.625rem);
+    }
 }
 
 .album-title {
