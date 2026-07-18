@@ -68,6 +68,17 @@ func NewHandler(appBasePath string, db *sql.DB) http.Handler {
 		},
 	)
 
+	trackAudioPattern := pathAtAppBase(
+		appBasePath,
+		"/album/tracks/audio",
+	)
+	mux.HandleFunc(
+		"GET "+trackAudioPattern,
+		func(w http.ResponseWriter, r *http.Request) {
+			trackAudio(w, r, db)
+		},
+	)
+
 	assetsMountPath := pathAtAppBase(appBasePath, "/assets")
 	mux.Handle(
 		"GET "+assetsMountPath+"/",
@@ -276,22 +287,11 @@ func albumArtworkURL(
 }
 
 func parseAlbumID(r *http.Request) (int64, error) {
-	value, err := requiredQueryValue(
-		r.URL.Query(),
-		"album_id",
-	)
-	if err != nil {
-		return 0, err
-	}
+	return parsePositiveID(r, "album_id")
+}
 
-	id, err := strconv.ParseInt(value, 10, 64)
-	if err != nil || id < 1 {
-		return 0, errors.New(
-			"album_id must be a positive integer",
-		)
-	}
-
-	return id, nil
+func parseTrackID(r *http.Request) (int64, error) {
+	return parsePositiveID(r, "track_id")
 }
 
 func parseArtworkSize(r *http.Request) (query.AlbumArtworkSize, error) {
@@ -313,6 +313,29 @@ func parseArtworkSize(r *http.Request) (query.AlbumArtworkSize, error) {
 	default:
 		return "", errors.New("size must be thumb or full")
 	}
+}
+
+func parsePositiveID(
+	r *http.Request,
+	name string,
+) (int64, error) {
+	value, err := requiredQueryValue(
+		r.URL.Query(),
+		name,
+	)
+	if err != nil {
+		return 0, err
+	}
+
+	id, err := strconv.ParseInt(value, 10, 64)
+	if err != nil || id < 1 {
+		return 0, fmt.Errorf(
+			"%s must be a positive integer",
+			name,
+		)
+	}
+
+	return id, nil
 }
 
 func requiredQueryValue(
