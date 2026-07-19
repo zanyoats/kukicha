@@ -197,4 +197,12 @@
             selectTrack(nextIndex);
         }
     });
+
+    if (window.up) {
+        window.up.history.config.restoreTargets = ["[up-main]"];
+
+        window.up.on("up:fragment:inserted", () => {
+            updateActiveRows();
+        });
+    }
 })();

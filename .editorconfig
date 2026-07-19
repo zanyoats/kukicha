@@ -18,6 +18,3 @@ indent_size = tab
 
 [*.md]
 trim_trailing_whitespace = false
-
-[*.css]
-indent_size = 4
