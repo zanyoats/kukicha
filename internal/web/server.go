@@ -22,6 +22,7 @@ type pageData struct {
 	PageTitle           string
 	Album               *query.Album
 	AlbumArtworkURL     string
+	TrackAudioURLs      map[int64]string
 }
 
 func newPageData(appBasePath string) pageData {
@@ -135,6 +136,13 @@ func albumPage(
 		album.ID,
 		query.AlbumArtworkFull,
 	)
+	data.TrackAudioURLs = make(map[int64]string, len(album.Tracks))
+	for _, track := range album.Tracks {
+		data.TrackAudioURLs[track.ID] = trackAudioURL(
+			appBasePath,
+			track.ID,
+		)
+	}
 
 	renderPage(w, "layout.html", data)
 }
@@ -284,6 +292,16 @@ func albumArtworkURL(
 	return pathAtAppBase(appBasePath, "/album/artwork") +
 		"?album_id=" + strconv.FormatInt(albumID, 10) +
 		"&size=" + string(size)
+}
+
+func trackAudioURL(
+	appBasePath string,
+	trackID int64,
+) string {
+	return pathAtAppBase(
+		appBasePath,
+		"/album/tracks/audio",
+	) + "?track_id=" + strconv.FormatInt(trackID, 10)
 }
 
 func parseAlbumID(r *http.Request) (int64, error) {

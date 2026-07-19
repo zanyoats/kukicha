@@ -153,16 +153,46 @@ Track list
 
 .track-row {
     display: grid;
-    grid-template-columns: 5rem minmax(0, 1fr);
+    grid-template-columns: 4.5rem auto minmax(0, 1fr);
     gap: 1rem;
     align-items: center;
     padding: 0.85rem 0.5rem;
     border-bottom: 1px solid #3a3932;
 }
 
+.track-row.is-active {
+    background: #292921;
+    box-shadow: inset 0.2rem 0 #d6b86a;
+}
+
+.track-row.is-active .track-title {
+    color: #f1d58c;
+}
+
 .track-position {
     color: #9d9a8f;
     font-variant-numeric: tabular-nums;
+}
+
+.track-play {
+    appearance: none;
+    padding: 0.45rem 0.75rem;
+    border: 1px solid #666359;
+    border-radius: 0.35rem;
+    background: #2c2c26;
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+}
+
+.track-play:hover {
+    border-color: #aaa79c;
+    background: #383831;
+}
+
+.track-play:focus-visible {
+    outline: 2px solid #d6b86a;
+    outline-offset: 2px;
 }
 
 .track-details,
@@ -194,12 +224,64 @@ Persistent player
     /* These rules make it stick to the bottom during scrolling */
     position: sticky;
     bottom: 0;
+
+    display: grid;
+    grid-template-columns: minmax(0, 20rem) minmax(16rem, 1fr);
+    gap: 1.5rem;
+    align-items: center;
+
     padding: 0.75rem 1.5rem;
     border-top: 1px solid #3a3932;
     background: #20201b;
 }
 
+.player-now-playing {
+    min-width: 0;
+}
+
+.player-now-playing-label,
+.player-track-title,
+.player-track-artists {
+    display: block;
+}
+
+.player-now-playing-label {
+    color: #9d9a8f;
+    font-size: 0.75rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+}
+
+.player-track-title,
+.player-track-artists {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.player-track-title {
+    margin-top: 0.15rem;
+    font-weight: 650;
+}
+
+.player-track-artists {
+    color: #aaa79c;
+    font-size: 0.85rem;
+}
+
 .player audio {
   display: block;
   width: 100%;
+}
+
+@media (max-width: 42rem) {
+    .track-row {
+        grid-template-columns: 3rem auto minmax(0, 1fr);
+        gap: 0.65rem;
+    }
+
+    .player {
+        grid-template-columns: 1fr;
+        gap: 0.65rem;
+    }
 }
