@@ -20,8 +20,8 @@ import (
 )
 
 const (
-	AlbumThumbnail = 32
-	AlbumFull      = 250
+	AlbumArtwork64  = 64
+	AlbumArtwork256 = 256
 )
 
 func PrepareScanResults(ctx context.Context, conn *sql.Conn) error {
@@ -1056,7 +1056,7 @@ func buildLibraryTrackArtwork(ctx context.Context, tx *sql.Tx) error {
 			continue
 		}
 
-		for _, width := range []int{AlbumThumbnail, AlbumFull} {
+		for _, width := range []int{AlbumArtwork64, AlbumArtwork256} {
 			artworkBytes, contentType, err := encodeLibraryTrackArtwork(
 				resizeToWidth(artwork, width),
 				sourceFormat,

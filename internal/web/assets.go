@@ -15,8 +15,8 @@ var pageTemplates = template.Must(
 
 var staticFiles = mustSub(embeddedFiles, "static")
 
-var albumFullFallbackArtwork = mustReadFile(staticFiles, "album-fallback-full.svg")
-var albumThumbFallbackArtwork = mustReadFile(staticFiles, "album-fallback-thumb.svg")
+var AlbumArtwork64FallbackArtwork = mustReadFile(staticFiles, "album-fallback-64.svg")
+var AlbumArtwork256FallbackArtwork = mustReadFile(staticFiles, "album-fallback-256.svg")
 
 func mustSub(source fs.FS, directory string) fs.FS {
 	sub, err := fs.Sub(source, directory)

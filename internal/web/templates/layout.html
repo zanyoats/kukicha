@@ -20,31 +20,37 @@
 
     <body>
         <header class="site-header">
-            <a class="site-title" href="{{.AppBasePath}}" up-follow>
-                Kukicha
-            </a>
+            <div class="site-header-inner">
+                <a class="site-title" href="{{.AppBasePath}}" up-follow>
+                    Kukicha
+                </a>
+            </div>
         </header>
 
         <main class="page-content" up-main>
-            {{if .Album}}
-            {{template "album" .}}
-            {{end}}
+            <div class="page-content-inner">
+                {{if .Album}}
+                {{template "album" .}}
+                {{end}}
+            </div>
         </main>
 
         <div id="player" class="player" up-keep>
-            <div class="player-now-playing" role="status" aria-live="polite" aria-atomic="true">
-                <span class="player-now-playing-label">
-                    Now playing
-                </span>
+            <div class="player-inner">
+                <div class="player-now-playing" role="status" aria-live="polite" aria-atomic="true">
+                    <span class="player-now-playing-label">
+                        Now playing
+                    </span>
 
-                <span class="player-track-title" data-player-title>
-                    Nothing playing
-                </span>
+                    <span class="player-track-title" data-player-title>
+                        Nothing playing
+                    </span>
 
-                <span class="player-track-artists" data-player-artists hidden></span>
+                    <span class="player-track-artists" data-player-artists hidden></span>
+                </div>
+
+                <audio data-player-audio controls preload="metadata"></audio>
             </div>
-
-            <audio data-player-audio controls preload="metadata"></audio>
         </div>
     </body>
 
@@ -55,7 +61,7 @@
 {{define "album"}}
 <article class="album-page">
     <header class="album-header">
-        <img class="album-artwork" src="{{.AlbumArtworkURL}}" alt="Artwork for {{.Album.Title}}" width="250">
+        <img class="album-artwork" src="{{.AlbumArtworkURL}}" alt="Artwork for {{.Album.Title}}">
 
         <div class="album-summary">
             <h1 class="album-title">

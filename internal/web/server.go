@@ -134,7 +134,7 @@ func albumPage(
 	data.AlbumArtworkURL = albumArtworkURL(
 		appBasePath,
 		album.ID,
-		query.AlbumArtworkFull,
+		query.AlbumArtwork256,
 	)
 	data.TrackAudioURLs = make(map[int64]string, len(album.Tracks))
 	for _, track := range album.Tracks {
@@ -182,10 +182,10 @@ func albumArtwork(
 
 	case errors.Is(err, query.ErrAlbumArtworkNotFound):
 		switch size {
-		case query.AlbumArtworkFull:
-			writeArtwork(w, "image/svg+xml", albumFullFallbackArtwork)
-		case query.AlbumArtworkThumbnail:
-			writeArtwork(w, "image/svg+xml", albumThumbFallbackArtwork)
+		case query.AlbumArtwork256:
+			writeArtwork(w, "image/svg+xml", AlbumArtwork256FallbackArtwork)
+		case query.AlbumArtwork64:
+			writeArtwork(w, "image/svg+xml", AlbumArtwork64FallbackArtwork)
 		}
 		return
 
@@ -218,10 +218,10 @@ func albumArtwork(
 			albumID,
 		)
 		switch size {
-		case query.AlbumArtworkFull:
-			writeArtwork(w, "image/svg+xml", albumFullFallbackArtwork)
-		case query.AlbumArtworkThumbnail:
-			writeArtwork(w, "image/svg+xml", albumThumbFallbackArtwork)
+		case query.AlbumArtwork256:
+			writeArtwork(w, "image/svg+xml", AlbumArtwork256FallbackArtwork)
+		case query.AlbumArtwork64:
+			writeArtwork(w, "image/svg+xml", AlbumArtwork64FallbackArtwork)
 		}
 		return
 	}
@@ -322,11 +322,11 @@ func parseArtworkSize(r *http.Request) (query.AlbumArtworkSize, error) {
 	}
 
 	switch value {
-	case string(query.AlbumArtworkThumbnail):
-		return query.AlbumArtworkThumbnail, nil
+	case string(query.AlbumArtwork64):
+		return query.AlbumArtwork64, nil
 
-	case string(query.AlbumArtworkFull):
-		return query.AlbumArtworkFull, nil
+	case string(query.AlbumArtwork256):
+		return query.AlbumArtwork256, nil
 
 	default:
 		return "", errors.New("size must be thumb or full")

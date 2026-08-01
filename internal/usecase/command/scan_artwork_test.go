@@ -169,8 +169,8 @@ func TestBuildLibraryTrackArtworkPrefersUsableCoverSidecar(t *testing.T) {
 		t.Fatalf("got %d artwork rows, want 6", len(results))
 	}
 	for _, got := range results {
-		if got.width != AlbumThumbnail && got.width != AlbumFull {
-			t.Errorf("track %d width = %d, want %d or %d", got.trackID, got.width, AlbumThumbnail, AlbumFull)
+		if got.width != AlbumArtwork64 && got.width != AlbumArtwork256 {
+			t.Errorf("track %d width = %d, want %d or %d", got.trackID, got.width, AlbumArtwork64, AlbumArtwork256)
 		}
 
 		want := color.NRGBA{B: 255, A: 255}

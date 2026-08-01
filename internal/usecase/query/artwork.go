@@ -12,8 +12,8 @@ var ErrAlbumArtworkNotFound = errors.New("album artwork not found")
 type AlbumArtworkSize string
 
 const (
-	AlbumArtworkThumbnail AlbumArtworkSize = "thumb"
-	AlbumArtworkFull      AlbumArtworkSize = "full"
+	AlbumArtwork64  AlbumArtworkSize = "64"
+	AlbumArtwork256 AlbumArtworkSize = "256"
 )
 
 type AlbumArtwork struct {
@@ -127,11 +127,11 @@ func AlbumArtworkByID(
 
 func albumArtworkWidth(size AlbumArtworkSize) (int, error) {
 	switch size {
-	case AlbumArtworkThumbnail:
-		return 32, nil
+	case AlbumArtwork64:
+		return 64, nil
 
-	case AlbumArtworkFull:
-		return 250, nil
+	case AlbumArtwork256:
+		return 256, nil
 
 	default:
 		return 0, fmt.Errorf(
