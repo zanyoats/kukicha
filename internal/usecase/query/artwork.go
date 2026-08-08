@@ -3,11 +3,18 @@ package query
 import (
 	"context"
 	"database/sql"
+	_ "embed"
 	"errors"
 	"fmt"
 )
 
 var ErrAlbumArtworkNotFound = errors.New("album artwork not found")
+
+//go:embed sql/album_exists.sql
+var albumExistsSQL string
+
+//go:embed sql/album_artwork.sql
+var albumArtworkSQL string
 
 type AlbumArtworkSize string
 
@@ -43,13 +50,11 @@ func AlbumArtworkByID(
 
 	var albumExists bool
 
-	if err := tx.QueryRowContext(ctx, `
-		SELECT EXISTS (
-			SELECT 1
-			FROM library_albums
-			WHERE id = ?
-		);
-	`, albumID).Scan(&albumExists); err != nil {
+	if err := tx.QueryRowContext(
+		ctx,
+		albumExistsSQL,
+		sql.Named("album_id", albumID),
+	).Scan(&albumExists); err != nil {
 		return AlbumArtwork{}, fmt.Errorf(
 			"check album %d for artwork: %w",
 			albumID,
@@ -70,28 +75,12 @@ func AlbumArtworkByID(
 		contentType sql.NullString
 	)
 
-	err = tx.QueryRowContext(ctx, `
-		SELECT
-			artwork.artwork_content_type,
-			artwork.artwork_bytes
-		FROM library_tracks AS tracks
-		JOIN library_track_artwork AS artwork
-			ON artwork.track_id = tracks.id
-		WHERE tracks.album_id = ?
-			AND artwork.width_px = ?
-			AND artwork.artwork_content_size > 0
-		ORDER BY
-			COALESCE(tracks.disc_number, 1),
-			CASE
-				WHEN tracks.track_number IS NULL THEN 1
-				ELSE 0
-			END,
-			tracks.track_number,
-			tracks.path COLLATE BINARY,
-			tracks.id,
-			artwork.id
-		LIMIT 1;
-	`, albumID, width).Scan(
+	err = tx.QueryRowContext(
+		ctx,
+		albumArtworkSQL,
+		sql.Named("album_id", albumID),
+		sql.Named("width", width),
+	).Scan(
 		&contentType,
 		&artwork.Bytes,
 	)

@@ -3,6 +3,7 @@ package query
 import (
 	"context"
 	"database/sql"
+	_ "embed"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -10,17 +11,44 @@ import (
 
 var ErrAlbumNotFound = errors.New("album not found")
 
+//go:embed sql/albums.sql
+var albumsSQL string
+
+//go:embed sql/album.sql
+var albumSQL string
+
+//go:embed sql/album_artists.sql
+var albumArtistsSQL string
+
+//go:embed sql/album_tracks.sql
+var albumTracksSQL string
+
+// AlbumSummary is the read model used to render an album in a collection.
+type AlbumSummary struct {
+	ID      int64
+	Title   string
+	Artists []string
+}
+
 // Album is the read model used to render an album and its ordered tracks.
 type Album struct {
-	ID          int64
-	Title       string
-	Format      string
-	ReleaseDate *string
-	ReleaseYear *int
-	DiscCount   *int
-	TrackCount  *int
-	Artists     []string
-	Tracks      []AlbumTrack
+	ID                  int64
+	Title               string
+	Format              string
+	ReleaseDate         *string
+	ReleaseYear         *int
+	OriginalReleaseDate *string
+	OriginalReleaseYear *int
+	ReleaseCountry      *string
+	Label               *string
+	Composer            *string
+	Copyright           *string
+	PurchaseDate        *string
+	IsCompilation       *bool
+	DiscCount           *int
+	TrackCount          *int
+	Artists             []string
+	Tracks              []AlbumTrack
 }
 
 // AlbumTrack is a track in an album read model.
@@ -30,6 +58,54 @@ type AlbumTrack struct {
 	Artists     []string
 	DiscNumber  *int
 	TrackNumber *int
+}
+
+// Albums loads all albums and their artists in display order.
+func Albums(
+	ctx context.Context,
+	db *sql.DB,
+) ([]AlbumSummary, error) {
+	rows, err := db.QueryContext(ctx, albumsSQL)
+	if err != nil {
+		return nil, fmt.Errorf("query albums: %w", err)
+	}
+	defer rows.Close()
+
+	albums := make([]AlbumSummary, 0)
+
+	for rows.Next() {
+		var (
+			album       AlbumSummary
+			artistsJSON []byte
+		)
+
+		if err := rows.Scan(
+			&album.ID,
+			&album.Title,
+			&artistsJSON,
+		); err != nil {
+			return nil, fmt.Errorf("scan album summary: %w", err)
+		}
+
+		if err := json.Unmarshal(
+			artistsJSON,
+			&album.Artists,
+		); err != nil {
+			return nil, fmt.Errorf(
+				"decode artists for album %d: %w",
+				album.ID,
+				err,
+			)
+		}
+
+		albums = append(albums, album)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate album summaries: %w", err)
+	}
+
+	return albums, nil
 }
 
 // AlbumByID loads an album and its ordered tracks in a consistent read
@@ -77,23 +153,24 @@ func queryAlbum(
 		Tracks:  make([]AlbumTrack, 0),
 	}
 
-	err := tx.QueryRowContext(ctx, `
-		SELECT
-			id,
-			album,
-			format,
-			release_date,
-			release_year,
-			disc_count,
-			track_count
-		FROM library_albums
-		WHERE id = ?;
-	`, albumID).Scan(
+	err := tx.QueryRowContext(
+		ctx,
+		albumSQL,
+		sql.Named("album_id", albumID),
+	).Scan(
 		&album.ID,
 		&album.Title,
 		&album.Format,
 		&album.ReleaseDate,
 		&album.ReleaseYear,
+		&album.OriginalReleaseDate,
+		&album.OriginalReleaseYear,
+		&album.ReleaseCountry,
+		&album.Label,
+		&album.Composer,
+		&album.Copyright,
+		&album.PurchaseDate,
+		&album.IsCompilation,
 		&album.DiscCount,
 		&album.TrackCount,
 	)
@@ -120,12 +197,11 @@ func queryAlbumArtists(
 	tx *sql.Tx,
 	albumID int64,
 ) ([]string, error) {
-	rows, err := tx.QueryContext(ctx, `
-		SELECT artist
-		FROM library_album_artists
-		WHERE album_id = ?
-		ORDER BY artist COLLATE NOCASE, artist_key, id;
-	`, albumID)
+	rows, err := tx.QueryContext(
+		ctx,
+		albumArtistsSQL,
+		sql.Named("album_id", albumID),
+	)
 	if err != nil {
 		return nil, fmt.Errorf(
 			"query artists for album %d: %w",
@@ -167,22 +243,11 @@ func queryAlbumTracks(
 	tx *sql.Tx,
 	albumID int64,
 ) ([]AlbumTrack, error) {
-	rows, err := tx.QueryContext(ctx, `
-		SELECT
-			id,
-			title,
-			artists,
-			disc_number,
-			track_number
-		FROM library_tracks
-		WHERE album_id = ?
-		ORDER BY
-			COALESCE(disc_number, 1),
-			CASE WHEN track_number IS NULL THEN 1 ELSE 0 END,
-			track_number,
-			path COLLATE BINARY,
-			id;
-	`, albumID)
+	rows, err := tx.QueryContext(
+		ctx,
+		albumTracksSQL,
+		sql.Named("album_id", albumID),
+	)
 	if err != nil {
 		return nil, fmt.Errorf(
 			"query tracks for album %d: %w",

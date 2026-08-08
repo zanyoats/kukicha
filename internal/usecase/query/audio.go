@@ -3,6 +3,7 @@ package query
 import (
 	"context"
 	"database/sql"
+	_ "embed"
 	"errors"
 	"fmt"
 
@@ -10,6 +11,9 @@ import (
 )
 
 var ErrTrackNotFound = errors.New("track not found")
+
+//go:embed sql/track_audio.sql
+var trackAudioSQL string
 
 // TrackAudio contains the database-owned information needed to locate a track's
 // audio file. These paths must remain internal and must never be returned to the
@@ -27,17 +31,12 @@ func TrackAudioByID(
 ) (TrackAudio, error) {
 	var audio TrackAudio
 
-	err := db.QueryRowContext(ctx, `
-		SELECT
-			roots.path,
-			tracks.path,
-			tracks.ext
-		FROM library_tracks AS tracks
-		JOIN library_roots AS roots
-			ON roots.id = tracks.root_id
-		WHERE tracks.id = ?
-			AND tracks.file_type = ?;
-	`, trackID, app.FileTypeAudio).Scan(
+	err := db.QueryRowContext(
+		ctx,
+		trackAudioSQL,
+		sql.Named("track_id", trackID),
+		sql.Named("file_type", app.FileTypeAudio),
+	).Scan(
 		&audio.RootPath,
 		&audio.RelativePath,
 		&audio.Extension,

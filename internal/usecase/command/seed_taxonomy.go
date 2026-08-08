@@ -10,6 +10,15 @@ import (
 	"github.com/zanyoats/kukicha/internal/app"
 )
 
+//go:embed sql/reset_taxonomy.sql
+var resetTaxonomySQL string
+
+//go:embed sql/insert_taxonomy.sql
+var insertTaxonomySQL string
+
+//go:embed sql/populate_taxonomy_lookup_tables.sql
+var populateTaxonomyLookupTablesSQL string
+
 func SeedTaxonomy(
 	ctx context.Context,
 	conn *sql.DB,
@@ -24,30 +33,14 @@ func SeedTaxonomy(
 	}
 
 	// TODO we don't want to do this every startup
-	_, err = tx.ExecContext(ctx, `
-		DELETE FROM taxonomy;
-		DELETE FROM taxonomy_styles;
-		DELETE FROM taxonomy_genres;
-	`)
+	_, err = tx.ExecContext(ctx, resetTaxonomySQL)
 
 	if err != nil {
 		_ = tx.Rollback()
 		return fmt.Errorf("reset taxonomy tables: %w", err)
 	}
 
-	insertTaxonomy, err := tx.PrepareContext(ctx, `
-		INSERT INTO taxonomy (
-			id,
-			kind,
-			name,
-			parent,
-			source,
-			alias,
-			status,
-			count
-		)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?);
-	`)
+	insertTaxonomy, err := tx.PrepareContext(ctx, insertTaxonomySQL)
 	if err != nil {
 		_ = tx.Rollback()
 		return fmt.Errorf("prepare taxonomy insert: %w", err)
@@ -62,14 +55,14 @@ func SeedTaxonomy(
 	for rowNum, record := range catalog.Records() {
 		if _, err = insertTaxonomy.ExecContext(
 			ctx,
-			rowNum,
-			record.Kind,
-			record.Name,
-			record.Parent,
-			record.Source,
-			record.SourceTerm,
-			record.Status,
-			record.Count,
+			sql.Named("id", rowNum),
+			sql.Named("kind", record.Kind),
+			sql.Named("name", record.Name),
+			sql.Named("parent", record.Parent),
+			sql.Named("source", record.Source),
+			sql.Named("alias", record.SourceTerm),
+			sql.Named("status", record.Status),
+			sql.Named("count", record.Count),
 		); err != nil {
 			_ = tx.Rollback()
 			return fmt.Errorf("insert taxonomy row %d: %w", rowNum+1, err)
@@ -82,23 +75,11 @@ func SeedTaxonomy(
 	}
 	insertTaxonomyClosed = true
 
-	if _, err = tx.ExecContext(ctx, `
-		INSERT OR IGNORE INTO taxonomy_genres (genre)
-		SELECT name
-		FROM taxonomy
-		WHERE kind = 'genre'
-		ORDER BY id;
-
-		-- Insert our special unknown token so fk constraints don't fire
-		INSERT OR IGNORE INTO taxonomy_genres (genre)
-		VALUES (?); 
-
-		INSERT OR IGNORE INTO taxonomy_styles (style, parent_genre)
-		SELECT name, parent
-		FROM taxonomy
-		WHERE kind = 'style'
-		ORDER BY id;
-	`, unknownItem); err != nil {
+	if _, err = tx.ExecContext(
+		ctx,
+		populateTaxonomyLookupTablesSQL,
+		sql.Named("unknown_item", unknownItem),
+	); err != nil {
 		_ = tx.Rollback()
 		return fmt.Errorf("populate taxonomy lookup tables: %w", err)
 	}
