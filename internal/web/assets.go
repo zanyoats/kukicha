@@ -9,14 +9,35 @@ import (
 //go:embed templates/*.html static/*
 var embeddedFiles embed.FS
 
-var pageTemplates = template.Must(
-	template.ParseFS(embeddedFiles, "templates/*.html"),
-)
+var pageTemplates = map[string]*template.Template{
+	"album":   mustParsePageTemplate("album"),
+	"home":    mustParsePageTemplate("home"),
+	"library": mustParsePageTemplate("library"),
+	"search":  mustParsePageTemplate("search"),
+}
 
 var staticFiles = mustSub(embeddedFiles, "static")
 
 var AlbumArtwork64FallbackArtwork = mustReadFile(staticFiles, "album-fallback-64.svg")
 var AlbumArtwork256FallbackArtwork = mustReadFile(staticFiles, "album-fallback-256.svg")
+
+func mustParsePageTemplate(pageName string) *template.Template {
+	return template.Must(template.New(pageName).Funcs(template.FuncMap{
+		"yesNo": yesNo,
+	}).ParseFS(
+		embeddedFiles,
+		"templates/layout.html",
+		"templates/"+pageName+".html",
+	))
+}
+
+func yesNo(value *bool) string {
+	if value != nil && *value {
+		return "Yes"
+	}
+
+	return "No"
+}
 
 func mustSub(source fs.FS, directory string) fs.FS {
 	sub, err := fs.Sub(source, directory)

@@ -10,33 +10,56 @@ import (
 	"net/url"
 	"strconv"
 
+	"github.com/zanyoats/kukicha/internal/app"
 	"github.com/zanyoats/kukicha/internal/usecase/query"
 )
 
 type pageData struct {
-	AppBasePath         string
-	UnpolyStylesheetURL string
-	StylesheetURL       string
-	UnpolyJavaScriptURL string
-	PlayerJavaScriptURL string
-	PageTitle           string
-	Album               *query.Album
-	AlbumArtworkURL     string
-	TrackAudioURLs      map[int64]string
+	HomeURL              string
+	LibraryURL           string
+	SearchURL            string
+	UnpolyStylesheetURL  string
+	StylesheetURL        string
+	UnpolyJavaScriptURL  string
+	PlayerJavaScriptURL  string
+	InstanceIdenticonURL string
+	PageTitle            string
+	SearchQuery          string
+	Albums               []albumCard
+	Album                *query.Album
+	AlbumArtworkURL      string
+	TrackAudioURLs       map[int64]string
+}
+
+type albumCard struct {
+	Title      string
+	Artists    []string
+	ArtworkURL string
+	AlbumURL   string
 }
 
 func newPageData(appBasePath string) pageData {
 	return pageData{
-		AppBasePath:         appBasePath,
-		UnpolyStylesheetURL: pathAtAppBase(appBasePath, "/assets/unpoly.min.css"),
-		StylesheetURL:       pathAtAppBase(appBasePath, "/assets/app.css"),
-		UnpolyJavaScriptURL: pathAtAppBase(appBasePath, "/assets/unpoly.min.js"),
-		PlayerJavaScriptURL: pathAtAppBase(appBasePath, "/assets/player.js"),
+		HomeURL:              appBasePath,
+		LibraryURL:           pathAtAppBase(appBasePath, "/library"),
+		SearchURL:            pathAtAppBase(appBasePath, "/search"),
+		UnpolyStylesheetURL:  pathAtAppBase(appBasePath, "/assets/unpoly.min.css"),
+		StylesheetURL:        pathAtAppBase(appBasePath, "/assets/app.css"),
+		UnpolyJavaScriptURL:  pathAtAppBase(appBasePath, "/assets/unpoly.min.js"),
+		PlayerJavaScriptURL:  pathAtAppBase(appBasePath, "/assets/player.js"),
+		InstanceIdenticonURL: pathAtAppBase(appBasePath, "/instance/identicon.svg"),
 	}
 }
 
 func NewHandler(appBasePath string, db *sql.DB) http.Handler {
 	mux := http.NewServeMux()
+
+	mux.HandleFunc(
+		"GET /favicon.ico",
+		func(w http.ResponseWriter, r *http.Request) {
+			instanceIdenticon(w, r, db)
+		},
+	)
 
 	appRootPattern := appBasePath
 	if appRootPattern == "/" {
@@ -46,11 +69,27 @@ func NewHandler(appBasePath string, db *sql.DB) http.Handler {
 	mux.HandleFunc(
 		"GET "+appRootPattern,
 		func(w http.ResponseWriter, r *http.Request) {
-			appRoot(w, r, appBasePath)
+			homePage(w, r, appBasePath)
 		},
 	)
 
-	albumPattern := pathAtAppBase(appBasePath, "/album")
+	libraryPattern := pathAtAppBase(appBasePath, "/library")
+	mux.HandleFunc(
+		"GET "+libraryPattern,
+		func(w http.ResponseWriter, r *http.Request) {
+			libraryPage(w, r, appBasePath, db)
+		},
+	)
+
+	searchPattern := pathAtAppBase(appBasePath, "/search")
+	mux.HandleFunc(
+		"GET "+searchPattern,
+		func(w http.ResponseWriter, r *http.Request) {
+			searchPage(w, r, appBasePath)
+		},
+	)
+
+	albumPattern := pathAtAppBase(appBasePath, "/library/album")
 	mux.HandleFunc(
 		"GET "+albumPattern,
 		func(w http.ResponseWriter, r *http.Request) {
@@ -60,7 +99,7 @@ func NewHandler(appBasePath string, db *sql.DB) http.Handler {
 
 	albumArtworkPattern := pathAtAppBase(
 		appBasePath,
-		"/album/artwork",
+		"/library/album/artwork",
 	)
 	mux.HandleFunc(
 		"GET "+albumArtworkPattern,
@@ -71,12 +110,23 @@ func NewHandler(appBasePath string, db *sql.DB) http.Handler {
 
 	trackAudioPattern := pathAtAppBase(
 		appBasePath,
-		"/album/tracks/audio",
+		"/library/album/tracks/audio",
 	)
 	mux.HandleFunc(
 		"GET "+trackAudioPattern,
 		func(w http.ResponseWriter, r *http.Request) {
 			trackAudio(w, r, db)
+		},
+	)
+
+	instanceIdenticonPattern := pathAtAppBase(
+		appBasePath,
+		"/instance/identicon.svg",
+	)
+	mux.HandleFunc(
+		"GET "+instanceIdenticonPattern,
+		func(w http.ResponseWriter, r *http.Request) {
+			instanceIdenticon(w, r, db)
 		},
 	)
 
@@ -92,14 +142,112 @@ func NewHandler(appBasePath string, db *sql.DB) http.Handler {
 	return mux
 }
 
-func appRoot(
+func instanceIdenticon(
+	w http.ResponseWriter,
+	r *http.Request,
+	db *sql.DB,
+) {
+	tx, err := db.BeginTx(
+		r.Context(),
+		&sql.TxOptions{ReadOnly: true},
+	)
+	if err != nil {
+		log.Printf("Unable to begin the instance identicon query: %v", err)
+		http.Error(
+			w,
+			"Unable to load the instance identicon",
+			http.StatusInternalServerError,
+		)
+		return
+	}
+	defer tx.Rollback()
+
+	identicon, err := query.AppMetadata(
+		r.Context(),
+		tx,
+		app.InstanceIdenticon,
+	)
+	if err != nil {
+		log.Printf("Unable to load the instance identicon: %v", err)
+		http.Error(
+			w,
+			"Unable to load the instance identicon",
+			http.StatusInternalServerError,
+		)
+		return
+	}
+
+	if err := tx.Commit(); err != nil {
+		log.Printf("Unable to commit the instance identicon query: %v", err)
+		http.Error(
+			w,
+			"Unable to load the instance identicon",
+			http.StatusInternalServerError,
+		)
+		return
+	}
+
+	writeArtwork(w, "image/svg+xml", []byte(identicon))
+}
+
+func libraryPage(
+	w http.ResponseWriter,
+	r *http.Request,
+	appBasePath string,
+	db *sql.DB,
+) {
+	albums, err := query.Albums(r.Context(), db)
+	if err != nil {
+		log.Printf("Unable to load albums: %v", err)
+		http.Error(
+			w,
+			"Unable to load the albums",
+			http.StatusInternalServerError,
+		)
+		return
+	}
+
+	data := newPageData(appBasePath)
+	data.PageTitle = "Library"
+	data.Albums = make([]albumCard, 0, len(albums))
+
+	for _, album := range albums {
+		data.Albums = append(data.Albums, albumCard{
+			Title:   album.Title,
+			Artists: album.Artists,
+			ArtworkURL: albumArtworkURL(
+				appBasePath,
+				album.ID,
+				query.AlbumArtwork64,
+			),
+			AlbumURL: albumURL(appBasePath, album.ID),
+		})
+	}
+
+	renderPage(w, "library", data)
+}
+
+func homePage(
 	w http.ResponseWriter,
 	_ *http.Request,
 	appBasePath string,
 ) {
 	data := newPageData(appBasePath)
+	data.PageTitle = "Home"
 
-	renderPage(w, "layout.html", data)
+	renderPage(w, "home", data)
+}
+
+func searchPage(
+	w http.ResponseWriter,
+	r *http.Request,
+	appBasePath string,
+) {
+	data := newPageData(appBasePath)
+	data.PageTitle = "Search"
+	data.SearchQuery = r.URL.Query().Get("q")
+
+	renderPage(w, "search", data)
 }
 
 func albumPage(
@@ -144,7 +292,7 @@ func albumPage(
 		)
 	}
 
-	renderPage(w, "layout.html", data)
+	renderPage(w, "album", data)
 }
 
 func albumArtwork(
@@ -247,19 +395,30 @@ func writeArtwork(
 
 func renderPage(
 	w http.ResponseWriter,
-	templateName string,
+	pageName string,
 	data pageData,
 ) {
 	var rendered bytes.Buffer
 
-	if err := pageTemplates.ExecuteTemplate(
+	pageTemplate, ok := pageTemplates[pageName]
+	if !ok {
+		log.Printf("Unable to find page template %q", pageName)
+		http.Error(
+			w,
+			"Unable to render the application",
+			http.StatusInternalServerError,
+		)
+		return
+	}
+
+	if err := pageTemplate.ExecuteTemplate(
 		&rendered,
-		templateName,
+		"layout.html",
 		data,
 	); err != nil {
 		log.Printf(
 			"Unable to render template %q: %v",
-			templateName,
+			pageName,
 			err,
 		)
 		http.Error(
@@ -289,9 +448,14 @@ func albumArtworkURL(
 	albumID int64,
 	size query.AlbumArtworkSize,
 ) string {
-	return pathAtAppBase(appBasePath, "/album/artwork") +
+	return pathAtAppBase(appBasePath, "/library/album/artwork") +
 		"?album_id=" + strconv.FormatInt(albumID, 10) +
 		"&size=" + string(size)
+}
+
+func albumURL(appBasePath string, albumID int64) string {
+	return pathAtAppBase(appBasePath, "/library/album") +
+		"?album_id=" + strconv.FormatInt(albumID, 10)
 }
 
 func trackAudioURL(
@@ -300,7 +464,7 @@ func trackAudioURL(
 ) string {
 	return pathAtAppBase(
 		appBasePath,
-		"/album/tracks/audio",
+		"/library/album/tracks/audio",
 	) + "?track_id=" + strconv.FormatInt(trackID, 10)
 }
 
