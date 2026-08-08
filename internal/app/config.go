@@ -25,11 +25,10 @@ const (
 )
 
 type AppConfig struct {
-	AppDir    string
-	Roots     []Root
-	DbPath    string
-	DbPragmas string
-	Settings  struct {
+	AppDir         string
+	Roots          []Root
+	DataSourceName string
+	Settings       struct {
 		DatabasePath string   `toml:"database_path"`
 		Roots        []string `toml:"roots"`
 		HTTP         struct {
@@ -48,112 +47,142 @@ type AppConfig struct {
 //go:embed defaults.toml
 var defaultsTomlData []byte
 
-func LoadAppConfig(catalog *Catalog) (appConfig *AppConfig, err error) {
-	var appDir, path string
-	var userTomlData []byte
+func LoadAppConfig(catalog *Catalog) (*AppConfig, error) {
+	var (
+		path         string
+		dbPath       string
+		userTomlData []byte
+		err          error
+		result       = new(AppConfig)
+	)
 
-	if appDir, path, err = ensureConfigFile(); err != nil {
-		err = GiveUp(err)
-		return
+	if result.AppDir, path, err = ensureConfigFile(); err != nil {
+		return nil, fmt.Errorf(
+			"error setting up config file name %q: %w",
+			ConfigFileName, err,
+		)
 	}
 
 	if userTomlData, err = os.ReadFile(path); err != nil {
-		err = GiveUp(err)
-		return
+		return nil, fmt.Errorf(
+			"error reading config file path %q: %w",
+			path, err,
+		)
 	}
-
-	appConfig = &AppConfig{AppDir: appDir}
-	appConfig.DbPath = filepath.Join(appDir, DbFileName)
-	sqlitePragmas := []string{
-		"_foreign_keys=on",
-		"_synchronous=NORMAL",
-		"_busy_timeout=5000",
-		"_cache_size=-32768", // '-' means use kilobytes, thus 32 MB page store
-	}
-	appConfig.DbPragmas = strings.Join(sqlitePragmas, "&")
 
 	// First load defaults config, and then "merge" with user's config
-	if _, err = toml.Decode(string(defaultsTomlData), &appConfig.Settings); err != nil {
-		return nil, GiveUp(err)
+	if _, err = toml.Decode(string(defaultsTomlData), &result.Settings); err != nil {
+		return nil, fmt.Errorf(
+			"error decoding defaults configuration file: %w %s",
+			err, "this is a bug",
+		)
 	}
-	if _, err = toml.Decode(string(userTomlData), &appConfig.Settings); err != nil {
-		return nil, GiveUp(err)
+	if _, err = toml.Decode(string(userTomlData), &result.Settings); err != nil {
+		return nil, fmt.Errorf(
+			"error decoding user's toml config file %q: %w",
+			path, err,
+		)
 	}
 
 	// Validations...
 
 	// ...no empty tokens
 	if slices.Contains(slices.Concat(
-		slices.Collect(maps.Keys(appConfig.Settings.AlbumArtistSplitTokens)),
-		slices.Collect(maps.Keys(appConfig.Settings.AlbumArtistSplitAuto)),
-		slices.Collect(maps.Keys(appConfig.Settings.PrimaryGenreSplitTokens)),
-		slices.Collect(maps.Keys(appConfig.Settings.SecondaryGenreSplitTokens)),
+		slices.Collect(maps.Keys(result.Settings.AlbumArtistSplitTokens)),
+		slices.Collect(maps.Keys(result.Settings.AlbumArtistSplitAuto)),
+		slices.Collect(maps.Keys(result.Settings.PrimaryGenreSplitTokens)),
+		slices.Collect(maps.Keys(result.Settings.SecondaryGenreSplitTokens)),
 	), "") {
-		return nil, HeresWhy(
-			"I found a empty token in " +
-				"album_artist_split_tokens, " +
-				"album_artist_split_auto_tokens, " +
-				"primary_genre_split_tokens, " +
-				"or secondary_genre_split_tokens")
+		return nil, fmt.Errorf(
+			"I found a empty token in one of: %s",
+			strings.Join([]string{
+				"album_artist_split_tokens",
+				"album_artist_split_auto_tokens",
+				"primary_genre_split_tokens",
+				"secondary_genre_split_tokens",
+			}, ", "))
 	}
 
-	// ...auto tokens subset of artist split tokens
-	for token, enabled := range appConfig.Settings.AlbumArtistSplitAuto {
+	// ...auto tokens are valid and a subset of artist split tokens
+	for token, enabled := range result.Settings.AlbumArtistSplitAuto {
 		if !enabled {
 			continue
 		}
 
-		if enabled := appConfig.Settings.AlbumArtistSplitTokens[token]; !enabled {
-			m := fmt.Sprintf("The token %q should be present/set in config key album_artist_split_tokens", token)
-			return nil, HeresWhy(m)
+		if !isSymbolToken(token) {
+			return nil, fmt.Errorf(
+				"%s key %q must contain only punctuation/symbol characters",
+				"album_artist_split_auto_tokens", token,
+			)
+		}
+
+		if enabled := result.Settings.AlbumArtistSplitTokens[token]; !enabled {
+			return nil, fmt.Errorf(
+				"The token %q should be present/set in config key %s",
+				"album_artist_split_tokens", token,
+			)
 		}
 	}
 
-	for _, genreOrStyle := range appConfig.Settings.GenreStyleAliases {
+	// ... user provided genres/styles are valid terms
+	for _, genreOrStyle := range result.Settings.GenreStyleAliases {
 		if !catalog.IsValidTerm(genreOrStyle) {
-			m := fmt.Sprintf(
-				"The genre or style %q was not accepted as a valid taxonomy term. "+
-					"A print out of valid terms is available at %q",
-				genreOrStyle,
-				// TODO
-				"/foo/printout.txt",
-			)
-			return nil, HeresWhy(m)
+			format := strings.Join([]string{
+				"The genre or style %q was not accepted as a valid taxonomy term.",
+				"A print out of valid terms is available at %q",
+			}, "")
+			return nil, fmt.Errorf(format, genreOrStyle, "/foo/printout.txt")
 		}
 	}
 
 	// ...normalize each root to a actualy folder path
-	for pos, root := range appConfig.Settings.Roots {
+	for pos, root := range result.Settings.Roots {
 		var norm string
 
-		if norm, err = normalizeRoot(appConfig.AppDir, root); err != nil {
+		if norm, err = normalizeFolderPath(result.AppDir, root); err != nil {
 			return nil, err
 		}
 
 		newRoot := Root{RootPos: pos, RootPath: norm}
-		appConfig.Roots = append(appConfig.Roots, newRoot)
+		result.Roots = append(result.Roots, newRoot)
 	}
 
 	// ...normalize database path
-	if appConfig.Settings.DatabasePath != "" {
+	dbPath = filepath.Join(result.AppDir, DbFileName)
+	if result.Settings.DatabasePath != "" {
 		var norm string
 
-		if norm, err = normalizeFolderPath(appConfig.AppDir, appConfig.Settings.DatabasePath); err != nil {
+		if norm, err = normalizeFolderPath(result.AppDir, result.Settings.DatabasePath); err != nil {
 			return nil, err
 		}
 
-		appConfig.DbPath = filepath.Join(norm, DbFileName)
+		dbPath = filepath.Join(norm, DbFileName)
 	}
 
 	// valid http settings...
-	if err := validateServerAddress(appConfig.Settings.HTTP.ServerAddress); err != nil {
-		return nil, HeresWhyErr("Your http.server_address setting was not valid.", err)
+	if err := validateServerAddress(result.Settings.HTTP.ServerAddress); err != nil {
+		return nil, fmt.Errorf(
+			"%q setting is not valid: %w",
+			"http.server_address", err,
+		)
 	}
-	if err := validateAppBasePath(appConfig.Settings.HTTP.AppBasePath); err != nil {
-		return nil, HeresWhyErr("Your http.app_base_path setting was not valid.", err)
+	if err := validateAppBasePath(result.Settings.HTTP.AppBasePath); err != nil {
+		return nil, fmt.Errorf(
+			"%q setting is not valid: %w",
+			"http.app_base_path", err,
+		)
 	}
 
-	return
+	sqlitePragmas := []string{
+		"_foreign_keys=on",
+		"_synchronous=NORMAL",
+		"_busy_timeout=5000",
+		"_cache_size=-32768", // '-' means use kilobytes, thus 32 MB page store
+	}
+	dbPragmas := strings.Join(sqlitePragmas, "&")
+	result.DataSourceName = fmt.Sprintf("%s?%s", dbPath, dbPragmas)
+
+	return result, nil
 }
 
 func ensureConfigFile() (appDir string, path string, err error) {
@@ -182,27 +211,22 @@ func ensureConfigFile() (appDir string, path string, err error) {
 	return
 }
 
-func normalizeRoot(baseDir, root string) (result string, err error) {
-	if root == "" {
-		err = HeresWhy("I cannot accept a empty root path")
-		return
-	}
+func normalizeFolderPath(baseDir, path string) (string, error) {
+	var result string
 
-	if result, err = normalizeFolderPath(baseDir, root); err != nil {
-		return
-	}
-
-	return
-}
-
-func normalizeFolderPath(baseDir, path string) (result string, err error) {
 	switch {
+	case path == "":
+		return "", fmt.Errorf(
+			"empty folder path %q was found",
+			path,
+		)
 	case strings.HasPrefix(path, "~"):
-		var home string
-
-		if home, err = os.UserHomeDir(); err != nil {
-			err = HeresWhyErr(fmt.Sprintf("I could not resolve user's home dir in path %q", path), err)
-			return
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", fmt.Errorf(
+				"error resolving user's home dir in path %q: %w",
+				path, err,
+			)
 		}
 
 		result = filepath.Join(home, strings.TrimPrefix(path, "~"))
@@ -216,46 +240,49 @@ func normalizeFolderPath(baseDir, path string) (result string, err error) {
 
 	result = filepath.Clean(result)
 
-	var info os.FileInfo
-	if info, err = os.Lstat(result); err != nil {
-		switch {
-		case errors.Is(err, fs.ErrNotExist):
-			err = HeresWhy(fmt.Sprintf(
-				"The path %q you gave me does not exists",
+	info, err := os.Lstat(result)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return "", fmt.Errorf(
+				"The path %q given does not exist",
 				path,
-			))
-		default:
-			err = GiveUp(err)
+			)
 		}
 
-		return
+		return "", fmt.Errorf(
+			"error processing path %q: %w",
+			result, err,
+		)
 	}
 
 	mode := info.Mode()
-
 	if mode&os.ModeSymlink != 0 {
 		if result, err = filepath.EvalSymlinks(result); err != nil {
-			err = GiveUp(err)
-			return
+			return "", fmt.Errorf(
+				"error resolving symbolic link %q: %w",
+				result, err,
+			)
 		}
 
-		if info, err = os.Lstat(result); err != nil {
-			err = GiveUp(err)
-			return
+		info, err := os.Lstat(result)
+		if err != nil {
+			return "", fmt.Errorf(
+				"error processing resolved link %q from original path %q: %w",
+				result, path, err,
+			)
 		}
 
 		mode = info.Mode()
 	}
 
 	if !info.IsDir() {
-		err = HeresWhy(fmt.Sprintf(
-			"I found the path %q but it's not a folder, instead you gave me a file type %v",
+		return "", fmt.Errorf(
+			"path %q is not a folder; file type found to be %v",
 			path, mode.Type(),
-		))
-		return
+		)
 	}
 
-	return
+	return result, nil
 }
 
 func validateServerAddress(address string) error {
@@ -309,4 +336,18 @@ func validateAppBasePath(basePath string) error {
 	}
 
 	return nil
+}
+
+func isSymbolToken(token string) bool {
+	if token == "" {
+		return false
+	}
+
+	for _, r := range token {
+		if !unicode.IsPunct(r) && !unicode.IsSymbol(r) {
+			return false
+		}
+	}
+
+	return true
 }

@@ -12,7 +12,7 @@ import (
 	"github.com/zanyoats/kukicha/internal/usecase/command"
 )
 
-func Sync(ctx context.Context, db *sql.DB, appConfig *app.AppConfig) (result command.BuildLibraryResult, err error) {
+func Sync(ctx context.Context, db *sql.DB, conf *app.AppConfig) (result command.BuildLibraryResult, err error) {
 	conn, err := db.Conn(ctx)
 	if err != nil {
 		return
@@ -23,7 +23,7 @@ func Sync(ctx context.Context, db *sql.DB, appConfig *app.AppConfig) (result com
 		return
 	}
 
-	if err = localFolderWalk(ctx, appConfig, conn); err != nil {
+	if err = localFolderWalk(ctx, conf, conn); err != nil {
 		return
 	}
 
@@ -33,17 +33,17 @@ func Sync(ctx context.Context, db *sql.DB, appConfig *app.AppConfig) (result com
 		RecognizedPlaylistExtensions,
 		RecognizedSidecarExtensions,
 		UnknownItem,
-		appConfig.Settings.SecondaryGenreSplitTokens,
+		conf.Settings.SecondaryGenreSplitTokens,
 	)
 
 	return
 }
 
-func localFolderWalk(ctx context.Context, appConfig *app.AppConfig, conn *sql.Conn) error {
+func localFolderWalk(ctx context.Context, conf *app.AppConfig, conn *sql.Conn) error {
 	walker := func(scannedFile *app.ScannedFile) (err error) {
 		switch scannedFile.FileType {
 		case app.FileTypeAudio:
-			err = processFileTypeAudio(ctx, appConfig, conn, scannedFile)
+			err = processFileTypeAudio(ctx, conf, conn, scannedFile)
 
 		case app.FileTypeSidecarCover, app.FileTypeSidecarOther:
 			err = processFileTypeSidecar(scannedFile)
@@ -59,7 +59,7 @@ func localFolderWalk(ctx context.Context, appConfig *app.AppConfig, conn *sql.Co
 		return err
 	}
 
-	if err := walk(appConfig, walker); err != nil {
+	if err := walk(conf, walker); err != nil {
 		return err
 	}
 
@@ -68,7 +68,7 @@ func localFolderWalk(ctx context.Context, appConfig *app.AppConfig, conn *sql.Co
 
 func processFileTypeAudio(
 	ctx context.Context,
-	appConfig *app.AppConfig,
+	conf *app.AppConfig,
 	conn *sql.Conn,
 	scannedFile *app.ScannedFile,
 ) error {
@@ -84,11 +84,11 @@ func processFileTypeAudio(
 		seen := make(map[string]bool, len(scannedFile.Metadata.Genres))
 
 		for _, value := range scannedFile.Metadata.Genres {
-			for _, genre := range splitGenreFieldList(appConfig.Settings.PrimaryGenreSplitTokens, value) {
+			for _, genre := range splitGenreFieldList(conf.Settings.PrimaryGenreSplitTokens, value) {
 				key := strings.ToLower(genre)
 
 				// preprocess
-				if replacement, ok := appConfig.Settings.GenreStyleAliases[key]; ok {
+				if replacement, ok := conf.Settings.GenreStyleAliases[key]; ok {
 					genre = replacement
 					key = replacement
 				}
@@ -107,8 +107,8 @@ func processFileTypeAudio(
 		ctx, conn,
 		scannedFile.NormalizedMetadata.AlbumKey,
 		scannedFile.NormalizedMetadata.RawAlbumArtistDisplays,
-		appConfig.Settings.AlbumArtistSplitTokens,
-		appConfig.Settings.AlbumArtistSplitAuto,
+		conf.Settings.AlbumArtistSplitTokens,
+		conf.Settings.AlbumArtistSplitAuto,
 	)
 
 	if err != nil {
@@ -124,17 +124,16 @@ func processFileTypeAudio(
 
 	// apply *track* artist split rules using auto tokens
 	scannedFile.NormalizedMetadata.RawTrackArtistDisplays = rawTrackArtistDisplays(scannedFile.Metadata)
-	// mapping = []string{}
 	if apply, err := displaysContainAnyToken(
 		scannedFile.NormalizedMetadata.RawTrackArtistDisplays,
-		appConfig.Settings.AlbumArtistSplitAuto,
+		conf.Settings.AlbumArtistSplitAuto,
 	); err != nil {
 		return err
 	} else if apply {
 		mapping =
 			applyAutoMapping(
 				scannedFile.NormalizedMetadata.RawTrackArtistDisplays,
-				appConfig.Settings.AlbumArtistSplitTokens,
+				conf.Settings.AlbumArtistSplitAuto,
 			)
 	} else {
 		mapping =

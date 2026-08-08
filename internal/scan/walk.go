@@ -16,11 +16,11 @@ import (
 type walkFunc func(scannedFile *app.ScannedFile) error
 
 // Normalized roots are valid dir paths
-func walk(appConfig *app.AppConfig, fn walkFunc) error {
-	for _, root := range appConfig.Roots {
+func walk(conf *app.AppConfig, fn walkFunc) error {
+	for _, root := range conf.Roots {
 		log.Printf("Walking root/%d %q", root.RootPos, root.RootPath)
 
-		if err := walkDir(appConfig, &root, "", fn); err != nil {
+		if err := walkDir(conf, &root, "", fn); err != nil {
 			return err
 		}
 	}
@@ -29,7 +29,7 @@ func walk(appConfig *app.AppConfig, fn walkFunc) error {
 }
 
 func walkDir(
-	appConfig *app.AppConfig,
+	conf *app.AppConfig,
 	root *app.Root,
 	folderPath string,
 	fn walkFunc,
@@ -48,7 +48,7 @@ func walkDir(
 		switch {
 		case file.Type().IsRegular():
 			name := file.Name()
-			if fileType, recognizable := isRecognizable(name, appConfig.Settings.RecognizedSidecarArtwork); recognizable {
+			if fileType, recognizable := isRecognizable(name, conf.Settings.RecognizedSidecarArtwork); recognizable {
 				path := filepath.Join(folderPath, name)
 				base := filepath.Base(path)
 				ext := filepath.Ext(path)
@@ -95,7 +95,7 @@ func walkDir(
 		case file.Type().IsDir():
 			folderPath_ := filepath.Join(folderPath, file.Name())
 
-			if err := walkDir(appConfig, root, folderPath_, fn); err != nil {
+			if err := walkDir(conf, root, folderPath_, fn); err != nil {
 				return err
 			}
 		}

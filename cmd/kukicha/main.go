@@ -4,10 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"fmt"
 	"log"
 	"net/http"
-	"os"
 	"time"
 
 	_ "github.com/mattn/go-sqlite3"
@@ -18,39 +16,43 @@ import (
 )
 
 func main() {
-	catalog := app.MustLoadTaxonomy()
-
-	appConfig, err := app.LoadAppConfig(catalog)
+	catalog, err := app.LoadTaxonomy()
 	if err != nil {
-		fail(err)
+		log.Fatal(err)
+	}
+
+	conf, err := app.LoadAppConfig(catalog)
+	if err != nil {
+		log.Fatal(err)
 	}
 
 	ctx := context.Background()
-	dsn := fmt.Sprintf("%s?%s", appConfig.DbPath, appConfig.DbPragmas)
 
-	db, err := sql.Open("sqlite3", dsn)
+	db, err := sql.Open("sqlite3", conf.DataSourceName)
 	if err != nil {
-		fail(err)
+		log.Fatal(err)
 	}
 	defer db.Close()
 
 	db.SetMaxOpenConns(1)
 
 	if _, err = db.ExecContext(ctx, `PRAGMA journal_mode = WAL`); err != nil {
-		fail(err)
+		log.Fatal(err)
 	}
 
 	if err = command.Migrate(ctx, db); err != nil {
-		fail(err)
+		log.Fatal(err)
 	}
 
 	if err = command.SeedTaxonomy(ctx, db, catalog, scan.UnknownItem); err != nil {
+		log.Fatal(err)
+	}
 		fail(err)
 	}
 
-	result, err := scan.Sync(ctx, db, appConfig)
+	result, err := scan.Sync(ctx, db, conf)
 	if err != nil {
-		fail(err)
+		log.Fatal(err)
 	}
 
 	log.Printf("Library sync complete")
@@ -61,26 +63,21 @@ func main() {
 	}
 
 	server := &http.Server{
-		Addr: appConfig.Settings.HTTP.ServerAddress,
+		Addr: conf.Settings.HTTP.ServerAddress,
 		Handler: web.NewHandler(
-			appConfig.Settings.HTTP.AppBasePath,
+			conf.Settings.HTTP.AppBasePath,
 			db,
 		),
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 
 	log.Printf(
-		"Kukicha web server listening at http://%s%s",
-		appConfig.Settings.HTTP.ServerAddress,
-		appConfig.Settings.HTTP.AppBasePath,
+		"Kukicha web server is listening at http://%s%s",
+		conf.Settings.HTTP.ServerAddress,
+		conf.Settings.HTTP.AppBasePath,
 	)
 
 	if err = server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-		fail(err)
+		log.Fatal(err)
 	}
-}
-
-func fail(err error) {
-	fmt.Fprintln(os.Stderr, err)
-	os.Exit(1)
 }

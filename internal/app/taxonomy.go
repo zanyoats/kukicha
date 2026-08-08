@@ -44,18 +44,17 @@ func (c *Catalog) IsValidTerm(lookup string) bool {
 //go:embed data.tsv
 var rawData []byte
 
-func MustLoadTaxonomy() *Catalog {
+func LoadTaxonomy() (*Catalog, error) {
 	reader := csv.NewReader(bytes.NewReader(rawData))
 	reader.Comma = '\t'
 	reader.FieldsPerRecord = 7
 
 	rows, err := reader.ReadAll()
 	if err != nil {
-		panic(fmt.Errorf("parse embedded taxonomy: %w", err))
+		return nil, fmt.Errorf("parse embedded taxonomy: %w", err)
 	}
-
 	if len(rows) == 0 {
-		panic(fmt.Errorf("embedded taxonomy is empty"))
+		return nil, fmt.Errorf("embedded taxonomy is empty")
 	}
 
 	expectedHeader := []string{
@@ -67,9 +66,8 @@ func MustLoadTaxonomy() *Catalog {
 		"status",
 		"count",
 	}
-
 	if err := validateHeader(rows[0], expectedHeader); err != nil {
-		panic(err)
+		return nil, err
 	}
 
 	catalog := &Catalog{
@@ -77,8 +75,8 @@ func MustLoadTaxonomy() *Catalog {
 		allValidNormTerms: make(map[string]bool),
 	}
 
-	for rowNum, row := range rows {
-		if rowNum == 0 {
+	for i, row := range rows {
+		if i == 0 {
 			continue // skip headers
 		}
 		if isKnownCorruptRecord(row) {
@@ -87,11 +85,10 @@ func MustLoadTaxonomy() *Catalog {
 
 		record, err := parseRecord(row)
 		if err != nil {
-			panic(fmt.Errorf(
+			return nil, fmt.Errorf(
 				"parse taxonomy row %d: %w",
-				rowNum+1,
-				err,
-			))
+				i+1, err,
+			)
 		}
 
 		catalog.records = append(catalog.records, record)
@@ -99,25 +96,25 @@ func MustLoadTaxonomy() *Catalog {
 		catalog.allValidNormTerms[strings.ToLower(record.SourceTerm)] = true
 	}
 
-	return catalog
+	return catalog, nil
 }
 
-func validateHeader(actual, expected []string) error {
-	if len(actual) != len(expected) {
+func validateHeader(got, want []string) error {
+	if len(got) != len(want) {
 		return fmt.Errorf(
 			"taxonomy header has %d fields; expected %d",
-			len(actual),
-			len(expected),
+			len(got),
+			len(want),
 		)
 	}
 
-	for index := range expected {
-		if actual[index] != expected[index] {
+	for index := range want {
+		if got[index] != want[index] {
 			return fmt.Errorf(
 				"taxonomy header field %d is %q; expected %q",
 				index+1,
-				actual[index],
-				expected[index],
+				got[index],
+				want[index],
 			)
 		}
 	}
@@ -146,8 +143,7 @@ func parseRecord(row []string) (TaxonomyRecord, error) {
 	if kind == Genre && parent != "" {
 		return TaxonomyRecord{}, fmt.Errorf(
 			"genre %q unexpectedly has parent %q",
-			name,
-			parent,
+			name, parent,
 		)
 	}
 	if kind == Style && parent == "" {
@@ -194,10 +190,8 @@ func parseRecord(row []string) (TaxonomyRecord, error) {
 
 func parseKind(value string) (Kind, error) {
 	switch value {
-	case "genre":
-		return Genre, nil
-	case "style":
-		return Style, nil
+	case string(Genre), string(Style):
+		return Kind(value), nil
 	default:
 		return "", fmt.Errorf("unknown taxonomy kind %q", value)
 	}
