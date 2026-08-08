@@ -5,10 +5,14 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"io/fs"
 	"log"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strconv"
+	"strings"
 
 	"github.com/zanyoats/kukicha/internal/app"
 	"github.com/zanyoats/kukicha/internal/usecase/query"
@@ -50,152 +54,72 @@ func newPageData(appBasePath string) pageData {
 	}
 }
 
-func NewHandler(appBasePath string, db *sql.DB) http.Handler {
+func NewWebRouter(appBasePath string, db *sql.DB) http.Handler {
 	mux := http.NewServeMux()
 
-	mux.HandleFunc(
-		"GET /favicon.ico",
-		func(w http.ResponseWriter, r *http.Request) {
-			instanceIdenticon(w, r, db)
-		},
-	)
-
-	appRootPattern := appBasePath
-	if appRootPattern == "/" {
-		appRootPattern = "/{$}"
-	}
-
-	mux.HandleFunc(
-		"GET "+appRootPattern,
-		func(w http.ResponseWriter, r *http.Request) {
-			homePage(w, r, appBasePath)
-		},
-	)
-
-	libraryPattern := pathAtAppBase(appBasePath, "/library")
-	mux.HandleFunc(
-		"GET "+libraryPattern,
-		func(w http.ResponseWriter, r *http.Request) {
-			libraryPage(w, r, appBasePath, db)
-		},
-	)
-
-	searchPattern := pathAtAppBase(appBasePath, "/search")
-	mux.HandleFunc(
-		"GET "+searchPattern,
-		func(w http.ResponseWriter, r *http.Request) {
-			searchPage(w, r, appBasePath)
-		},
-	)
-
-	albumPattern := pathAtAppBase(appBasePath, "/library/album")
-	mux.HandleFunc(
-		"GET "+albumPattern,
-		func(w http.ResponseWriter, r *http.Request) {
-			albumPage(w, r, appBasePath, db)
-		},
-	)
-
-	albumArtworkPattern := pathAtAppBase(
-		appBasePath,
-		"/library/album/artwork",
-	)
-	mux.HandleFunc(
-		"GET "+albumArtworkPattern,
-		func(w http.ResponseWriter, r *http.Request) {
-			albumArtwork(w, r, db)
-		},
-	)
-
-	trackAudioPattern := pathAtAppBase(
-		appBasePath,
-		"/library/album/tracks/audio",
-	)
-	mux.HandleFunc(
-		"GET "+trackAudioPattern,
-		func(w http.ResponseWriter, r *http.Request) {
-			trackAudio(w, r, db)
-		},
-	)
-
-	instanceIdenticonPattern := pathAtAppBase(
-		appBasePath,
-		"/instance/identicon.svg",
-	)
-	mux.HandleFunc(
-		"GET "+instanceIdenticonPattern,
-		func(w http.ResponseWriter, r *http.Request) {
-			instanceIdenticon(w, r, db)
-		},
-	)
-
-	assetsMountPath := pathAtAppBase(appBasePath, "/assets")
 	mux.Handle(
-		"GET "+assetsMountPath+"/",
-		http.StripPrefix(
-			assetsMountPath,
-			http.FileServer(http.FS(staticFiles)),
-		),
+		"/",
+		newRootRoutes(db),
 	)
+	appHandler := mountApp(
+		appBasePath,
+		newAppRoutes(appBasePath, db),
+	)
+	mux.Handle(appBasePath, appHandler)
+	mux.Handle(appBasePath+"/", appHandler)
 
 	return mux
 }
 
-func instanceIdenticon(
-	w http.ResponseWriter,
-	r *http.Request,
-	db *sql.DB,
-) {
-	tx, err := db.BeginTx(
-		r.Context(),
-		&sql.TxOptions{ReadOnly: true},
-	)
-	if err != nil {
-		log.Printf("Unable to begin the instance identicon query: %v", err)
-		http.Error(
-			w,
-			"Unable to load the instance identicon",
-			http.StatusInternalServerError,
-		)
-		return
-	}
-	defer tx.Rollback()
+func newRootRoutes(db *sql.DB) http.Handler {
+	mux := http.NewServeMux()
 
-	identicon, err := query.AppMetadata(
-		r.Context(),
-		tx,
-		app.InstanceIdenticon,
-	)
-	if err != nil {
-		log.Printf("Unable to load the instance identicon: %v", err)
-		http.Error(
-			w,
-			"Unable to load the instance identicon",
-			http.StatusInternalServerError,
-		)
-		return
-	}
+	mux.HandleFunc("GET /favicon.ico", func(w http.ResponseWriter, r *http.Request) {
+		getIdenticon(db, w, r)
+	})
 
-	if err := tx.Commit(); err != nil {
-		log.Printf("Unable to commit the instance identicon query: %v", err)
-		http.Error(
-			w,
-			"Unable to load the instance identicon",
-			http.StatusInternalServerError,
-		)
-		return
-	}
-
-	writeArtwork(w, "image/svg+xml", []byte(identicon))
+	return mux
 }
 
-func libraryPage(
-	w http.ResponseWriter,
-	r *http.Request,
-	appBasePath string,
-	db *sql.DB,
-) {
-	albums, err := query.Albums(r.Context(), db)
+type appRoutes struct {
+	appBasePath string
+	db          *sql.DB
+}
+
+func newAppRoutes(appBasePath string, db *sql.DB) http.Handler {
+	router := appRoutes{appBasePath, db}
+
+	mux := http.NewServeMux()
+
+	mux.HandleFunc("GET /{$}", router.showHome)
+	mux.Handle(
+		"GET /assets/",
+		http.StripPrefix(
+			"/assets/",
+			http.FileServer(http.FS(staticFiles)),
+		),
+	)
+	mux.HandleFunc("GET /library", router.showLibrary)
+	mux.HandleFunc("GET /library/album", router.showAlbum)
+	mux.HandleFunc("GET /library/album/artwork", router.getAlbumArtwork)
+	mux.HandleFunc("GET /library/album/tracks/audio", router.streamTrackAudio)
+	mux.HandleFunc("GET /search", router.showSearch)
+	mux.HandleFunc("GET /instance/identicon.svg", func(w http.ResponseWriter, r *http.Request) {
+		getIdenticon(db, w, r)
+	})
+
+	return mux
+}
+
+func (c *appRoutes) showHome(w http.ResponseWriter, r *http.Request) {
+	data := newPageData(c.appBasePath)
+	data.PageTitle = "Home"
+
+	renderPage(w, "home", data)
+}
+
+func (c *appRoutes) showLibrary(w http.ResponseWriter, r *http.Request) {
+	albums, err := query.Albums(r.Context(), c.db)
 	if err != nil {
 		log.Printf("Unable to load albums: %v", err)
 		http.Error(
@@ -206,7 +130,7 @@ func libraryPage(
 		return
 	}
 
-	data := newPageData(appBasePath)
+	data := newPageData(c.appBasePath)
 	data.PageTitle = "Library"
 	data.Albums = make([]albumCard, 0, len(albums))
 
@@ -215,52 +139,32 @@ func libraryPage(
 			Title:   album.Title,
 			Artists: album.Artists,
 			ArtworkURL: albumArtworkURL(
-				appBasePath,
+				c.appBasePath,
 				album.ID,
 				query.AlbumArtwork64,
 			),
-			AlbumURL: albumURL(appBasePath, album.ID),
+			AlbumURL: albumURL(c.appBasePath, album.ID),
 		})
 	}
 
 	renderPage(w, "library", data)
 }
 
-func homePage(
-	w http.ResponseWriter,
-	_ *http.Request,
-	appBasePath string,
-) {
-	data := newPageData(appBasePath)
-	data.PageTitle = "Home"
-
-	renderPage(w, "home", data)
-}
-
-func searchPage(
-	w http.ResponseWriter,
-	r *http.Request,
-	appBasePath string,
-) {
-	data := newPageData(appBasePath)
+func (c *appRoutes) showSearch(w http.ResponseWriter, r *http.Request) {
+	data := newPageData(c.appBasePath)
 	data.PageTitle = "Search"
 
 	renderPage(w, "search", data)
 }
 
-func albumPage(
-	w http.ResponseWriter,
-	r *http.Request,
-	appBasePath string,
-	db *sql.DB,
-) {
+func (c *appRoutes) showAlbum(w http.ResponseWriter, r *http.Request) {
 	albumID, err := parseAlbumID(r)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	album, err := query.AlbumByID(r.Context(), db, albumID)
+	album, err := query.AlbumByID(r.Context(), c.db, albumID)
 	if errors.Is(err, query.ErrAlbumNotFound) {
 		http.Error(w, "Album not found", http.StatusNotFound)
 		return
@@ -274,18 +178,18 @@ func albumPage(
 		return
 	}
 
-	data := newPageData(appBasePath)
+	data := newPageData(c.appBasePath)
 	data.PageTitle = album.Title
 	data.Album = &album
 	data.AlbumArtworkURL = albumArtworkURL(
-		appBasePath,
+		c.appBasePath,
 		album.ID,
 		query.AlbumArtwork256,
 	)
 	data.TrackAudioURLs = make(map[int64]string, len(album.Tracks))
 	for _, track := range album.Tracks {
 		data.TrackAudioURLs[track.ID] = trackAudioURL(
-			appBasePath,
+			c.appBasePath,
 			track.ID,
 		)
 	}
@@ -293,11 +197,7 @@ func albumPage(
 	renderPage(w, "album", data)
 }
 
-func albumArtwork(
-	w http.ResponseWriter,
-	r *http.Request,
-	db *sql.DB,
-) {
+func (c *appRoutes) getAlbumArtwork(w http.ResponseWriter, r *http.Request) {
 	albumID, err := parseAlbumID(r)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -312,7 +212,7 @@ func albumArtwork(
 
 	artwork, err := query.AlbumArtworkByID(
 		r.Context(),
-		db,
+		c.db,
 		albumID,
 		size,
 	)
@@ -375,6 +275,164 @@ func albumArtwork(
 	writeArtwork(w, contentType, artwork.Bytes)
 }
 
+func (c *appRoutes) streamTrackAudio(w http.ResponseWriter, r *http.Request) {
+	trackID, err := parseTrackID(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	audio, err := query.TrackAudioByID(
+		r.Context(),
+		c.db,
+		trackID,
+	)
+	switch {
+	case errors.Is(err, query.ErrTrackNotFound):
+		http.Error(w, "Track not found", http.StatusNotFound)
+		return
+
+	case err != nil:
+		log.Printf(
+			"Unable to load audio information for track %d: %v",
+			trackID,
+			err,
+		)
+		http.Error(
+			w,
+			"Unable to load track audio",
+			http.StatusInternalServerError,
+		)
+		return
+	}
+
+	audioPath, err := resolveTrackAudioPath(
+		audio.RootPath,
+		audio.RelativePath,
+	)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		http.Error(w, "Track not found", http.StatusNotFound)
+		return
+
+	case err != nil:
+		log.Printf(
+			"Unable to resolve audio path for track %d: %v",
+			trackID,
+			err,
+		)
+		http.Error(
+			w,
+			"Unable to load track audio",
+			http.StatusInternalServerError,
+		)
+		return
+	}
+
+	file, err := os.Open(audioPath)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		http.Error(w, "Track not found", http.StatusNotFound)
+		return
+
+	case err != nil:
+		log.Printf(
+			"Unable to open audio for track %d: %v",
+			trackID,
+			err,
+		)
+		http.Error(
+			w,
+			"Unable to load track audio",
+			http.StatusInternalServerError,
+		)
+		return
+	}
+	defer file.Close()
+
+	info, err := file.Stat()
+	if err != nil {
+		log.Printf(
+			"Unable to inspect audio for track %d: %v",
+			trackID,
+			err,
+		)
+		http.Error(
+			w,
+			"Unable to load track audio",
+			http.StatusInternalServerError,
+		)
+		return
+	}
+
+	if !info.Mode().IsRegular() {
+		log.Printf(
+			"Refusing non-regular audio file for track %d",
+			trackID,
+		)
+		http.Error(w, "Track not found", http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set(
+		"Content-Type",
+		trackAudioContentType(audio.Extension),
+	)
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+
+	http.ServeContent(
+		w,
+		r,
+		filepath.Base(audio.RelativePath),
+		info.ModTime(),
+		file,
+	)
+}
+
+func getIdenticon(db *sql.DB, w http.ResponseWriter, r *http.Request) {
+	tx, err := db.BeginTx(
+		r.Context(),
+		&sql.TxOptions{ReadOnly: true},
+	)
+	if err != nil {
+		log.Printf("Unable to begin the instance identicon query: %v", err)
+		http.Error(
+			w,
+			"Unable to load the instance identicon",
+			http.StatusInternalServerError,
+		)
+		return
+	}
+	defer tx.Rollback()
+
+	identicon, err := query.AppMetadata(
+		r.Context(),
+		tx,
+		app.InstanceIdenticon,
+	)
+	if err != nil {
+		log.Printf("Unable to load the instance identicon: %v", err)
+		http.Error(
+			w,
+			"Unable to load the instance identicon",
+			http.StatusInternalServerError,
+		)
+		return
+	}
+
+	if err := tx.Commit(); err != nil {
+		log.Printf("Unable to commit the instance identicon query: %v", err)
+		http.Error(
+			w,
+			"Unable to load the instance identicon",
+			http.StatusInternalServerError,
+		)
+		return
+	}
+
+	writeArtwork(w, "image/svg+xml", []byte(identicon))
+}
+
 func writeArtwork(
 	w http.ResponseWriter,
 	contentType string,
@@ -434,10 +492,6 @@ func renderPage(
 }
 
 func pathAtAppBase(appBasePath, suffix string) string {
-	if appBasePath == "/" {
-		return suffix
-	}
-
 	return appBasePath + suffix
 }
 
@@ -532,4 +586,39 @@ func requiredQueryValue(
 	}
 
 	return found[0], nil
+}
+
+func mountApp(prefix string, next http.Handler) http.Handler {
+	stripped := http.StripPrefix(prefix, next)
+
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Redirect trailing-slash forms to the canonical URL.
+		if strings.HasSuffix(r.URL.Path, "/") {
+			target := strings.TrimRight(r.URL.EscapedPath(), "/")
+
+			if r.URL.RawQuery != "" {
+				target += "?" + r.URL.RawQuery
+			}
+
+			http.Redirect(
+				w,
+				r,
+				target,
+				http.StatusPermanentRedirect,
+			)
+			return
+		}
+
+		// Present the exact mount path to the inner router as "/".
+		if r.URL.Path == prefix {
+			req := r.Clone(r.Context())
+			req.URL.Path = prefix + "/"
+			req.URL.RawPath = ""
+			stripped.ServeHTTP(w, req)
+			return
+		}
+
+		// All other cases can be handled by the inner route with any logic
+		stripped.ServeHTTP(w, r)
+	})
 }

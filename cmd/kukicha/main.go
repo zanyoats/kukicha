@@ -69,7 +69,7 @@ func main() {
 
 	server := &http.Server{
 		Addr: conf.Settings.HTTP.ServerAddress,
-		Handler: web.NewHandler(
+		Handler: web.NewWebRouter(
 			conf.Settings.HTTP.AppBasePath,
 			db,
 		),

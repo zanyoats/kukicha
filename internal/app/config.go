@@ -328,11 +328,27 @@ func validateAppBasePath(basePath string) error {
 	case strings.HasPrefix(basePath, "//"):
 		return errors.New("HTTP app base path must start with exactly one '/'")
 
+	case basePath == "/":
+		return errors.New("HTTP app base path cannot be the root path")
+
+	case strings.HasSuffix(basePath, "/"):
+		return errors.New("HTTP app base path cannot end in a slash")
+
 	case path.Clean(basePath) != basePath:
 		return errors.New("HTTP app base path must be clean")
 
-	case strings.ContainsAny(basePath, "{}?#"):
-		return errors.New("HTTP app base path cannot contain route wildcards, a query, or a fragment")
+	case strings.IndexFunc(basePath, func(r rune) bool {
+		return unicode.IsSpace(r) || unicode.IsControl(r)
+	}) >= 0:
+		return errors.New("HTTP app base path cannot contain whitespace or control characters")
+
+	case strings.Contains(basePath, "%"):
+		return errors.New("HTTP app base path cannot contain percent escapes")
+
+	case strings.ContainsAny(basePath, `\{}?#`):
+		return errors.New(
+			"HTTP app base path contains unsupported routing characters",
+		)
 	}
 
 	return nil
