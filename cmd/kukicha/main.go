@@ -47,7 +47,12 @@ func main() {
 	if err = command.SeedTaxonomy(ctx, db, catalog, scan.UnknownItem); err != nil {
 		log.Fatal(err)
 	}
-		fail(err)
+
+	if err = command.InitializeInstanceMetadata(
+		ctx,
+		db,
+	); err != nil {
+		log.Fatal(err)
 	}
 
 	result, err := scan.Sync(ctx, db, conf)
