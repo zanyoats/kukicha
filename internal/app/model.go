@@ -17,6 +17,8 @@ type AppMetadataKey int
 const (
 	LibraryGeneratedAt AppMetadataKey = iota
 	LibrarySupportedExtensionsJson
+	InstanceID
+	InstanceIdenticon
 )
 
 type Root struct {
