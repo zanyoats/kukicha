@@ -5,14 +5,14 @@
 :root {
     --font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
     --background: oklch(96.7% 0.003 264.542); /* gray-100 */
-    --surface: oklch(98.5% 0.002 247.839);    /* gray-50 */
+    --surface: oklch(98.5% 0.002 247.839); /* gray-50 */
     --surface-hover: #fafafa;
-    --text-primary: oklch(44.6% 0.03 256.802);    /* grey-600 */
+    --text-primary: oklch(44.6% 0.03 256.802); /* grey-600 */
     --text-secondary: oklch(55.1% 0.027 264.364); /* grey-500 */
-    --text-muted: oklch(70.7% 0.022 261.325);     /* grey-400 */
-    --border: oklch(87.2% 0.01 258.338);          /* grey-300 */
-    --accent: oklch(54.6% 0.245 262.881);         /* blue-600 */
-    --accent-hover: oklch(48.8% 0.243 264.376);   /* blue-700 */
+    --text-muted: oklch(70.7% 0.022 261.325); /* grey-400 */
+    --border: oklch(87.2% 0.01 258.338); /* grey-300 */
+    --accent: oklch(54.6% 0.245 262.881); /* blue-600 */
+    --accent-hover: oklch(48.8% 0.243 264.376); /* blue-700 */
     --button-secondary: var(--surface);
     --button-border: var(--border);
     --bar: var(--border);
@@ -200,26 +200,8 @@ a:focus-visible {
 **/
 
 /*
- * Pages: Home, Library, Albums, Search
+ * Pages: Home, Library, Results
 **/
-
-.placeholder-page {
-    max-inline-size: 48rem;
-}
-
-.placeholder-page h1 {
-    margin-block-start: 0.25rem;
-    font-size: clamp(2rem, 5vw, 3.5rem);
-    line-height: 1.05;
-}
-
-.placeholder-page > p:not(.page-eyebrow, .demo-result),
-.demo-panel p {
-    max-inline-size: 42rem;
-    margin-block-start: 0.85rem;
-    color: var(--text-secondary);
-    line-height: 1.6;
-}
 
 .page-eyebrow {
     color: var(--accent);
@@ -227,6 +209,12 @@ a:focus-visible {
     font-weight: 700;
     letter-spacing: 0.08em;
     text-transform: uppercase;
+}
+
+article h1 {
+    margin-block-start: 0.25rem;
+    font-size: clamp(2rem, 0.125rem + 6vw, 3.5rem);
+    line-height: 1.05;
 }
 
 .text-link {
@@ -239,127 +227,72 @@ a:focus-visible {
     color: var(--accent-hover);
 }
 
-.demo-panel,
-.demo-search,
-.demo-result {
-    margin-block-start: 1.5rem;
-    padding: 1rem;
-    border: 0.0625rem solid var(--border);
-    background: var(--surface-hover);
-}
+.albums-page {
+    .album-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(min(14rem, 100%), 1fr));
+        gap: 0.55rem;
+        padding: 0;
+        margin-block-start: 1.5rem;
+        list-style: none;
+    }
 
-.demo-panel h2 {
-    font-size: 1.1rem;
-}
+    .album-card {
+        display: flex;
+        align-items: flex-start;
+        gap: 0.5rem;
+        min-inline-size: 0;
+        max-block-size: 64px;
 
-.demo-panel code {
-    font-size: 0.9em;
-}
+        overflow-y: auto;
+        scrollbar-width: thin;
+        scrollbar-color: transparent transparent;
 
-.demo-search {
-    display: grid;
-    gap: 0.6rem;
-}
+        &:hover,
+        &:focus-within {
+            scrollbar-color: auto;
+        }
+    }
 
-.demo-search label {
-    font-size: 0.9rem;
-    font-weight: 600;
-}
+    .album-card-artwork-link {
+        display: block;
+        flex: 0 0 64px;
+        inline-size: 64px;
+        background: var(--background);
+    }
 
-.demo-search__controls {
-    display: flex;
-    gap: 0.5rem;
-}
+    .album-card-artwork {
+        display: block;
+        inline-size: 64px;
+        block-size: auto;
+        aspect-ratio: 1;
+        object-fit: cover;
+    }
 
-.demo-search input {
-    min-inline-size: 0;
-    flex: 1 1 auto;
-    padding: 0.65rem 0.75rem;
-    border: 0.0625rem solid var(--border);
-    color: var(--text-primary);
-    background: var(--surface);
-    font: inherit;
-}
+    .album-card-details {
+        min-inline-size: 0;
+    }
 
-.demo-search button {
-    flex: 0 0 auto;
-    padding-inline: 1rem;
-    border: 0.0625rem solid var(--accent);
-    color: #ffffff;
-    background: var(--accent);
-    font: inherit;
-}
+    .album-card-title {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
 
-.demo-search button:hover {
-    color: #ffffff;
-    background: var(--accent-hover);
-}
+    .album-card-title {
+        font-size: 0.8rem;
+        font-weight: 600;
+    }
 
-.demo-result {
-    line-height: 1.5;
-}
+    .album-card-artists {
+        margin-block-start: 0.25rem;
+        color: var(--text-secondary);
+        font-size: 0.75rem;
+    }
 
-.albums-page-header h1 {
-    margin-block-start: 0.25rem;
-    font-size: clamp(2rem, 5vw, 3.5rem);
-    line-height: 1.05;
-}
-
-.album-grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(min(20rem, 100%), 1fr));
-    gap: 0.85rem;
-    padding: 0;
-    margin-block-start: 1.5rem;
-    list-style: none;
-}
-
-.album-card {
-    display: flex;
-    align-items: flex-start;
-    gap: 0.5rem;
-    min-inline-size: 0;
-}
-
-.album-card-artwork-link {
-    display: block;
-    flex: 0 0 64px;
-    inline-size: 64px;
-    background: var(--background);
-}
-
-.album-card-artwork {
-    display: block;
-    inline-size: 64px;
-    block-size: auto;
-    aspect-ratio: 1;
-    object-fit: cover;
-}
-
-.album-card-details {
-    min-inline-size: 0;
-}
-
-.album-card-title,
-.album-card-artists {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-.album-card-title {
-    font-size: 1rem;
-    font-weight: 600;
-}
-
-.album-card-artists {
-    margin-block-start: 0.25rem;
-    color: var(--text-secondary);
-    font-size: 0.85rem;
-}
-
-.album-grid-empty {
-    color: var(--text-secondary);
+    .album-grid-empty {
+        color: var(--text-secondary);
+    }
 }
 
 /*
@@ -416,7 +349,6 @@ a:focus-visible {
             }
         }
     }
-
 }
 
 .track-list {
@@ -427,11 +359,11 @@ a:focus-visible {
         padding: 0.2rem;
         display: grid;
         grid-template-columns:
-            auto            /* play button    */
-            1.5rem          /* track position */
-            minmax(0, 1fr)  /* track info     */
-            auto            /* track duration */
-            auto;           /* track actions  */
+            auto /* play button    */
+            1.5rem /* track position */
+            minmax(0, 1fr) /* track info     */
+            auto /* track duration */
+            auto; /* track actions  */
         gap: 0.85rem;
         align-items: center;
         min-block-size: 2.75rem;
@@ -520,9 +452,9 @@ a:focus-visible {
 .now-playing {
     display: grid;
     grid-template-columns:
-        minmax(0, 1fr)          /* album meta         */
-        minmax(30rem, 42rem)    /* primary controls   */
-        minmax(0, 1fr);         /* secondary controls */
+        minmax(0, 1fr) /* album meta         */
+        minmax(30rem, 42rem) /* primary controls   */
+        minmax(0, 1fr); /* secondary controls */
     align-items: center;
     gap: 1rem;
     min-block-size: 5.125rem;
@@ -577,9 +509,9 @@ a:focus-visible {
     .primary-controls {
         display: grid;
         grid-template-columns:
-            auto            /* play button   */
-            minmax(0, 1fr)  /* track info    */
-            auto;           /* track buttons */
+            auto /* play button   */
+            minmax(0, 1fr) /* track info    */
+            auto; /* track buttons */
         align-items: center;
         gap: 0.85rem;
         inline-size: 100%;
@@ -589,7 +521,9 @@ a:focus-visible {
             place-items: center;
             inline-size: 2.625rem;
             block-size: 2.625rem;
-            background-color: var(--surface); /* background looks better matching surface background*/
+            background-color: var(
+                --surface
+            ); /* background looks better matching surface background*/
             border: 0.0625rem solid var(--button-border);
         }
 
@@ -650,14 +584,13 @@ a:focus-visible {
         border: 0;
         border-radius: 0;
         appearance: none;
-        background:
-            linear-gradient(
-                to right,
-                var(--bar-progress) 0,
-                var(--bar-progress) var(--range-progress),
-                var(--bar) var(--range-progress),
-                var(--bar) 100%
-            );
+        background: linear-gradient(
+            to right,
+            var(--bar-progress) 0,
+            var(--bar-progress) var(--range-progress),
+            var(--bar) var(--range-progress),
+            var(--bar) 100%
+        );
         cursor: pointer;
     }
 
@@ -698,7 +631,6 @@ a:focus-visible {
     }
 }
 
-
 @media (max-width: 64rem) {
     .content-inner-shell {
         max-inline-size: none;
@@ -726,7 +658,6 @@ a:focus-visible {
             display: none;
         }
     }
-
 }
 
 @media (max-width: 34rem) {

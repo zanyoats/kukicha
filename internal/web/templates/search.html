@@ -1,25 +1,7 @@
 {{define "page-content"}}
-<article class="placeholder-page">
+<article>
     <p class="page-eyebrow">Discover</p>
-    <h1>Search</h1>
-    <p>
-        This placeholder form submits through Unpoly, so the result replaces
-        the same main region without a full page load.
-    </p>
-
-    <form class="demo-search" action="{{.SearchURL}}" method="get" up-submit>
-        <label for="search-query">Search the library</label>
-        <div class="demo-search__controls">
-            <input id="search-query" name="q" type="search" value="{{.SearchQuery}}"
-                placeholder="Artist, album, or track">
-            <button type="submit">Search</button>
-        </div>
-    </form>
-
-    {{with .SearchQuery}}
-    <p class="demo-result">
-        Dummy results for <strong>{{.}}</strong>
-    </p>
-    {{end}}
+    <h1>Search Results</h1>
+    <p>This page is under construction.</p>
 </article>
 {{end}}

@@ -24,7 +24,6 @@ type pageData struct {
 	PlayerJavaScriptURL  string
 	InstanceIdenticonURL string
 	PageTitle            string
-	SearchQuery          string
 	Albums               []albumCard
 	Album                *query.Album
 	AlbumArtworkURL      string
@@ -245,7 +244,6 @@ func searchPage(
 ) {
 	data := newPageData(appBasePath)
 	data.PageTitle = "Search"
-	data.SearchQuery = r.URL.Query().Get("q")
 
 	renderPage(w, "search", data)
 }

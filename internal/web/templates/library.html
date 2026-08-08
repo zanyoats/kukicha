@@ -1,6 +1,6 @@
 {{define "page-content"}}
 <article class="albums-page">
-    <header class="albums-page-header">
+    <header>
         <p class="page-eyebrow">Collection</p>
         <h1>Albums</h1>
     </header>
@@ -9,14 +9,22 @@
         {{range .Albums}}
         <li class="album-card">
             <a class="album-card-artwork-link" href="{{.AlbumURL}}" up-follow>
-                <img class="album-card-artwork" src="{{.ArtworkURL}}" alt="Artwork for {{.Title}}" loading="lazy">
+                <img
+                    class="album-card-artwork"
+                    src="{{.ArtworkURL}}"
+                    alt="Artwork for {{.Title}}"
+                    loading="lazy"
+                />
             </a>
 
             <div class="album-card-details">
                 <h2 class="album-card-title" title="{{.Title}}">{{.Title}}</h2>
 
                 {{with .Artists}}
-                <p class="album-card-artists">{{range $index, $artist := .}}{{if $index}}, {{end}}{{$artist}}{{end}}</p>
+                <p class="album-card-artists">
+                    {{range $index, $artist := .}}{{if $index}},
+                    {{end}}{{$artist}}{{end}}
+                </p>
                 {{end}}
             </div>
         </li>
