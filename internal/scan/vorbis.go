@@ -121,9 +121,12 @@ func applyVorbisTrackFields(scannedFile *app.ScannedFile, comments vorbisComment
 	setIfZero(&record.OriginalReleaseDate, comments.first("originalreleasedate", "original_release_date", "originaldate", "original_date", "originalyear", "original_year"))
 	setIfZero(&record.RecordedDate, comments.first("recordeddate", "recorded_date", "recordingdate", "recording_date"))
 	setIfZero(&record.OriginalReleaseYear, yearFromDate(record.OriginalReleaseDate))
+	setIfZero(&record.ReleaseCountry, comments.first("releasecountry", "release_country", "musicbrainz_album_release_country", "country"))
+	setIfZero(&record.Label, comments.first("label", "organization", "publisher", "recordlabel", "record_label"))
+	setIfZero(&record.Copyright, comments.first("copyright"))
 	setIfZero(&record.ItunesStoreTrackId, comments.firstInt64("itunesstoretrackid", "itunes_store_track_id", "cnid"))
 	setIfZero(&record.ItunesStoreAlbumId, comments.firstInt64("itunesstorealbumid", "itunes_store_album_id", "plid"))
-	setIfZero(&record.PurchaseDate, comments.first("purchasedate", "purchase_date"))
+	setIfZero(&record.PurchaseDate, comments.first("purchasedate", "purchase_date", "datepurchased", "date_purchased"))
 	if value, ok := comments.firstBool("compilation", "iscompilation", "is_compilation", "itunescompilation"); ok {
 		record.IsCompilation = &value
 	}

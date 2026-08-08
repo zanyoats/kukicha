@@ -90,13 +90,31 @@ func applyID3TrackFields(
 	setIfZero(&record.OriginalReleaseDate, id3OriginalReleaseDate(frames, format))
 	setIfZero(&record.RecordedDate, id3RecordedDate(frames, format))
 	setIfZero(&record.OriginalReleaseYear, yearFromDate(record.OriginalReleaseDate))
+	setIfZero(&record.ReleaseCountry, frames.firstUserText(
+		"MusicBrainz Album Release Country",
+		"RELEASECOUNTRY",
+		"RELEASE COUNTRY",
+		"COUNTRY",
+	))
+	setIfZero(&record.Label, textkey.FirstNonZeroValue(
+		frames.first("TPB", "TPUB"),
+		frames.firstUserText("LABEL", "RECORD LABEL", "PUBLISHER"),
+	))
+	setIfZero(&record.Copyright, textkey.FirstNonZeroValue(
+		frames.first("TCR", "TCOP"),
+		frames.firstUserText("COPYRIGHT"),
+	))
 
 	setIfZero(&record.ItunesStoreTrackId, textkey.FirstNonZeroValue(
 		id3FirstUserTextInt64(frames, "ITUNESSTORETRACKID", "ITUNES STORE TRACK ID", "CNID"),
 		id3TextInt64(frames, "UFID"),
 	))
 	setIfZero(&record.ItunesStoreAlbumId, id3FirstUserTextInt64(frames, "ITUNESSTOREALBUMID", "ITUNES STORE ALBUM ID", "PLID"))
-	setIfZero(&record.PurchaseDate, frames.firstUserText("PURCHASEDATE", "PURCHASE DATE"))
+	setIfZero(&record.PurchaseDate, frames.firstUserText(
+		"PURCHASEDATE",
+		"PURCHASE DATE",
+		"DATE PURCHASED",
+	))
 	if value, ok := frames.firstBool("TCP", "TCMP"); ok {
 		record.IsCompilation = &value
 	} else if value, ok := frames.firstUserTextBool("COMPILATION", "ISCOMPILATION", "ITUNESCOMPILATION"); ok {

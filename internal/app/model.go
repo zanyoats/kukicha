@@ -65,6 +65,9 @@ type TrackMetadata struct {
 	RecordedDate        string   `json:"recorded_date"`
 	ReleaseYear         int      `json:"release_year"`
 	OriginalReleaseYear int      `json:"original_release_year"`
+	ReleaseCountry      string   `json:"release_country"`
+	Label               string   `json:"label"`
+	Copyright           string   `json:"copyright"`
 	ItunesStoreTrackId  int64    `json:"itunes_store_track_id"`
 	ItunesStoreAlbumId  int64    `json:"itunes_store_album_id"`
 	PurchaseDate        string   `json:"purchase_date"`

@@ -86,9 +86,12 @@ func applyMP4TrackFields(scannedFile *app.ScannedFile, items []mp4Item) {
 	setIfZero(&record.ReleaseDate, firstMP4Text(byName, "\xa9day"))
 	setIfZero(&record.OriginalReleaseDate, firstMP4Text(byName, "originalreleasedate", "original_release_date", "originaldate", "original_date", "originalyear", "original_year"))
 	setIfZero(&record.RecordedDate, firstMP4Text(byName, "recordeddate", "recorded_date", "recordingdate", "recording_date"))
+	setIfZero(&record.ReleaseCountry, firstMP4Text(byName, "MusicBrainz Album Release Country", "releasecountry", "release_country", "country"))
+	setIfZero(&record.Label, firstMP4Text(byName, "LABEL", "recordlabel", "publisher"))
+	setIfZero(&record.Copyright, firstMP4Text(byName, "cprt", "\xa9cpy", "copyright"))
 	setIfZero(&record.ItunesStoreTrackId, firstMP4Int64(byName, "cnID"))
 	setIfZero(&record.ItunesStoreAlbumId, firstMP4Int64(byName, "plID"))
-	setIfZero(&record.PurchaseDate, firstMP4Text(byName, "purd"))
+	setIfZero(&record.PurchaseDate, firstMP4Text(byName, "purd", "purchasedate", "purchase_date", "datepurchased"))
 	if value, ok := firstMP4Bool(byName, "cpil"); ok {
 		record.IsCompilation = &value
 	}
