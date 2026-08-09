@@ -1,58 +1,19 @@
 package web
 
 import (
-	"bytes"
 	"database/sql"
 	"errors"
 	"fmt"
 	"io/fs"
 	"log"
 	"net/http"
-	"net/url"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 
 	"github.com/zanyoats/kukicha/internal/app"
 	"github.com/zanyoats/kukicha/internal/usecase/query"
 )
-
-type pageData struct {
-	HomeURL              string
-	LibraryURL           string
-	SearchURL            string
-	UnpolyStylesheetURL  string
-	StylesheetURL        string
-	UnpolyJavaScriptURL  string
-	PlayerJavaScriptURL  string
-	InstanceIdenticonURL string
-	PageTitle            string
-	Albums               []albumCard
-	Album                *query.Album
-	AlbumArtworkURL      string
-	TrackAudioURLs       map[int64]string
-}
-
-type albumCard struct {
-	Title      string
-	Artists    []string
-	ArtworkURL string
-	AlbumURL   string
-}
-
-func newPageData(appBasePath string) pageData {
-	return pageData{
-		HomeURL:              appBasePath,
-		LibraryURL:           pathAtAppBase(appBasePath, "/library"),
-		SearchURL:            pathAtAppBase(appBasePath, "/search"),
-		UnpolyStylesheetURL:  pathAtAppBase(appBasePath, "/assets/unpoly.min.css"),
-		StylesheetURL:        pathAtAppBase(appBasePath, "/assets/app.css"),
-		UnpolyJavaScriptURL:  pathAtAppBase(appBasePath, "/assets/unpoly.min.js"),
-		PlayerJavaScriptURL:  pathAtAppBase(appBasePath, "/assets/player.js"),
-		InstanceIdenticonURL: pathAtAppBase(appBasePath, "/instance/identicon.svg"),
-	}
-}
 
 func NewWebRouter(appBasePath string, renderer Renderer, db *sql.DB) http.Handler {
 	mux := http.NewServeMux()
@@ -113,31 +74,41 @@ func newAppRoutes(appBasePath string, renderer Renderer, db *sql.DB) http.Handle
 	return mux
 }
 
-func (c *appRoutes) showHome(w http.ResponseWriter, r *http.Request) {
-	data := newPageData(c.appBasePath)
-	data.PageTitle = "Home"
+type homeViewModel struct {
+	sharedURLs
+}
 
-	renderPage(w, c.renderer, "home.gohtml", data)
+func (c *appRoutes) showHome(w http.ResponseWriter, r *http.Request) {
+	renderPage(w, c.renderer, "home.gohtml", homeViewModel{
+		sharedURLs: getSharedURLs(c.appBasePath),
+	})
+}
+
+type libraryViewModel struct {
+	sharedURLs
+	Albums []albumCard
+}
+
+type albumCard struct {
+	Title      string
+	Artists    []string
+	ArtworkURL string
+	AlbumURL   string
 }
 
 func (c *appRoutes) showLibrary(w http.ResponseWriter, r *http.Request) {
 	albums, err := query.Albums(r.Context(), c.db)
 	if err != nil {
-		log.Printf("Unable to load albums: %v", err)
-		http.Error(
-			w,
-			"Unable to load the albums",
-			http.StatusInternalServerError,
-		)
+		internalServerError(w, fmt.Sprintf(
+			"Unable to load albums: %v", err,
+		))
 		return
 	}
 
-	data := newPageData(c.appBasePath)
-	data.PageTitle = "Library"
-	data.Albums = make([]albumCard, 0, len(albums))
+	albumCards := make([]albumCard, 0, len(albums))
 
 	for _, album := range albums {
-		data.Albums = append(data.Albums, albumCard{
+		albumCards = append(albumCards, albumCard{
 			Title:   album.Title,
 			Artists: album.Artists,
 			ArtworkURL: albumArtworkURL(
@@ -149,14 +120,27 @@ func (c *appRoutes) showLibrary(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	renderPage(w, c.renderer, "library.gohtml", data)
+	renderPage(w, c.renderer, "library.gohtml", libraryViewModel{
+		sharedURLs: getSharedURLs(c.appBasePath),
+		Albums:     albumCards,
+	})
+}
+
+type searchViewModel struct {
+	sharedURLs
 }
 
 func (c *appRoutes) showSearch(w http.ResponseWriter, r *http.Request) {
-	data := newPageData(c.appBasePath)
-	data.PageTitle = "Search"
+	renderPage(w, c.renderer, "search.gohtml", searchViewModel{
+		sharedURLs: getSharedURLs(c.appBasePath),
+	})
+}
 
-	renderPage(w, c.renderer, "search.gohtml", data)
+type albumViewModel struct {
+	sharedURLs
+	Album           *query.Album
+	AlbumArtworkURL string
+	TrackAudioURLs  map[int64]string
 }
 
 func (c *appRoutes) showAlbum(w http.ResponseWriter, r *http.Request) {
@@ -171,32 +155,30 @@ func (c *appRoutes) showAlbum(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Album not found", http.StatusNotFound)
 		return
 	} else if err != nil {
-		log.Printf("Unable to load album %d: %v", albumID, err)
-		http.Error(
-			w,
-			"Unable to load the album",
-			http.StatusInternalServerError,
-		)
+		internalServerError(w, fmt.Sprintf(
+			"Unable to load album %d: %v", albumID, err,
+		))
 		return
 	}
 
-	data := newPageData(c.appBasePath)
-	data.PageTitle = album.Title
-	data.Album = &album
-	data.AlbumArtworkURL = albumArtworkURL(
-		c.appBasePath,
-		album.ID,
-		query.AlbumArtwork256,
-	)
-	data.TrackAudioURLs = make(map[int64]string, len(album.Tracks))
+	trackAudioURLs := make(map[int64]string, len(album.Tracks))
 	for _, track := range album.Tracks {
-		data.TrackAudioURLs[track.ID] = trackAudioURL(
+		trackAudioURLs[track.ID] = trackAudioURL(
 			c.appBasePath,
 			track.ID,
 		)
 	}
 
-	renderPage(w, c.renderer, "album.gohtml", data)
+	renderPage(w, c.renderer, "album.gohtml", albumViewModel{
+		sharedURLs: getSharedURLs(c.appBasePath),
+		Album:      &album,
+		AlbumArtworkURL: albumArtworkURL(
+			c.appBasePath,
+			album.ID,
+			query.AlbumArtwork256,
+		),
+		TrackAudioURLs: trackAudioURLs,
+	})
 }
 
 func (c *appRoutes) getAlbumArtwork(w http.ResponseWriter, r *http.Request) {
@@ -231,23 +213,17 @@ func (c *appRoutes) getAlbumArtwork(w http.ResponseWriter, r *http.Request) {
 	case errors.Is(err, query.ErrAlbumArtworkNotFound):
 		switch size {
 		case query.AlbumArtwork256:
-			writeArtwork(w, "image/svg+xml", AlbumArtwork256FallbackArtwork)
+			renderImage(w, "image/svg+xml", AlbumArtwork256FallbackArtwork)
 		case query.AlbumArtwork64:
-			writeArtwork(w, "image/svg+xml", AlbumArtwork64FallbackArtwork)
+			renderImage(w, "image/svg+xml", AlbumArtwork64FallbackArtwork)
 		}
 		return
 
 	case err != nil:
-		log.Printf(
+		internalServerError(w, fmt.Sprintf(
 			"Unable to load artwork for album %d: %v",
-			albumID,
-			err,
-		)
-		http.Error(
-			w,
-			"Unable to load album artwork",
-			http.StatusInternalServerError,
-		)
+			albumID, err,
+		))
 		return
 	}
 
@@ -267,14 +243,14 @@ func (c *appRoutes) getAlbumArtwork(w http.ResponseWriter, r *http.Request) {
 		)
 		switch size {
 		case query.AlbumArtwork256:
-			writeArtwork(w, "image/svg+xml", AlbumArtwork256FallbackArtwork)
+			renderImage(w, "image/svg+xml", AlbumArtwork256FallbackArtwork)
 		case query.AlbumArtwork64:
-			writeArtwork(w, "image/svg+xml", AlbumArtwork64FallbackArtwork)
+			renderImage(w, "image/svg+xml", AlbumArtwork64FallbackArtwork)
 		}
 		return
 	}
 
-	writeArtwork(w, contentType, artwork.Bytes)
+	renderImage(w, contentType, artwork.Bytes)
 }
 
 func (c *appRoutes) streamTrackAudio(w http.ResponseWriter, r *http.Request) {
@@ -295,16 +271,10 @@ func (c *appRoutes) streamTrackAudio(w http.ResponseWriter, r *http.Request) {
 		return
 
 	case err != nil:
-		log.Printf(
+		internalServerError(w, fmt.Sprintf(
 			"Unable to load audio information for track %d: %v",
-			trackID,
-			err,
-		)
-		http.Error(
-			w,
-			"Unable to load track audio",
-			http.StatusInternalServerError,
-		)
+			trackID, err,
+		))
 		return
 	}
 
@@ -318,16 +288,10 @@ func (c *appRoutes) streamTrackAudio(w http.ResponseWriter, r *http.Request) {
 		return
 
 	case err != nil:
-		log.Printf(
+		internalServerError(w, fmt.Sprintf(
 			"Unable to resolve audio path for track %d: %v",
-			trackID,
-			err,
-		)
-		http.Error(
-			w,
-			"Unable to load track audio",
-			http.StatusInternalServerError,
-		)
+			trackID, err,
+		))
 		return
 	}
 
@@ -338,32 +302,20 @@ func (c *appRoutes) streamTrackAudio(w http.ResponseWriter, r *http.Request) {
 		return
 
 	case err != nil:
-		log.Printf(
+		internalServerError(w, fmt.Sprintf(
 			"Unable to open audio for track %d: %v",
-			trackID,
-			err,
-		)
-		http.Error(
-			w,
-			"Unable to load track audio",
-			http.StatusInternalServerError,
-		)
+			trackID, err,
+		))
 		return
 	}
 	defer file.Close()
 
 	info, err := file.Stat()
 	if err != nil {
-		log.Printf(
+		internalServerError(w, fmt.Sprintf(
 			"Unable to inspect audio for track %d: %v",
-			trackID,
-			err,
-		)
-		http.Error(
-			w,
-			"Unable to load track audio",
-			http.StatusInternalServerError,
-		)
+			trackID, err,
+		))
 		return
 	}
 
@@ -397,12 +349,9 @@ func getIdenticon(db *sql.DB, w http.ResponseWriter, r *http.Request) {
 		&sql.TxOptions{ReadOnly: true},
 	)
 	if err != nil {
-		log.Printf("Unable to begin the instance identicon query: %v", err)
-		http.Error(
-			w,
-			"Unable to load the instance identicon",
-			http.StatusInternalServerError,
-		)
+		internalServerError(w, fmt.Sprintf(
+			"Unable to begin the instance identicon query: %v", err,
+		))
 		return
 	}
 	defer tx.Rollback()
@@ -413,164 +362,20 @@ func getIdenticon(db *sql.DB, w http.ResponseWriter, r *http.Request) {
 		app.InstanceIdenticon,
 	)
 	if err != nil {
-		log.Printf("Unable to load the instance identicon: %v", err)
-		http.Error(
-			w,
-			"Unable to load the instance identicon",
-			http.StatusInternalServerError,
-		)
+		internalServerError(w, fmt.Sprintf(
+			"Unable to load the instance identicon: %v", err,
+		))
 		return
 	}
 
 	if err := tx.Commit(); err != nil {
-		log.Printf("Unable to commit the instance identicon query: %v", err)
-		http.Error(
-			w,
-			"Unable to load the instance identicon",
-			http.StatusInternalServerError,
-		)
+		internalServerError(w, fmt.Sprintf(
+			"Unable to commit the instance identicon query: %v", err,
+		))
 		return
 	}
 
-	writeArtwork(w, "image/svg+xml", []byte(identicon))
-}
-
-func writeArtwork(
-	w http.ResponseWriter,
-	contentType string,
-	data []byte,
-) {
-	w.Header().Set("Content-Type", contentType)
-	w.Header().Set(
-		"Content-Length",
-		strconv.Itoa(len(data)),
-	)
-	w.Header().Set("X-Content-Type-Options", "nosniff")
-	w.WriteHeader(http.StatusOK)
-
-	_, _ = w.Write(data)
-}
-
-func renderPage(
-	w http.ResponseWriter,
-	renderer Renderer,
-	pageName string,
-	data pageData,
-) {
-	var buf bytes.Buffer
-	if err := renderer.Render(&buf, pageName, data); err != nil {
-		log.Printf("error rendering page %q: %v", pageName, err)
-		http.Error(
-			w,
-			"An unexpected error occured. "+
-				"If you are a web admin see the server logs for more details.",
-			http.StatusInternalServerError,
-		)
-		return
-	}
-
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.WriteHeader(http.StatusOK)
-	if _, err := buf.WriteTo(w); err != nil {
-		log.Printf("error writing response: %v", err)
-	}
-}
-
-func pathAtAppBase(appBasePath, suffix string) string {
-	return appBasePath + suffix
-}
-
-func albumArtworkURL(
-	appBasePath string,
-	albumID int64,
-	size query.AlbumArtworkSize,
-) string {
-	return pathAtAppBase(appBasePath, "/library/album/artwork") +
-		"?album_id=" + strconv.FormatInt(albumID, 10) +
-		"&size=" + string(size)
-}
-
-func albumURL(appBasePath string, albumID int64) string {
-	return pathAtAppBase(appBasePath, "/library/album") +
-		"?album_id=" + strconv.FormatInt(albumID, 10)
-}
-
-func trackAudioURL(
-	appBasePath string,
-	trackID int64,
-) string {
-	return pathAtAppBase(
-		appBasePath,
-		"/library/album/tracks/audio",
-	) + "?track_id=" + strconv.FormatInt(trackID, 10)
-}
-
-func parseAlbumID(r *http.Request) (int64, error) {
-	return parsePositiveID(r, "album_id")
-}
-
-func parseTrackID(r *http.Request) (int64, error) {
-	return parsePositiveID(r, "track_id")
-}
-
-func parseArtworkSize(r *http.Request) (query.AlbumArtworkSize, error) {
-	value, err := requiredQueryValue(
-		r.URL.Query(),
-		"size",
-	)
-	if err != nil {
-		return "", err
-	}
-
-	switch value {
-	case string(query.AlbumArtwork64):
-		return query.AlbumArtwork64, nil
-
-	case string(query.AlbumArtwork256):
-		return query.AlbumArtwork256, nil
-
-	default:
-		return "", errors.New("size must be thumb or full")
-	}
-}
-
-func parsePositiveID(
-	r *http.Request,
-	name string,
-) (int64, error) {
-	value, err := requiredQueryValue(
-		r.URL.Query(),
-		name,
-	)
-	if err != nil {
-		return 0, err
-	}
-
-	id, err := strconv.ParseInt(value, 10, 64)
-	if err != nil || id < 1 {
-		return 0, fmt.Errorf(
-			"%s must be a positive integer",
-			name,
-		)
-	}
-
-	return id, nil
-}
-
-func requiredQueryValue(
-	values url.Values,
-	name string,
-) (string, error) {
-	found := values[name]
-
-	if len(found) != 1 || found[0] == "" {
-		return "", fmt.Errorf(
-			"a single %s is required",
-			name,
-		)
-	}
-
-	return found[0], nil
+	renderImage(w, "image/svg+xml", []byte(identicon))
 }
 
 func mountApp(prefix string, next http.Handler) http.Handler {
@@ -606,4 +411,14 @@ func mountApp(prefix string, next http.Handler) http.Handler {
 		// All other cases can be handled by the inner route with any logic
 		stripped.ServeHTTP(w, r)
 	})
+}
+
+func internalServerError(w http.ResponseWriter, logmsg string) {
+	log.Print(logmsg)
+	http.Error(
+		w,
+		"An unexpected error occured. "+
+			"If you are a web admin see the server logs for more details.",
+		http.StatusInternalServerError,
+	)
 }
