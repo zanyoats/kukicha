@@ -1,106 +1,110 @@
 {{define "page-content"}}
 <article class="album-page">
     <header class="album-header">
-        <img class="album-artwork" src="{{.AlbumArtworkURL}}" alt="Artwork for {{.Album.Title}}"
-            data-player-album-artwork>
+        <img
+            class="album-artwork"
+            src="{{.AlbumArtworkURL}}"
+            alt="Artwork for {{.Album.Title}}"
+            data-player-album-artwork
+        />
 
         <div class="album-summary">
             <h1 class="album-title" data-player-album-title>
                 {{.Album.Title}}
             </h1>
 
-            {{with .Album.Artists}}
+            {{ with.Album.Artists }}
             <p class="album-artists" data-player-album-artists-source>
                 {{range $index, $artist := .}}
-                {{if $index}}, {{end}}{{$artist}}
-                {{end}}
+                {{if $index}}, {{ end }}{{ $artist }}
+                {{ end }}
             </p>
-            {{end}}
+            {{ end }}
 
             <dl class="album-facts">
-                {{with .Album.ReleaseDate}}
+                {{ with.Album.ReleaseDate }}
                 <div>
                     <dt>Released</dt>
                     <dd>{{.}}</dd>
                 </div>
                 {{else}}
-                {{with .Album.ReleaseYear}}
+                {{ with.Album.ReleaseYear }}
                 <div>
                     <dt>Released</dt>
                     <dd>{{.}}</dd>
                 </div>
-                {{end}}
-                {{end}}
+                {{ end }}
+                {{ end }}
 
-                {{with .Album.OriginalReleaseDate}}
+                {{ with.Album.OriginalReleaseDate }}
                 <div>
                     <dt>Original release</dt>
                     <dd>{{.}}</dd>
                 </div>
                 {{else}}
-                {{with .Album.OriginalReleaseYear}}
+                {{ with.Album.OriginalReleaseYear }}
                 <div>
                     <dt>Original release</dt>
                     <dd>{{.}}</dd>
                 </div>
-                {{end}}
-                {{end}}
+                {{ end }}
+                {{ end }}
 
-                {{with .Album.ReleaseCountry}}
+                {{ with.Album.ReleaseCountry }}
                 <div>
                     <dt>Release country</dt>
                     <dd>{{.}}</dd>
                 </div>
-                {{end}}
+                {{ end }}
 
-                {{with .Album.Label}}
+                {{ with.Album.Label }}
                 <div>
                     <dt>Label</dt>
                     <dd>{{.}}</dd>
                 </div>
-                {{end}}
+                {{ end }}
 
-                {{with .Album.Composer}}
+                {{ with.Album.Composer }}
                 <div>
                     <dt>Composer</dt>
                     <dd>{{.}}</dd>
                 </div>
-                {{end}}
+                {{ end }}
 
-                {{with .Album.PurchaseDate}}
+                {{ with.Album.PurchaseDate }}
                 <div>
                     <dt>Purchased</dt>
                     <dd>{{.}}</dd>
                 </div>
-                {{end}}
+                {{ end }}
 
-                {{with .Album.Format}}
+                {{ with.Album.Format }}
                 <div>
                     <dt>Format</dt>
                     <dd>{{.}}</dd>
                 </div>
-                {{end}}
+                {{ end }}
 
-                {{with .Album.IsCompilation}}
+                {{ with.Album.IsCompilation }}
                 <div>
                     <dt>Compilation</dt>
                     <dd>{{yesNo .}}</dd>
                 </div>
-                {{end}}
+                {{ end }}
 
-                {{with .Album.DiscCount}}
+                {{ with.Album.DiscCount }}
                 <div>
                     <dt>Discs</dt>
                     <dd>{{.}}</dd>
                 </div>
-                {{end}}
+                {{ end }}
 
-                {{with .Album.TrackCount}}
+                {{ with.Album.TrackCount }}
                 <div>
                     <dt>Tracks</dt>
                     <dd>{{.}}</dd>
                 </div>
-                {{end}}
+                {{ end }}
 
                 <div>
                     <dt>Duration</dt>
@@ -111,21 +115,30 @@
     </header>
 
     <ol class="track-list" data-player-queue>
-        {{range .Album.Tracks}}
+        {{
+            range.Album.Tracks
+        }}
         <li class="track-row" data-track-id="{{.ID}}">
-            <button class="inline-play-button" type="button" data-player-action="play" data-track-id="{{.ID}}"
-                data-audio-url="{{index $.TrackAudioURLs .ID}}" aria-label="Play {{.Title}}" aria-pressed="false">
+            <button
+                class="inline-play-button"
+                type="button"
+                data-player-action="play"
+                data-track-id="{{.ID}}"
+                data-audio-url="{{index $.TrackAudioURLs .ID}}"
+                aria-label="Play {{.Title}}"
+                aria-pressed="false"
+            >
                 <svg class="audio-icon" aria-hidden="true">
                     <use href="#icon-play" data-track-play-icon></use>
                 </svg>
             </button>
 
             <span class="track-position">
-                {{with .TrackNumber}}
+                {{ with.TrackNumber }}
                 {{.}}
                 {{else}}
                 —
-                {{end}}
+                {{ end }}
             </span>
 
             <span class="track-info">
@@ -133,28 +146,40 @@
                     {{.Title}}
                 </span>
 
-                {{with .Artists}}
-                <p class="track-artists">{{range $index, $artist := .}}{{if $index}}, {{end}}{{$artist}}{{end}}</p>
-                {{end}}
+                {{ with.Artists }}
+                <p class="track-artists">
+                    {{range $index, $artist := .}}{{if $index}}, {{ end
+                    }}{{ $artist }}{{ end }}
+                </p>
+                {{ end }}
             </span>
 
-            <span class="track-duration" data-track-duration aria-label="Duration 2 minutes 46 seconds">2:46</span>
+            <span
+                class="track-duration"
+                data-track-duration
+                aria-label="Duration 2 minutes 46 seconds"
+                >2:46</span
+            >
 
-            <button class="icon-button" type="button" aria-label="Track actions for {{.Title}}">
+            <button
+                class="icon-button"
+                type="button"
+                aria-label="Track actions for {{.Title}}"
+            >
                 <svg class="audio-icon" aria-hidden="true">
                     <use href="#icon-track-actions"></use>
                 </svg>
             </button>
         </li>
         {{else}}
-        <li class="track-list-empty">
-            This album has no tracks.
-        </li>
-        {{end}}
+        <li class="track-list-empty">This album has no tracks.</li>
+        {{
+            end
+        }}
     </ol>
 
-    {{with .Album.Copyright}}
+    {{ with.Album.Copyright }}
     <p class="album-copyright">{{.}}</p>
-    {{end}}
+    {{ end }}
 </article>
-{{end}}
+{{ end }}

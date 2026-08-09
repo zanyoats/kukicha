@@ -1,0 +1,15 @@
+{{define "header" -}}
+<header class="top-nav">
+    <nav aria-label="Primary navigation" up-nav>
+        <a href="{{.HomeURL}}" up-follow>home</a>
+        <a href="{{.LibraryURL}}" up-alias="{{.LibraryURL}}/*" up-follow
+            >library</a
+        >
+        <a href="{{.SearchURL}}" up-follow>search</a>
+    </nav>
+
+    <div class="avatar">
+        <img src="{{.InstanceIdenticonURL}}" alt="Kukicha instance identicon" />
+    </div>
+</header>
+{{ end }}

@@ -1,0 +1,39 @@
+{{define "layout"}}
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <title>
+            {{if .PageTitle}}
+            {{.PageTitle}} - Kukicha
+            {{else}}
+            Kukicha
+            {{ end }}
+        </title>
+        <link
+            rel="icon"
+            type="image/svg+xml"
+            href="{{.InstanceIdenticonURL}}"
+        />
+        <link rel="stylesheet" href="{{.UnpolyStylesheetURL}}" />
+        <link rel="stylesheet" href="{{.StylesheetURL}}" />
+        <script src="{{.UnpolyJavaScriptURL}}" defer></script>
+        <script src="{{.PlayerJavaScriptURL}}" defer></script>
+    </head>
+
+    <body class="app">
+        {{template "svgsprite" .}}
+
+        {{template "header" .}}
+
+        <main class="content-outer-shell" up-main>
+            <section class="content-inner-shell">
+                {{block "page-content" .}}{{ end }}
+            </section>
+        </main>
+
+        {{template "footer" .}}
+    </body>
+</html>
+{{ end }}

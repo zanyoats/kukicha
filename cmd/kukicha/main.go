@@ -26,6 +26,11 @@ func main() {
 		log.Fatal(err)
 	}
 
+	renderer, err := web.NewPageRenderer()
+	if err != nil {
+		log.Fatal(err)
+	}
+
 	ctx := context.Background()
 
 	db, err := sql.Open("sqlite3", conf.DataSourceName)
@@ -71,6 +76,7 @@ func main() {
 		Addr: conf.Settings.HTTP.ServerAddress,
 		Handler: web.NewWebRouter(
 			conf.Settings.HTTP.AppBasePath,
+			renderer,
 			db,
 		),
 		ReadHeaderTimeout: 5 * time.Second,

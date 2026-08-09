@@ -54,16 +54,17 @@ func newPageData(appBasePath string) pageData {
 	}
 }
 
-func NewWebRouter(appBasePath string, db *sql.DB) http.Handler {
+func NewWebRouter(appBasePath string, renderer Renderer, db *sql.DB) http.Handler {
 	mux := http.NewServeMux()
 
 	mux.Handle(
 		"/",
 		newRootRoutes(db),
 	)
+
 	appHandler := mountApp(
 		appBasePath,
-		newAppRoutes(appBasePath, db),
+		newAppRoutes(appBasePath, renderer, db),
 	)
 	mux.Handle(appBasePath, appHandler)
 	mux.Handle(appBasePath+"/", appHandler)
@@ -83,11 +84,12 @@ func newRootRoutes(db *sql.DB) http.Handler {
 
 type appRoutes struct {
 	appBasePath string
+	renderer    Renderer
 	db          *sql.DB
 }
 
-func newAppRoutes(appBasePath string, db *sql.DB) http.Handler {
-	router := appRoutes{appBasePath, db}
+func newAppRoutes(appBasePath string, renderer Renderer, db *sql.DB) http.Handler {
+	router := appRoutes{appBasePath, renderer, db}
 
 	mux := http.NewServeMux()
 
@@ -115,7 +117,7 @@ func (c *appRoutes) showHome(w http.ResponseWriter, r *http.Request) {
 	data := newPageData(c.appBasePath)
 	data.PageTitle = "Home"
 
-	renderPage(w, "home", data)
+	renderPage(w, c.renderer, "home.gohtml", data)
 }
 
 func (c *appRoutes) showLibrary(w http.ResponseWriter, r *http.Request) {
@@ -147,14 +149,14 @@ func (c *appRoutes) showLibrary(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	renderPage(w, "library", data)
+	renderPage(w, c.renderer, "library.gohtml", data)
 }
 
 func (c *appRoutes) showSearch(w http.ResponseWriter, r *http.Request) {
 	data := newPageData(c.appBasePath)
 	data.PageTitle = "Search"
 
-	renderPage(w, "search", data)
+	renderPage(w, c.renderer, "search.gohtml", data)
 }
 
 func (c *appRoutes) showAlbum(w http.ResponseWriter, r *http.Request) {
@@ -194,7 +196,7 @@ func (c *appRoutes) showAlbum(w http.ResponseWriter, r *http.Request) {
 		)
 	}
 
-	renderPage(w, "album", data)
+	renderPage(w, c.renderer, "album.gohtml", data)
 }
 
 func (c *appRoutes) getAlbumArtwork(w http.ResponseWriter, r *http.Request) {
@@ -451,35 +453,17 @@ func writeArtwork(
 
 func renderPage(
 	w http.ResponseWriter,
+	renderer Renderer,
 	pageName string,
 	data pageData,
 ) {
-	var rendered bytes.Buffer
-
-	pageTemplate, ok := pageTemplates[pageName]
-	if !ok {
-		log.Printf("Unable to find page template %q", pageName)
+	var buf bytes.Buffer
+	if err := renderer.Render(&buf, pageName, data); err != nil {
+		log.Printf("error rendering page %q: %v", pageName, err)
 		http.Error(
 			w,
-			"Unable to render the application",
-			http.StatusInternalServerError,
-		)
-		return
-	}
-
-	if err := pageTemplate.ExecuteTemplate(
-		&rendered,
-		"layout.html",
-		data,
-	); err != nil {
-		log.Printf(
-			"Unable to render template %q: %v",
-			pageName,
-			err,
-		)
-		http.Error(
-			w,
-			"Unable to render the application",
+			"An unexpected error occured. "+
+				"If you are a web admin see the server logs for more details.",
 			http.StatusInternalServerError,
 		)
 		return
@@ -487,8 +471,9 @@ func renderPage(
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
-
-	_, _ = rendered.WriteTo(w)
+	if _, err := buf.WriteTo(w); err != nil {
+		log.Printf("error writing response: %v", err)
+	}
 }
 
 func pathAtAppBase(appBasePath, suffix string) string {
