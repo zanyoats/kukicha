@@ -553,8 +553,10 @@ article h1 {
             }
 
             .track-bar {
+                --range-track-size: 0.375rem;
+
                 inline-size: 100%;
-                block-size: 0.375rem;
+                block-size: 1rem;
             }
         }
 
@@ -570,8 +572,10 @@ article h1 {
         justify-self: end;
 
         .volume-bar {
+            --range-track-size: 0.2rem;
+
             inline-size: 4.5rem;
-            block-size: 0.2rem;
+            block-size: 1rem;
         }
     }
 
@@ -584,13 +588,17 @@ article h1 {
         border: 0;
         border-radius: 0;
         appearance: none;
-        background: linear-gradient(
+        background-image: linear-gradient(
             to right,
             var(--bar-progress) 0,
-            var(--bar-progress) var(--range-progress),
-            var(--bar) var(--range-progress),
+            var(--bar-progress) calc(var(--range-progress) + 1px),
+            var(--bar) calc(var(--range-progress) + 1px),
             var(--bar) 100%
         );
+        background-position: center;
+        background-size: 100% var(--range-track-size);
+        background-repeat: no-repeat;
+        background-color: transparent;
         cursor: pointer;
     }
 
@@ -600,34 +608,21 @@ article h1 {
     }
 
     .range-control::-webkit-slider-thumb {
-        inline-size: 0.75rem;
-        block-size: 0.75rem;
+        inline-size: 0.625rem;
+        block-size: 0.625rem;
         border: 0;
-        border-radius: 50%;
+        border-radius: 0;
         appearance: none;
         background: var(--bar-progress);
-        opacity: 0;
-        transition: opacity 120ms ease;
     }
 
     .range-control::-moz-range-thumb {
-        inline-size: 0.75rem;
-        block-size: 0.75rem;
+        inline-size: 0.625rem;
+        block-size: 0.625rem;
         border: 0;
-        border-radius: 50%;
+        border-radius: 0;
+        appearance: none;
         background: var(--bar-progress);
-        opacity: 0;
-        transition: opacity 120ms ease;
-    }
-
-    .range-control:hover::-webkit-slider-thumb,
-    .range-control:focus-visible::-webkit-slider-thumb {
-        opacity: 1;
-    }
-
-    .range-control:hover::-moz-range-thumb,
-    .range-control:focus-visible::-moz-range-thumb {
-        opacity: 1;
     }
 }
 
@@ -688,12 +683,5 @@ article h1 {
 
     .track-buttons {
         display: none;
-    }
-}
-
-@media (prefers-reduced-motion: reduce) {
-    .range-control::-webkit-slider-thumb,
-    .range-control::-moz-range-thumb {
-        transition: none;
     }
 }
