@@ -16,7 +16,7 @@
     --button-secondary: var(--surface);
     --button-border: var(--border);
     --bar: var(--border);
-    --bar-progress: var(--text-primary);
+    --bar-progress: var(--text-secondary);
 
     color: var(--text-primary);
     background: var(--background);
@@ -558,6 +558,10 @@ article h1 {
                 inline-size: 100%;
                 block-size: 1rem;
             }
+
+            .track-bar.is-loading:disabled {
+                opacity: 1;
+            }
         }
 
         .track-buttons {
@@ -591,8 +595,8 @@ article h1 {
         background-image: linear-gradient(
             to right,
             var(--bar-progress) 0,
-            var(--bar-progress) calc(var(--range-progress) + 1px),
-            var(--bar) calc(var(--range-progress) + 1px),
+            var(--bar-progress) var(--range-progress),
+            var(--bar) var(--range-progress),
             var(--bar) 100%
         );
         background-position: center;
@@ -602,27 +606,23 @@ article h1 {
         cursor: pointer;
     }
 
-    .range-control:disabled {
+    /* .range-control:disabled {
         cursor: default;
         opacity: 0.55;
-    }
+    } */
 
     .range-control::-webkit-slider-thumb {
-        inline-size: 0.625rem;
-        block-size: 0.625rem;
+        inline-size: 0;
+        block-size: 0;
         border: 0;
-        border-radius: 0;
         appearance: none;
-        background: var(--bar-progress);
     }
 
     .range-control::-moz-range-thumb {
-        inline-size: 0.625rem;
-        block-size: 0.625rem;
+        inline-size: 0;
+        block-size: 0;
         border: 0;
-        border-radius: 0;
         appearance: none;
-        background: var(--bar-progress);
     }
 }
 
