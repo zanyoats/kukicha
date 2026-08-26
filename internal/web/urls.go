@@ -12,8 +12,7 @@ type sharedURLs struct {
 	SearchURL            string
 	UnpolyStylesheetURL  string
 	StylesheetURL        string
-	UnpolyJavaScriptURL  string
-	PlayerJavaScriptURL  string
+	AppJavaScriptURL     string
 	InstanceIdenticonURL string
 }
 
@@ -24,8 +23,7 @@ func getSharedURLs(appBasePath string) sharedURLs {
 		SearchURL:            appBasePath + "/search",
 		UnpolyStylesheetURL:  appBasePath + "/assets/unpoly.min.css",
 		StylesheetURL:        appBasePath + "/assets/app.css",
-		UnpolyJavaScriptURL:  appBasePath + "/assets/unpoly.min.js",
-		PlayerJavaScriptURL:  appBasePath + "/assets/player.js",
+		AppJavaScriptURL:     appBasePath + "/assets/app.js",
 		InstanceIdenticonURL: appBasePath + "/instance/identicon.svg",
 	}
 }

@@ -147,7 +147,7 @@ func processFileTypeAudio(
 }
 
 func processFileTypeSidecar(
-	scannedFile *app.ScannedFile,
+	_ *app.ScannedFile,
 ) error {
 	return nil
 }

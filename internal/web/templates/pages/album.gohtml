@@ -1,7 +1,7 @@
 {{define "title"}}{{.Album.Title}}{{ end }}
 
 {{define "page-content"}}
-<article class="album-page">
+<article class="album-page" data-player-queue up-data="{{.PlayerQueueData}}">
     <header class="album-header">
         <img
             class="album-artwork"
@@ -116,17 +116,14 @@
         </div>
     </header>
 
-    <ol class="track-list" data-player-queue>
-        {{
-            range.Album.Tracks
-        }}
+    <ol class="track-list">
+        {{range $index, $track := .Album.Tracks}}
         <li class="track-row" data-track-id="{{.ID}}">
             <button
                 class="inline-play-button"
                 type="button"
                 data-player-action="play"
-                data-track-id="{{.ID}}"
-                data-audio-url="{{index $.TrackAudioURLs .ID}}"
+                data-track-index="{{ $index }}"
                 aria-label="Play {{.Title}}"
                 aria-pressed="false"
             >

@@ -2,6 +2,7 @@ package web
 
 import (
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -9,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/zanyoats/kukicha/internal/app"
@@ -140,7 +142,21 @@ type albumViewModel struct {
 	sharedURLs
 	Album           *query.Album
 	AlbumArtworkURL string
-	TrackAudioURLs  map[int64]string
+	PlayerQueueData string
+}
+
+type playerQueueData struct {
+	Tracks []playerQueueTrack `json:"tracks"`
+}
+
+type playerQueueTrack struct {
+	ID           string `json:"id"`
+	AudioURL     string `json:"audioURL"`
+	Title        string `json:"title"`
+	Artists      string `json:"artists"`
+	Album        string `json:"album"`
+	AlbumArtists string `json:"albumArtists"`
+	ArtworkURL   string `json:"artworkURL"`
 }
 
 func (c *appRoutes) showAlbum(w http.ResponseWriter, r *http.Request) {
@@ -161,24 +177,50 @@ func (c *appRoutes) showAlbum(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	trackAudioURLs := make(map[int64]string, len(album.Tracks))
-	for _, track := range album.Tracks {
-		trackAudioURLs[track.ID] = trackAudioURL(
-			c.appBasePath,
-			track.ID,
-		)
+	artworkURL := albumArtworkURL(
+		c.appBasePath,
+		album.ID,
+		query.AlbumArtwork256,
+	)
+	playerQueueJSON, err := json.Marshal(
+		newPlayerQueueData(album, c.appBasePath, artworkURL),
+	)
+	if err != nil {
+		internalServerError(w, fmt.Sprintf(
+			"Unable to encode player queue for album %d: %v",
+			albumID,
+			err,
+		))
+		return
 	}
 
 	renderPage(w, c.renderer, "album.gohtml", albumViewModel{
-		sharedURLs: getSharedURLs(c.appBasePath),
-		Album:      &album,
-		AlbumArtworkURL: albumArtworkURL(
-			c.appBasePath,
-			album.ID,
-			query.AlbumArtwork256,
-		),
-		TrackAudioURLs: trackAudioURLs,
+		sharedURLs:      getSharedURLs(c.appBasePath),
+		Album:           &album,
+		AlbumArtworkURL: artworkURL,
+		PlayerQueueData: string(playerQueueJSON),
 	})
+}
+
+func newPlayerQueueData(
+	album query.Album,
+	appBasePath string,
+	artworkURL string,
+) playerQueueData {
+	tracks := make([]playerQueueTrack, 0, len(album.Tracks))
+	for _, track := range album.Tracks {
+		tracks = append(tracks, playerQueueTrack{
+			ID:           strconv.FormatInt(track.ID, 10),
+			AudioURL:     trackAudioURL(appBasePath, track.ID),
+			Title:        track.Title,
+			Artists:      strings.Join(track.Artists, " "),
+			Album:        album.Title,
+			AlbumArtists: strings.Join(album.Artists, " "), // TODO: want to encode as JSON array of strings
+			ArtworkURL:   artworkURL,
+		})
+	}
+
+	return playerQueueData{Tracks: tracks}
 }
 
 func (c *appRoutes) getAlbumArtwork(w http.ResponseWriter, r *http.Request) {
