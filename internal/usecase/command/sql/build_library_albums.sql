@@ -7,7 +7,6 @@ audio_tracks AS (
         track_metadata,
         normalized_metadata
     FROM scan_tracks
-    WHERE file_type = :audio_file_type
 ),
 album_values AS (
     SELECT album_key, root_pos, path, 'format' AS field, NULLIF(json_extract(track_metadata, '$.format'), '') AS value FROM audio_tracks

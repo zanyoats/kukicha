@@ -5,5 +5,4 @@ SELECT
 FROM library_tracks AS tracks
 JOIN library_roots AS roots
     ON roots.id = tracks.root_id
-WHERE tracks.id = :track_id
-    AND tracks.file_type = :file_type;
+WHERE tracks.id = :track_id;

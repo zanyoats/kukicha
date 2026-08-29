@@ -1,24 +1,18 @@
 package command
 
 import (
-	"bytes"
 	"context"
 	"database/sql"
 	_ "embed"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"image"
-	_ "image/gif"
-	"image/jpeg"
-	"image/png"
 	"log"
 	"os"
 	"path/filepath"
 	"slices"
 
 	"github.com/zanyoats/kukicha/internal/app"
-	"golang.org/x/image/draw"
-	_ "golang.org/x/image/webp"
 )
 
 //go:embed sql/prepare_scan_results.sql
@@ -32,6 +26,15 @@ var insertScannedFileSQL string
 
 //go:embed sql/insert_scanned_artwork.sql
 var insertScannedArtworkSQL string
+
+//go:embed sql/insert_scanned_artwork_cover.sql
+var insertScannedArtworkCoverSQL string
+
+//go:embed sql/insert_scanned_sidecar_cover.sql
+var insertScannedSidecarCoverSQL string
+
+//go:embed sql/insert_scanned_sidecar_other.sql
+var insertScannedSidecarOtherSQL string
 
 //go:embed sql/find_or_insert_mapping.sql
 var findOrInsertMappingSQL string
@@ -63,34 +66,14 @@ var genreResolutionResultsSQL string
 //go:embed sql/build_library_track_sidecars.sql
 var buildLibraryTrackSidecarsSQL string
 
-//go:embed sql/library_track_artwork_sources.sql
-var libraryTrackArtworkSourcesSQL string
-
 //go:embed sql/insert_library_track_artwork.sql
 var insertLibraryTrackArtworkSQL string
-
-//go:embed sql/library_track_sidecar_artwork.sql
-var libraryTrackSidecarArtworkSQL string
-
-//go:embed sql/library_track_embedded_artwork.sql
-var libraryTrackEmbeddedArtworkSQL string
-
-//go:embed sql/library_track_itunes_artwork.sql
-var libraryTrackITunesArtworkSQL string
 
 //go:embed sql/current_timestamp.sql
 var currentTimestampSQL string
 
-const (
-	AlbumArtwork64  = 64
-	AlbumArtwork256 = 256
-)
-
 func PrepareScanResults(ctx context.Context, conn *sql.Conn) error {
-	_, err := conn.ExecContext(
-		ctx,
-		fmt.Sprintf(prepareScanResultsSQL, app.FileTypeAudio),
-	)
+	_, err := conn.ExecContext(ctx, prepareScanResultsSQL)
 
 	return err
 }
@@ -217,6 +200,34 @@ func InsertScannedFile(
 	r *app.ScannedFile,
 	itunesLookup ITunesArtworkLookup,
 ) error {
+	switch r.FileType {
+	case app.FileTypeAudio:
+		return insertScannedTrack(ctx, conn, r, itunesLookup)
+
+	case app.FileTypeSidecarCover:
+		return insertScannedSidecarCover(ctx, conn, r)
+
+	case app.FileTypeSidecarOther:
+		return insertScannedSidecarOther(ctx, conn, r)
+
+	case app.FileTypePlaylist:
+		return nil
+
+	default:
+		return fmt.Errorf("unsupported scanned file type %d", r.FileType)
+	}
+}
+
+func insertScannedTrack(
+	ctx context.Context,
+	conn *sql.Conn,
+	r *app.ScannedFile,
+	itunesLookup ITunesArtworkLookup,
+) error {
+	if r.Metadata == nil || r.NormalizedMetadata == nil {
+		return errors.New("scanned audio track is missing metadata")
+	}
+
 	b, err := json.Marshal(r.Metadata)
 	if err != nil {
 		return err
@@ -239,7 +250,6 @@ func InsertScannedFile(
 		sql.Named("stem", r.Stem),
 		sql.Named("ext", r.Ext),
 		sql.Named("path", r.Path),
-		sql.Named("file_type", int(r.FileType)),
 		sql.Named("file_size", r.FileSize),
 		sql.Named("file_mtime_unix_nano", r.FileModTime.UnixNano()),
 		sql.Named("track_metadata", metadata),
@@ -248,10 +258,6 @@ func InsertScannedFile(
 	)
 	if err != nil {
 		return err
-	}
-
-	if r.FileType != app.FileTypeAudio {
-		return nil
 	}
 
 	for artworkPos, artwork := range r.Artwork {
@@ -269,13 +275,141 @@ func InsertScannedFile(
 		if err != nil {
 			return err
 		}
+
+		thumbnailCacheName := ""
+		if artwork.PictureType == "front_cover" || artwork.PictureType == "other" {
+			thumbnailCacheName, err = cacheArtworkForScan(
+				ctx,
+				conn,
+				fmt.Sprintf("embedded artwork %q position %d", r.Path, artworkPos),
+				artwork.ArtworkBytes,
+			)
+			if err != nil {
+				return err
+			}
+		}
+
+		_, err = conn.ExecContext(
+			ctx,
+			insertScannedArtworkCoverSQL,
+			sql.Named("root_pos", r.RootPos),
+			sql.Named("path", r.Path),
+			sql.Named("artwork_pos", artworkPos),
+			sql.Named("picture_type", artwork.PictureType),
+			sql.Named(
+				"thumbnail_cache_name",
+				nullableThumbnailCacheName(thumbnailCacheName),
+			),
+		)
+		if err != nil {
+			return err
+		}
 	}
 
-	return cacheScannedFileITunesArtwork(ctx, r, itunesLookup)
+	return cacheScannedFileITunesArtwork(ctx, conn, r, itunesLookup)
+}
+
+func insertScannedSidecarCover(
+	ctx context.Context,
+	conn *sql.Conn,
+	r *app.ScannedFile,
+) error {
+	thumbnailCacheName := ""
+	if r.ScanError == "" {
+		artworkBytes, err := os.ReadFile(filepath.Join(r.RootPath, r.Path))
+		if err != nil {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			log.Printf("Cannot read sidecar artwork %q: %v", r.Path, err)
+		} else {
+			thumbnailCacheName, err = cacheArtworkForScan(
+				ctx,
+				conn,
+				fmt.Sprintf("sidecar artwork %q", r.Path),
+				artworkBytes,
+			)
+			if err != nil {
+				return err
+			}
+		}
+	} else {
+		log.Printf("Cannot read sidecar artwork %q: %s", r.Path, r.ScanError)
+	}
+
+	_, err := conn.ExecContext(
+		ctx,
+		insertScannedSidecarCoverSQL,
+		sql.Named("root_pos", r.RootPos),
+		sql.Named("path_dir", filepath.Dir(r.Path)),
+		sql.Named("stem", r.Stem),
+		sql.Named("ext", r.Ext),
+		sql.Named("path", r.Path),
+		sql.Named("file_size", r.FileSize),
+		sql.Named("file_mtime_unix_nano", r.FileModTime.UnixNano()),
+		sql.Named(
+			"thumbnail_cache_name",
+			nullableThumbnailCacheName(thumbnailCacheName),
+		),
+	)
+	if err != nil {
+		return fmt.Errorf("insert scanned sidecar cover %q: %w", r.Path, err)
+	}
+
+	return nil
+}
+
+func insertScannedSidecarOther(
+	ctx context.Context,
+	conn *sql.Conn,
+	r *app.ScannedFile,
+) error {
+	_, err := conn.ExecContext(
+		ctx,
+		insertScannedSidecarOtherSQL,
+		sql.Named("root_pos", r.RootPos),
+		sql.Named("path_dir", filepath.Dir(r.Path)),
+		sql.Named("stem", r.Stem),
+		sql.Named("ext", r.Ext),
+		sql.Named("path", r.Path),
+		sql.Named("file_size", r.FileSize),
+		sql.Named("file_mtime_unix_nano", r.FileModTime.UnixNano()),
+	)
+	if err != nil {
+		return fmt.Errorf("insert scanned sidecar %q: %w", r.Path, err)
+	}
+
+	return nil
+}
+
+func cacheArtworkForScan(
+	ctx context.Context,
+	conn *sql.Conn,
+	description string,
+	artworkBytes []byte,
+) (string, error) {
+	name, err := cacheArtworkThumbnails(ctx, conn, artworkBytes)
+	if errors.Is(err, errInvalidArtwork) {
+		log.Printf("Cannot cache %s: %v", description, err)
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("cache %s: %w", description, err)
+	}
+
+	return name, nil
+}
+
+func nullableThumbnailCacheName(name string) any {
+	if name == "" {
+		return nil
+	}
+	return name
 }
 
 func cacheScannedFileITunesArtwork(
 	ctx context.Context,
+	conn *sql.Conn,
 	r *app.ScannedFile,
 	itunesLookup ITunesArtworkLookup,
 ) error {
@@ -302,6 +436,9 @@ func cacheScannedFileITunesArtwork(
 			if ctx.Err() != nil {
 				return ctx.Err()
 			}
+			if errors.Is(err, ErrITunesArtworkCache) {
+				return err
+			}
 			log.Printf(
 				"iTunes artwork lookup failed for %s %s: %v",
 				candidate.kind,
@@ -313,6 +450,28 @@ func cacheScannedFileITunesArtwork(
 
 		switch result.ResultKind {
 		case app.ITunesResultHit:
+			thumbnailCacheName, err := cacheArtworkForScan(
+				ctx,
+				conn,
+				fmt.Sprintf("iTunes %s artwork %s", candidate.kind, lookupID),
+				result.Bytes,
+			)
+			if err != nil {
+				return err
+			}
+			if thumbnailCacheName == "" {
+				continue
+			}
+
+			if err := LinkCachedITunesArtworkThumbnail(
+				ctx,
+				conn,
+				candidate.kind,
+				lookupID,
+				thumbnailCacheName,
+			); err != nil {
+				return err
+			}
 			return nil
 		case app.ITunesResultMissing:
 			continue
@@ -373,11 +532,7 @@ func resetLibrary(ctx context.Context, tx *sql.Tx) error {
 }
 
 func buildLibraryRoots(ctx context.Context, tx *sql.Tx) error {
-	if _, err := tx.ExecContext(
-		ctx,
-		buildLibraryRootsSQL,
-		sql.Named("audio_file_type", app.FileTypeAudio),
-	); err != nil {
+	if _, err := tx.ExecContext(ctx, buildLibraryRootsSQL); err != nil {
 		return fmt.Errorf("build library roots: %w", err)
 	}
 
@@ -385,11 +540,7 @@ func buildLibraryRoots(ctx context.Context, tx *sql.Tx) error {
 }
 
 func buildLibraryAlbums(ctx context.Context, tx *sql.Tx) error {
-	if _, err := tx.ExecContext(
-		ctx,
-		buildLibraryAlbumsSQL,
-		sql.Named("audio_file_type", app.FileTypeAudio),
-	); err != nil {
+	if _, err := tx.ExecContext(ctx, buildLibraryAlbumsSQL); err != nil {
 		return fmt.Errorf("build library albums: %w", err)
 	}
 
@@ -397,11 +548,7 @@ func buildLibraryAlbums(ctx context.Context, tx *sql.Tx) error {
 }
 
 func buildLibraryAlbumArtists(ctx context.Context, tx *sql.Tx) error {
-	if _, err := tx.ExecContext(
-		ctx,
-		buildLibraryAlbumArtistsSQL,
-		sql.Named("audio_file_type", app.FileTypeAudio),
-	); err != nil {
+	if _, err := tx.ExecContext(ctx, buildLibraryAlbumArtistsSQL); err != nil {
 		return fmt.Errorf("build library album artists: %w", err)
 	}
 
@@ -409,11 +556,7 @@ func buildLibraryAlbumArtists(ctx context.Context, tx *sql.Tx) error {
 }
 
 func buildLibraryTracks(ctx context.Context, tx *sql.Tx) error {
-	if _, err := tx.ExecContext(
-		ctx,
-		buildLibraryTracksSQL,
-		sql.Named("audio_file_type", app.FileTypeAudio),
-	); err != nil {
+	if _, err := tx.ExecContext(ctx, buildLibraryTracksSQL); err != nil {
 		return fmt.Errorf("build library tracks: %w", err)
 	}
 
@@ -421,11 +564,7 @@ func buildLibraryTracks(ctx context.Context, tx *sql.Tx) error {
 }
 
 func buildLibraryTrackEmbeddedArtwork(ctx context.Context, tx *sql.Tx) error {
-	if _, err := tx.ExecContext(
-		ctx,
-		buildLibraryTrackEmbeddedArtworkSQL,
-		sql.Named("audio_file_type", app.FileTypeAudio),
-	); err != nil {
+	if _, err := tx.ExecContext(ctx, buildLibraryTrackEmbeddedArtworkSQL); err != nil {
 		return fmt.Errorf("build library track embedded artwork: %w", err)
 	}
 
@@ -455,7 +594,6 @@ func buildLibraryTrackGenresAndStyles(
 		ctx,
 		buildLibraryTrackGenresAndStylesSQL,
 		sql.Named("split_delimiters", string(splitDelimitersJSON)),
-		sql.Named("audio_file_type", app.FileTypeAudio),
 		sql.Named("unknown_item", unknownItem),
 	); err != nil {
 		err = fmt.Errorf(
@@ -495,13 +633,7 @@ func buildLibraryTrackGenresAndStyles(
 }
 
 func buildLibraryTrackSidecars(ctx context.Context, tx *sql.Tx) error {
-	if _, err := tx.ExecContext(
-		ctx,
-		buildLibraryTrackSidecarsSQL,
-		sql.Named("audio_file_type", app.FileTypeAudio),
-		sql.Named("cover_file_type", app.FileTypeSidecarCover),
-		sql.Named("other_file_type", app.FileTypeSidecarOther),
-	); err != nil {
+	if _, err := tx.ExecContext(ctx, buildLibraryTrackSidecarsSQL); err != nil {
 		return fmt.Errorf("build library track sidecars: %w", err)
 	}
 
@@ -509,211 +641,16 @@ func buildLibraryTrackSidecars(ctx context.Context, tx *sql.Tx) error {
 }
 
 func buildLibraryTrackArtwork(ctx context.Context, tx *sql.Tx) error {
-	rows, err := tx.QueryContext(ctx, libraryTrackArtworkSourcesSQL)
-	if err != nil {
-		return fmt.Errorf("query library tracks for artwork: %w", err)
-	}
-
-	type libraryTrackArtworkSource struct {
-		trackID  int64
-		rootPath string
-	}
-	var sources []libraryTrackArtworkSource
-
-	for rows.Next() {
-		var source libraryTrackArtworkSource
-		if err := rows.Scan(&source.trackID, &source.rootPath); err != nil {
-			rows.Close()
-			return fmt.Errorf("scan library track for artwork: %w", err)
-		}
-		sources = append(sources, source)
-	}
-	if err := rows.Err(); err != nil {
-		rows.Close()
-		return fmt.Errorf("iterate library tracks for artwork: %w", err)
-	}
-	if err := rows.Close(); err != nil {
-		return fmt.Errorf("close library track artwork source rows: %w", err)
-	}
-
-	for _, source := range sources {
-		artwork, sourceFormat, err := resolveLibraryTrackArtwork(ctx, tx, source.trackID, source.rootPath)
-		if err != nil {
-			return err
-		}
-		if artwork == nil {
-			continue
-		}
-
-		for _, width := range []int{AlbumArtwork64, AlbumArtwork256} {
-			artworkBytes, contentType, err := encodeLibraryTrackArtwork(
-				resizeToWidth(artwork, width),
-				sourceFormat,
-			)
-			if err != nil {
-				return fmt.Errorf("encode library track %d artwork at width %d: %w", source.trackID, width, err)
-			}
-
-			if _, err := tx.ExecContext(
-				ctx,
-				insertLibraryTrackArtworkSQL,
-				sql.Named("track_id", source.trackID),
-				sql.Named("width_px", width),
-				sql.Named("artwork_content_type", contentType),
-				sql.Named("artwork_content_size", len(artworkBytes)),
-				sql.Named("artwork_bytes", artworkBytes),
-			); err != nil {
-				return fmt.Errorf("insert library track %d artwork at width %d: %w", source.trackID, width, err)
-			}
-		}
+	if _, err := tx.ExecContext(
+		ctx,
+		insertLibraryTrackArtworkSQL,
+		sql.Named("artwork_width_small", AlbumArtwork64),
+		sql.Named("artwork_width_large", AlbumArtwork256),
+	); err != nil {
+		return fmt.Errorf("build library track artwork: %w", err)
 	}
 
 	return nil
-}
-
-func resolveLibraryTrackArtwork(
-	ctx context.Context,
-	tx *sql.Tx,
-	trackID int64,
-	rootPath string,
-) (image.Image, string, error) {
-	rows, err := tx.QueryContext(
-		ctx,
-		libraryTrackSidecarArtworkSQL,
-		sql.Named("track_id", trackID),
-		sql.Named("cover_file_type", app.FileTypeSidecarCover),
-	)
-	if err != nil {
-		return nil, "", fmt.Errorf("query library track %d sidecar artwork: %w", trackID, err)
-	}
-
-	var resolved image.Image
-	var sourceFormat string
-	for rows.Next() {
-		var sidecarPath string
-		if err := rows.Scan(&sidecarPath); err != nil {
-			rows.Close()
-			return nil, "", fmt.Errorf("scan library track %d sidecar artwork: %w", trackID, err)
-		}
-
-		artwork, format, err := decodeImageFile(filepath.Join(rootPath, sidecarPath))
-		if err == nil {
-			resolved = artwork
-			sourceFormat = format
-			break
-		}
-	}
-	if err := rows.Err(); err != nil {
-		rows.Close()
-		return nil, "", fmt.Errorf("iterate library track %d sidecar artwork: %w", trackID, err)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, "", fmt.Errorf("close library track %d sidecar artwork rows: %w", trackID, err)
-	}
-	if resolved != nil {
-		return resolved, sourceFormat, nil
-	}
-
-	rows, err = tx.QueryContext(
-		ctx,
-		libraryTrackEmbeddedArtworkSQL,
-		sql.Named("track_id", trackID),
-	)
-	if err != nil {
-		return nil, "", fmt.Errorf("query library track %d embedded artwork: %w", trackID, err)
-	}
-
-	for rows.Next() {
-		var artworkBytes []byte
-		if err := rows.Scan(&artworkBytes); err != nil {
-			rows.Close()
-			return nil, "", fmt.Errorf("scan library track %d embedded artwork: %w", trackID, err)
-		}
-
-		artwork, format, err := image.Decode(bytes.NewReader(artworkBytes))
-		if err == nil {
-			resolved = artwork
-			sourceFormat = format
-			break
-		}
-	}
-	if err := rows.Err(); err != nil {
-		rows.Close()
-		return nil, "", fmt.Errorf("iterate library track %d embedded artwork: %w", trackID, err)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, "", fmt.Errorf("close library track %d embedded artwork rows: %w", trackID, err)
-	}
-	if resolved != nil {
-		return resolved, sourceFormat, nil
-	}
-
-	rows, err = tx.QueryContext(
-		ctx,
-		libraryTrackITunesArtworkSQL,
-		sql.Named("track_id", trackID),
-	)
-	if err != nil {
-		return nil, "", fmt.Errorf("query library track %d iTunes artwork: %w", trackID, err)
-	}
-
-	for rows.Next() {
-		var artworkBytes []byte
-		if err := rows.Scan(&artworkBytes); err != nil {
-			rows.Close()
-			return nil, "", fmt.Errorf("scan library track %d iTunes artwork: %w", trackID, err)
-		}
-
-		artwork, format, err := image.Decode(bytes.NewReader(artworkBytes))
-		if err == nil {
-			resolved = artwork
-			sourceFormat = format
-			break
-		}
-	}
-	if err := rows.Err(); err != nil {
-		rows.Close()
-		return nil, "", fmt.Errorf("iterate library track %d iTunes artwork: %w", trackID, err)
-	}
-	if err := rows.Close(); err != nil {
-		return nil, "", fmt.Errorf("close library track %d iTunes artwork rows: %w", trackID, err)
-	}
-
-	return resolved, sourceFormat, nil
-}
-
-func decodeImageFile(path string) (image.Image, string, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return nil, "", err
-	}
-	defer f.Close()
-
-	return image.Decode(f)
-}
-
-func encodeLibraryTrackArtwork(src image.Image, sourceFormat string) ([]byte, string, error) {
-	var encoded bytes.Buffer
-
-	if sourceFormat == "jpeg" {
-		err := jpeg.Encode(&encoded, src, &jpeg.Options{Quality: 90})
-		return encoded.Bytes(), "image/jpeg", err
-	}
-
-	err := png.Encode(&encoded, src)
-	return encoded.Bytes(), "image/png", err
-}
-
-func resizeToWidth(src image.Image, width int) image.Image {
-	srcBounds := src.Bounds()
-	height := int(float64(srcBounds.Dy())/float64(srcBounds.Dx())*float64(width) + 0.5)
-	if height < 1 {
-		height = 1
-	}
-
-	dst := image.NewNRGBA(image.Rect(0, 0, width, height))
-	draw.CatmullRom.Scale(dst, dst.Bounds(), src, srcBounds, draw.Over, nil)
-	return dst
 }
 
 func setBuildLibraryAppMetadata(

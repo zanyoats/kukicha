@@ -65,7 +65,6 @@ raw_genres AS (
         s.normalized_metadata,
         '$.genres'
     ) AS genres
-    WHERE s.file_type = :audio_file_type
 ),
 raw_resolutions AS (
     SELECT

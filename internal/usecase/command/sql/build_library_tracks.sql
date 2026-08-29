@@ -3,7 +3,6 @@ INSERT INTO library_tracks (
     album_id,
     ext,
     path,
-    file_type,
     file_size,
     file_mtime_unix_nano,
     track_metadata,
@@ -24,7 +23,6 @@ SELECT
     albums.id,
     s.ext,
     s.path,
-    s.file_type,
     s.file_size,
     s.file_mtime_unix_nano,
     s.track_metadata,
@@ -43,5 +41,4 @@ FROM scan_tracks AS s
 JOIN library_roots AS roots
     ON roots.pos = s.root_pos
 JOIN library_albums AS albums
-    ON albums.album_key = json_extract(s.normalized_metadata, '$.album_key')
-WHERE s.file_type = :audio_file_type;
+    ON albums.album_key = json_extract(s.normalized_metadata, '$.album_key');

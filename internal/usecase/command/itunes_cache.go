@@ -14,6 +14,11 @@ import (
 //go:embed sql/store_itunes_lookup_image.sql
 var storeITunesLookupImageSQL string
 
+//go:embed sql/link_itunes_lookup_thumbnail.sql
+var linkITunesLookupThumbnailSQL string
+
+var ErrITunesArtworkCache = errors.New("iTunes artwork cache")
+
 type itunesArtworkCacheWriter interface {
 	ExecContext(
 		context.Context,
@@ -71,9 +76,45 @@ func StoreCachedITunesArtwork(
 		sql.Named("artwork_content_type", result.ContentType),
 		sql.Named("artwork_content_size", len(artworkBytes)),
 		sql.Named("artwork_bytes", artworkBytes),
+		sql.Named("thumbnail_cache_name", nil),
 	)
 	if err != nil {
 		return fmt.Errorf("store cached iTunes artwork: %w", err)
+	}
+
+	return nil
+}
+
+func LinkCachedITunesArtworkThumbnail(
+	ctx context.Context,
+	db itunesArtworkCacheWriter,
+	kind app.ITunesLookupKind,
+	lookupID string,
+	thumbnailCacheName string,
+) error {
+	if thumbnailCacheName == "" {
+		return errors.New("cannot link an empty thumbnail cache name")
+	}
+
+	result, err := db.ExecContext(
+		ctx,
+		linkITunesLookupThumbnailSQL,
+		sql.Named("cache_key", app.ITunesLookupCacheKey(kind, lookupID)),
+		sql.Named("thumbnail_cache_name", thumbnailCacheName),
+	)
+	if err != nil {
+		return fmt.Errorf("link cached iTunes artwork thumbnail: %w", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("count linked iTunes artwork thumbnails: %w", err)
+	}
+	if rowsAffected != 1 {
+		return fmt.Errorf(
+			"link cached iTunes artwork thumbnail: expected 1 row, updated %d",
+			rowsAffected,
+		)
 	}
 
 	return nil

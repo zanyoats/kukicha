@@ -1,14 +1,209 @@
-INSERT INTO library_track_artwork (
-    track_id,
-    width_px,
-    artwork_content_type,
-    artwork_content_size,
-    artwork_bytes
+WITH
+sidecar_candidates AS (
+    SELECT
+        tracks.id AS track_id,
+        covers.thumbnail_cache_name,
+        0 AS source_priority,
+        0 AS candidate_priority,
+        0 AS count_priority,
+        0 AS id_priority,
+        covers.path AS text_priority
+    FROM scan_tracks AS scanned_tracks
+    JOIN scan_sidecar_covers AS covers
+        ON covers.root_pos = scanned_tracks.root_pos
+        AND (
+            (
+                scanned_tracks.path_dir = '.'
+                AND covers.path_dir = '.'
+            )
+            OR substr(
+                covers.path,
+                1,
+                length(scanned_tracks.path_dir) + 1
+            ) = scanned_tracks.path_dir || '/'
+        )
+    JOIN library_roots AS roots
+        ON roots.pos = scanned_tracks.root_pos
+    JOIN library_tracks AS tracks
+        ON tracks.root_id = roots.id
+        AND tracks.path = scanned_tracks.path
+    WHERE covers.thumbnail_cache_name IS NOT NULL
+),
+embedded_candidates AS (
+    SELECT
+        tracks.id AS track_id,
+        artwork.thumbnail_cache_name,
+        1 AS source_priority,
+        CASE artwork.picture_type
+            WHEN 'front_cover' THEN 0
+            WHEN 'other' THEN 1
+        END AS candidate_priority,
+        0 AS count_priority,
+        artwork.artwork_pos AS id_priority,
+        '' AS text_priority
+    FROM scan_artwork_cover AS artwork
+    JOIN scan_tracks AS scanned_tracks
+        ON scanned_tracks.root_pos = artwork.root_pos
+        AND scanned_tracks.path = artwork.path
+    JOIN library_roots AS roots
+        ON roots.pos = scanned_tracks.root_pos
+    JOIN library_tracks AS tracks
+        ON tracks.root_id = roots.id
+        AND tracks.path = scanned_tracks.path
+    WHERE artwork.thumbnail_cache_name IS NOT NULL
+        AND artwork.picture_type IN ('front_cover', 'other')
+),
+current_itunes_candidates AS (
+    SELECT
+        tracks.id AS track_id,
+        cache.thumbnail_cache_name,
+        2 AS source_priority,
+        candidates.candidate_priority,
+        0 AS count_priority,
+        tracks.id AS id_priority,
+        candidates.lookup_id AS text_priority
+    FROM library_tracks AS tracks
+    JOIN (
+        SELECT
+            id AS track_id,
+            0 AS candidate_priority,
+            CAST(
+                json_extract(track_metadata, '$.itunes_store_album_id')
+                AS TEXT
+            ) AS lookup_id,
+            'album' AS lookup_kind
+        FROM library_tracks
+
+        UNION ALL
+
+        SELECT
+            id AS track_id,
+            1 AS candidate_priority,
+            CAST(
+                json_extract(track_metadata, '$.itunes_store_track_id')
+                AS TEXT
+            ) AS lookup_id,
+            'track' AS lookup_kind
+        FROM library_tracks
+    ) AS candidates
+        ON candidates.track_id = tracks.id
+    JOIN itunes_lookup_image_cache AS cache
+        ON cache.cache_key =
+            candidates.lookup_kind || ':' || candidates.lookup_id
+    WHERE CAST(candidates.lookup_id AS INTEGER) > 0
+        AND cache.result_kind = 'hit'
+        AND cache.thumbnail_cache_name IS NOT NULL
+),
+sibling_itunes_candidates AS (
+    SELECT
+        current_track.id AS track_id,
+        cache.thumbnail_cache_name,
+        2 AS source_priority,
+        2 AS candidate_priority,
+        -COUNT(*) AS count_priority,
+        MIN(siblings.id) AS id_priority,
+        CAST(
+            json_extract(
+                siblings.track_metadata,
+                '$.itunes_store_album_id'
+            )
+            AS TEXT
+        ) AS text_priority
+    FROM library_tracks AS current_track
+    JOIN library_tracks AS siblings
+        ON siblings.album_id = current_track.album_id
+        AND siblings.id != current_track.id
+    JOIN itunes_lookup_image_cache AS cache
+        ON cache.cache_key = 'album:' || CAST(
+            json_extract(
+                siblings.track_metadata,
+                '$.itunes_store_album_id'
+            )
+            AS TEXT
+        )
+    WHERE CAST(
+        json_extract(
+            siblings.track_metadata,
+            '$.itunes_store_album_id'
+        )
+        AS INTEGER
+    ) > 0
+        AND CAST(
+            json_extract(
+                siblings.track_metadata,
+                '$.itunes_store_album_id'
+            )
+            AS INTEGER
+        ) != COALESCE(
+            CAST(
+                json_extract(
+                    current_track.track_metadata,
+                    '$.itunes_store_album_id'
+                )
+                AS INTEGER
+            ),
+            0
+        )
+        AND cache.result_kind = 'hit'
+        AND cache.thumbnail_cache_name IS NOT NULL
+    GROUP BY
+        current_track.id,
+        cache.thumbnail_cache_name,
+        CAST(
+            json_extract(
+                siblings.track_metadata,
+                '$.itunes_store_album_id'
+            )
+            AS TEXT
+        )
+),
+all_candidates AS (
+    SELECT * FROM sidecar_candidates
+    UNION ALL SELECT * FROM embedded_candidates
+    UNION ALL SELECT * FROM current_itunes_candidates
+    UNION ALL SELECT * FROM sibling_itunes_candidates
+),
+ranked_candidates AS (
+    SELECT
+        candidates.track_id,
+        candidates.thumbnail_cache_name,
+        ROW_NUMBER() OVER (
+            PARTITION BY candidates.track_id
+            ORDER BY
+                candidates.source_priority,
+                candidates.candidate_priority,
+                candidates.count_priority,
+                candidates.id_priority,
+                candidates.text_priority COLLATE BINARY,
+                candidates.thumbnail_cache_name
+        ) AS rank
+    FROM all_candidates AS candidates
+    WHERE EXISTS (
+        SELECT 1
+        FROM thumbnail_cache AS small_thumbnail
+        WHERE small_thumbnail.name = candidates.thumbnail_cache_name
+            AND small_thumbnail.width_px = :artwork_width_small
+    )
+        AND EXISTS (
+            SELECT 1
+            FROM thumbnail_cache AS large_thumbnail
+            WHERE large_thumbnail.name = candidates.thumbnail_cache_name
+                AND large_thumbnail.width_px = :artwork_width_large
+        )
 )
-VALUES (
-    :track_id,
-    :width_px,
-    :artwork_content_type,
-    :artwork_content_size,
-    :artwork_bytes
-);
+INSERT OR IGNORE INTO library_track_artwork (
+    track_id,
+    thumbnail_cache_id
+)
+SELECT
+    ranked.track_id,
+    thumbnail.id
+FROM ranked_candidates AS ranked
+JOIN thumbnail_cache AS thumbnail
+    ON thumbnail.name = ranked.thumbnail_cache_name
+    AND thumbnail.width_px IN (
+        :artwork_width_small,
+        :artwork_width_large
+    )
+WHERE ranked.rank = 1
+ORDER BY ranked.track_id, thumbnail.width_px;

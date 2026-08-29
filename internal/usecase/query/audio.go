@@ -6,8 +6,6 @@ import (
 	_ "embed"
 	"errors"
 	"fmt"
-
-	"github.com/zanyoats/kukicha/internal/app"
 )
 
 var ErrTrackNotFound = errors.New("track not found")
@@ -35,7 +33,6 @@ func TrackAudioByID(
 		ctx,
 		trackAudioSQL,
 		sql.Named("track_id", trackID),
-		sql.Named("file_type", app.FileTypeAudio),
 	).Scan(
 		&audio.RootPath,
 		&audio.RelativePath,

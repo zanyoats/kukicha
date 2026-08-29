@@ -11,7 +11,6 @@ CREATE TEMP TABLE scan_tracks (
     stem                 TEXT    NOT NULL                 ,
     ext                  TEXT    NULL                     ,
     path                 TEXT    NOT NULL                 ,
-    file_type            INTEGER NOT NULL                 ,
     file_size            INTEGER NOT NULL                 ,
     file_mtime_unix_nano INTEGER NOT NULL                 ,
     track_metadata       TEXT    NOT NULL                 , -- JSON object
@@ -22,10 +21,7 @@ CREATE TEMP TABLE scan_tracks (
     CHECK (
             json_valid(track_metadata)
         AND json_valid(normalized_metadata)
-        AND (
-               file_type != %[1]d
-            OR length(album_key) > 0
-        )
+        AND length(album_key) > 0
     )
 ) WITHOUT ROWID;
 
@@ -40,9 +36,52 @@ CREATE TEMP TABLE scan_artwork (
     artwork_content_size INTEGER NOT NULL                 ,
     artwork_bytes        BLOB    NOT NULL                 ,
 
-    PRIMARY KEY (root_pos, path, artwork_pos)              ,
+    PRIMARY KEY (root_pos, path, artwork_pos)             ,
     CHECK (
             length(picture_type) > 0
         AND artwork_content_size > 0
+        AND length(artwork_bytes) = artwork_content_size
     )
+) WITHOUT ROWID;
+
+DROP TABLE IF EXISTS scan_artwork_cover;
+
+CREATE TEMP TABLE scan_artwork_cover (
+    root_pos             INTEGER NOT NULL                 ,
+    path                 TEXT    NOT NULL                 ,
+    artwork_pos          INTEGER NOT NULL                 ,
+    picture_type         TEXT    NOT NULL                 ,
+    thumbnail_cache_name TEXT                             ,
+
+    PRIMARY KEY (root_pos, path, artwork_pos)             ,
+    CHECK (length(picture_type) > 0)
+) WITHOUT ROWID;
+
+DROP TABLE IF EXISTS scan_sidecar_covers;
+
+CREATE TEMP TABLE scan_sidecar_covers (
+    root_pos             INTEGER NOT NULL                 ,
+    path_dir             TEXT    NOT NULL                 ,
+    stem                 TEXT    NOT NULL                 ,
+    ext                  TEXT    NOT NULL                 ,
+    path                 TEXT    NOT NULL                 ,
+    file_size            INTEGER NOT NULL                 ,
+    file_mtime_unix_nano INTEGER NOT NULL                 ,
+    thumbnail_cache_name TEXT                             ,
+
+    PRIMARY KEY (root_pos, path)
+) WITHOUT ROWID;
+
+DROP TABLE IF EXISTS scan_sidecar_others;
+
+CREATE TEMP TABLE scan_sidecar_others (
+    root_pos             INTEGER NOT NULL                 ,
+    path_dir             TEXT    NOT NULL                 ,
+    stem                 TEXT    NOT NULL                 ,
+    ext                  TEXT    NOT NULL                 ,
+    path                 TEXT    NOT NULL                 ,
+    file_size            INTEGER NOT NULL                 ,
+    file_mtime_unix_nano INTEGER NOT NULL                 ,
+
+    PRIMARY KEY (root_pos, path)
 ) WITHOUT ROWID;

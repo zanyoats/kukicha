@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"fmt"
 
 	"github.com/zanyoats/kukicha/internal/app"
 	"github.com/zanyoats/kukicha/internal/usecase/command"
@@ -38,7 +39,11 @@ func LookupCachedArtwork(
 		lookupID,
 	)
 	if err != nil {
-		return app.ITunesLookupResult{}, false, err
+		return app.ITunesLookupResult{}, false, fmt.Errorf(
+			"%w: load cached result: %w",
+			command.ErrITunesArtworkCache,
+			err,
+		)
 	}
 	if found {
 		return cached, true, nil
@@ -54,7 +59,11 @@ func LookupCachedArtwork(
 	}
 
 	if err := command.StoreCachedITunesArtwork(ctx, db, result); err != nil {
-		return app.ITunesLookupResult{}, false, err
+		return app.ITunesLookupResult{}, false, fmt.Errorf(
+			"%w: store result: %w",
+			command.ErrITunesArtworkCache,
+			err,
+		)
 	}
 
 	return result, false, nil

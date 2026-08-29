@@ -8,7 +8,8 @@ INSERT INTO itunes_lookup_image_cache (
     artwork_url,
     artwork_content_type,
     artwork_content_size,
-    artwork_bytes
+    artwork_bytes,
+    thumbnail_cache_name
 ) VALUES (
     :cache_key,
     :lookup_kind,
@@ -19,7 +20,8 @@ INSERT INTO itunes_lookup_image_cache (
     :artwork_url,
     :artwork_content_type,
     :artwork_content_size,
-    :artwork_bytes
+    :artwork_bytes,
+    :thumbnail_cache_name
 )
 ON CONFLICT (cache_key) DO UPDATE SET
     lookup_kind = excluded.lookup_kind,
@@ -30,4 +32,5 @@ ON CONFLICT (cache_key) DO UPDATE SET
     artwork_url = excluded.artwork_url,
     artwork_content_type = excluded.artwork_content_type,
     artwork_content_size = excluded.artwork_content_size,
-    artwork_bytes = excluded.artwork_bytes;
+    artwork_bytes = excluded.artwork_bytes,
+    thumbnail_cache_name = excluded.thumbnail_cache_name;

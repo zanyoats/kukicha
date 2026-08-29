@@ -88,7 +88,6 @@ CREATE TABLE library_track_sidecars (
     stem                 TEXT    NOT NULL                 ,
     ext                  TEXT    NOT NULL                 ,
     path                 TEXT    NOT NULL                 ,
-    file_type            INTEGER NOT NULL                 ,
     file_size            INTEGER NOT NULL                 ,
     file_mtime_unix_nano INTEGER NOT NULL                 ,
 
@@ -110,18 +109,39 @@ CREATE TABLE library_track_embedded_artwork (
       ON DELETE CASCADE
 );
 
-CREATE TABLE library_track_artwork (
+CREATE TABLE thumbnail_cache (
     id                   INTEGER PRIMARY KEY AUTOINCREMENT,
-    track_id             INTEGER NOT NULL                 ,
+    name                 TEXT    NOT NULL                 ,
     width_px             INTEGER NOT NULL                 ,
-    artwork_content_type TEXT                             ,
+    artwork_content_type TEXT    NOT NULL                 ,
     artwork_content_size INTEGER NOT NULL                 ,
     artwork_bytes        BLOB    NOT NULL                 ,
 
+    UNIQUE (name, width_px)                               ,
+    CHECK (length(name) = 64)                             ,
+    CHECK (width_px > 0)                                  ,
+    CHECK (
+            artwork_content_size > 0
+        AND length(artwork_bytes) = artwork_content_size
+    )
+);
+
+CREATE TABLE library_track_artwork (
+    id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+    track_id           INTEGER NOT NULL                 ,
+    thumbnail_cache_id INTEGER NOT NULL                 ,
+
+    UNIQUE (track_id, thumbnail_cache_id)               ,
     FOREIGN KEY (track_id)
       REFERENCES library_tracks (id)
-      ON DELETE CASCADE
+      ON DELETE CASCADE                                 ,
+    FOREIGN KEY (thumbnail_cache_id)
+      REFERENCES thumbnail_cache (id)
+      ON DELETE RESTRICT
 );
+
+CREATE INDEX library_track_artwork_track_id_idx
+ON library_track_artwork (track_id);
 
 CREATE TABLE library_track_genres (
     id       INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -157,7 +177,6 @@ CREATE TABLE library_tracks (
     album_id             INTEGER NOT NULL                 ,
     ext                  TEXT    NOT NULL                 ,
     path                 TEXT    NOT NULL                 ,
-    file_type            INTEGER NOT NULL                 ,
     file_size            INTEGER NOT NULL                 ,
     file_mtime_unix_nano INTEGER NOT NULL                 ,
     track_metadata       TEXT    NOT NULL                 ,
@@ -197,6 +216,7 @@ CREATE TABLE itunes_lookup_image_cache (
     artwork_content_type TEXT    NOT NULL,
     artwork_content_size INTEGER NOT NULL,
     artwork_bytes        BLOB    NOT NULL,
+    thumbnail_cache_name TEXT            ,
 
     CHECK (lookup_kind IN ('album', 'track')),
     CHECK (result_kind IN ('hit', 'missing')),
@@ -211,6 +231,7 @@ CREATE TABLE itunes_lookup_image_cache (
             result_kind = 'missing'
             AND artwork_content_size = 0
             AND length(artwork_bytes) = 0
+            AND thumbnail_cache_name IS NULL
         )
     )
 ) WITHOUT ROWID;

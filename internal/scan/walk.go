@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/zanyoats/kukicha/internal/app"
 	"github.com/zanyoats/kukicha/internal/textkey"
@@ -15,14 +16,45 @@ import (
 
 type walkFunc func(scannedFile *app.ScannedFile) error
 
+const scanProgressLogInterval = 15 * time.Second
+
 // Normalized roots are valid dir paths
 func walk(conf *app.AppConfig, fn walkFunc) error {
 	for _, root := range conf.Roots {
-		log.Printf("Walking root/%d %q", root.RootPos, root.RootPath)
+		processedFiles := 0
+		lastProgressLog := time.Now()
 
-		if err := walkDir(conf, &root, "", fn); err != nil {
+		log.Printf("Scanning root/%d %q", root.RootPos, root.RootPath)
+
+		progressFn := func(scannedFile *app.ScannedFile) error {
+			if err := fn(scannedFile); err != nil {
+				return err
+			}
+
+			processedFiles++
+			if time.Since(lastProgressLog) >= scanProgressLogInterval {
+				log.Printf(
+					"Processed %d files in root/%d %q",
+					processedFiles,
+					root.RootPos,
+					root.RootPath,
+				)
+				lastProgressLog = time.Now()
+			}
+
+			return nil
+		}
+
+		if err := walkDir(conf, &root, "", progressFn); err != nil {
 			return err
 		}
+
+		log.Printf(
+			"Finished root/%d %q: processed %d files",
+			root.RootPos,
+			root.RootPath,
+			processedFiles,
+		)
 	}
 
 	return nil
