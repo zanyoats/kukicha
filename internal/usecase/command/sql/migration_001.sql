@@ -185,3 +185,32 @@ CREATE TABLE library_tracks (
       REFERENCES library_albums (id)
       ON DELETE CASCADE
 );
+
+CREATE TABLE itunes_lookup_image_cache (
+    cache_key            TEXT    PRIMARY KEY,
+    lookup_kind          TEXT    NOT NULL,
+    lookup_id            TEXT    NOT NULL,
+    result_kind          TEXT    NOT NULL,
+    fetched_at           TEXT    NOT NULL,
+    lookup_url           TEXT    NOT NULL,
+    artwork_url          TEXT    NOT NULL,
+    artwork_content_type TEXT    NOT NULL,
+    artwork_content_size INTEGER NOT NULL,
+    artwork_bytes        BLOB    NOT NULL,
+
+    CHECK (lookup_kind IN ('album', 'track')),
+    CHECK (result_kind IN ('hit', 'missing')),
+    CHECK (
+        (
+            result_kind = 'hit'
+            AND artwork_content_size > 0
+            AND length(artwork_bytes) = artwork_content_size
+        )
+        OR
+        (
+            result_kind = 'missing'
+            AND artwork_content_size = 0
+            AND length(artwork_bytes) = 0
+        )
+    )
+) WITHOUT ROWID;

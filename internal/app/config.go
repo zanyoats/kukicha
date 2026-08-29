@@ -22,6 +22,7 @@ const (
 	AppName        = "com.cconroy.kukicha"
 	ConfigFileName = "kukicha.toml"
 	DbFileName     = "kukicha.db"
+	UserAgent      = "kukicha/0.1"
 )
 
 type AppConfig struct {
@@ -31,6 +32,7 @@ type AppConfig struct {
 	Settings       struct {
 		DatabasePath string   `toml:"database_path"`
 		Roots        []string `toml:"roots"`
+		ItunesLookup bool     `toml:"itunes_lookup"`
 		HTTP         struct {
 			ServerAddress string `toml:"server_address"`
 			AppBasePath   string `toml:"app_base_path"`

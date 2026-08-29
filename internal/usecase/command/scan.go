@@ -11,6 +11,7 @@ import (
 	_ "image/gif"
 	"image/jpeg"
 	"image/png"
+	"log"
 	"os"
 	"path/filepath"
 	"slices"
@@ -73,6 +74,9 @@ var libraryTrackSidecarArtworkSQL string
 
 //go:embed sql/library_track_embedded_artwork.sql
 var libraryTrackEmbeddedArtworkSQL string
+
+//go:embed sql/library_track_itunes_artwork.sql
+var libraryTrackITunesArtworkSQL string
 
 //go:embed sql/current_timestamp.sql
 var currentTimestampSQL string
@@ -201,7 +205,18 @@ func BuildLibraryFromScan(
 	return result, tx.Commit()
 }
 
-func InsertScannedFile(ctx context.Context, conn *sql.Conn, r *app.ScannedFile) error {
+type ITunesArtworkLookup func(
+	context.Context,
+	app.ITunesLookupKind,
+	string,
+) (app.ITunesLookupResult, bool, error)
+
+func InsertScannedFile(
+	ctx context.Context,
+	conn *sql.Conn,
+	r *app.ScannedFile,
+	itunesLookup ITunesArtworkLookup,
+) error {
 	b, err := json.Marshal(r.Metadata)
 	if err != nil {
 		return err
@@ -253,6 +268,61 @@ func InsertScannedFile(ctx context.Context, conn *sql.Conn, r *app.ScannedFile) 
 		)
 		if err != nil {
 			return err
+		}
+	}
+
+	return cacheScannedFileITunesArtwork(ctx, r, itunesLookup)
+}
+
+func cacheScannedFileITunesArtwork(
+	ctx context.Context,
+	r *app.ScannedFile,
+	itunesLookup ITunesArtworkLookup,
+) error {
+	if itunesLookup == nil || r.Metadata == nil {
+		return nil
+	}
+
+	candidates := [...]struct {
+		kind app.ITunesLookupKind
+		id   int64
+	}{
+		{app.ITunesLookupAlbum, r.Metadata.ItunesStoreAlbumId},
+		{app.ITunesLookupTrack, r.Metadata.ItunesStoreTrackId},
+	}
+
+	for _, candidate := range candidates {
+		if candidate.id < 1 {
+			continue
+		}
+
+		lookupID := fmt.Sprintf("%d", candidate.id)
+		result, _, err := itunesLookup(ctx, candidate.kind, lookupID)
+		if err != nil {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			log.Printf(
+				"iTunes artwork lookup failed for %s %s: %v",
+				candidate.kind,
+				lookupID,
+				err,
+			)
+			continue
+		}
+
+		switch result.ResultKind {
+		case app.ITunesResultHit:
+			return nil
+		case app.ITunesResultMissing:
+			continue
+		default:
+			log.Printf(
+				"iTunes artwork lookup for %s %s returned unsupported result kind %q",
+				candidate.kind,
+				lookupID,
+				result.ResultKind,
+			)
 		}
 	}
 
@@ -573,6 +643,40 @@ func resolveLibraryTrackArtwork(
 	}
 	if err := rows.Close(); err != nil {
 		return nil, "", fmt.Errorf("close library track %d embedded artwork rows: %w", trackID, err)
+	}
+	if resolved != nil {
+		return resolved, sourceFormat, nil
+	}
+
+	rows, err = tx.QueryContext(
+		ctx,
+		libraryTrackITunesArtworkSQL,
+		sql.Named("track_id", trackID),
+	)
+	if err != nil {
+		return nil, "", fmt.Errorf("query library track %d iTunes artwork: %w", trackID, err)
+	}
+
+	for rows.Next() {
+		var artworkBytes []byte
+		if err := rows.Scan(&artworkBytes); err != nil {
+			rows.Close()
+			return nil, "", fmt.Errorf("scan library track %d iTunes artwork: %w", trackID, err)
+		}
+
+		artwork, format, err := image.Decode(bytes.NewReader(artworkBytes))
+		if err == nil {
+			resolved = artwork
+			sourceFormat = format
+			break
+		}
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, "", fmt.Errorf("iterate library track %d iTunes artwork: %w", trackID, err)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, "", fmt.Errorf("close library track %d iTunes artwork rows: %w", trackID, err)
 	}
 
 	return resolved, sourceFormat, nil

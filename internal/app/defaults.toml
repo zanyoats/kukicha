@@ -5,6 +5,10 @@
 # Music roots must already exist.
 # roots = []
 
+# Disables new iTunes lookups, but allow existing cached artwork.
+# To also disable existing cache lookups clear the itunes cache too.
+itunes_lookup = true
+
 [http]
 # HTTP server listening address in format "host:port".
 # Host can also be empty for all available interfaces ":4533".

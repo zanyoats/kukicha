@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/zanyoats/kukicha/internal/app"
+	scanartwork "github.com/zanyoats/kukicha/internal/scan/artwork"
 	"github.com/zanyoats/kukicha/internal/textkey"
 	"github.com/zanyoats/kukicha/internal/usecase/command"
 )
@@ -23,7 +24,25 @@ func Sync(ctx context.Context, db *sql.DB, conf *app.AppConfig) (result command.
 		return
 	}
 
-	if err = localFolderWalk(ctx, conf, conn); err != nil {
+	var itunesLookup command.ITunesArtworkLookup
+	if conf.Settings.ItunesLookup {
+		itunesClient := scanartwork.NewITunesClient(nil)
+		itunesLookup = func(
+			ctx context.Context,
+			kind app.ITunesLookupKind,
+			lookupID string,
+		) (app.ITunesLookupResult, bool, error) {
+			return scanartwork.LookupCachedArtwork(
+				ctx,
+				conn,
+				itunesClient,
+				kind,
+				lookupID,
+			)
+		}
+	}
+
+	if err = localFolderWalk(ctx, conf, conn, itunesLookup); err != nil {
 		return
 	}
 
@@ -39,7 +58,12 @@ func Sync(ctx context.Context, db *sql.DB, conf *app.AppConfig) (result command.
 	return
 }
 
-func localFolderWalk(ctx context.Context, conf *app.AppConfig, conn *sql.Conn) error {
+func localFolderWalk(
+	ctx context.Context,
+	conf *app.AppConfig,
+	conn *sql.Conn,
+	itunesLookup command.ITunesArtworkLookup,
+) error {
 	walker := func(scannedFile *app.ScannedFile) (err error) {
 		switch scannedFile.FileType {
 		case app.FileTypeAudio:
@@ -53,7 +77,12 @@ func localFolderWalk(ctx context.Context, conf *app.AppConfig, conn *sql.Conn) e
 		}
 
 		if err == nil {
-			err = command.InsertScannedFile(ctx, conn, scannedFile)
+			err = command.InsertScannedFile(
+				ctx,
+				conn,
+				scannedFile,
+				itunesLookup,
+			)
 		}
 
 		return err
