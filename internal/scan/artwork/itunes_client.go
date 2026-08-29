@@ -14,6 +14,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/zanyoats/kukicha/internal/app"
 	_ "golang.org/x/image/webp"
@@ -23,21 +24,79 @@ type HTTPDoer interface {
 	Do(*http.Request) (*http.Response, error)
 }
 
+type lookupRateLimitError struct {
+	retryAfter    time.Duration
+	hasRetryAfter bool
+}
+
+func (e *lookupRateLimitError) Error() string {
+	if e.hasRetryAfter {
+		return fmt.Sprintf(
+			"iTunes lookup returned HTTP %d (retry after %s)",
+			http.StatusTooManyRequests,
+			e.retryAfter,
+		)
+	}
+
+	return fmt.Sprintf(
+		"iTunes lookup returned HTTP %d",
+		http.StatusTooManyRequests,
+	)
+}
+
+type artworkRateLimitError struct {
+	retryAfter    time.Duration
+	hasRetryAfter bool
+}
+
+func (e *artworkRateLimitError) Error() string {
+	if e.hasRetryAfter {
+		return fmt.Sprintf(
+			"artwork URL returned HTTP %d (retry after %s)",
+			http.StatusTooManyRequests,
+			e.retryAfter,
+		)
+	}
+
+	return fmt.Sprintf(
+		"artwork URL returned HTTP %d",
+		http.StatusTooManyRequests,
+	)
+}
+
 type ITunesClient struct {
-	http      HTTPDoer
-	userAgent string
+	http           HTTPDoer
+	userAgent      string
+	lookupGate     chan struct{}
+	lookupInterval time.Duration
+	nextLookup     time.Time
 }
 
 func NewITunesClient(httpClient HTTPDoer) *ITunesClient {
+	return newITunesClient(httpClient, app.ItunesLookupInterval)
+}
+
+func newITunesClient(
+	httpClient HTTPDoer,
+	lookupInterval time.Duration,
+) *ITunesClient {
 	if httpClient == nil {
 		httpClient = &http.Client{
 			Timeout: app.ItunesRequestTimeout,
 		}
 	}
+	if lookupInterval < 0 {
+		lookupInterval = 0
+	}
+
+	lookupGate := make(chan struct{}, 1)
+	lookupGate <- struct{}{}
 
 	return &ITunesClient{
-		http:      httpClient,
-		userAgent: app.UserAgent,
+		http:           httpClient,
+		userAgent:      app.UserAgent,
+		lookupGate:     lookupGate,
+		lookupInterval: lookupInterval,
 	}
 }
 
@@ -93,50 +152,149 @@ func (c *ITunesClient) fetchLookup(
 	ctx context.Context,
 	lookupURL string,
 ) ([]byte, bool, error) {
-	request, err := http.NewRequestWithContext(
-		ctx,
-		http.MethodGet,
-		lookupURL,
-		nil,
-	)
-	if err != nil {
-		return nil, false, err
-	}
+	const maxAttempts = 2
 
-	request.Header.Set("Accept", "application/json")
-	request.Header.Set("User-Agent", c.userAgent)
-
-	response, err := c.http.Do(request)
-	if err != nil {
-		return nil, false, fmt.Errorf(
-			"fetch iTunes lookup: %w",
-			err,
+	for attempt := 0; ; attempt++ {
+		request, err := http.NewRequestWithContext(
+			ctx,
+			http.MethodGet,
+			lookupURL,
+			nil,
 		)
-	}
-	defer response.Body.Close()
+		if err != nil {
+			return nil, false, err
+		}
 
-	if response.StatusCode == http.StatusNotFound {
-		return nil, true, nil
-	}
-	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return nil, false, fmt.Errorf(
-			"iTunes lookup returned HTTP %d",
-			response.StatusCode,
+		request.Header.Set("Accept", "application/json")
+		request.Header.Set("User-Agent", c.userAgent)
+
+		if err := c.acquireLookup(ctx); err != nil {
+			return nil, false, fmt.Errorf(
+				"wait for iTunes lookup rate limit: %w",
+				err,
+			)
+		}
+
+		response, err := c.http.Do(request)
+		if err != nil {
+			c.releaseLookup()
+			return nil, false, fmt.Errorf(
+				"fetch iTunes lookup: %w",
+				err,
+			)
+		}
+
+		if response.StatusCode == http.StatusTooManyRequests {
+			retryAfter, hasRetryAfter := parseRetryAfter(
+				response.Header.Get("Retry-After"),
+				time.Now(),
+			)
+			if hasRetryAfter {
+				c.deferLookup(retryAfter)
+			}
+			c.releaseLookup()
+			response.Body.Close()
+
+			if hasRetryAfter && attempt+1 < maxAttempts {
+				continue
+			}
+
+			return nil, false, &lookupRateLimitError{
+				retryAfter:    retryAfter,
+				hasRetryAfter: hasRetryAfter,
+			}
+		}
+
+		c.releaseLookup()
+		defer response.Body.Close()
+
+		if response.StatusCode == http.StatusNotFound {
+			return nil, true, nil
+		}
+		if response.StatusCode < 200 || response.StatusCode >= 300 {
+			return nil, false, fmt.Errorf(
+				"iTunes lookup returned HTTP %d",
+				response.StatusCode,
+			)
+		}
+
+		payload, err := readBoundedResponse(
+			response.Body,
+			app.ItunesLookupMaxBytes,
 		)
+		if err != nil {
+			return nil, false, fmt.Errorf(
+				"read iTunes lookup response: %w",
+				err,
+			)
+		}
+
+		return payload, false, nil
+	}
+}
+
+// acquireLookup serializes lookup requests and spaces their start times. The
+// gate remains held until releaseLookup so a Retry-After response can extend
+// the delay before another caller begins waiting.
+func (c *ITunesClient) acquireLookup(ctx context.Context) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-c.lookupGate:
 	}
 
-	payload, err := readBoundedResponse(
-		response.Body,
-		app.ItunesLookupMaxBytes,
-	)
+	delay := time.Until(c.nextLookup)
+	if delay > 0 {
+		timer := time.NewTimer(delay)
+		defer timer.Stop()
+
+		select {
+		case <-ctx.Done():
+			c.releaseLookup()
+			return ctx.Err()
+		case <-timer.C:
+		}
+	}
+
+	c.nextLookup = time.Now().Add(c.lookupInterval)
+	return nil
+}
+
+func (c *ITunesClient) releaseLookup() {
+	c.lookupGate <- struct{}{}
+}
+
+// deferLookup must be called while lookupGate is held.
+func (c *ITunesClient) deferLookup(delay time.Duration) {
+	retryAt := time.Now().Add(delay)
+	if retryAt.After(c.nextLookup) {
+		c.nextLookup = retryAt
+	}
+}
+
+func parseRetryAfter(value string, now time.Time) (time.Duration, bool) {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return 0, false
+	}
+
+	if seconds, err := strconv.ParseInt(value, 10, 64); err == nil {
+		if seconds < 0 {
+			return 0, false
+		}
+		return time.Duration(seconds) * time.Second, true
+	}
+
+	retryAt, err := http.ParseTime(value)
 	if err != nil {
-		return nil, false, fmt.Errorf(
-			"read iTunes lookup response: %w",
-			err,
-		)
+		return 0, false
 	}
 
-	return payload, false, nil
+	delay := retryAt.Sub(now)
+	if delay < 0 {
+		delay = 0
+	}
+	return delay, true
 }
 
 func (c *ITunesClient) fetchArtworkImage(
@@ -166,6 +324,11 @@ func (c *ITunesClient) fetchArtworkImage(
 		if ctx.Err() != nil {
 			return nil, "", "", ctx.Err()
 		}
+
+		var rateLimitErr *artworkRateLimitError
+		if errors.As(err, &rateLimitErr) {
+			break
+		}
 	}
 
 	return nil, "", "", fmt.Errorf(
@@ -183,67 +346,111 @@ func (c *ITunesClient) fetchArtworkCandidate(
 		return nil, "", "", err
 	}
 
-	request, err := http.NewRequestWithContext(
-		ctx,
-		http.MethodGet,
-		resolvedURL,
-		nil,
-	)
-	if err != nil {
-		return nil, "", "", err
-	}
+	const maxAttempts = 2
 
-	request.Header.Set("Accept", "image/*")
-	request.Header.Set("User-Agent", c.userAgent)
-
-	response, err := c.http.Do(request)
-	if err != nil {
-		return nil, "", "", err
-	}
-	defer response.Body.Close()
-
-	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		return nil, "", "", fmt.Errorf(
-			"artwork URL returned HTTP %d",
-			response.StatusCode,
+	for attempt := 0; ; attempt++ {
+		request, err := http.NewRequestWithContext(
+			ctx,
+			http.MethodGet,
+			resolvedURL,
+			nil,
 		)
-	}
+		if err != nil {
+			return nil, "", "", err
+		}
 
-	imageBytes, err := readBoundedResponse(
-		response.Body,
-		app.ItunesArtworkMaxBytes,
-	)
-	if err != nil {
-		return nil, "", "", err
-	}
-	if len(imageBytes) == 0 {
-		return nil, "", "", errors.New("artwork response was empty")
-	}
+		request.Header.Set("Accept", "image/*")
+		request.Header.Set("User-Agent", c.userAgent)
 
-	contentType := http.DetectContentType(imageBytes)
-	if !strings.HasPrefix(contentType, "image/") {
-		return nil, "", "", fmt.Errorf(
-			"artwork response has unsupported content type %q",
-			contentType,
+		response, err := c.http.Do(request)
+		if err != nil {
+			return nil, "", "", err
+		}
+
+		if response.StatusCode == http.StatusTooManyRequests {
+			retryAfter, hasRetryAfter := parseRetryAfter(
+				response.Header.Get("Retry-After"),
+				time.Now(),
+			)
+			response.Body.Close()
+
+			if hasRetryAfter && attempt+1 < maxAttempts {
+				if err := waitForRetry(ctx, retryAfter); err != nil {
+					return nil, "", "", fmt.Errorf(
+						"wait to retry iTunes artwork: %w",
+						err,
+					)
+				}
+				continue
+			}
+
+			return nil, "", "", &artworkRateLimitError{
+				retryAfter:    retryAfter,
+				hasRetryAfter: hasRetryAfter,
+			}
+		}
+
+		defer response.Body.Close()
+
+		if response.StatusCode < 200 || response.StatusCode >= 300 {
+			return nil, "", "", fmt.Errorf(
+				"artwork URL returned HTTP %d",
+				response.StatusCode,
+			)
+		}
+
+		imageBytes, err := readBoundedResponse(
+			response.Body,
+			app.ItunesArtworkMaxBytes,
 		)
+		if err != nil {
+			return nil, "", "", err
+		}
+		if len(imageBytes) == 0 {
+			return nil, "", "", errors.New("artwork response was empty")
+		}
+
+		contentType := http.DetectContentType(imageBytes)
+		if !strings.HasPrefix(contentType, "image/") {
+			return nil, "", "", fmt.Errorf(
+				"artwork response has unsupported content type %q",
+				contentType,
+			)
+		}
+
+		config, _, err := image.DecodeConfig(bytes.NewReader(imageBytes))
+		if err != nil {
+			return nil, "", "", fmt.Errorf(
+				"decode artwork dimensions: %w",
+				err,
+			)
+		}
+		if config.Width < iTunesArtworkMinimumWidth {
+			return nil, "", "", fmt.Errorf(
+				"artwork is %d pixels wide; minimum is %d",
+				config.Width,
+				iTunesArtworkMinimumWidth,
+			)
+		}
+
+		return imageBytes, contentType, resolvedURL, nil
+	}
+}
+
+func waitForRetry(ctx context.Context, delay time.Duration) error {
+	if delay <= 0 {
+		return ctx.Err()
 	}
 
-	config, _, err := image.DecodeConfig(bytes.NewReader(imageBytes))
-	if err != nil {
-		return nil, "", "", fmt.Errorf(
-			"decode artwork dimensions: %w",
-			err,
-		)
-	}
-	if config.Width < iTunesArtworkMinimumWidth {
-		return nil, "", "", fmt.Errorf(
-			"artwork is %d pixels wide; minimum is %d",
-			config.Width,
-			iTunesArtworkMinimumWidth,
-		)
-	}
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
 
-	return imageBytes, contentType, resolvedURL, nil
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
 }
 
 func buildITunesLookupURL(
