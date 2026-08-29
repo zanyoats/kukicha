@@ -80,7 +80,7 @@ func walkDir(
 		switch {
 		case file.Type().IsRegular():
 			name := file.Name()
-			if fileType, recognizable := isRecognizable(name, conf.Settings.RecognizedSidecarArtwork); recognizable {
+			if fileType, recognizable := isRecognizable(name, conf.Settings.Scan.RecognizedSidecarArtwork); recognizable {
 				path := filepath.Join(folderPath, name)
 				base := filepath.Base(path)
 				ext := filepath.Ext(path)

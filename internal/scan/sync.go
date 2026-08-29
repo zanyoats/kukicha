@@ -25,7 +25,7 @@ func Sync(ctx context.Context, db *sql.DB, conf *app.AppConfig) (result command.
 	}
 
 	var itunesLookup command.ITunesArtworkLookup
-	if conf.Settings.ItunesLookup {
+	if conf.Settings.Scan.ItunesLookup {
 		itunesClient := scanartwork.NewITunesClient(nil)
 		itunesLookup = func(
 			ctx context.Context,
@@ -52,7 +52,7 @@ func Sync(ctx context.Context, db *sql.DB, conf *app.AppConfig) (result command.
 		RecognizedPlaylistExtensions,
 		RecognizedSidecarExtensions,
 		UnknownItem,
-		conf.Settings.SecondaryGenreSplitTokens,
+		conf.Settings.Scan.SecondaryGenreSplitTokens,
 	)
 
 	return
@@ -113,11 +113,11 @@ func processFileTypeAudio(
 		seen := make(map[string]bool, len(scannedFile.Metadata.Genres))
 
 		for _, value := range scannedFile.Metadata.Genres {
-			for _, genre := range splitGenreFieldList(conf.Settings.PrimaryGenreSplitTokens, value) {
+			for _, genre := range splitGenreFieldList(conf.Settings.Scan.PrimaryGenreSplitTokens, value) {
 				key := strings.ToLower(genre)
 
 				// preprocess
-				if replacement, ok := conf.Settings.GenreStyleAliases[key]; ok {
+				if replacement, ok := conf.Settings.Scan.GenreStyleAliases[key]; ok {
 					genre = replacement
 					key = replacement
 				}
@@ -136,8 +136,8 @@ func processFileTypeAudio(
 		ctx, conn,
 		scannedFile.NormalizedMetadata.AlbumKey,
 		scannedFile.NormalizedMetadata.RawAlbumArtistDisplays,
-		conf.Settings.AlbumArtistSplitTokens,
-		conf.Settings.AlbumArtistSplitAuto,
+		conf.Settings.Scan.AlbumArtistSplitTokens,
+		conf.Settings.Scan.AlbumArtistSplitAuto,
 	)
 
 	if err != nil {
@@ -155,14 +155,14 @@ func processFileTypeAudio(
 	scannedFile.NormalizedMetadata.RawTrackArtistDisplays = rawTrackArtistDisplays(scannedFile.Metadata)
 	if apply, err := displaysContainAnyToken(
 		scannedFile.NormalizedMetadata.RawTrackArtistDisplays,
-		conf.Settings.AlbumArtistSplitAuto,
+		conf.Settings.Scan.AlbumArtistSplitAuto,
 	); err != nil {
 		return err
 	} else if apply {
 		mapping =
 			applyAutoMapping(
 				scannedFile.NormalizedMetadata.RawTrackArtistDisplays,
-				conf.Settings.AlbumArtistSplitAuto,
+				conf.Settings.Scan.AlbumArtistSplitAuto,
 			)
 	} else {
 		mapping =

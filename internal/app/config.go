@@ -30,19 +30,24 @@ type AppConfig struct {
 	Roots          []Root
 	DataSourceName string
 	Settings       struct {
-		DatabasePath string   `toml:"database_path"`
-		Roots        []string `toml:"roots"`
-		ItunesLookup bool     `toml:"itunes_lookup"`
-		HTTP         struct {
+		Scan struct {
+			Roots                     []string          `toml:"roots"`
+			ItunesLookup              bool              `toml:"itunes_lookup"`
+			AlbumArtistSplitTokens    map[string]bool   `toml:"album_artist_split_tokens"`
+			AlbumArtistSplitAuto      map[string]bool   `toml:"album_artist_split_auto_tokens"`
+			RecognizedSidecarArtwork  map[string]bool   `toml:"recognized_sidecar_artwork"`
+			PrimaryGenreSplitTokens   map[string]bool   `toml:"primary_genre_split_tokens"`
+			SecondaryGenreSplitTokens map[string]bool   `toml:"secondary_genre_split_tokens"`
+			GenreStyleAliases         map[string]string `toml:"genre_style_aliases"`
+		} `toml:"scan"`
+		Server struct {
+			DatabasePath  string `toml:"database_path"`
 			ServerAddress string `toml:"server_address"`
 			AppBasePath   string `toml:"app_base_path"`
-		} `toml:"http"`
-		AlbumArtistSplitTokens    map[string]bool   `toml:"album_artist_split_tokens"`
-		AlbumArtistSplitAuto      map[string]bool   `toml:"album_artist_split_auto_tokens"`
-		RecognizedSidecarArtwork  map[string]bool   `toml:"recognized_sidecar_artwork"`
-		PrimaryGenreSplitTokens   map[string]bool   `toml:"primary_genre_split_tokens"`
-		SecondaryGenreSplitTokens map[string]bool   `toml:"secondary_genre_split_tokens"`
-		GenreStyleAliases         map[string]string `toml:"genre_style_aliases"`
+		} `toml:"server"`
+		UI struct {
+			PerPage int `toml:"per_page"`
+		} `toml:"ui"`
 	}
 }
 
@@ -73,13 +78,13 @@ func LoadAppConfig(catalog *Catalog) (*AppConfig, error) {
 	}
 
 	// First load defaults config, and then "merge" with user's config
-	if _, err = toml.Decode(string(defaultsTomlData), &result.Settings); err != nil {
+	if err = decodeSettings(defaultsTomlData, &result.Settings); err != nil {
 		return nil, fmt.Errorf(
 			"error decoding defaults configuration file: %w %s",
 			err, "this is a bug",
 		)
 	}
-	if _, err = toml.Decode(string(userTomlData), &result.Settings); err != nil {
+	if err = decodeSettings(userTomlData, &result.Settings); err != nil {
 		return nil, fmt.Errorf(
 			"error decoding user's toml config file %q: %w",
 			path, err,
@@ -90,23 +95,23 @@ func LoadAppConfig(catalog *Catalog) (*AppConfig, error) {
 
 	// ...no empty tokens
 	if slices.Contains(slices.Concat(
-		slices.Collect(maps.Keys(result.Settings.AlbumArtistSplitTokens)),
-		slices.Collect(maps.Keys(result.Settings.AlbumArtistSplitAuto)),
-		slices.Collect(maps.Keys(result.Settings.PrimaryGenreSplitTokens)),
-		slices.Collect(maps.Keys(result.Settings.SecondaryGenreSplitTokens)),
+		slices.Collect(maps.Keys(result.Settings.Scan.AlbumArtistSplitTokens)),
+		slices.Collect(maps.Keys(result.Settings.Scan.AlbumArtistSplitAuto)),
+		slices.Collect(maps.Keys(result.Settings.Scan.PrimaryGenreSplitTokens)),
+		slices.Collect(maps.Keys(result.Settings.Scan.SecondaryGenreSplitTokens)),
 	), "") {
 		return nil, fmt.Errorf(
 			"I found a empty token in one of: %s",
 			strings.Join([]string{
-				"album_artist_split_tokens",
-				"album_artist_split_auto_tokens",
-				"primary_genre_split_tokens",
-				"secondary_genre_split_tokens",
+				"scan.album_artist_split_tokens",
+				"scan.album_artist_split_auto_tokens",
+				"scan.primary_genre_split_tokens",
+				"scan.secondary_genre_split_tokens",
 			}, ", "))
 	}
 
 	// ...auto tokens are valid and a subset of artist split tokens
-	for token, enabled := range result.Settings.AlbumArtistSplitAuto {
+	for token, enabled := range result.Settings.Scan.AlbumArtistSplitAuto {
 		if !enabled {
 			continue
 		}
@@ -114,20 +119,20 @@ func LoadAppConfig(catalog *Catalog) (*AppConfig, error) {
 		if !isSymbolToken(token) {
 			return nil, fmt.Errorf(
 				"%s key %q must contain only punctuation/symbol characters",
-				"album_artist_split_auto_tokens", token,
+				"scan.album_artist_split_auto_tokens", token,
 			)
 		}
 
-		if enabled := result.Settings.AlbumArtistSplitTokens[token]; !enabled {
+		if enabled := result.Settings.Scan.AlbumArtistSplitTokens[token]; !enabled {
 			return nil, fmt.Errorf(
 				"The token %q should be present/set in config key %s",
-				"album_artist_split_tokens", token,
+				token, "scan.album_artist_split_tokens",
 			)
 		}
 	}
 
 	// ... user provided genres/styles are valid terms
-	for _, genreOrStyle := range result.Settings.GenreStyleAliases {
+	for _, genreOrStyle := range result.Settings.Scan.GenreStyleAliases {
 		if !catalog.IsValidTerm(genreOrStyle) {
 			format := strings.Join([]string{
 				"The genre or style %q was not accepted as a valid taxonomy term.",
@@ -138,7 +143,7 @@ func LoadAppConfig(catalog *Catalog) (*AppConfig, error) {
 	}
 
 	// ...normalize each root to a actualy folder path
-	for pos, root := range result.Settings.Roots {
+	for pos, root := range result.Settings.Scan.Roots {
 		var norm string
 
 		if norm, err = normalizeFolderPath(result.AppDir, root); err != nil {
@@ -151,27 +156,34 @@ func LoadAppConfig(catalog *Catalog) (*AppConfig, error) {
 
 	// ...normalize database path
 	dbPath = filepath.Join(result.AppDir, DbFileName)
-	if result.Settings.DatabasePath != "" {
+	if result.Settings.Server.DatabasePath != "" {
 		var norm string
 
-		if norm, err = normalizeFolderPath(result.AppDir, result.Settings.DatabasePath); err != nil {
+		if norm, err = normalizeFolderPath(result.AppDir, result.Settings.Server.DatabasePath); err != nil {
 			return nil, err
 		}
 
 		dbPath = filepath.Join(norm, DbFileName)
 	}
 
-	// valid http settings...
-	if err := validateServerAddress(result.Settings.HTTP.ServerAddress); err != nil {
+	// ...valid server settings
+	if err := validateServerAddress(result.Settings.Server.ServerAddress); err != nil {
 		return nil, fmt.Errorf(
 			"%q setting is not valid: %w",
-			"http.server_address", err,
+			"server.server_address", err,
 		)
 	}
-	if err := validateAppBasePath(result.Settings.HTTP.AppBasePath); err != nil {
+	if err := validateAppBasePath(result.Settings.Server.AppBasePath); err != nil {
 		return nil, fmt.Errorf(
 			"%q setting is not valid: %w",
-			"http.app_base_path", err,
+			"server.app_base_path", err,
+		)
+	}
+
+	// ...valid UI settings
+	if result.Settings.UI.PerPage < 1 {
+		return nil, errors.New(
+			`"ui.per_page" setting must be a positive integer`,
 		)
 	}
 
@@ -185,6 +197,29 @@ func LoadAppConfig(catalog *Catalog) (*AppConfig, error) {
 	result.DataSourceName = fmt.Sprintf("%s?%s", dbPath, dbPragmas)
 
 	return result, nil
+}
+
+func decodeSettings(data []byte, settings any) error {
+	metadata, err := toml.Decode(string(data), settings)
+	if err != nil {
+		return err
+	}
+
+	undecoded := metadata.Undecoded()
+	if len(undecoded) == 0 {
+		return nil
+	}
+
+	keys := make([]string, len(undecoded))
+	for index, key := range undecoded {
+		keys[index] = key.String()
+	}
+	slices.Sort(keys)
+
+	return fmt.Errorf(
+		"unrecognized configuration keys: %s",
+		strings.Join(keys, ", "),
+	)
 }
 
 func ensureConfigFile() (appDir string, path string, err error) {

@@ -73,9 +73,9 @@ func main() {
 	}
 
 	server := &http.Server{
-		Addr: conf.Settings.HTTP.ServerAddress,
+		Addr: conf.Settings.Server.ServerAddress,
 		Handler: web.NewWebRouter(
-			conf.Settings.HTTP.AppBasePath,
+			conf.Settings.Server.AppBasePath,
 			renderer,
 			db,
 		),
@@ -84,8 +84,8 @@ func main() {
 
 	log.Printf(
 		"Kukicha web server is listening at http://%s%s",
-		conf.Settings.HTTP.ServerAddress,
-		conf.Settings.HTTP.AppBasePath,
+		conf.Settings.Server.ServerAddress,
+		conf.Settings.Server.AppBasePath,
 	)
 
 	if err = server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {

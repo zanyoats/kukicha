@@ -1,23 +1,12 @@
-# Directory where kukicha.db will be stored.
-# This directory must already exist.
-# database_path = "..."
-
+[scan]
 # Music roots must already exist.
-# roots = []
+roots = []
 
-# Disables new iTunes lookups, but allow existing cached artwork.
+# Disables new iTunes lookups, but allows existing cached artwork.
 # To also disable existing cache lookups clear the itunes cache too.
 itunes_lookup = true
 
-[http]
-# HTTP server listening address in format "host:port".
-# Host can also be empty for all available interfaces ":4533".
-server_address = "127.0.0.1:4533"
-# Prefix base address for kukicha web app.
-# Can just be "/", but not empty ("")
-app_base_path = "/kukicha/app"
-
-[album_artist_split_tokens]
+[scan.album_artist_split_tokens]
 "with" = true
 "and"  = true
 "&"    = true
@@ -27,11 +16,11 @@ app_base_path = "/kukicha/app"
 "-"    = true
 "="    = true
 
-[album_artist_split_auto_tokens]
+[scan.album_artist_split_auto_tokens]
 "&" = true
 "/" = true
 
-[recognized_sidecar_artwork]
+[scan.recognized_sidecar_artwork]
 "cover"    = true
 "folder"   = true
 "front"    = true
@@ -39,15 +28,15 @@ app_base_path = "/kukicha/app"
 "artwork"  = true
 "albumart" = true
 
-[primary_genre_split_tokens]
+[scan.primary_genre_split_tokens]
 ";" = true
 "|" = true
 
-[secondary_genre_split_tokens]
+[scan.secondary_genre_split_tokens]
 "," = true
 "/" = true
 
-[genre_style_aliases]
+[scan.genre_style_aliases]
 "altrock"      = "alternative rock"
 "alt rock"     = "alternative rock"
 "alternative"  = "alternative rock"
@@ -57,3 +46,19 @@ app_base_path = "/kukicha/app"
 "dance"        = "dance-pop"
 "electronique" = "electronic"
 "électronique" = "electronic"
+
+[server]
+# Directory where kukicha.db will be stored.
+# This directory must already exist.
+# database_path = "..."
+
+# HTTP server listening address in format "host:port".
+# Host can also be empty for all available interfaces ":4533".
+server_address = "127.0.0.1:4533"
+
+# URL path where the kukicha web app is mounted.
+# Must not be empty or the root path ("/").
+app_base_path = "/kukicha/app"
+
+[ui]
+per_page = 200
