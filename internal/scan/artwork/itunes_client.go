@@ -69,24 +69,30 @@ type ITunesClient struct {
 	userAgent      string
 	lookupGate     chan struct{}
 	lookupInterval time.Duration
+	retryAttempts  int
 	nextLookup     time.Time
 }
 
-func NewITunesClient(httpClient HTTPDoer) *ITunesClient {
-	return newITunesClient(httpClient, app.ItunesLookupInterval)
+type ITunesClientConfig struct {
+	RequestTimeout time.Duration
+	LookupInterval time.Duration
+	RetryAttempts  int
 }
 
-func newITunesClient(
+func NewITunesClient(
 	httpClient HTTPDoer,
-	lookupInterval time.Duration,
+	config ITunesClientConfig,
 ) *ITunesClient {
 	if httpClient == nil {
 		httpClient = &http.Client{
-			Timeout: app.ItunesRequestTimeout,
+			Timeout: config.RequestTimeout,
 		}
 	}
-	if lookupInterval < 0 {
-		lookupInterval = 0
+	if config.LookupInterval < 0 {
+		config.LookupInterval = 0
+	}
+	if config.RetryAttempts < 1 {
+		config.RetryAttempts = 1
 	}
 
 	lookupGate := make(chan struct{}, 1)
@@ -96,7 +102,8 @@ func newITunesClient(
 		http:           httpClient,
 		userAgent:      app.UserAgent,
 		lookupGate:     lookupGate,
-		lookupInterval: lookupInterval,
+		lookupInterval: config.LookupInterval,
+		retryAttempts:  config.RetryAttempts,
 	}
 }
 
@@ -152,8 +159,6 @@ func (c *ITunesClient) fetchLookup(
 	ctx context.Context,
 	lookupURL string,
 ) ([]byte, bool, error) {
-	const maxAttempts = 2
-
 	for attempt := 0; ; attempt++ {
 		request, err := http.NewRequestWithContext(
 			ctx,
@@ -195,7 +200,7 @@ func (c *ITunesClient) fetchLookup(
 			c.releaseLookup()
 			response.Body.Close()
 
-			if hasRetryAfter && attempt+1 < maxAttempts {
+			if hasRetryAfter && attempt+1 < c.retryAttempts {
 				continue
 			}
 
@@ -346,8 +351,6 @@ func (c *ITunesClient) fetchArtworkCandidate(
 		return nil, "", "", err
 	}
 
-	const maxAttempts = 2
-
 	for attempt := 0; ; attempt++ {
 		request, err := http.NewRequestWithContext(
 			ctx,
@@ -374,7 +377,7 @@ func (c *ITunesClient) fetchArtworkCandidate(
 			)
 			response.Body.Close()
 
-			if hasRetryAfter && attempt+1 < maxAttempts {
+			if hasRetryAfter && attempt+1 < c.retryAttempts {
 				if err := waitForRetry(ctx, retryAfter); err != nil {
 					return nil, "", "", fmt.Errorf(
 						"wait to retry iTunes artwork: %w",

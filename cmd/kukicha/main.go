@@ -6,7 +6,6 @@ import (
 	"errors"
 	"log"
 	"net/http"
-	"time"
 
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/zanyoats/kukicha/internal/app"
@@ -79,7 +78,7 @@ func main() {
 			renderer,
 			db,
 		),
-		ReadHeaderTimeout: 5 * time.Second,
+		ReadHeaderTimeout: conf.Settings.Server.ReadHeaderTimeout.Duration,
 	}
 
 	log.Printf(

@@ -20,13 +20,24 @@ func Sync(ctx context.Context, db *sql.DB, conf *app.AppConfig) (result command.
 	}
 	defer conn.Close()
 
-	if err = command.PrepareScanResults(ctx, conn); err != nil {
+	if err = command.PrepareScanResults(
+		ctx,
+		conn,
+		conf.Settings.Server.Database.CacheSizeKiB,
+	); err != nil {
 		return
 	}
 
 	var itunesLookup command.ITunesArtworkLookup
-	if conf.Settings.Scan.ItunesLookup {
-		itunesClient := scanartwork.NewITunesClient(nil)
+	if conf.Settings.Scan.ITunes.Enabled {
+		itunesClient := scanartwork.NewITunesClient(
+			nil,
+			scanartwork.ITunesClientConfig{
+				RequestTimeout: conf.Settings.Scan.ITunes.RequestTimeout.Duration,
+				LookupInterval: conf.Settings.Scan.ITunes.LookupInterval.Duration,
+				RetryAttempts:  conf.Settings.Scan.ITunes.RetryAttempts,
+			},
+		)
 		itunesLookup = func(
 			ctx context.Context,
 			kind app.ITunesLookupKind,
@@ -81,6 +92,7 @@ func localFolderWalk(
 				ctx,
 				conn,
 				scannedFile,
+				conf.Settings.Scan.LocalArtworkMaxBytes,
 				itunesLookup,
 			)
 		}

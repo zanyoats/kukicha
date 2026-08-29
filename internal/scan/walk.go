@@ -16,10 +16,10 @@ import (
 
 type walkFunc func(scannedFile *app.ScannedFile) error
 
-const scanProgressLogInterval = 15 * time.Second
-
 // Normalized roots are valid dir paths
 func walk(conf *app.AppConfig, fn walkFunc) error {
+	progressLogInterval := conf.Settings.Scan.ProgressLogInterval.Duration
+
 	for _, root := range conf.Roots {
 		processedFiles := 0
 		lastProgressLog := time.Now()
@@ -32,7 +32,8 @@ func walk(conf *app.AppConfig, fn walkFunc) error {
 			}
 
 			processedFiles++
-			if time.Since(lastProgressLog) >= scanProgressLogInterval {
+			if progressLogInterval > 0 &&
+				time.Since(lastProgressLog) >= progressLogInterval {
 				log.Printf(
 					"Processed %d files in root/%d %q",
 					processedFiles,
@@ -115,7 +116,11 @@ func walkDir(
 					scannedFile.FileModTime = info.ModTime()
 
 					if fileType == app.FileTypeAudio {
-						applyTrackMetadata(fullPath, scannedFile)
+						applyTrackMetadata(
+							fullPath,
+							scannedFile,
+							conf.Settings.Scan.LocalArtworkMaxBytes,
+						)
 					}
 				}
 
@@ -188,7 +193,11 @@ func isRecognizable(name string, recognizedSidecarArtwork map[string]bool) (file
 	return
 }
 
-func applyTrackMetadata(path string, scannedFile *app.ScannedFile) {
+func applyTrackMetadata(
+	path string,
+	scannedFile *app.ScannedFile,
+	localArtworkMaxBytes int64,
+) {
 	defer func() {
 		if scannedFile.Metadata.ReleaseYear == 0 {
 			scannedFile.Metadata.ReleaseYear = yearFromDate(scannedFile.Metadata.ReleaseDate)
@@ -209,6 +218,11 @@ func applyTrackMetadata(path string, scannedFile *app.ScannedFile) {
 		scannedFile.ScanError = err.Error()
 		return
 	}
+
+	filterEmbeddedArtwork(
+		scannedFile,
+		localArtworkMaxBytes,
+	)
 }
 
 // NOTE: ensure stays synced with `scan.RecognizedAudioExtensions`
@@ -273,6 +287,29 @@ func applyEmbeddedArtwork(embeddedArtwork *[]app.EmbeddedArtwork, artwork []artw
 			})
 		}
 	}
+}
+
+func filterEmbeddedArtwork(
+	scannedFile *app.ScannedFile,
+	maxBytes int64,
+) {
+	// Reuse the existing backing array while compacting accepted artwork in place.
+	artwork := scannedFile.Artwork[:0]
+	for position, candidate := range scannedFile.Artwork {
+		if int64(candidate.ArtworkContentSize) > maxBytes {
+			log.Printf(
+				"Ignoring embedded artwork in %q position %d: size %d exceeds configured limit %d",
+				scannedFile.Path,
+				position,
+				candidate.ArtworkContentSize,
+				maxBytes,
+			)
+			continue
+		}
+
+		artwork = append(artwork, candidate)
+	}
+	scannedFile.Artwork = artwork
 }
 
 func rawAlbumArtistDisplays(metadata *app.TrackMetadata) []string {

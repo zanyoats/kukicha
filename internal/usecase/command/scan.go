@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"path/filepath"
@@ -72,7 +73,27 @@ var insertLibraryTrackArtworkSQL string
 //go:embed sql/current_timestamp.sql
 var currentTimestampSQL string
 
-func PrepareScanResults(ctx context.Context, conn *sql.Conn) error {
+func PrepareScanResults(
+	ctx context.Context,
+	conn *sql.Conn,
+	cacheSizeKiB int64,
+) error {
+	if cacheSizeKiB < 1 {
+		return errors.New("temporary database cache size must be positive")
+	}
+
+	if _, err := conn.ExecContext(ctx, "PRAGMA temp_store = FILE;"); err != nil {
+		return fmt.Errorf("configure temporary database storage: %w", err)
+	}
+
+	cacheSizePragma := fmt.Sprintf(
+		"PRAGMA temp.cache_size = -%d;",
+		cacheSizeKiB,
+	)
+	if _, err := conn.ExecContext(ctx, cacheSizePragma); err != nil {
+		return fmt.Errorf("configure temporary database cache: %w", err)
+	}
+
 	_, err := conn.ExecContext(ctx, prepareScanResultsSQL)
 
 	return err
@@ -198,6 +219,7 @@ func InsertScannedFile(
 	ctx context.Context,
 	conn *sql.Conn,
 	r *app.ScannedFile,
+	localArtworkMaxBytes int64,
 	itunesLookup ITunesArtworkLookup,
 ) error {
 	switch r.FileType {
@@ -205,7 +227,12 @@ func InsertScannedFile(
 		return insertScannedTrack(ctx, conn, r, itunesLookup)
 
 	case app.FileTypeSidecarCover:
-		return insertScannedSidecarCover(ctx, conn, r)
+		return insertScannedSidecarCover(
+			ctx,
+			conn,
+			r,
+			localArtworkMaxBytes,
+		)
 
 	case app.FileTypeSidecarOther:
 		return insertScannedSidecarOther(ctx, conn, r)
@@ -313,10 +340,14 @@ func insertScannedSidecarCover(
 	ctx context.Context,
 	conn *sql.Conn,
 	r *app.ScannedFile,
+	localArtworkMaxBytes int64,
 ) error {
 	thumbnailCacheName := ""
 	if r.ScanError == "" {
-		artworkBytes, err := os.ReadFile(filepath.Join(r.RootPath, r.Path))
+		artworkBytes, err := readLocalArtworkFile(
+			filepath.Join(r.RootPath, r.Path),
+			localArtworkMaxBytes,
+		)
 		if err != nil {
 			if ctx.Err() != nil {
 				return ctx.Err()
@@ -357,6 +388,37 @@ func insertScannedSidecarCover(
 	}
 
 	return nil
+}
+
+func readLocalArtworkFile(path string, maxBytes int64) ([]byte, error) {
+	if maxBytes < 1 {
+		return nil, errors.New("local artwork byte limit must be positive")
+	}
+
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer file.Close()
+
+	artworkBytes, err := io.ReadAll(io.LimitReader(file, maxBytes))
+	if err != nil {
+		return nil, err
+	}
+
+	var extra [1]byte
+	extraBytes, err := file.Read(extra[:])
+	if err != nil && !errors.Is(err, io.EOF) {
+		return nil, err
+	}
+	if extraBytes != 0 {
+		return nil, fmt.Errorf(
+			"artwork exceeds configured limit of %d bytes",
+			maxBytes,
+		)
+	}
+
+	return artworkBytes, nil
 }
 
 func insertScannedSidecarOther(

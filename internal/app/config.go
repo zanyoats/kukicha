@@ -13,6 +13,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 	"unicode"
 
 	"github.com/BurntSushi/toml"
@@ -25,14 +26,35 @@ const (
 	UserAgent      = "kukicha/0.1"
 )
 
+type Duration struct {
+	time.Duration
+}
+
+func (duration *Duration) UnmarshalText(text []byte) error {
+	value, err := time.ParseDuration(string(text))
+	if err != nil {
+		return err
+	}
+
+	duration.Duration = value
+	return nil
+}
+
 type AppConfig struct {
 	AppDir         string
 	Roots          []Root
 	DataSourceName string
 	Settings       struct {
 		Scan struct {
-			Roots                     []string          `toml:"roots"`
-			ItunesLookup              bool              `toml:"itunes_lookup"`
+			Roots                []string `toml:"roots"`
+			ProgressLogInterval  Duration `toml:"progress_log_interval"`
+			LocalArtworkMaxBytes int64    `toml:"local_artwork_max_bytes"`
+			ITunes               struct {
+				Enabled        bool     `toml:"enabled"`
+				RequestTimeout Duration `toml:"request_timeout"`
+				LookupInterval Duration `toml:"lookup_interval"`
+				RetryAttempts  int      `toml:"retry_attempts"`
+			} `toml:"itunes"`
 			AlbumArtistSplitTokens    map[string]bool   `toml:"album_artist_split_tokens"`
 			AlbumArtistSplitAuto      map[string]bool   `toml:"album_artist_split_auto_tokens"`
 			RecognizedSidecarArtwork  map[string]bool   `toml:"recognized_sidecar_artwork"`
@@ -41,9 +63,14 @@ type AppConfig struct {
 			GenreStyleAliases         map[string]string `toml:"genre_style_aliases"`
 		} `toml:"scan"`
 		Server struct {
-			DatabasePath  string `toml:"database_path"`
-			ServerAddress string `toml:"server_address"`
-			AppBasePath   string `toml:"app_base_path"`
+			DatabasePath      string   `toml:"database_path"`
+			ServerAddress     string   `toml:"server_address"`
+			AppBasePath       string   `toml:"app_base_path"`
+			ReadHeaderTimeout Duration `toml:"read_header_timeout"`
+			Database          struct {
+				BusyTimeout  Duration `toml:"busy_timeout"`
+				CacheSizeKiB int64    `toml:"cache_size_kib"`
+			} `toml:"database"`
 		} `toml:"server"`
 		UI struct {
 			PerPage int `toml:"per_page"`
@@ -92,6 +119,31 @@ func LoadAppConfig(catalog *Catalog) (*AppConfig, error) {
 	}
 
 	// Validations...
+	if result.Settings.Scan.ProgressLogInterval.Duration < 0 {
+		return nil, errors.New(
+			`"scan.progress_log_interval" setting cannot be negative`,
+		)
+	}
+	if result.Settings.Scan.LocalArtworkMaxBytes < 1 {
+		return nil, errors.New(
+			`"scan.local_artwork_max_bytes" setting must be a positive integer`,
+		)
+	}
+	if result.Settings.Scan.ITunes.RequestTimeout.Duration <= 0 {
+		return nil, errors.New(
+			`"scan.itunes.request_timeout" setting must be greater than zero`,
+		)
+	}
+	if result.Settings.Scan.ITunes.LookupInterval.Duration < 0 {
+		return nil, errors.New(
+			`"scan.itunes.lookup_interval" setting cannot be negative`,
+		)
+	}
+	if result.Settings.Scan.ITunes.RetryAttempts < 1 {
+		return nil, errors.New(
+			`"scan.itunes.retry_attempts" setting must be a positive integer`,
+		)
+	}
 
 	// ...no empty tokens
 	if slices.Contains(slices.Concat(
@@ -179,6 +231,21 @@ func LoadAppConfig(catalog *Catalog) (*AppConfig, error) {
 			"server.app_base_path", err,
 		)
 	}
+	if result.Settings.Server.ReadHeaderTimeout.Duration <= 0 {
+		return nil, errors.New(
+			`"server.read_header_timeout" setting must be greater than zero`,
+		)
+	}
+	if result.Settings.Server.Database.BusyTimeout.Duration < 0 {
+		return nil, errors.New(
+			`"server.database.busy_timeout" setting cannot be negative`,
+		)
+	}
+	if result.Settings.Server.Database.CacheSizeKiB < 1 {
+		return nil, errors.New(
+			`"server.database.cache_size_kib" setting must be a positive integer`,
+		)
+	}
 
 	// ...valid UI settings
 	if result.Settings.UI.PerPage < 1 {
@@ -187,11 +254,17 @@ func LoadAppConfig(catalog *Catalog) (*AppConfig, error) {
 		)
 	}
 
+	busyTimeout := result.Settings.Server.Database.BusyTimeout.Duration
+	busyTimeoutMilliseconds := busyTimeout.Milliseconds()
+
 	sqlitePragmas := []string{
 		"_foreign_keys=on",
 		"_synchronous=NORMAL",
-		"_busy_timeout=5000",
-		"_cache_size=-32768", // '-' means use kilobytes, thus 32 MB page store
+		fmt.Sprintf("_busy_timeout=%d", busyTimeoutMilliseconds),
+		fmt.Sprintf(
+			"_cache_size=-%d",
+			result.Settings.Server.Database.CacheSizeKiB,
+		), // '-' means the value uses kibibytes rather than pages
 	}
 	dbPragmas := strings.Join(sqlitePragmas, "&")
 	result.DataSourceName = fmt.Sprintf("%s?%s", dbPath, dbPragmas)

@@ -1,6 +1,3 @@
-PRAGMA temp_store = FILE;
-PRAGMA temp.cache_size = -32768;
-
 DROP TABLE IF EXISTS scan_tracks;
 
 CREATE TEMP TABLE scan_tracks (

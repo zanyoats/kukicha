@@ -2,9 +2,25 @@
 # Music roots must already exist.
 roots = []
 
+# Set to "0s" to disable periodic scan progress messages.
+progress_log_interval = "15s"
+
+# Oversized sidecar and embedded artwork is ignored.
+# Size = 25 × 1024 × 1024 = 26,214,400 bytes
+local_artwork_max_bytes = 26_214_400
+
+[scan.itunes]
 # Disables new iTunes lookups, but allows existing cached artwork.
 # To also disable existing cache lookups clear the itunes cache too.
-itunes_lookup = true
+enabled = true
+
+request_timeout = "20s"
+
+# Apple documents an approximate Search API limit of 20 requests per minute.
+# Leave a small margin below that limit.
+lookup_interval = "3.25s"
+
+retry_attempts = 2
 
 [scan.album_artist_split_tokens]
 "with" = true
@@ -59,6 +75,13 @@ server_address = "127.0.0.1:4533"
 # URL path where the kukicha web app is mounted.
 # Must not be empty or the root path ("/").
 app_base_path = "/kukicha/app"
+
+read_header_timeout = "5s"
+
+[server.database]
+busy_timeout = "5s"
+
+cache_size_kib = 32_768
 
 [ui]
 per_page = 200

@@ -1,17 +1,9 @@
 package app
 
-import (
-	"time"
-)
-
 const (
 	ItunesLookupEndpoint  = "https://itunes.apple.com/lookup"
 	ItunesLookupMaxBytes  = 2 * 1024 * 1024
 	ItunesArtworkMaxBytes = 25 * 1024 * 1024
-	ItunesRequestTimeout  = 20 * time.Second
-	// Apple documents an approximate Search API limit of 20 requests per
-	// minute. Leave a small margin below that limit.
-	ItunesLookupInterval = 3250 * time.Millisecond
 )
 
 type ITunesLookupKind string
