@@ -506,7 +506,7 @@ func cacheScannedFileITunesArtwork(
 	r *app.ScannedFile,
 	itunesLookup ITunesArtworkLookup,
 ) error {
-	if itunesLookup == nil || r.Metadata == nil {
+	if itunesLookup == nil || r.Metadata == nil || len(r.Artwork) > 0 {
 		return nil
 	}
 

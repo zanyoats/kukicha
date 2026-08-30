@@ -40,7 +40,7 @@ func TestDefaultsTomlOperationalSettings(t *testing.T) {
 		{"scan.local_artwork_max_bytes", config.Settings.Scan.LocalArtworkMaxBytes, int64(25 * 1024 * 1024)},
 		{"scan.itunes.enabled", config.Settings.Scan.ITunes.Enabled, true},
 		{"scan.itunes.request_timeout", config.Settings.Scan.ITunes.RequestTimeout.Duration, 20 * time.Second},
-		{"scan.itunes.lookup_interval", config.Settings.Scan.ITunes.LookupInterval.Duration, 3250 * time.Millisecond},
+		{"scan.itunes.lookup_interval", config.Settings.Scan.ITunes.LookupInterval.Duration, 250 * time.Millisecond},
 		{"scan.itunes.retry_attempts", config.Settings.Scan.ITunes.RetryAttempts, 2},
 		{"server.read_header_timeout", config.Settings.Server.ReadHeaderTimeout.Duration, 5 * time.Second},
 		{"server.database.busy_timeout", config.Settings.Server.Database.BusyTimeout.Duration, 5 * time.Second},

@@ -20,9 +20,8 @@ enabled = true
 
 request_timeout = "20s"
 
-# Apple documents an approximate Search API limit of 20 requests per minute.
-# Leave a small margin below that limit.
-lookup_interval = "3.25s"
+# Space lookup starts to reduce bursts; HTTP 429 responses can extend the delay.
+lookup_interval = "250ms"
 
 retry_attempts = 2
 
