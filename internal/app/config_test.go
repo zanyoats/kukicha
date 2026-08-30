@@ -1,6 +1,7 @@
 package app
 
 import (
+	"log/slog"
 	"maps"
 	"slices"
 	"strings"
@@ -17,7 +18,7 @@ func TestDefaultsTomlTopLevelTables(t *testing.T) {
 	}
 
 	got := slices.Sorted(maps.Keys(decoded))
-	want := []string{"scan", "server", "ui"}
+	want := []string{"logging", "scan", "server", "ui"}
 	if !slices.Equal(got, want) {
 		t.Fatalf("top-level keys = %v, want %v", got, want)
 	}
@@ -34,6 +35,7 @@ func TestDefaultsTomlOperationalSettings(t *testing.T) {
 		got  any
 		want any
 	}{
+		{"logging.level", config.Settings.Logging.Level.Level, slog.LevelInfo},
 		{"scan.progress_log_interval", config.Settings.Scan.ProgressLogInterval.Duration, 15 * time.Second},
 		{"scan.local_artwork_max_bytes", config.Settings.Scan.LocalArtworkMaxBytes, int64(25 * 1024 * 1024)},
 		{"scan.itunes.enabled", config.Settings.Scan.ITunes.Enabled, true},
@@ -49,6 +51,17 @@ func TestDefaultsTomlOperationalSettings(t *testing.T) {
 		if check.got != check.want {
 			t.Errorf("%s = %v, want %v", check.name, check.got, check.want)
 		}
+	}
+}
+
+func TestDecodeSettingsRejectsInvalidLogLevel(t *testing.T) {
+	var config AppConfig
+	err := decodeSettings(
+		[]byte("[logging]\nlevel = \"verbose\"\n"),
+		&config.Settings,
+	)
+	if err == nil || !strings.Contains(err.Error(), "debug, info, warn, or error") {
+		t.Fatalf("error = %v, want invalid log level rejection", err)
 	}
 }
 

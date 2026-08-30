@@ -4,8 +4,10 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"log"
+	"fmt"
+	"log/slog"
 	"net/http"
+	"os"
 
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/zanyoats/kukicha/internal/app"
@@ -15,60 +17,74 @@ import (
 )
 
 func main() {
+	if err := run(); err != nil {
+		slog.Error("kukicha stopped", "error", err)
+		os.Exit(1)
+	}
+}
+
+func run() error {
 	catalog, err := app.LoadTaxonomy()
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 
 	conf, err := app.LoadAppConfig(catalog)
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
+	slog.SetDefault(slog.New(slog.NewTextHandler(
+		os.Stderr,
+		&slog.HandlerOptions{Level: conf.Settings.Logging.Level.Level},
+	)))
 
 	renderer, err := web.NewPageRenderer()
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 
 	ctx := context.Background()
 
 	db, err := sql.Open("sqlite3", conf.DataSourceName)
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 	defer db.Close()
 
 	db.SetMaxOpenConns(1)
 
 	if _, err = db.ExecContext(ctx, `PRAGMA journal_mode = WAL`); err != nil {
-		log.Fatal(err)
+		return err
 	}
 
 	if err = command.Migrate(ctx, db); err != nil {
-		log.Fatal(err)
+		return err
 	}
 
 	if err = command.SeedTaxonomy(ctx, db, catalog, scan.UnknownItem); err != nil {
-		log.Fatal(err)
+		return err
 	}
 
 	if err = command.InitializeInstanceMetadata(
 		ctx,
 		db,
 	); err != nil {
-		log.Fatal(err)
+		return err
 	}
 
 	result, err := scan.Sync(ctx, db, conf)
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 
-	log.Printf("Library sync complete")
+	slog.Info("library sync complete")
 
 	for _, genreResolution := range result.GenreResolutionResult {
-		log.Printf("%s: %q (%s)",
-			genreResolution.LogMessage, genreResolution.Path, genreResolution.Status)
+		slog.Warn(
+			genreResolution.LogMessage,
+			"path", genreResolution.Path,
+			"status", genreResolution.Status,
+		)
 	}
 
 	server := &http.Server{
@@ -81,13 +97,18 @@ func main() {
 		ReadHeaderTimeout: conf.Settings.Server.ReadHeaderTimeout.Duration,
 	}
 
-	log.Printf(
-		"Kukicha web server is listening at http://%s%s",
-		conf.Settings.Server.ServerAddress,
-		conf.Settings.Server.AppBasePath,
+	slog.Info(
+		"web server listening",
+		"url", fmt.Sprintf(
+			"http://%s%s",
+			conf.Settings.Server.ServerAddress,
+			conf.Settings.Server.AppBasePath,
+		),
 	)
 
 	if err = server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-		log.Fatal(err)
+		return err
 	}
+
+	return nil
 }

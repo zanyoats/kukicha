@@ -3,7 +3,7 @@ package scan
 import (
 	"context"
 	"database/sql"
-	"log"
+	"log/slog"
 	"slices"
 	"strings"
 
@@ -194,7 +194,10 @@ func processFileTypeSidecar(
 }
 
 func processFileTypePlaylist(scannedFile *app.ScannedFile) error {
-	log.Printf("not implement yet: skipping playlist item: %q\n", scannedFile.Path)
+	slog.Debug(
+		"skipping unsupported playlist item",
+		"path", scannedFile.Path,
+	)
 	return nil
 }
 

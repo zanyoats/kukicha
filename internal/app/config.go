@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"log/slog"
 	"maps"
 	"net"
 	"os"
@@ -40,11 +41,38 @@ func (duration *Duration) UnmarshalText(text []byte) error {
 	return nil
 }
 
+type LogLevel struct {
+	slog.Level
+}
+
+func (level *LogLevel) UnmarshalText(text []byte) error {
+	switch strings.ToLower(string(text)) {
+	case "debug":
+		level.Level = slog.LevelDebug
+	case "info":
+		level.Level = slog.LevelInfo
+	case "warn":
+		level.Level = slog.LevelWarn
+	case "error":
+		level.Level = slog.LevelError
+	default:
+		return fmt.Errorf(
+			"log level %q must be one of debug, info, warn, or error",
+			text,
+		)
+	}
+
+	return nil
+}
+
 type AppConfig struct {
 	AppDir         string
 	Roots          []Root
 	DataSourceName string
 	Settings       struct {
+		Logging struct {
+			Level LogLevel `toml:"level"`
+		} `toml:"logging"`
 		Scan struct {
 			Roots                []string `toml:"roots"`
 			ProgressLogInterval  Duration `toml:"progress_log_interval"`

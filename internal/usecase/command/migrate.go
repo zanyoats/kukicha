@@ -5,7 +5,7 @@ import (
 	"database/sql"
 	_ "embed"
 	"fmt"
-	"log"
+	"log/slog"
 )
 
 //go:embed sql/migration_001.sql
@@ -71,7 +71,12 @@ func Migrate(ctx context.Context, writerDb *sql.DB) error {
 			return err
 		}
 
-		log.Printf("Applied migration: %s", migration.comment)
+		slog.InfoContext(
+			ctx,
+			"applied database migration",
+			"version", migration.version,
+			"description", migration.comment,
+		)
 
 		version = migration.version
 	}

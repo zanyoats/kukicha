@@ -2,8 +2,7 @@ package web
 
 import (
 	"bytes"
-	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"strconv"
 )
@@ -16,17 +15,19 @@ func renderPage(
 ) {
 	var buf bytes.Buffer
 	if err := renderer.Render(&buf, pageName, viewModel); err != nil {
-		internalServerError(w, fmt.Sprintf(
-			"error rendering page %q: %v",
-			pageName, err,
-		))
+		internalServerError(
+			w,
+			"unable to render page",
+			"page", pageName,
+			"error", err,
+		)
 		return
 	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
 	if _, err := buf.WriteTo(w); err != nil {
-		log.Printf("error rendering page response: %v", err)
+		slog.Debug("unable to write page response", "error", err)
 	}
 }
 
@@ -44,6 +45,6 @@ func renderImage(
 	w.WriteHeader(http.StatusOK)
 
 	if _, err := w.Write(data); err != nil {
-		log.Printf("error rendering image response: %v", err)
+		slog.Debug("unable to write image response", "error", err)
 	}
 }

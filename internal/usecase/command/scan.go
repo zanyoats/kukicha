@@ -8,7 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"slices"
@@ -352,7 +352,12 @@ func insertScannedSidecarCover(
 			if ctx.Err() != nil {
 				return ctx.Err()
 			}
-			log.Printf("Cannot read sidecar artwork %q: %v", r.Path, err)
+			slog.WarnContext(
+				ctx,
+				"cannot read sidecar artwork",
+				"path", r.Path,
+				"error", err,
+			)
 		} else {
 			thumbnailCacheName, err = cacheArtworkForScan(
 				ctx,
@@ -365,7 +370,12 @@ func insertScannedSidecarCover(
 			}
 		}
 	} else {
-		log.Printf("Cannot read sidecar artwork %q: %s", r.Path, r.ScanError)
+		slog.WarnContext(
+			ctx,
+			"cannot read sidecar artwork",
+			"path", r.Path,
+			"error", r.ScanError,
+		)
 	}
 
 	_, err := conn.ExecContext(
@@ -452,7 +462,12 @@ func cacheArtworkForScan(
 ) (string, error) {
 	name, err := cacheArtworkThumbnails(ctx, conn, artworkBytes)
 	if errors.Is(err, errInvalidArtwork) {
-		log.Printf("Cannot cache %s: %v", description, err)
+		slog.WarnContext(
+			ctx,
+			"cannot cache artwork",
+			"description", description,
+			"error", err,
+		)
 		return "", nil
 	}
 	if err != nil {
@@ -501,11 +516,12 @@ func cacheScannedFileITunesArtwork(
 			if errors.Is(err, ErrITunesArtworkCache) {
 				return err
 			}
-			log.Printf(
-				"iTunes artwork lookup failed for %s %s: %v",
-				candidate.kind,
-				lookupID,
-				err,
+			slog.WarnContext(
+				ctx,
+				"iTunes artwork lookup failed",
+				"kind", candidate.kind,
+				"lookup_id", lookupID,
+				"error", err,
 			)
 			continue
 		}
@@ -538,11 +554,12 @@ func cacheScannedFileITunesArtwork(
 		case app.ITunesResultMissing:
 			continue
 		default:
-			log.Printf(
-				"iTunes artwork lookup for %s %s returned unsupported result kind %q",
-				candidate.kind,
-				lookupID,
-				result.ResultKind,
+			slog.ErrorContext(
+				ctx,
+				"iTunes artwork lookup returned unsupported result kind",
+				"kind", candidate.kind,
+				"lookup_id", lookupID,
+				"result_kind", result.ResultKind,
 			)
 		}
 	}

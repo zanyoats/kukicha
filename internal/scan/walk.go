@@ -4,7 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -24,7 +24,11 @@ func walk(conf *app.AppConfig, fn walkFunc) error {
 		processedFiles := 0
 		lastProgressLog := time.Now()
 
-		log.Printf("Scanning root/%d %q", root.RootPos, root.RootPath)
+		slog.Info(
+			"scanning library root",
+			"root_position", root.RootPos,
+			"path", root.RootPath,
+		)
 
 		progressFn := func(scannedFile *app.ScannedFile) error {
 			if err := fn(scannedFile); err != nil {
@@ -34,11 +38,11 @@ func walk(conf *app.AppConfig, fn walkFunc) error {
 			processedFiles++
 			if progressLogInterval > 0 &&
 				time.Since(lastProgressLog) >= progressLogInterval {
-				log.Printf(
-					"Processed %d files in root/%d %q",
-					processedFiles,
-					root.RootPos,
-					root.RootPath,
+				slog.Info(
+					"library scan progress",
+					"processed_files", processedFiles,
+					"root_position", root.RootPos,
+					"path", root.RootPath,
 				)
 				lastProgressLog = time.Now()
 			}
@@ -50,11 +54,11 @@ func walk(conf *app.AppConfig, fn walkFunc) error {
 			return err
 		}
 
-		log.Printf(
-			"Finished root/%d %q: processed %d files",
-			root.RootPos,
-			root.RootPath,
-			processedFiles,
+		slog.Info(
+			"finished scanning library root",
+			"root_position", root.RootPos,
+			"path", root.RootPath,
+			"processed_files", processedFiles,
 		)
 	}
 
@@ -71,9 +75,11 @@ func walkDir(
 	files, err := os.ReadDir(dir)
 
 	if err != nil {
-		// TODO log level warning or error
-		log.Printf("I cannot read folder %q for below reason", dir)
-		log.Printf("%v", err)
+		slog.Warn(
+			"cannot read folder; skipping it",
+			"path", dir,
+			"error", err,
+		)
 		return nil
 	}
 
@@ -297,12 +303,12 @@ func filterEmbeddedArtwork(
 	artwork := scannedFile.Artwork[:0]
 	for position, candidate := range scannedFile.Artwork {
 		if int64(candidate.ArtworkContentSize) > maxBytes {
-			log.Printf(
-				"Ignoring embedded artwork in %q position %d: size %d exceeds configured limit %d",
-				scannedFile.Path,
-				position,
-				candidate.ArtworkContentSize,
-				maxBytes,
+			slog.Warn(
+				"ignoring oversized embedded artwork",
+				"path", scannedFile.Path,
+				"position", position,
+				"size_bytes", candidate.ArtworkContentSize,
+				"limit_bytes", maxBytes,
 			)
 			continue
 		}

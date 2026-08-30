@@ -1,3 +1,7 @@
+[logging]
+# Minimum severity written to the log: debug, info, warn, or error.
+level = "info"
+
 [scan]
 # Music roots must already exist.
 roots = []

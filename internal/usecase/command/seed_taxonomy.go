@@ -5,7 +5,7 @@ import (
 	"database/sql"
 	_ "embed"
 	"fmt"
-	"log"
+	"log/slog"
 
 	"github.com/zanyoats/kukicha/internal/app"
 )
@@ -88,7 +88,7 @@ func SeedTaxonomy(
 		return err
 	}
 
-	log.Printf("Seeded library taxonomy")
+	slog.InfoContext(ctx, "seeded library taxonomy")
 
 	return nil
 }

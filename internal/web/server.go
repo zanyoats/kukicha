@@ -4,9 +4,8 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io/fs"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -101,9 +100,7 @@ type albumCard struct {
 func (c *appRoutes) showLibrary(w http.ResponseWriter, r *http.Request) {
 	albums, err := query.Albums(r.Context(), c.db)
 	if err != nil {
-		internalServerError(w, fmt.Sprintf(
-			"Unable to load albums: %v", err,
-		))
+		internalServerError(w, "unable to load albums", "error", err)
 		return
 	}
 
@@ -171,9 +168,12 @@ func (c *appRoutes) showAlbum(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Album not found", http.StatusNotFound)
 		return
 	} else if err != nil {
-		internalServerError(w, fmt.Sprintf(
-			"Unable to load album %d: %v", albumID, err,
-		))
+		internalServerError(
+			w,
+			"unable to load album",
+			"album_id", albumID,
+			"error", err,
+		)
 		return
 	}
 
@@ -186,11 +186,12 @@ func (c *appRoutes) showAlbum(w http.ResponseWriter, r *http.Request) {
 		newPlayerQueueData(album, c.appBasePath, artworkURL),
 	)
 	if err != nil {
-		internalServerError(w, fmt.Sprintf(
-			"Unable to encode player queue for album %d: %v",
-			albumID,
-			err,
-		))
+		internalServerError(
+			w,
+			"unable to encode player queue",
+			"album_id", albumID,
+			"error", err,
+		)
 		return
 	}
 
@@ -262,10 +263,12 @@ func (c *appRoutes) getAlbumArtwork(w http.ResponseWriter, r *http.Request) {
 		return
 
 	case err != nil:
-		internalServerError(w, fmt.Sprintf(
-			"Unable to load artwork for album %d: %v",
-			albumID, err,
-		))
+		internalServerError(
+			w,
+			"unable to load album artwork",
+			"album_id", albumID,
+			"error", err,
+		)
 		return
 	}
 
@@ -279,9 +282,10 @@ func (c *appRoutes) getAlbumArtwork(w http.ResponseWriter, r *http.Request) {
 		contentType[:len("image/")] != "image/"
 
 	if invalidArtwork {
-		log.Printf(
-			"Album %d has invalid resolved artwork",
-			albumID,
+		slog.WarnContext(
+			r.Context(),
+			"album has invalid resolved artwork",
+			"album_id", albumID,
 		)
 		switch size {
 		case query.AlbumArtwork256:
@@ -313,10 +317,12 @@ func (c *appRoutes) streamTrackAudio(w http.ResponseWriter, r *http.Request) {
 		return
 
 	case err != nil:
-		internalServerError(w, fmt.Sprintf(
-			"Unable to load audio information for track %d: %v",
-			trackID, err,
-		))
+		internalServerError(
+			w,
+			"unable to load track audio information",
+			"track_id", trackID,
+			"error", err,
+		)
 		return
 	}
 
@@ -330,10 +336,12 @@ func (c *appRoutes) streamTrackAudio(w http.ResponseWriter, r *http.Request) {
 		return
 
 	case err != nil:
-		internalServerError(w, fmt.Sprintf(
-			"Unable to resolve audio path for track %d: %v",
-			trackID, err,
-		))
+		internalServerError(
+			w,
+			"unable to resolve track audio path",
+			"track_id", trackID,
+			"error", err,
+		)
 		return
 	}
 
@@ -344,27 +352,33 @@ func (c *appRoutes) streamTrackAudio(w http.ResponseWriter, r *http.Request) {
 		return
 
 	case err != nil:
-		internalServerError(w, fmt.Sprintf(
-			"Unable to open audio for track %d: %v",
-			trackID, err,
-		))
+		internalServerError(
+			w,
+			"unable to open track audio",
+			"track_id", trackID,
+			"error", err,
+		)
 		return
 	}
 	defer file.Close()
 
 	info, err := file.Stat()
 	if err != nil {
-		internalServerError(w, fmt.Sprintf(
-			"Unable to inspect audio for track %d: %v",
-			trackID, err,
-		))
+		internalServerError(
+			w,
+			"unable to inspect track audio",
+			"track_id", trackID,
+			"error", err,
+		)
 		return
 	}
 
 	if !info.Mode().IsRegular() {
-		log.Printf(
-			"Refusing non-regular audio file for track %d",
-			trackID,
+		slog.WarnContext(
+			r.Context(),
+			"refusing non-regular track audio file",
+			"track_id", trackID,
+			"path", audioPath,
 		)
 		http.Error(w, "Track not found", http.StatusNotFound)
 		return
@@ -391,9 +405,11 @@ func getIdenticon(db *sql.DB, w http.ResponseWriter, r *http.Request) {
 		&sql.TxOptions{ReadOnly: true},
 	)
 	if err != nil {
-		internalServerError(w, fmt.Sprintf(
-			"Unable to begin the instance identicon query: %v", err,
-		))
+		internalServerError(
+			w,
+			"unable to begin instance identicon query",
+			"error", err,
+		)
 		return
 	}
 	defer tx.Rollback()
@@ -404,16 +420,20 @@ func getIdenticon(db *sql.DB, w http.ResponseWriter, r *http.Request) {
 		app.InstanceIdenticon,
 	)
 	if err != nil {
-		internalServerError(w, fmt.Sprintf(
-			"Unable to load the instance identicon: %v", err,
-		))
+		internalServerError(
+			w,
+			"unable to load instance identicon",
+			"error", err,
+		)
 		return
 	}
 
 	if err := tx.Commit(); err != nil {
-		internalServerError(w, fmt.Sprintf(
-			"Unable to commit the instance identicon query: %v", err,
-		))
+		internalServerError(
+			w,
+			"unable to commit instance identicon query",
+			"error", err,
+		)
 		return
 	}
 
@@ -455,8 +475,8 @@ func mountApp(prefix string, next http.Handler) http.Handler {
 	})
 }
 
-func internalServerError(w http.ResponseWriter, logmsg string) {
-	log.Print(logmsg)
+func internalServerError(w http.ResponseWriter, message string, args ...any) {
+	slog.Error(message, args...)
 	http.Error(
 		w,
 		"An unexpected error occured. "+
