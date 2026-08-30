@@ -4,15 +4,20 @@ CREATE TABLE app_metadata (
 );
 
 CREATE TABLE taxonomy_genres (
-    genre TEXT PRIMARY KEY COLLATE NOCASE
+    id    INTEGER PRIMARY KEY AUTOINCREMENT,
+    genre TEXT    NOT NULL COLLATE NOCASE   ,
+
+    UNIQUE (genre)
 );
 
 CREATE TABLE taxonomy_styles (
-    style        TEXT PRIMARY KEY COLLATE NOCASE,
-    parent_genre TEXT NOT NULL    COLLATE NOCASE,
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    style           TEXT    NOT NULL COLLATE NOCASE   ,
+    parent_genre_id INTEGER NOT NULL                  ,
 
-    FOREIGN KEY (parent_genre)
-      REFERENCES taxonomy_genres (genre)
+    UNIQUE (style)                                      ,
+    FOREIGN KEY (parent_genre_id)
+      REFERENCES taxonomy_genres (id)
       ON DELETE CASCADE
 );
 
@@ -39,18 +44,44 @@ CREATE TABLE album_artist_split_mappings (
     CHECK(json_valid(mapped_artists))
 ) WITHOUT ROWID;
 
-CREATE TABLE library_roots (
+CREATE TABLE library_root_ids (
     id        INTEGER PRIMARY KEY AUTOINCREMENT,
-    pos       INTEGER NOT NULL                 ,
+    root_path TEXT    NOT NULL                 ,
+
+    UNIQUE (root_path)
+);
+
+CREATE TABLE library_album_ids (
+    id        INTEGER PRIMARY KEY AUTOINCREMENT,
+    album_key TEXT    NOT NULL                 ,
+
+    UNIQUE (album_key)
+);
+
+CREATE TABLE library_artist_ids (
+    id     INTEGER PRIMARY KEY AUTOINCREMENT,
+    artist TEXT    NOT NULL COLLATE NOCASE   ,
+
+    UNIQUE (artist)
+);
+
+CREATE TABLE library_track_ids (
+    id        INTEGER PRIMARY KEY AUTOINCREMENT,
+    root_path TEXT    NOT NULL                 ,
     path      TEXT    NOT NULL                 ,
 
-    UNIQUE (pos)                               ,
+    UNIQUE (root_path, path)
+);
+
+CREATE TABLE library_roots (
+    id   INTEGER PRIMARY KEY,
+    path TEXT    NOT NULL   ,
+
     UNIQUE (path)
 );
 
 CREATE TABLE library_albums (
-    id                    INTEGER PRIMARY KEY AUTOINCREMENT,
-    album_key             TEXT    NOT NULL                 ,
+    id                    INTEGER PRIMARY KEY              ,
     album                 TEXT    NOT NULL                 ,
     format                TEXT    NOT NULL                 ,
     track_count           INTEGER                          ,
@@ -65,22 +96,24 @@ CREATE TABLE library_albums (
     composer              TEXT                             ,
     copyright             TEXT                             ,
     purchase_date         TEXT                             ,
-    is_compilation        INTEGER                          ,
-
-    UNIQUE (album_key)
+    is_compilation        INTEGER
 );
 
 CREATE TABLE library_album_artists (
-    id         INTEGER PRIMARY KEY AUTOINCREMENT,
-    album_id   INTEGER NOT NULL                 ,
-    artist_key TEXT    NOT NULL                 ,
-    artist     TEXT    NOT NULL                 ,
+    album_id  INTEGER NOT NULL,
+    artist_id INTEGER NOT NULL,
 
-    UNIQUE (album_id, artist_key)               ,
+    PRIMARY KEY (album_id, artist_id)       ,
     FOREIGN KEY (album_id)
       REFERENCES library_albums (id)
-      ON DELETE CASCADE
-);
+      ON DELETE CASCADE                     ,
+    FOREIGN KEY (artist_id)
+      REFERENCES library_artist_ids (id)
+      ON DELETE RESTRICT
+) WITHOUT ROWID;
+
+CREATE INDEX library_album_artists_artist_id_idx
+ON library_album_artists (artist_id, album_id);
 
 CREATE TABLE library_track_sidecars (
     id                   INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -144,35 +177,65 @@ CREATE INDEX library_track_artwork_track_id_idx
 ON library_track_artwork (track_id);
 
 CREATE TABLE library_track_genres (
-    id       INTEGER PRIMARY KEY AUTOINCREMENT,
-    track_id INTEGER NOT NULL                 ,
-    genre    TEXT    NOT NULL                 ,
+    track_id INTEGER NOT NULL,
+    genre_id INTEGER NOT NULL,
 
-    UNIQUE (track_id, genre)                  ,
+    PRIMARY KEY (track_id, genre_id)          ,
     FOREIGN KEY (track_id)
       REFERENCES library_tracks (id)
       ON DELETE CASCADE                       ,
-    FOREIGN KEY (genre)
-      REFERENCES taxonomy_genres (genre)
+    FOREIGN KEY (genre_id)
+      REFERENCES taxonomy_genres (id)
       ON DELETE CASCADE
-);
+) WITHOUT ROWID;
 
 CREATE TABLE library_track_styles (
-    id       INTEGER PRIMARY KEY AUTOINCREMENT,
-    track_id INTEGER NOT NULL                 ,
-    style    TEXT    NOT NULL                 ,
+    track_id INTEGER NOT NULL,
+    style_id INTEGER NOT NULL,
 
-    UNIQUE (track_id, style)                  ,
+    PRIMARY KEY (track_id, style_id)          ,
     FOREIGN KEY (track_id)
       REFERENCES library_tracks (id)
       ON DELETE CASCADE                       ,
-    FOREIGN KEY (style)
-      REFERENCES taxonomy_styles (style)
+    FOREIGN KEY (style_id)
+      REFERENCES taxonomy_styles (id)
       ON DELETE CASCADE
-);
+) WITHOUT ROWID;
+
+CREATE TABLE library_album_genres (
+    album_id INTEGER NOT NULL,
+    genre_id INTEGER NOT NULL,
+
+    PRIMARY KEY (album_id, genre_id),
+    FOREIGN KEY (album_id)
+      REFERENCES library_albums (id)
+      ON DELETE CASCADE             ,
+    FOREIGN KEY (genre_id)
+      REFERENCES taxonomy_genres (id)
+      ON DELETE CASCADE
+) WITHOUT ROWID;
+
+CREATE INDEX library_album_genres_genre_id_idx
+ON library_album_genres (genre_id, album_id);
+
+CREATE TABLE library_album_styles (
+    album_id INTEGER NOT NULL,
+    style_id INTEGER NOT NULL,
+
+    PRIMARY KEY (album_id, style_id),
+    FOREIGN KEY (album_id)
+      REFERENCES library_albums (id)
+      ON DELETE CASCADE             ,
+    FOREIGN KEY (style_id)
+      REFERENCES taxonomy_styles (id)
+      ON DELETE CASCADE
+) WITHOUT ROWID;
+
+CREATE INDEX library_album_styles_style_id_idx
+ON library_album_styles (style_id, album_id);
 
 CREATE TABLE library_tracks (
-    id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+    id                   INTEGER PRIMARY KEY              ,
     root_id              INTEGER NOT NULL                 ,
     album_id             INTEGER NOT NULL                 ,
     ext                  TEXT    NOT NULL                 ,
@@ -182,7 +245,7 @@ CREATE TABLE library_tracks (
     track_metadata       TEXT    NOT NULL                 ,
     scan_error           TEXT    NOT NULL                 ,
     title                TEXT    NOT NULL                 ,
-    artists              TEXT    NOT NULL                 , -- JSON Array
+    artists              TEXT    NOT NULL                 ,
     work                 TEXT                             ,
     grouping             TEXT                             ,
     movement_name        TEXT                             ,

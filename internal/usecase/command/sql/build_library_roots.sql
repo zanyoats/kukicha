@@ -1,5 +1,11 @@
-INSERT OR IGNORE INTO library_roots (pos, path)
-SELECT DISTINCT
-    root_pos,
-    root_path
-FROM scan_tracks;
+INSERT INTO library_roots (id, path)
+SELECT
+    ids.id,
+    scanned.root_path
+FROM (
+    SELECT DISTINCT root_path
+    FROM scan_tracks
+) AS scanned
+JOIN library_root_ids AS ids
+    ON ids.root_path = scanned.root_path
+ORDER BY scanned.root_path COLLATE BINARY;

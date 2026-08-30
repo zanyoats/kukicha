@@ -8,8 +8,10 @@ ORDER BY id;
 INSERT OR IGNORE INTO taxonomy_genres (genre)
 VALUES (:unknown_item);
 
-INSERT OR IGNORE INTO taxonomy_styles (style, parent_genre)
-SELECT name, parent
-FROM taxonomy
-WHERE kind = 'style'
-ORDER BY id;
+INSERT OR IGNORE INTO taxonomy_styles (style, parent_genre_id)
+SELECT styles.name, genres.id
+FROM taxonomy AS styles
+JOIN taxonomy_genres AS genres
+    ON genres.genre = styles.parent
+WHERE styles.kind = 'style'
+ORDER BY styles.id;

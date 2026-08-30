@@ -1,4 +1,5 @@
 INSERT INTO library_tracks (
+    id,
     root_id,
     album_id,
     ext,
@@ -19,6 +20,7 @@ INSERT INTO library_tracks (
     disc_number
 )
 SELECT
+    track_ids.id,
     roots.id,
     albums.id,
     s.ext,
@@ -38,7 +40,12 @@ SELECT
     NULLIF(json_extract(s.track_metadata, '$.track_number'), 0),
     NULLIF(json_extract(s.track_metadata, '$.disc_number'), 0)
 FROM scan_tracks AS s
+JOIN library_track_ids AS track_ids
+    ON track_ids.root_path = s.root_path
+    AND track_ids.path = s.path
 JOIN library_roots AS roots
-    ON roots.pos = s.root_pos
+    ON roots.path = s.root_path
+JOIN library_album_ids AS album_ids
+    ON album_ids.album_key = s.album_key
 JOIN library_albums AS albums
-    ON albums.album_key = json_extract(s.normalized_metadata, '$.album_key');
+    ON albums.id = album_ids.id;

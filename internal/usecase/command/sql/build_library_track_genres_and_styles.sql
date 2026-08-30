@@ -57,7 +57,7 @@ raw_genres AS (
         genres.value AS input_genre
     FROM scan_tracks AS s
     JOIN library_roots AS roots
-        ON roots.pos = s.root_pos
+        ON roots.path = s.root_path
     JOIN library_tracks AS tracks
         ON tracks.root_id = roots.id
         AND tracks.path = s.path
@@ -263,23 +263,26 @@ JOIN expandable_genres AS expandable
 
 INSERT OR IGNORE INTO library_track_genres (
     track_id,
-    genre
+    genre_id
 )
 SELECT DISTINCT
-    track_id,
-    resolved_genre
-FROM scan_track_genre_resolution
-WHERE resolved_genre IS NOT NULL;
+    resolutions.track_id,
+    genres.id
+FROM scan_track_genre_resolution AS resolutions
+JOIN taxonomy_genres AS genres
+    ON genres.genre = resolutions.resolved_genre;
 
 INSERT OR IGNORE INTO library_track_genres (
     track_id,
-    genre
+    genre_id
 )
 SELECT
-    track_id,
-    :unknown_item
-FROM scan_track_genre_resolution
-GROUP BY track_id
+    resolutions.track_id,
+    genres.id
+FROM scan_track_genre_resolution AS resolutions
+JOIN taxonomy_genres AS genres
+    ON genres.genre = :unknown_item
+GROUP BY resolutions.track_id, genres.id
 HAVING SUM(
     CASE
         WHEN resolved_genre IS NOT NULL
@@ -291,10 +294,11 @@ HAVING SUM(
 
 INSERT OR IGNORE INTO library_track_styles (
     track_id,
-    style
+    style_id
 )
 SELECT DISTINCT
-    track_id,
-    resolved_style
-FROM scan_track_genre_resolution
-WHERE resolved_style IS NOT NULL;
+    resolutions.track_id,
+    styles.id
+FROM scan_track_genre_resolution AS resolutions
+JOIN taxonomy_styles AS styles
+    ON styles.style = resolutions.resolved_style;

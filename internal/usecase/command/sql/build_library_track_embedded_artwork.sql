@@ -16,7 +16,7 @@ JOIN scan_tracks AS scanned_tracks
     ON scanned_tracks.root_pos = artwork.root_pos
     AND scanned_tracks.path = artwork.path
 JOIN library_roots AS roots
-    ON roots.pos = scanned_tracks.root_pos
+    ON roots.path = scanned_tracks.root_path
 JOIN library_tracks AS tracks
     ON tracks.root_id = roots.id
     AND tracks.path = scanned_tracks.path

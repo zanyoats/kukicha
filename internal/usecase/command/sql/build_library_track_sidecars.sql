@@ -44,7 +44,7 @@ JOIN scan_tracks AS audio
         OR substr(sidecars.path, 1, length(audio.path_dir) + 1) = audio.path_dir || '/'
     )
 JOIN library_roots AS roots
-    ON roots.pos = audio.root_pos
+    ON roots.path = audio.root_path
 JOIN library_tracks AS tracks
     ON tracks.root_id = roots.id
     AND tracks.path = audio.path

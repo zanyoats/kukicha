@@ -44,7 +44,7 @@ album_keys AS (
     GROUP BY album_key
 )
 INSERT INTO library_albums (
-    album_key,
+    id,
     format,
     album,
     track_count,
@@ -62,7 +62,7 @@ INSERT INTO library_albums (
     is_compilation
 )
 SELECT
-    album_keys.album_key,
+    ids.id,
     MAX(CASE WHEN field = 'format' THEN value END),
     MAX(CASE WHEN field = 'album' THEN value END),
     CAST(MAX(CASE WHEN field = 'track_count' THEN value END) AS INTEGER),
@@ -79,23 +79,9 @@ SELECT
     MAX(CASE WHEN field = 'purchase_date' THEN value END),
     CAST(MAX(CASE WHEN field = 'is_compilation' THEN value END) AS INTEGER)
 FROM album_keys
+JOIN library_album_ids AS ids
+    ON ids.album_key = album_keys.album_key
 LEFT JOIN ranked_album_values
     ON ranked_album_values.album_key = album_keys.album_key
     AND ranked_album_values.rank = 1
-GROUP BY album_keys.album_key
-ON CONFLICT(album_key) DO UPDATE SET
-    format = excluded.format,
-    album = excluded.album,
-    track_count = excluded.track_count,
-    disc_count = excluded.disc_count,
-    release_date = excluded.release_date,
-    original_release_date = excluded.original_release_date,
-    recorded_date = excluded.recorded_date,
-    release_year = excluded.release_year,
-    original_release_year = excluded.original_release_year,
-    release_country = excluded.release_country,
-    label = excluded.label,
-    composer = excluded.composer,
-    copyright = excluded.copyright,
-    purchase_date = excluded.purchase_date,
-    is_compilation = excluded.is_compilation;
+GROUP BY ids.id, album_keys.album_key;

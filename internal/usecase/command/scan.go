@@ -43,6 +43,9 @@ var findOrInsertMappingSQL string
 //go:embed sql/reset_library.sql
 var resetLibrarySQL string
 
+//go:embed sql/allocate_library_ids.sql
+var allocateLibraryIDsSQL string
+
 //go:embed sql/build_library_roots.sql
 var buildLibraryRootsSQL string
 
@@ -60,6 +63,9 @@ var buildLibraryTrackEmbeddedArtworkSQL string
 
 //go:embed sql/build_library_track_genres_and_styles.sql
 var buildLibraryTrackGenresAndStylesSQL string
+
+//go:embed sql/build_library_album_genres_and_styles.sql
+var buildLibraryAlbumGenresAndStylesSQL string
 
 //go:embed sql/genre_resolution_results.sql
 var genreResolutionResultsSQL string
@@ -137,6 +143,11 @@ func BuildLibraryFromScan(
 		return result, err
 	}
 
+	if err = allocateLibraryIDs(ctx, tx); err != nil {
+		_ = tx.Rollback()
+		return result, err
+	}
+
 	if err = resetLibrary(ctx, tx); err != nil {
 		_ = tx.Rollback()
 		return result, err
@@ -172,6 +183,11 @@ func BuildLibraryFromScan(
 		unknownItem,
 		secondaryGenreSplitTokens,
 	); err != nil {
+		_ = tx.Rollback()
+		return result, err
+	}
+
+	if err = buildLibraryAlbumGenresAndStyles(ctx, tx); err != nil {
 		_ = tx.Rollback()
 		return result, err
 	}
@@ -610,6 +626,14 @@ func resetLibrary(ctx context.Context, tx *sql.Tx) error {
 	return nil
 }
 
+func allocateLibraryIDs(ctx context.Context, tx *sql.Tx) error {
+	if _, err := tx.ExecContext(ctx, allocateLibraryIDsSQL); err != nil {
+		return fmt.Errorf("allocate persistent library IDs: %w", err)
+	}
+
+	return nil
+}
+
 func buildLibraryRoots(ctx context.Context, tx *sql.Tx) error {
 	if _, err := tx.ExecContext(ctx, buildLibraryRootsSQL); err != nil {
 		return fmt.Errorf("build library roots: %w", err)
@@ -709,6 +733,23 @@ func buildLibraryTrackGenresAndStyles(
 	}
 
 	return
+}
+
+func buildLibraryAlbumGenresAndStyles(
+	ctx context.Context,
+	tx *sql.Tx,
+) error {
+	if _, err := tx.ExecContext(
+		ctx,
+		buildLibraryAlbumGenresAndStylesSQL,
+	); err != nil {
+		return fmt.Errorf(
+			"build library album genres and styles: %w",
+			err,
+		)
+	}
+
+	return nil
 }
 
 func buildLibraryTrackSidecars(ctx context.Context, tx *sql.Tx) error {

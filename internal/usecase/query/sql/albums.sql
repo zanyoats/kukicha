@@ -5,19 +5,18 @@ SELECT
         artists.artist
             ORDER BY
                 artists.artist COLLATE NOCASE,
-                artists.artist_key,
                 artists.id
     ) FILTER (
         WHERE artists.id IS NOT NULL
     )
 FROM library_albums AS albums
-LEFT JOIN library_album_artists AS artists
-    ON artists.album_id = albums.id
+LEFT JOIN library_album_artists AS album_artists
+    ON album_artists.album_id = albums.id
+LEFT JOIN library_artist_ids AS artists
+    ON artists.id = album_artists.artist_id
 GROUP BY
     albums.id,
-    albums.album,
-    albums.album_key
+    albums.album
 ORDER BY
     albums.album COLLATE NOCASE,
-    albums.album_key,
     albums.id;
