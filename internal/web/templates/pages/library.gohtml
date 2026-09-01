@@ -1,13 +1,13 @@
 {{define "title"}}Library{{ end }}
 
 {{define "page-content"}}
-<article class="albums-page">
+<article class="library-page">
     <header>
         <p class="page-eyebrow">Collection</p>
         <h1>Albums</h1>
     </header>
 
-    <ul class="album-grid">
+    <ul class="item-grid">
         {{
             range.Albums
         }}
@@ -33,7 +33,7 @@
             </div>
         </li>
         {{else}}
-        <li class="album-grid-empty">No albums found.</li>
+        <li class="item-grid-empty">No albums found.</li>
         {{
             end
         }}

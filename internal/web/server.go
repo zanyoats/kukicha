@@ -77,12 +77,47 @@ func newAppRoutes(appBasePath string, renderer Renderer, db *sql.DB) http.Handle
 
 type homeViewModel struct {
 	sharedURLs
+	Artists []homeLink
+	Genres  []homeLink
+	Styles  []homeLink
+}
+
+type homeLink struct {
+	Name string
+	URL  string
 }
 
 func (c *appRoutes) showHome(w http.ResponseWriter, r *http.Request) {
+	home, err := query.Home(r.Context(), c.db)
+	if err != nil {
+		internalServerError(w, "unable to load home page library data", "error", err)
+		return
+	}
+
 	renderPage(w, c.renderer, "home.gohtml", homeViewModel{
 		sharedURLs: getSharedURLs(c.appBasePath),
+		Artists: homeLinks(home.Artists, func(id int64) string {
+			return artistURL(c.appBasePath, id)
+		}),
+		Genres: homeLinks(home.Genres, func(id int64) string {
+			return genreURL(c.appBasePath, id)
+		}),
+		Styles: homeLinks(home.Styles, func(id int64) string {
+			return styleURL(c.appBasePath, id)
+		}),
 	})
+}
+
+func homeLinks(items []query.HomeItem, itemURL func(int64) string) []homeLink {
+	links := make([]homeLink, 0, len(items))
+	for _, item := range items {
+		links = append(links, homeLink{
+			Name: item.Name,
+			URL:  itemURL(item.ID),
+		})
+	}
+
+	return links
 }
 
 type libraryViewModel struct {

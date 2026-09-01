@@ -43,6 +43,21 @@ func albumURL(appBasePath string, albumID int64) string {
 		"?album_id=" + strconv.FormatInt(albumID, 10)
 }
 
+func artistURL(appBasePath string, artistID int64) string {
+	return appBasePath + "/library/artist" +
+		"?artist_id=" + strconv.FormatInt(artistID, 10)
+}
+
+func genreURL(appBasePath string, genreID int64) string {
+	return appBasePath + "/library/genre" +
+		"?genre_id=" + strconv.FormatInt(genreID, 10)
+}
+
+func styleURL(appBasePath string, styleID int64) string {
+	return appBasePath + "/library/style" +
+		"?style_id=" + strconv.FormatInt(styleID, 10)
+}
+
 func trackAudioURL(
 	appBasePath string,
 	trackID int64,

@@ -10,6 +10,7 @@
     --text-primary: oklch(44.6% 0.03 256.802); /* grey-600 */
     --text-secondary: oklch(55.1% 0.027 264.364); /* grey-500 */
     --text-muted: oklch(70.7% 0.022 261.325); /* grey-400 */
+    --text-verymuted: oklch(87.2% 0.01 258.338); /* grey-300 */
     --border: oklch(87.2% 0.01 258.338); /* grey-300 */
     --accent: oklch(54.6% 0.245 262.881); /* blue-600 */
     --accent-hover: oklch(48.8% 0.243 264.376); /* blue-700 */
@@ -202,6 +203,9 @@ a:focus-visible {
 /*
  * Pages: Home, Library, Results
 **/
+.home-page > section + section {
+    margin-block-start: clamp(2rem, 4vw, 3.5rem);
+}
 
 .page-eyebrow {
     color: var(--accent);
@@ -209,12 +213,24 @@ a:focus-visible {
     font-weight: 700;
     letter-spacing: 0.08em;
     text-transform: uppercase;
+    padding-block-end: 0.25rem;
 }
 
 article h1 {
-    margin-block-start: 0.25rem;
     font-size: clamp(2rem, 0.125rem + 6vw, 3.5rem);
     line-height: 1.05;
+}
+
+.home-page h1,
+.library-page h1,
+.search-page h1 {
+    padding-block-end: 2rem;
+}
+
+.home-page h2 {
+    font-size: clamp(1.2rem, 0.125rem + 4vw, 2rem);
+    line-height: 1.05;
+    padding-block-end: 1rem;
 }
 
 .text-link {
@@ -227,16 +243,46 @@ article h1 {
     color: var(--accent-hover);
 }
 
-.albums-page {
-    .album-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fill, minmax(min(14rem, 100%), 1fr));
-        gap: 0.55rem;
-        padding: 0;
-        margin-block-start: 1.5rem;
-        list-style: none;
+.item-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(min(14rem, 100%), 1fr));
+    gap: 0.55rem;
+    padding: 0;
+    list-style: none;
+}
+
+.item-grid-empty {
+    color: var(--text-secondary);
+}
+
+.radio-card {
+    display: flex;
+    align-items: baseline;
+    gap: 0.35rem;
+    min-inline-size: 0;
+
+    .radio-card-name {
+        flex: 0 1 auto;
+        min-inline-size: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
     }
 
+    .radio-card-leader {
+        flex: 1 1 0.75rem;
+        min-inline-size: 0.5rem;
+        border-block-end: 0.0625rem dotted var(--text-verymuted);
+        transform: translateY(-0.2rem);
+    }
+
+    .radio-card-link {
+        flex: 0 0 auto;
+        font-size: 0.75rem;
+    }
+}
+
+.library-page {
     .album-card {
         display: flex;
         align-items: flex-start;
@@ -289,10 +335,6 @@ article h1 {
         color: var(--text-secondary);
         font-size: 0.75rem;
     }
-
-    .album-grid-empty {
-        color: var(--text-secondary);
-    }
 }
 
 /*
@@ -316,11 +358,6 @@ article h1 {
 
     .album-summary {
         min-inline-size: 0;
-
-        .album-title {
-            font-size: clamp(2rem, 5vw, 3.5rem);
-            line-height: 1.05;
-        }
 
         .album-artists {
             margin-block-start: 0.6rem;
