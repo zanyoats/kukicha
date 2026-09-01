@@ -2,6 +2,7 @@ package app
 
 import (
 	"bytes"
+	"crypto/sha256"
 	_ "embed"
 	"encoding/csv"
 	"fmt"
@@ -30,7 +31,7 @@ type TaxonomyRecord struct {
 type Catalog struct {
 	records           []TaxonomyRecord
 	allValidNormTerms map[string]bool
-	checksum          []byte // TODO check against user stored pragma
+	Checksum          []byte
 }
 
 func (c *Catalog) Records() []TaxonomyRecord {
@@ -45,6 +46,8 @@ func (c *Catalog) IsValidTerm(lookup string) bool {
 var rawData []byte
 
 func LoadTaxonomy() (*Catalog, error) {
+	checksum := sha256.Sum256(rawData)
+
 	reader := csv.NewReader(bytes.NewReader(rawData))
 	reader.Comma = '\t'
 	reader.FieldsPerRecord = 7
@@ -73,6 +76,7 @@ func LoadTaxonomy() (*Catalog, error) {
 	catalog := &Catalog{
 		records:           make([]TaxonomyRecord, 0, len(rows)-1),
 		allValidNormTerms: make(map[string]bool),
+		Checksum:          checksum[:],
 	}
 
 	for i, row := range rows {

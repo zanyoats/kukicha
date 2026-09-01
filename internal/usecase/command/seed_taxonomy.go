@@ -4,10 +4,13 @@ import (
 	"context"
 	"database/sql"
 	_ "embed"
+	"encoding/hex"
+	"errors"
 	"fmt"
 	"log/slog"
 
 	"github.com/zanyoats/kukicha/internal/app"
+	"github.com/zanyoats/kukicha/internal/usecase/query"
 )
 
 //go:embed sql/reset_taxonomy.sql
@@ -25,24 +28,29 @@ func SeedTaxonomy(
 	catalog *app.Catalog,
 	unknownItem string,
 ) error {
-	var tx *sql.Tx
-	var err error
-
-	if tx, err = conn.BeginTx(ctx, nil); err != nil {
+	tx, err := conn.BeginTx(ctx, nil)
+	if err != nil {
 		return err
 	}
+	defer tx.Rollback()
 
-	// TODO we don't want to do this every startup
+	checksum := hex.EncodeToString(catalog.Checksum)
+	storedChecksum, err := query.AppMetadata(ctx, tx, app.TaxonomyChecksum)
+	if err == nil && storedChecksum == checksum {
+		return nil
+	}
+	if err != nil && !errors.Is(err, query.ErrAppMetadataNotFound) {
+		return fmt.Errorf("query taxonomy checksum: %w", err)
+	}
+
 	_, err = tx.ExecContext(ctx, resetTaxonomySQL)
 
 	if err != nil {
-		_ = tx.Rollback()
 		return fmt.Errorf("reset taxonomy tables: %w", err)
 	}
 
 	insertTaxonomy, err := tx.PrepareContext(ctx, insertTaxonomySQL)
 	if err != nil {
-		_ = tx.Rollback()
 		return fmt.Errorf("prepare taxonomy insert: %w", err)
 	}
 	insertTaxonomyClosed := false
@@ -64,13 +72,11 @@ func SeedTaxonomy(
 			sql.Named("status", record.Status),
 			sql.Named("count", record.Count),
 		); err != nil {
-			_ = tx.Rollback()
 			return fmt.Errorf("insert taxonomy row %d: %w", rowNum+1, err)
 		}
 	}
 
 	if err = insertTaxonomy.Close(); err != nil {
-		_ = tx.Rollback()
 		return fmt.Errorf("close taxonomy insert: %w", err)
 	}
 	insertTaxonomyClosed = true
@@ -80,8 +86,16 @@ func SeedTaxonomy(
 		populateTaxonomyLookupTablesSQL,
 		sql.Named("unknown_item", unknownItem),
 	); err != nil {
-		_ = tx.Rollback()
 		return fmt.Errorf("populate taxonomy lookup tables: %w", err)
+	}
+
+	if err := SetAppMetadata(
+		ctx,
+		tx,
+		app.TaxonomyChecksum,
+		checksum,
+	); err != nil {
+		return fmt.Errorf("set taxonomy checksum: %w", err)
 	}
 
 	if err := tx.Commit(); err != nil {

@@ -19,6 +19,7 @@ const (
 	LibrarySupportedExtensionsJson
 	InstanceID
 	InstanceIdenticon
+	TaxonomyChecksum
 )
 
 type Root struct {
