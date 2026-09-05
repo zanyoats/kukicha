@@ -175,6 +175,21 @@ type albumViewModel struct {
 	Album           *query.Album
 	AlbumArtworkURL string
 	AlbumPageData   string
+	Genres          []albumCategoryLink
+	Styles          []albumCategoryLink
+}
+
+type albumCategoryLink struct {
+	Name string
+	URL  string
+}
+
+func albumCategoryLinks(items []query.AlbumCategory, itemURL func(int64) string) []albumCategoryLink {
+	links := make([]albumCategoryLink, 0, len(items))
+	for _, item := range items {
+		links = append(links, albumCategoryLink{Name: item.Name, URL: itemURL(item.ID)})
+	}
+	return links
 }
 
 type playerQueueData struct {
@@ -236,6 +251,12 @@ func (c *appRoutes) showAlbum(w http.ResponseWriter, r *http.Request) {
 		Album:           &album,
 		AlbumArtworkURL: artworkURL,
 		AlbumPageData:   string(albumPageDataJSON),
+		Genres: albumCategoryLinks(album.Genres, func(id int64) string {
+			return genreURL(c.appBasePath, id)
+		}),
+		Styles: albumCategoryLinks(album.Styles, func(id int64) string {
+			return styleURL(c.appBasePath, id)
+		}),
 	})
 }
 

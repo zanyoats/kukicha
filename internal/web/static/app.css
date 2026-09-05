@@ -344,6 +344,13 @@ article h1 {
  * Pages: Album
 **/
 
+.album-title,
+.album-artists {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
 .album-header {
     display: grid;
     grid-template-columns:
@@ -376,6 +383,8 @@ article h1 {
 
             > div {
                 display: flex;
+                align-items: first baseline;
+                min-inline-size: 0;
                 gap: 0.3rem;
             }
 
@@ -386,6 +395,14 @@ article h1 {
             dd {
                 margin: 0;
                 font-weight: 500;
+            }
+
+            .album-fact-links {
+                display: flex;
+                flex-wrap: wrap;
+                align-items: first baseline;
+                min-inline-size: 0;
+                gap: 0.3rem 0.6rem;
             }
         }
     }
@@ -532,13 +549,6 @@ article h1 {
         .album-artists {
             color: var(--text-secondary);
             font-size: 0.8rem;
-        }
-
-        .album-title,
-        .album-artists {
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
         }
     }
 

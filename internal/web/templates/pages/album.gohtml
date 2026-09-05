@@ -11,7 +11,11 @@
         />
 
         <div class="album-summary">
-            <h1 class="album-title" data-player-album-title>
+            <h1
+                class="album-title"
+                data-player-album-title
+                title="{{.Album.Title}}"
+            >
                 {{.Album.Title}}
             </h1>
 
@@ -109,6 +113,23 @@
                     <dd>{{formatDuration .Album.DurationSeconds}}</dd>
                 </div>
 
+                {{with .Genres}}
+                <div>
+                    <dt>Genres</dt>
+                    <dd class="album-fact-links">
+                        {{range .}}<a href="{{.URL}}">{{.Name}}</a>{{end}}
+                    </dd>
+                </div>
+                {{end}}
+
+                {{with .Styles}}
+                <div>
+                    <dt>Styles</dt>
+                    <dd class="album-fact-links">
+                        {{range .}}<a href="{{.URL}}">{{.Name}}</a>{{end}}
+                    </dd>
+                </div>
+                {{end}}
             </dl>
         </div>
     </header>

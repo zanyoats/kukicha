@@ -23,6 +23,18 @@ var albumArtistsSQL string
 //go:embed sql/album_tracks.sql
 var albumTracksSQL string
 
+//go:embed sql/album_genres.sql
+var albumGenresSQL string
+
+//go:embed sql/album_styles.sql
+var albumStylesSQL string
+
+// AlbumCategory is a genre or style associated with an album.
+type AlbumCategory struct {
+	ID   int64
+	Name string
+}
+
 // AlbumSummary is the read model used to render an album in a collection.
 type AlbumSummary struct {
 	ID      int64
@@ -48,6 +60,8 @@ type Album struct {
 	IsCompilation       *bool
 	DiscCount           *int
 	Artists             []string
+	Genres              []AlbumCategory
+	Styles              []AlbumCategory
 	Tracks              []AlbumTrack
 }
 
@@ -128,6 +142,16 @@ func AlbumByID(
 	}
 
 	album.Artists, err = queryAlbumArtists(ctx, tx, albumID)
+	if err != nil {
+		return Album{}, err
+	}
+
+	album.Genres, err = queryAlbumCategories(ctx, tx, albumID, albumGenresSQL, "genres")
+	if err != nil {
+		return Album{}, err
+	}
+
+	album.Styles, err = queryAlbumCategories(ctx, tx, albumID, albumStylesSQL, "styles")
 	if err != nil {
 		return Album{}, err
 	}
@@ -239,6 +263,33 @@ func queryAlbumArtists(
 	}
 
 	return artists, nil
+}
+
+func queryAlbumCategories(
+	ctx context.Context,
+	tx *sql.Tx,
+	albumID int64,
+	statement string,
+	kind string,
+) ([]AlbumCategory, error) {
+	rows, err := tx.QueryContext(ctx, statement, sql.Named("album_id", albumID))
+	if err != nil {
+		return nil, fmt.Errorf("query %s for album %d: %w", kind, albumID, err)
+	}
+	defer rows.Close()
+
+	items := make([]AlbumCategory, 0)
+	for rows.Next() {
+		var item AlbumCategory
+		if err := rows.Scan(&item.ID, &item.Name); err != nil {
+			return nil, fmt.Errorf("scan %s for album %d: %w", kind, albumID, err)
+		}
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate %s for album %d: %w", kind, albumID, err)
+	}
+	return items, nil
 }
 
 func queryAlbumTracks(
