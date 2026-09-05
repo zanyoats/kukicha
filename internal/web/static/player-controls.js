@@ -39,6 +39,7 @@ function playerControlsCompiler(up, player) {
         '[data-player-action="previous"]',
     );
     const nextButton = player.querySelector('[data-player-action="next"]');
+    const queueButton = player.querySelector('[data-player-action="queue"]');
     const muteButton = player.querySelector('[data-player-action="mute"]');
     const playIcon = player.querySelector("[data-player-play-icon]");
     const volumeIcon = player.querySelector("[data-player-volume-icon]");
@@ -55,6 +56,7 @@ function playerControlsCompiler(up, player) {
         !playButton ||
         !previousButton ||
         !nextButton ||
+        !queueButton ||
         !muteButton ||
         !playIcon ||
         !volumeIcon
@@ -134,9 +136,31 @@ function playerControlsCompiler(up, player) {
         setIcon(volumeIcon, effectiveVolume === 0 ? "volume-off" : "volume");
     };
 
+    const isQueueLayer = (layer) =>
+        layer?.element?.matches("up-drawer.player-queue-drawer");
+
+    const updateQueueButton = (expanded) => {
+        queueButton.setAttribute("aria-expanded", String(expanded));
+        queueButton.setAttribute(
+            "aria-label",
+            expanded ? "Close queue" : "Open queue",
+        );
+    };
+
     const handleClick = (event) => {
         if (!(event.target instanceof Element)) {
             return;
+        }
+
+        const queueLayer = up.layer.front;
+        if (isQueueLayer(queueLayer)) {
+            const queueControl = event.target.closest(
+                '[data-player-action="queue"]',
+            );
+            if (queueControl && player.contains(queueControl)) {
+                event.preventDefault();
+            }
+            queueLayer.dismiss(null, { origin: event.target });
         }
 
         const control = event.target.closest("[data-player-action]");
@@ -153,6 +177,8 @@ function playerControlsCompiler(up, player) {
             break;
         case "next":
             up.emit(PLAYER_NEXT);
+            break;
+        case "queue":
             break;
         case "mute":
             up.emit(PLAYER_TOGGLE_MUTE);
@@ -176,6 +202,16 @@ function playerControlsCompiler(up, player) {
         up.on(PLAYER_PLAYBACK_CHANGED, updateTransport),
         up.on(PLAYER_TIME_CHANGED, updateTimeline),
         up.on(PLAYER_VOLUME_CHANGED, updateVolume),
+        up.on("up:layer:opened", (event) => {
+            if (isQueueLayer(event.layer)) {
+                updateQueueButton(true);
+            }
+        }),
+        up.on("up:layer:dismissed", (event) => {
+            if (isQueueLayer(event.layer)) {
+                updateQueueButton(false);
+            }
+        }),
     ];
 
     up.emit(PLAYER_STATE_REQUEST);

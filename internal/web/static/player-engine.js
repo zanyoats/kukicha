@@ -11,6 +11,8 @@ import {
     PLAYER_TOGGLE_MUTE,
     PLAYER_TRACK_CHANGED,
     PLAYER_VOLUME_CHANGED,
+    PLAYER_QUEUE_CHANGED,
+    PLAYER_SELECT_TRACK,
 } from "./player-events.js";
 import {
     loadPreferredVolume,
@@ -73,7 +75,13 @@ function playerEngineCompiler(up, audio) {
             volume: audio.volume,
         });
     };
+    const emitQueue = () => {
+        up.emit(PLAYER_QUEUE_CHANGED, {
+            tracks: queue,
+        });
+    };
     const emitState = () => {
+        emitQueue();
         emitTrack();
         emitPlayback();
         emitTime();
@@ -126,6 +134,25 @@ function playerEngineCompiler(up, audio) {
         }
     };
 
+    const selectTrackInQueue = (event) => {
+        const selectedIndex = Number(event.selectedIndex);
+
+        if (
+            !Number.isInteger(selectedIndex) ||
+            selectedIndex < 0 ||
+            selectedIndex >= queue.length
+        ) {
+            return;
+        }
+
+        if (selectedIndex === currentIndex) {
+            togglePlayback();
+            return;
+        }
+
+        selectTrack(selectedIndex);
+    };
+
     const selectQueue = (event) => {
         if (
             !Array.isArray(event.tracks) ||
@@ -142,6 +169,7 @@ function playerEngineCompiler(up, audio) {
         }
 
         queue = event.tracks;
+        emitQueue();
         selectTrack(event.selectedIndex);
     };
 
@@ -202,6 +230,7 @@ function playerEngineCompiler(up, audio) {
         up.on(PLAYER_SET_VOLUME, setVolume),
         up.on(PLAYER_TOGGLE_MUTE, toggleMute),
         up.on(PLAYER_STATE_REQUEST, emitState),
+        up.on(PLAYER_SELECT_TRACK, selectTrackInQueue),
         up.on(audio, "loadedmetadata", emitTime),
         up.on(audio, "durationchange", emitTime),
         up.on(audio, "timeupdate", emitTime),

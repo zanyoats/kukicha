@@ -6,19 +6,19 @@ import {
 } from "./player-events.js";
 import { setIcon } from "./player-utils.js";
 
-export default function registerPlayerQueue(up) {
-    up.compiler("[data-player-queue]", (queue, data) =>
-        playerQueueCompiler(up, queue, data),
+export default function registerAlbumPage(up) {
+    up.compiler("[data-album-page]", (albumPage, data) =>
+        albumPageCompiler(up, albumPage, data),
     );
 }
 
-function playerQueueCompiler(up, queueElement, data) {
+function albumPageCompiler(up, albumPageElement, data) {
     const tracks = Array.isArray(data.tracks) ? data.tracks : [];
     let currentTrackID = null;
     let playing = false;
 
     const updateRows = () => {
-        for (const row of queueElement.querySelectorAll(
+        for (const row of albumPageElement.querySelectorAll(
             ".track-row[data-track-id]",
         )) {
             const active =
@@ -59,7 +59,7 @@ function playerQueueCompiler(up, queueElement, data) {
         const selectedButton = event.target.closest(
             '[data-player-action="play"][data-track-index]',
         );
-        if (!selectedButton || !queueElement.contains(selectedButton)) {
+        if (!selectedButton || !albumPageElement.contains(selectedButton)) {
             return;
         }
 
@@ -78,7 +78,7 @@ function playerQueueCompiler(up, queueElement, data) {
     };
 
     const unbind = [
-        up.on(queueElement, "click", handleClick),
+        up.on(albumPageElement, "click", handleClick),
         up.on(PLAYER_TRACK_CHANGED, (event) => {
             currentTrackID = event.trackId;
             updateRows();

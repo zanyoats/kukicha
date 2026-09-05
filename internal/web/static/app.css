@@ -18,6 +18,9 @@
     --button-border: var(--border);
     --bar: var(--border);
     --bar-progress: var(--text-secondary);
+    --player-footer-block-size: calc(
+        64px + 1.7rem + 0.0625rem
+    ); /* calculation corresponds to the 64px artwork, vertical footer padding, and border */
 
     color: var(--text-primary);
     background: var(--background);
@@ -416,10 +419,6 @@ article h1 {
 
     .track-row.is-active {
         box-shadow: inset 0.25rem 0 var(--accent);
-
-        .track-title {
-            color: var(--accent);
-        }
     }
 
     .inline-play-button {
@@ -578,14 +577,17 @@ article h1 {
                 font-size: 0.8rem;
 
                 .track-title {
+                    min-inline-size: 0;
                     overflow: hidden;
                     text-overflow: ellipsis;
                     white-space: nowrap;
                 }
 
                 .track-time {
+                    flex: none;
                     color: var(--text-secondary);
                     font-variant-numeric: tabular-nums;
+                    white-space: nowrap;
                 }
             }
 
@@ -664,10 +666,13 @@ article h1 {
     }
 
     .now-playing {
-        grid-template-columns: minmax(10rem, 1fr) minmax(28rem, 2fr);
+        grid-template-columns:
+            minmax(10rem, 1fr)
+            minmax(28rem, 2fr)
+            auto;
     }
 
-    .secondary-controls {
+    .secondary-controls > :not([data-player-action="queue"]) {
         display: none;
     }
 }
@@ -678,7 +683,7 @@ article h1 {
     }
 
     .now-playing {
-        grid-template-columns: minmax(0, 1fr);
+        grid-template-columns: minmax(0, 1fr) auto;
         gap: 0.5rem;
 
         .album-meta {
@@ -722,6 +727,11 @@ article h1 {
  * Unpoly customizations
 **/
 
+up-drawer.avatar-drawer up-drawer-box,
+up-drawer.player-queue-drawer up-drawer-box {
+    box-shadow: none;
+}
+
 up-drawer-dismiss {
     display: grid;
     place-items: center;
@@ -741,4 +751,125 @@ up-drawer-dismiss:hover {
 up-drawer-dismiss:focus-visible {
     outline: 0.125rem solid var(--accent);
     outline-offset: 0.125rem;
+}
+
+/*
+ * Player queue drawer
+**/
+
+up-drawer.player-queue-drawer {
+    pointer-events: none;
+}
+
+up-drawer.player-queue-drawer up-drawer-backdrop {
+    display: none;
+}
+
+up-drawer.player-queue-drawer up-drawer-viewport {
+    align-items: flex-end;
+    inset-block-end: var(--player-footer-block-size);
+    overflow: hidden;
+    pointer-events: auto;
+}
+
+up-drawer.player-queue-drawer up-drawer-box {
+    inline-size: min(25rem, 100%);
+    block-size: fit-content;
+    max-block-size: min(25rem, calc(100svh - var(--player-footer-block-size)));
+    min-block-size: 0;
+    padding: 0;
+    border: 0.0625rem solid var(--border);
+    border-block-end: 0;
+    background: var(--surface);
+    overflow-y: hidden;
+}
+
+up-drawer.player-queue-drawer up-drawer-content {
+    display: block;
+    block-size: auto;
+    max-block-size: inherit;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+}
+
+.now-playing [data-player-action="queue"][aria-expanded="true"] {
+    color: var(--accent);
+}
+
+.player-queue-panel [data-player-queue-empty] {
+    padding: 1rem 1.25rem;
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+}
+
+.player-queue-panel [data-player-queue-items] {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+
+    padding-inline: 0.3rem 1rem;
+    padding-block: 0.5rem;
+    list-style: none;
+}
+
+.player-queue-track {
+    display: grid;
+    grid-template-columns:
+        1rem
+        2ch
+        minmax(0, max-content)
+        1fr
+        max-content;
+    column-gap: 0.5rem;
+    align-items: start;
+    inline-size: 100%;
+    color: var(--text-secondary);
+    font: inherit;
+    font-size: 0.9rem;
+    text-align: start;
+    padding-block: 0.5rem;
+}
+
+.player-queue-track:focus-visible {
+    outline-offset: -0.125rem;
+}
+
+svg.player-queue-play-icon {
+    align-self: center;
+    justify-self: center;
+    inline-size: auto;
+    block-size: 1rem;
+}
+
+.player-queue-position {
+    justify-self: end;
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+}
+
+.player-queue-title {
+    min-inline-size: 0;
+    color: var(--text-primary);
+
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.player-queue-duration {
+    grid-column: 5;
+    justify-self: end;
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+@media (max-width: 46rem) {
+    :root {
+        --player-footer-block-size: 5.125rem;
+    }
+
+    up-drawer.player-queue-drawer up-drawer-box {
+        inline-size: 100%;
+    }
 }

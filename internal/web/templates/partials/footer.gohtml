@@ -84,7 +84,22 @@
     </section>
 
     <section class="secondary-controls" aria-label="Player options">
-        <button class="icon-button" type="button" aria-label="Playlist">
+        <button
+            class="icon-button"
+            type="button"
+            aria-label="Open queue"
+            aria-expanded="false"
+            aria-controls="player-queue-panel"
+            data-player-action="queue"
+            up-follow
+            up-class="player-queue-drawer"
+            up-dismissible="key outside"
+            up-layer="new drawer"
+            up-position="right"
+            up-animation="player-queue-from-footer"
+            up-close-animation="player-queue-to-footer"
+            up-content="#player-queue-panel-template"
+        >
             <svg class="audio-icon" aria-hidden="true">
                 <use href="#icon-playlist"></use>
             </svg>
@@ -113,4 +128,19 @@
         />
     </section>
 </footer>
+
+<template id="player-queue-panel-template">
+    <aside
+        id="player-queue-panel"
+        class="player-queue-panel"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Queue"
+        data-player-queue-panel
+    >
+        <p data-player-queue-empty>No tracks queued.</p>
+
+        <ol data-player-queue-items hidden></ol>
+    </aside>
+</template>
 {{ end }}

@@ -174,7 +174,7 @@ type albumViewModel struct {
 	sharedURLs
 	Album           *query.Album
 	AlbumArtworkURL string
-	PlayerQueueData string
+	AlbumPageData   string
 }
 
 type playerQueueData struct {
@@ -182,13 +182,14 @@ type playerQueueData struct {
 }
 
 type playerQueueTrack struct {
-	ID           string `json:"id"`
-	AudioURL     string `json:"audioURL"`
-	Title        string `json:"title"`
-	Artists      string `json:"artists"`
-	Album        string `json:"album"`
-	AlbumArtists string `json:"albumArtists"`
-	ArtworkURL   string `json:"artworkURL"`
+	ID              string `json:"id"`
+	AudioURL        string `json:"audioURL"`
+	Title           string `json:"title"`
+	Artists         string `json:"artists"`
+	Album           string `json:"album"`
+	AlbumArtists    string `json:"albumArtists"`
+	ArtworkURL      string `json:"artworkURL"`
+	DurationSeconds int64  `json:"durationSeconds"`
 }
 
 func (c *appRoutes) showAlbum(w http.ResponseWriter, r *http.Request) {
@@ -217,7 +218,7 @@ func (c *appRoutes) showAlbum(w http.ResponseWriter, r *http.Request) {
 		album.ID,
 		query.AlbumArtwork256,
 	)
-	playerQueueJSON, err := json.Marshal(
+	albumPageDataJSON, err := json.Marshal(
 		newPlayerQueueData(album, c.appBasePath, artworkURL),
 	)
 	if err != nil {
@@ -234,7 +235,7 @@ func (c *appRoutes) showAlbum(w http.ResponseWriter, r *http.Request) {
 		sharedURLs:      getSharedURLs(c.appBasePath),
 		Album:           &album,
 		AlbumArtworkURL: artworkURL,
-		PlayerQueueData: string(playerQueueJSON),
+		AlbumPageData:   string(albumPageDataJSON),
 	})
 }
 
@@ -246,13 +247,14 @@ func newPlayerQueueData(
 	tracks := make([]playerQueueTrack, 0, len(album.Tracks))
 	for _, track := range album.Tracks {
 		tracks = append(tracks, playerQueueTrack{
-			ID:           strconv.FormatInt(track.ID, 10),
-			AudioURL:     trackAudioURL(appBasePath, track.ID),
-			Title:        track.Title,
-			Artists:      strings.Join(track.Artists, " "),
-			Album:        album.Title,
-			AlbumArtists: strings.Join(album.Artists, " "), // TODO: want to encode as JSON array of strings
-			ArtworkURL:   artworkURL,
+			ID:              strconv.FormatInt(track.ID, 10),
+			AudioURL:        trackAudioURL(appBasePath, track.ID),
+			Title:           track.Title,
+			Artists:         strings.Join(track.Artists, " "),
+			Album:           album.Title,
+			AlbumArtists:    strings.Join(album.Artists, " "), // TODO: want to encode as JSON array of strings
+			ArtworkURL:      artworkURL,
+			DurationSeconds: track.DurationSeconds,
 		})
 	}
 
