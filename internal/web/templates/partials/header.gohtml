@@ -8,8 +8,21 @@
         <a href="{{.SearchURL}}" up-follow>search</a>
     </nav>
 
-    <div class="avatar">
+    <a
+        class="avatar"
+        aria-label="Open avatar panel"
+        up-layer="new drawer"
+        up-position="right"
+        up-content="#avatar-panel-template"
+    >
         <img src="{{.InstanceIdenticonURL}}" alt="Kukicha instance identicon" />
-    </div>
+    </a>
 </header>
+
+<template id="avatar-panel-template">
+    <aside class="avatar-panel" aria-label="Avatar panel">
+        <p>TODO</p>
+        <a href="#" up-dismiss>close</a>
+    </aside>
+</template>
 {{ end }}

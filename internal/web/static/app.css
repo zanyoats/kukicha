@@ -643,11 +643,6 @@ article h1 {
         cursor: pointer;
     }
 
-    /* .range-control:disabled {
-        cursor: default;
-        opacity: 0.55;
-    } */
-
     .range-control::-webkit-slider-thumb {
         inline-size: 0;
         block-size: 0;
@@ -721,4 +716,29 @@ article h1 {
     .track-buttons {
         display: none;
     }
+}
+
+/*
+ * Unpoly customizations
+**/
+
+up-drawer-dismiss {
+    display: grid;
+    place-items: center;
+    inline-size: 1.625rem;
+    block-size: 1.625rem;
+
+    color: var(--text-secondary);
+    font-family: var(--font-family);
+    font-size: 1.625rem;
+    line-height: 1;
+}
+
+up-drawer-dismiss:hover {
+    color: var(--text-primary);
+}
+
+up-drawer-dismiss:focus-visible {
+    outline: 0.125rem solid var(--accent);
+    outline-offset: 0.125rem;
 }
