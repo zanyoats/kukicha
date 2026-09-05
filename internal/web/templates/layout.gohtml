@@ -4,7 +4,7 @@
     <head>
         <meta charset="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
-        <title>{{block "title" .}}{{ end }} - Kukicha</title>
+        <title>{{block "title" .}}{{end}} - Kukicha</title>
         <link
             rel="icon"
             type="image/svg+xml"
@@ -22,11 +22,11 @@
 
         <main class="content-outer-shell" up-main>
             <section class="content-inner-shell">
-                {{block "page-content" .}}{{ end }}
+                {{block "page-content" .}}{{end}}
             </section>
         </main>
 
         {{template "footer" .}}
     </body>
 </html>
-{{ end }}
+{{end}}

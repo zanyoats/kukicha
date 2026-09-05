@@ -1,4 +1,4 @@
-{{define "title"}}Home{{ end }}
+{{define "title"}}Home{{end}}
 
 {{define "page-content"}}
 <article class="home-page">
@@ -10,9 +10,7 @@
     <section>
         <h2>Artists</h2>
         <ul class="item-grid">
-            {{
-                range.Artists
-            }}
+            {{range .Artists}}
             <li class="radio-card">
                 <a
                     class="radio-card-name"
@@ -25,18 +23,14 @@
             </li>
             {{else}}
             <li class="item-grid-empty">No artist found.</li>
-            {{
-                end
-            }}
+            {{end}}
         </ul>
     </section>
 
     <section>
         <h2>Genres</h2>
         <ul class="item-grid">
-            {{
-                range.Genres
-            }}
+            {{range .Genres}}
             <li class="radio-card">
                 <a
                     class="radio-card-name"
@@ -49,18 +43,14 @@
             </li>
             {{else}}
             <li class="item-grid-empty">No genres found.</li>
-            {{
-                end
-            }}
+            {{end}}
         </ul>
     </section>
 
     <section>
         <h2>Styles</h2>
         <ul class="item-grid">
-            {{
-                range.Styles
-            }}
+            {{range .Styles}}
             <li class="radio-card">
                 <a
                     class="radio-card-name"
@@ -73,10 +63,8 @@
             </li>
             {{else}}
             <li class="item-grid-empty">No styles found.</li>
-            {{
-                end
-            }}
+            {{end}}
         </ul>
     </section>
 </article>
-{{ end }}
+{{end}}

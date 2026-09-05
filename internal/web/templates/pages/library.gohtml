@@ -1,4 +1,4 @@
-{{define "title"}}Library{{ end }}
+{{define "title"}}Library{{end}}
 
 {{define "page-content"}}
 <article class="library-page">
@@ -8,9 +8,7 @@
     </header>
 
     <ul class="item-grid">
-        {{
-            range.Albums
-        }}
+        {{range .Albums}}
         <li class="album-card">
             <a class="album-card-artwork-link" href="{{.AlbumURL}}" up-follow>
                 <img
@@ -24,19 +22,16 @@
             <div class="album-card-details">
                 <h2 class="album-card-title" title="{{.Title}}">{{.Title}}</h2>
 
-                {{ with.Artists }}
+                {{with .Artists}}
                 <p class="album-card-artists">
-                    {{range $index, $artist := .}}{{if $index}}, {{ end
-                    }}{{ $artist }}{{ end }}
+                    {{range $index, $artist := .}}{{if $index}}, {{end}}{{$artist}}{{end}}
                 </p>
-                {{ end }}
+                {{end}}
             </div>
         </li>
         {{else}}
         <li class="item-grid-empty">No albums found.</li>
-        {{
-            end
-        }}
+        {{end}}
     </ul>
 </article>
-{{ end }}
+{{end}}
