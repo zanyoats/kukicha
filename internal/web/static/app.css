@@ -18,9 +18,7 @@
     --button-border: var(--border);
     --bar: var(--border);
     --bar-progress: var(--text-secondary);
-    --player-footer-block-size: calc(
-        64px + 1.7rem + 0.0625rem
-    ); /* calculation corresponds to the 64px artwork, vertical footer padding, and border */
+    --player-footer-block-size: 5.125rem;
 
     color: var(--text-primary);
     background: var(--background);
@@ -291,7 +289,7 @@ article h1 {
         align-items: flex-start;
         gap: 0.5rem;
         min-inline-size: 0;
-        max-block-size: 64px;
+        max-block-size: var(--artwork-height);
 
         overflow-y: auto;
         scrollbar-width: thin;
@@ -305,17 +303,12 @@ article h1 {
 
     .album-card-artwork-link {
         display: block;
-        flex: 0 0 64px;
-        inline-size: 64px;
+        flex: none;
         background: var(--background);
     }
 
     .album-card-artwork {
         display: block;
-        inline-size: 64px;
-        block-size: auto;
-        aspect-ratio: 1;
-        object-fit: cover;
     }
 
     .album-card-details {
@@ -370,7 +363,7 @@ article h1 {
 
     .album-artwork {
         display: block;
-        inline-size: min(256px, 100%); /* artwork version is 256 here */
+        max-inline-size: 100%;
         block-size: auto;
     }
 
@@ -539,14 +532,15 @@ article h1 {
         }
 
         .artwork-shell {
-            block-size: 64px;
             flex: none;
+            inline-size: var(--player-artwork-size);
+            block-size: var(--player-artwork-size);
 
-            img {
+            img:not([hidden]) {
                 display: block;
+                inline-size: 100%;
                 block-size: 100%;
-                inline-size: auto;
-                object-fit: cover;
+                object-fit: contain;
             }
         }
 
@@ -717,10 +711,6 @@ article h1 {
 @media (max-width: 34rem) {
     .album-header {
         grid-template-columns: 1fr;
-    }
-
-    .album-artwork {
-        inline-size: min(100%, 16rem);
     }
 
     .track-row {

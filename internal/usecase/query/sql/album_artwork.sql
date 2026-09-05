@@ -1,3 +1,4 @@
+-- Keep artwork selection aligned with album_artwork_dimensions.sql.
 SELECT
     thumbnail.artwork_content_type,
     thumbnail.artwork_bytes

@@ -14,6 +14,7 @@ type sharedURLs struct {
 	StylesheetURL        string
 	AppJavaScriptURL     string
 	InstanceIdenticonURL string
+	PlayerArtworkSize    query.AlbumArtworkSize
 }
 
 func getSharedURLs(appBasePath string) sharedURLs {
@@ -25,6 +26,7 @@ func getSharedURLs(appBasePath string) sharedURLs {
 		StylesheetURL:        appBasePath + "/assets/app.css",
 		AppJavaScriptURL:     appBasePath + "/assets/app.js",
 		InstanceIdenticonURL: appBasePath + "/instance/identicon.svg",
+		PlayerArtworkSize:    query.AlbumArtwork64,
 	}
 }
 

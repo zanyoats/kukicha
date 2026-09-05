@@ -5,8 +5,10 @@
     <header class="album-header">
         <img
             class="album-artwork"
-            src="{{.AlbumArtworkURL}}"
+            src="{{.LargeArtwork.URL}}"
             alt="Artwork for {{.Album.Title}}"
+            width="{{.LargeArtwork.Width}}"
+            height="{{.LargeArtwork.Height}}"
             data-player-album-artwork
         />
 

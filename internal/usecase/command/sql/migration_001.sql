@@ -145,6 +145,7 @@ CREATE TABLE thumbnail_cache (
     id                   INTEGER PRIMARY KEY AUTOINCREMENT,
     name                 TEXT    NOT NULL                 ,
     width_px             INTEGER NOT NULL                 ,
+    height_px            INTEGER NOT NULL                 ,
     artwork_content_type TEXT    NOT NULL                 ,
     artwork_content_size INTEGER NOT NULL                 ,
     artwork_bytes        BLOB    NOT NULL                 ,
@@ -152,6 +153,7 @@ CREATE TABLE thumbnail_cache (
     UNIQUE (name, width_px)                               ,
     CHECK (length(name) = 64)                             ,
     CHECK (width_px > 0)                                  ,
+    CHECK (height_px > 0)                                 ,
     CHECK (
             artwork_content_size > 0
         AND length(artwork_bytes) = artwork_content_size

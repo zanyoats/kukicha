@@ -32,6 +32,7 @@ var errInvalidArtwork = errors.New("invalid artwork")
 
 type thumbnailVariant struct {
 	width       int
+	height      int
 	contentType string
 	bytes       []byte
 }
@@ -73,8 +74,9 @@ func cacheArtworkThumbnails(
 			continue
 		}
 
+		thumbnail := resizeToWidth(decoded, width)
 		artworkBytes, contentType, err := encodeThumbnail(
-			resizeToWidth(decoded, width),
+			thumbnail,
 			sourceFormat,
 		)
 		if err != nil {
@@ -87,6 +89,7 @@ func cacheArtworkThumbnails(
 
 		variants = append(variants, thumbnailVariant{
 			width:       width,
+			height:      thumbnail.Bounds().Dy(),
 			contentType: contentType,
 			bytes:       artworkBytes,
 		})
@@ -103,6 +106,7 @@ func cacheArtworkThumbnails(
 			insertThumbnailCacheSQL,
 			sql.Named("name", name),
 			sql.Named("width_px", variant.width),
+			sql.Named("height_px", variant.height),
 			sql.Named("artwork_content_type", variant.contentType),
 			sql.Named("artwork_content_size", len(variant.bytes)),
 			sql.Named("artwork_bytes", variant.bytes),

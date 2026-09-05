@@ -9,12 +9,14 @@
 
     <ul class="item-grid">
         {{range .Albums}}
-        <li class="album-card">
+        <li class="album-card" style="--artwork-height: {{.SmallArtwork.Height}}px;">
             <a class="album-card-artwork-link" href="{{.AlbumURL}}" up-follow>
                 <img
                     class="album-card-artwork"
-                    src="{{.ArtworkURL}}"
+                    src="{{.SmallArtwork.URL}}"
                     alt="Artwork for {{.Title}}"
+                    width="{{.SmallArtwork.Width}}"
+                    height="{{.SmallArtwork.Height}}"
                     loading="lazy"
                 />
             </a>

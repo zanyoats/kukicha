@@ -126,10 +126,11 @@ type libraryViewModel struct {
 }
 
 type albumCard struct {
-	Title      string
-	Artists    []albumCategoryLink
-	ArtworkURL string
-	AlbumURL   string
+	Title        string
+	Artists      []albumCategoryLink
+	SmallArtwork artworkViewModel
+	LargeArtwork artworkViewModel
+	AlbumURL     string
 }
 
 func (c *appRoutes) showLibrary(w http.ResponseWriter, r *http.Request) {
@@ -143,14 +144,11 @@ func (c *appRoutes) showLibrary(w http.ResponseWriter, r *http.Request) {
 
 	for _, album := range albums {
 		albumCards = append(albumCards, albumCard{
-			Title:   album.Title,
-			Artists: albumArtistLinks(album.Artists, c.appBasePath),
-			ArtworkURL: albumArtworkURL(
-				c.appBasePath,
-				album.ID,
-				query.AlbumArtwork64,
-			),
-			AlbumURL: albumURL(c.appBasePath, album.ID),
+			Title:        album.Title,
+			Artists:      albumArtistLinks(album.Artists, c.appBasePath),
+			SmallArtwork: newArtworkViewModel(c.appBasePath, album.ID, query.AlbumArtwork64, album.SmallArtwork),
+			LargeArtwork: newArtworkViewModel(c.appBasePath, album.ID, query.AlbumArtwork256, album.LargeArtwork),
+			AlbumURL:     albumURL(c.appBasePath, album.ID),
 		})
 	}
 
@@ -170,13 +168,28 @@ func (c *appRoutes) showSearch(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+type artworkViewModel struct {
+	URL    string
+	Width  int
+	Height int
+}
+
+func newArtworkViewModel(appBasePath string, albumID int64, size query.AlbumArtworkSize, dimensions query.ArtworkDimensions) artworkViewModel {
+	return artworkViewModel{
+		URL:    albumArtworkURL(appBasePath, albumID, size),
+		Width:  dimensions.Width,
+		Height: dimensions.Height,
+	}
+}
+
 type albumViewModel struct {
 	sharedURLs
-	Album           *query.Album
-	AlbumArtworkURL string
-	AlbumPageData   string
-	Genres          []albumCategoryLink
-	Styles          []albumCategoryLink
+	Album         *query.Album
+	SmallArtwork  artworkViewModel
+	LargeArtwork  artworkViewModel
+	AlbumPageData string
+	Genres        []albumCategoryLink
+	Styles        []albumCategoryLink
 }
 
 func albumArtistLinks(artists []query.AlbumArtist, appBasePath string) []albumCategoryLink {
@@ -213,6 +226,8 @@ type playerAlbumPageTrack struct {
 	AlbumURL        string   `json:"albumURL"`
 	AlbumArtists    []string `json:"albumArtists"`
 	ArtworkURL      string   `json:"artworkURL"`
+	ArtworkWidth    int      `json:"artworkWidth"`
+	ArtworkHeight   int      `json:"artworkHeight"`
 	DurationSeconds int64    `json:"durationSeconds"`
 }
 
@@ -237,13 +252,10 @@ func (c *appRoutes) showAlbum(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	artworkURL := albumArtworkURL(
-		c.appBasePath,
-		album.ID,
-		query.AlbumArtwork256,
-	)
+	smallArtwork := newArtworkViewModel(c.appBasePath, album.ID, query.AlbumArtwork64, album.SmallArtwork)
+	largeArtwork := newArtworkViewModel(c.appBasePath, album.ID, query.AlbumArtwork256, album.LargeArtwork)
 	albumPageDataJSON, err := json.Marshal(
-		newAlbumPageData(album, c.appBasePath, artworkURL),
+		newAlbumPageData(album, c.appBasePath, smallArtwork),
 	)
 	if err != nil {
 		internalServerError(
@@ -256,10 +268,11 @@ func (c *appRoutes) showAlbum(w http.ResponseWriter, r *http.Request) {
 	}
 
 	renderPage(w, c.renderer, "album.gohtml", albumViewModel{
-		sharedURLs:      getSharedURLs(c.appBasePath),
-		Album:           &album,
-		AlbumArtworkURL: artworkURL,
-		AlbumPageData:   string(albumPageDataJSON),
+		sharedURLs:    getSharedURLs(c.appBasePath),
+		Album:         &album,
+		SmallArtwork:  smallArtwork,
+		LargeArtwork:  largeArtwork,
+		AlbumPageData: string(albumPageDataJSON),
 		Genres: albumCategoryLinks(album.Genres, func(id int64) string {
 			return genreURL(c.appBasePath, id)
 		}),
@@ -272,7 +285,7 @@ func (c *appRoutes) showAlbum(w http.ResponseWriter, r *http.Request) {
 func newAlbumPageData(
 	album query.Album,
 	appBasePath string,
-	artworkURL string,
+	artwork artworkViewModel,
 ) playerAlbumPageData {
 	artistNames := make([]string, 0, len(album.Artists))
 	for _, artist := range album.Artists {
@@ -288,7 +301,9 @@ func newAlbumPageData(
 			Album:           album.Title,
 			AlbumURL:        albumURL(appBasePath, album.ID),
 			AlbumArtists:    artistNames,
-			ArtworkURL:      artworkURL,
+			ArtworkURL:      artwork.URL,
+			ArtworkWidth:    artwork.Width,
+			ArtworkHeight:   artwork.Height,
 			DurationSeconds: track.DurationSeconds,
 		})
 	}

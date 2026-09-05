@@ -16,6 +16,9 @@ var albumExistsSQL string
 //go:embed sql/album_artwork.sql
 var albumArtworkSQL string
 
+//go:embed sql/album_artwork_dimensions.sql
+var albumArtworkDimensionsSQL string
+
 type AlbumArtworkSize string
 
 const (
@@ -128,4 +131,33 @@ func albumArtworkWidth(size AlbumArtworkSize) (int, error) {
 			size,
 		)
 	}
+}
+
+// ArtworkDimensions describes a cached thumbnail or its square fallback.
+type ArtworkDimensions struct {
+	Width  int
+	Height int
+}
+
+func queryAlbumArtworkDimensions(
+	ctx context.Context,
+	tx *sql.Tx,
+	albumID int64,
+	size AlbumArtworkSize,
+) (ArtworkDimensions, error) {
+	width, err := albumArtworkWidth(size)
+	if err != nil {
+		return ArtworkDimensions{}, err
+	}
+	dimensions := ArtworkDimensions{Width: width, Height: width}
+	err = tx.QueryRowContext(
+		ctx,
+		albumArtworkDimensionsSQL,
+		sql.Named("album_id", albumID),
+		sql.Named("width", width),
+	).Scan(&dimensions.Width, &dimensions.Height)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return ArtworkDimensions{}, fmt.Errorf("query artwork dimensions for album %d at width %d: %w", albumID, width, err)
+	}
+	return dimensions, nil
 }

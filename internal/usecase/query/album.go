@@ -43,9 +43,11 @@ type AlbumArtist struct {
 
 // AlbumSummary is the read model used to render an album in a collection.
 type AlbumSummary struct {
-	ID      int64
-	Title   string
-	Artists []AlbumArtist
+	ID           int64
+	Title        string
+	Artists      []AlbumArtist
+	SmallArtwork ArtworkDimensions
+	LargeArtwork ArtworkDimensions
 }
 
 // Album is the read model used to render an album and its ordered tracks.
@@ -69,6 +71,8 @@ type Album struct {
 	Genres              []AlbumCategory
 	Styles              []AlbumCategory
 	Tracks              []AlbumTrack
+	SmallArtwork        ArtworkDimensions
+	LargeArtwork        ArtworkDimensions
 }
 
 // AlbumTrack is a track in an album read model.
@@ -86,7 +90,18 @@ func Albums(
 	ctx context.Context,
 	db *sql.DB,
 ) ([]AlbumSummary, error) {
-	rows, err := db.QueryContext(ctx, albumsSQL)
+	smallWidth, err := albumArtworkWidth(AlbumArtwork64)
+	if err != nil {
+		return nil, err
+	}
+	largeWidth, err := albumArtworkWidth(AlbumArtwork256)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := db.QueryContext(ctx, albumsSQL,
+		sql.Named("artwork_width_small", smallWidth),
+		sql.Named("artwork_width_large", largeWidth),
+	)
 	if err != nil {
 		return nil, fmt.Errorf("query albums: %w", err)
 	}
@@ -103,6 +118,10 @@ func Albums(
 		if err := rows.Scan(
 			&album.ID,
 			&album.Title,
+			&album.SmallArtwork.Width,
+			&album.SmallArtwork.Height,
+			&album.LargeArtwork.Width,
+			&album.LargeArtwork.Height,
 			&artistsJSON,
 		); err != nil {
 			return nil, fmt.Errorf("scan album summary: %w", err)
@@ -143,6 +162,15 @@ func AlbumByID(
 	defer tx.Rollback()
 
 	album, err := queryAlbum(ctx, tx, albumID)
+	if err != nil {
+		return Album{}, err
+	}
+
+	album.SmallArtwork, err = queryAlbumArtworkDimensions(ctx, tx, albumID, AlbumArtwork64)
+	if err != nil {
+		return Album{}, err
+	}
+	album.LargeArtwork, err = queryAlbumArtworkDimensions(ctx, tx, albumID, AlbumArtwork256)
 	if err != nil {
 		return Album{}, err
 	}

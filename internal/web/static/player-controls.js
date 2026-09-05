@@ -83,6 +83,8 @@ function playerControlsCompiler(up, player) {
             artistsElement.removeAttribute("title");
             artistsElement.hidden = true;
             artworkElement.removeAttribute("src");
+            artworkElement.removeAttribute("width");
+            artworkElement.removeAttribute("height");
             artworkElement.alt = "";
             artworkElement.hidden = true;
             return;
@@ -97,11 +99,20 @@ function playerControlsCompiler(up, player) {
         artistsElement.hidden = track.artists === "";
 
         if (track.artworkURL) {
+            if (track.artworkWidth > 0 && track.artworkHeight > 0) {
+                artworkElement.width = track.artworkWidth;
+                artworkElement.height = track.artworkHeight;
+            } else {
+                artworkElement.removeAttribute("width");
+                artworkElement.removeAttribute("height");
+            }
             artworkElement.src = track.artworkURL;
             artworkElement.alt = `Artwork for ${track.album}`;
             artworkElement.hidden = false;
         } else {
             artworkElement.removeAttribute("src");
+            artworkElement.removeAttribute("width");
+            artworkElement.removeAttribute("height");
             artworkElement.alt = "";
             artworkElement.hidden = true;
         }
@@ -221,6 +232,18 @@ function playerControlsCompiler(up, player) {
             }
         }),
     ];
+
+    const footerSizeObserver = new ResizeObserver(() => {
+        document.documentElement.style.setProperty(
+            "--player-footer-block-size",
+            `${player.getBoundingClientRect().height}px`,
+        );
+    });
+    footerSizeObserver.observe(player);
+    unbind.push(() => {
+        footerSizeObserver.disconnect();
+        document.documentElement.style.removeProperty("--player-footer-block-size");
+    });
 
     up.emit(PLAYER_STATE_REQUEST);
 
