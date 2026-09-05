@@ -1,0 +1,2 @@
+# Preserve Go template syntax, including spaces before function arguments.
+**/*.gohtml
