@@ -35,6 +35,7 @@ type Album struct {
 	ID                  int64
 	Title               string
 	Format              string
+	DurationSeconds     int64
 	ReleaseDate         *string
 	ReleaseYear         *int
 	OriginalReleaseDate *string
@@ -53,11 +54,12 @@ type Album struct {
 
 // AlbumTrack is a track in an album read model.
 type AlbumTrack struct {
-	ID          int64
-	Title       string
-	Artists     []string
-	DiscNumber  *int
-	TrackNumber *int
+	ID              int64
+	Title           string
+	Artists         []string
+	DurationSeconds int64
+	DiscNumber      *int
+	TrackNumber     *int
 }
 
 // Albums loads all albums and their artists in display order.
@@ -134,6 +136,9 @@ func AlbumByID(
 	album.Tracks, err = queryAlbumTracks(ctx, tx, albumID)
 	if err != nil {
 		return Album{}, err
+	}
+	for _, track := range album.Tracks {
+		album.DurationSeconds += track.DurationSeconds
 	}
 
 	if err := tx.Commit(); err != nil {
@@ -269,6 +274,7 @@ func queryAlbumTracks(
 			&track.ID,
 			&track.Title,
 			&artistsJSON,
+			&track.DurationSeconds,
 			&track.DiscNumber,
 			&track.TrackNumber,
 		); err != nil {

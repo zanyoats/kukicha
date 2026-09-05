@@ -27,7 +27,8 @@ func NewPageRenderer() (Renderer, error) {
 	base, err := template.
 		New("site").
 		Funcs(template.FuncMap{
-			"yesNo": yesNo,
+			"formatDuration": formatDuration,
+			"yesNo":          yesNo,
 		}).
 		ParseFS(
 			templates,

@@ -110,7 +110,7 @@
 
                 <div>
                     <dt>Duration</dt>
-                    <dd>38 minutes</dd>
+                    <dd>{{formatDuration .Album.DurationSeconds}}</dd>
                 </div>
             </dl>
         </div>
@@ -156,8 +156,8 @@
             <span
                 class="track-duration"
                 data-track-duration
-                aria-label="Duration 2 minutes 46 seconds"
-                >2:46</span
+                aria-label="Duration {{formatDuration .DurationSeconds}}"
+                >{{formatDuration .DurationSeconds}}</span
             >
 
             <button

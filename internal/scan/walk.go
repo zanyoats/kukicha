@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/zanyoats/kukicha/internal/app"
+	"github.com/zanyoats/kukicha/internal/scan/duration"
 	"github.com/zanyoats/kukicha/internal/textkey"
 )
 
@@ -246,6 +247,11 @@ func scanTrackMetadata(
 		scannedFile.Metadata.Format = formatMP4
 		applyMP4TrackFields(scannedFile, items)
 		applyEmbeddedArtwork(&scannedFile.Artwork, mp4Artwork(items))
+		durationSeconds, err := duration.ReadMP4(f)
+		if err != nil {
+			return fmt.Errorf("read MP4 duration: %w", err)
+		}
+		scannedFile.DurationSeconds = durationSeconds
 
 	case ".flac", ".oga", ".ogg", ".opus":
 		metadata, err := readVorbisMetadata(f)
@@ -255,6 +261,11 @@ func scanTrackMetadata(
 		scannedFile.Metadata.Format = formatVorbis
 		applyVorbisTrackFields(scannedFile, metadata.Comments)
 		applyEmbeddedArtwork(&scannedFile.Artwork, metadata.Artwork)
+		durationSeconds, err := duration.ReadVorbis(f)
+		if err != nil {
+			return fmt.Errorf("read Vorbis duration: %w", err)
+		}
+		scannedFile.DurationSeconds = durationSeconds
 
 	case ".mp3":
 		metadata, err := readID3Metadata(f)
@@ -262,18 +273,22 @@ func scanTrackMetadata(
 			scannedFile.Metadata.Format = metadata.Format
 			applyID3TrackFields(scannedFile, metadata.Format, metadata.TextFrames)
 			applyEmbeddedArtwork(&scannedFile.Artwork, metadata.Artwork)
-			return nil
-		}
-		if !errors.Is(err, errNoID3v2) {
+		} else if !errors.Is(err, errNoID3v2) {
 			return fmt.Errorf("read ID3v2 metadata: %w", err)
+		} else {
+			id3v1, err := readID3v1Metadata(f)
+			if err != nil {
+				return fmt.Errorf("read ID3 metadata: %w", err)
+			}
+			scannedFile.Metadata.Format = formatID3v1
+			applyID3v1TrackFields(scannedFile, id3v1)
 		}
 
-		id3v1, err := readID3v1Metadata(f)
+		durationSeconds, err := duration.ReadMP3(f)
 		if err != nil {
-			return fmt.Errorf("read ID3 metadata: %w", err)
+			return fmt.Errorf("read MP3 duration: %w", err)
 		}
-		scannedFile.Metadata.Format = formatID3v1
-		applyID3v1TrackFields(scannedFile, id3v1)
+		scannedFile.DurationSeconds = durationSeconds
 
 	default:
 		panic(fmt.Sprintf("bug: extension %q is a recognizable audio file but not handled by scanner", filepath.Ext(path)))

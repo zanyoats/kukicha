@@ -98,6 +98,7 @@ type EmbeddedArtwork struct {
 type ScannedFile struct {
 	FileIdentity
 	FileSnapshot
+	DurationSeconds    int64
 	Metadata           *TrackMetadata
 	NormalizedMetadata *NormalizedTrackMetadata
 	Artwork            []EmbeddedArtwork

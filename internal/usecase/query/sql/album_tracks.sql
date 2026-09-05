@@ -2,6 +2,7 @@ SELECT
     id,
     title,
     artists,
+    duration_seconds,
     disc_number,
     track_number
 FROM library_tracks

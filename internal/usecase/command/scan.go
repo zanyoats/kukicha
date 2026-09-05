@@ -295,6 +295,7 @@ func insertScannedTrack(
 		sql.Named("path", r.Path),
 		sql.Named("file_size", r.FileSize),
 		sql.Named("file_mtime_unix_nano", r.FileModTime.UnixNano()),
+		sql.Named("duration_seconds", r.DurationSeconds),
 		sql.Named("track_metadata", metadata),
 		sql.Named("normalized_metadata", normalizedMetadata),
 		sql.Named("scan_error", r.ScanError),

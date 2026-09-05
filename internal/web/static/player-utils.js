@@ -1,4 +1,5 @@
 export function formatTime(value) {
+    // Keep this output in sync with formatDuration in internal/web/funcs.go.
     if (!Number.isFinite(value) || value < 0) {
         return "0:00";
     }

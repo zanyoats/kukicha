@@ -10,13 +10,15 @@ CREATE TEMP TABLE scan_tracks (
     path                 TEXT    NOT NULL                 ,
     file_size            INTEGER NOT NULL                 ,
     file_mtime_unix_nano INTEGER NOT NULL                 ,
+    duration_seconds     INTEGER NOT NULL                 ,
     track_metadata       TEXT    NOT NULL                 , -- JSON object
     normalized_metadata  TEXT    NOT NULL                 , -- JSON object
     scan_error           TEXT    NOT NULL                 ,
 
     PRIMARY KEY (root_pos, path)                          ,
     CHECK (
-            json_valid(track_metadata)
+            duration_seconds >= 0
+        AND json_valid(track_metadata)
         AND json_valid(normalized_metadata)
         AND length(album_key) > 0
     )

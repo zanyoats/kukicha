@@ -8,6 +8,7 @@ INSERT INTO scan_tracks (
     path,
     file_size,
     file_mtime_unix_nano,
+    duration_seconds,
     track_metadata,
     normalized_metadata,
     scan_error
@@ -22,6 +23,7 @@ VALUES (
     :path,
     :file_size,
     :file_mtime_unix_nano,
+    :duration_seconds,
     json(:track_metadata),
     json(:normalized_metadata),
     :scan_error

@@ -242,6 +242,7 @@ CREATE TABLE library_tracks (
     path                 TEXT    NOT NULL                 ,
     file_size            INTEGER NOT NULL                 ,
     file_mtime_unix_nano INTEGER NOT NULL                 ,
+    duration_seconds     INTEGER NOT NULL                 ,
     track_metadata       TEXT    NOT NULL                 ,
     scan_error           TEXT    NOT NULL                 ,
     title                TEXT    NOT NULL                 ,
@@ -257,7 +258,8 @@ CREATE TABLE library_tracks (
 
     UNIQUE (root_id, path)                                ,
     CHECK (
-            json_valid(artists)
+            duration_seconds >= 0
+        AND json_valid(artists)
         AND json_type(artists) = 'array'
     )                                                     ,
     FOREIGN KEY (root_id)
