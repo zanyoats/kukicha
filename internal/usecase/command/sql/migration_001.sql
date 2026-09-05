@@ -84,7 +84,6 @@ CREATE TABLE library_albums (
     id                    INTEGER PRIMARY KEY              ,
     album                 TEXT    NOT NULL                 ,
     format                TEXT    NOT NULL                 ,
-    track_count           INTEGER                          ,
     disc_count            INTEGER                          ,
     release_date          TEXT                             ,
     original_release_date TEXT                             ,

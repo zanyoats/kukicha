@@ -47,7 +47,6 @@ type Album struct {
 	PurchaseDate        *string
 	IsCompilation       *bool
 	DiscCount           *int
-	TrackCount          *int
 	Artists             []string
 	Tracks              []AlbumTrack
 }
@@ -177,7 +176,6 @@ func queryAlbum(
 		&album.PurchaseDate,
 		&album.IsCompilation,
 		&album.DiscCount,
-		&album.TrackCount,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Album{}, fmt.Errorf(

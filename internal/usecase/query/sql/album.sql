@@ -12,7 +12,6 @@ SELECT
     copyright,
     purchase_date,
     is_compilation,
-    disc_count,
-    track_count
+    disc_count
 FROM library_albums
 WHERE id = :album_id;

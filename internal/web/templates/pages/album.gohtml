@@ -101,12 +101,10 @@
                 </div>
                 {{ end }}
 
-                {{ with.Album.TrackCount }}
                 <div>
                     <dt>Tracks</dt>
-                    <dd>{{.}}</dd>
+                    <dd>{{len .Album.Tracks}}</dd>
                 </div>
-                {{ end }}
 
                 <div>
                     <dt>Duration</dt>

@@ -11,7 +11,6 @@ audio_tracks AS (
 album_values AS (
     SELECT album_key, root_pos, path, 'format' AS field, NULLIF(json_extract(track_metadata, '$.format'), '') AS value FROM audio_tracks
     UNION ALL SELECT album_key, root_pos, path, 'album', NULLIF(json_extract(normalized_metadata, '$.album_display'), '') FROM audio_tracks
-    UNION ALL SELECT album_key, root_pos, path, 'track_count', NULLIF(json_extract(track_metadata, '$.track_count'), 0) FROM audio_tracks
     UNION ALL SELECT album_key, root_pos, path, 'disc_count', NULLIF(json_extract(track_metadata, '$.disc_count'), 0) FROM audio_tracks
     UNION ALL SELECT album_key, root_pos, path, 'release_date', NULLIF(json_extract(track_metadata, '$.release_date'), '') FROM audio_tracks
     UNION ALL SELECT album_key, root_pos, path, 'original_release_date', NULLIF(json_extract(track_metadata, '$.original_release_date'), '') FROM audio_tracks
@@ -47,7 +46,6 @@ INSERT INTO library_albums (
     id,
     format,
     album,
-    track_count,
     disc_count,
     release_date,
     original_release_date,
@@ -65,7 +63,6 @@ SELECT
     ids.id,
     MAX(CASE WHEN field = 'format' THEN value END),
     MAX(CASE WHEN field = 'album' THEN value END),
-    CAST(MAX(CASE WHEN field = 'track_count' THEN value END) AS INTEGER),
     CAST(MAX(CASE WHEN field = 'disc_count' THEN value END) AS INTEGER),
     MAX(CASE WHEN field = 'release_date' THEN value END),
     MAX(CASE WHEN field = 'original_release_date' THEN value END),
