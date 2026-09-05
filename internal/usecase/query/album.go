@@ -35,11 +35,17 @@ type AlbumCategory struct {
 	Name string
 }
 
+// AlbumArtist identifies an artist associated with an album.
+type AlbumArtist struct {
+	ID   int64  `json:"id"`
+	Name string `json:"name"`
+}
+
 // AlbumSummary is the read model used to render an album in a collection.
 type AlbumSummary struct {
 	ID      int64
 	Title   string
-	Artists []string
+	Artists []AlbumArtist
 }
 
 // Album is the read model used to render an album and its ordered tracks.
@@ -59,7 +65,7 @@ type Album struct {
 	PurchaseDate        *string
 	IsCompilation       *bool
 	DiscCount           *int
-	Artists             []string
+	Artists             []AlbumArtist
 	Genres              []AlbumCategory
 	Styles              []AlbumCategory
 	Tracks              []AlbumTrack
@@ -177,7 +183,7 @@ func queryAlbum(
 	albumID int64,
 ) (Album, error) {
 	album := Album{
-		Artists: make([]string, 0),
+		Artists: make([]AlbumArtist, 0),
 		Tracks:  make([]AlbumTrack, 0),
 	}
 
@@ -223,7 +229,7 @@ func queryAlbumArtists(
 	ctx context.Context,
 	tx *sql.Tx,
 	albumID int64,
-) ([]string, error) {
+) ([]AlbumArtist, error) {
 	rows, err := tx.QueryContext(
 		ctx,
 		albumArtistsSQL,
@@ -238,12 +244,12 @@ func queryAlbumArtists(
 	}
 	defer rows.Close()
 
-	artists := make([]string, 0)
+	artists := make([]AlbumArtist, 0)
 
 	for rows.Next() {
-		var artist string
+		var artist AlbumArtist
 
-		if err := rows.Scan(&artist); err != nil {
+		if err := rows.Scan(&artist.ID, &artist.Name); err != nil {
 			return nil, fmt.Errorf(
 				"scan artist for album %d: %w",
 				albumID,

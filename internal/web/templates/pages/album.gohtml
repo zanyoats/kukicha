@@ -21,7 +21,7 @@
 
             {{with .Album.Artists}}
             <p class="album-artists" data-player-album-artists-source>
-                {{range $index, $artist := .}}{{if $index}}, {{end}}{{$artist}}{{end}}
+                {{range $index, $artist := .}}{{if $index}}, {{end}}{{$artist.Name}}{{end}}
             </p>
             {{end}}
 

@@ -331,12 +331,20 @@ article h1 {
     .album-card-title {
         font-size: 0.8rem;
         font-weight: 600;
+
+        a {
+            font-size: inherit;
+        }
     }
 
     .album-card-artists {
         margin-block-start: 0.25rem;
         color: var(--text-secondary);
         font-size: 0.75rem;
+
+        a {
+            font-size: inherit;
+        }
     }
 }
 
@@ -543,10 +551,14 @@ article h1 {
         }
 
         .album-title {
+            display: block;
             font-size: 1rem;
         }
 
-        .album-artists {
+        .track-artists {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
             color: var(--text-secondary);
             font-size: 0.8rem;
         }

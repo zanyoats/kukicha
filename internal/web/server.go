@@ -127,7 +127,7 @@ type libraryViewModel struct {
 
 type albumCard struct {
 	Title      string
-	Artists    []string
+	Artists    []albumCategoryLink
 	ArtworkURL string
 	AlbumURL   string
 }
@@ -144,7 +144,7 @@ func (c *appRoutes) showLibrary(w http.ResponseWriter, r *http.Request) {
 	for _, album := range albums {
 		albumCards = append(albumCards, albumCard{
 			Title:   album.Title,
-			Artists: album.Artists,
+			Artists: albumArtistLinks(album.Artists, c.appBasePath),
 			ArtworkURL: albumArtworkURL(
 				c.appBasePath,
 				album.ID,
@@ -179,6 +179,14 @@ type albumViewModel struct {
 	Styles          []albumCategoryLink
 }
 
+func albumArtistLinks(artists []query.AlbumArtist, appBasePath string) []albumCategoryLink {
+	links := make([]albumCategoryLink, 0, len(artists))
+	for _, artist := range artists {
+		links = append(links, albumCategoryLink{Name: artist.Name, URL: artistURL(appBasePath, artist.ID)})
+	}
+	return links
+}
+
 type albumCategoryLink struct {
 	Name string
 	URL  string
@@ -192,19 +200,20 @@ func albumCategoryLinks(items []query.AlbumCategory, itemURL func(int64) string)
 	return links
 }
 
-type playerQueueData struct {
-	Tracks []playerQueueTrack `json:"tracks"`
+type playerAlbumPageData struct {
+	Tracks []playerAlbumPageTrack `json:"tracks"`
 }
 
-type playerQueueTrack struct {
-	ID              string `json:"id"`
-	AudioURL        string `json:"audioURL"`
-	Title           string `json:"title"`
-	Artists         string `json:"artists"`
-	Album           string `json:"album"`
-	AlbumArtists    string `json:"albumArtists"`
-	ArtworkURL      string `json:"artworkURL"`
-	DurationSeconds int64  `json:"durationSeconds"`
+type playerAlbumPageTrack struct {
+	ID              string   `json:"id"`
+	AudioURL        string   `json:"audioURL"`
+	Title           string   `json:"title"`
+	Artists         string   `json:"artists"`
+	Album           string   `json:"album"`
+	AlbumURL        string   `json:"albumURL"`
+	AlbumArtists    []string `json:"albumArtists"`
+	ArtworkURL      string   `json:"artworkURL"`
+	DurationSeconds int64    `json:"durationSeconds"`
 }
 
 func (c *appRoutes) showAlbum(w http.ResponseWriter, r *http.Request) {
@@ -234,7 +243,7 @@ func (c *appRoutes) showAlbum(w http.ResponseWriter, r *http.Request) {
 		query.AlbumArtwork256,
 	)
 	albumPageDataJSON, err := json.Marshal(
-		newPlayerQueueData(album, c.appBasePath, artworkURL),
+		newAlbumPageData(album, c.appBasePath, artworkURL),
 	)
 	if err != nil {
 		internalServerError(
@@ -260,26 +269,31 @@ func (c *appRoutes) showAlbum(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func newPlayerQueueData(
+func newAlbumPageData(
 	album query.Album,
 	appBasePath string,
 	artworkURL string,
-) playerQueueData {
-	tracks := make([]playerQueueTrack, 0, len(album.Tracks))
+) playerAlbumPageData {
+	artistNames := make([]string, 0, len(album.Artists))
+	for _, artist := range album.Artists {
+		artistNames = append(artistNames, artist.Name)
+	}
+	tracks := make([]playerAlbumPageTrack, 0, len(album.Tracks))
 	for _, track := range album.Tracks {
-		tracks = append(tracks, playerQueueTrack{
+		tracks = append(tracks, playerAlbumPageTrack{
 			ID:              strconv.FormatInt(track.ID, 10),
 			AudioURL:        trackAudioURL(appBasePath, track.ID),
 			Title:           track.Title,
 			Artists:         strings.Join(track.Artists, " "),
 			Album:           album.Title,
-			AlbumArtists:    strings.Join(album.Artists, " "), // TODO: want to encode as JSON array of strings
+			AlbumURL:        albumURL(appBasePath, album.ID),
+			AlbumArtists:    artistNames,
 			ArtworkURL:      artworkURL,
 			DurationSeconds: track.DurationSeconds,
 		})
 	}
 
-	return playerQueueData{Tracks: tracks}
+	return playerAlbumPageData{Tracks: tracks}
 }
 
 func (c *appRoutes) getAlbumArtwork(w http.ResponseWriter, r *http.Request) {

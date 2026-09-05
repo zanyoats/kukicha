@@ -23,8 +23,9 @@ export default function registerPlayerControls(up) {
 
 function playerControlsCompiler(up, player) {
     const albumElement = player.querySelector("[data-player-album]");
-    const albumArtistsElement = player.querySelector(
-        "[data-player-album-artists]",
+    const albumLinks = player.querySelectorAll("[data-player-album-link]");
+    const artistsElement = player.querySelector(
+        "[data-player-artists]",
     );
     const artworkElement = player.querySelector("[data-player-artwork]");
     const titleElement = player.querySelector("[data-player-title]");
@@ -46,7 +47,7 @@ function playerControlsCompiler(up, player) {
 
     if (
         !albumElement ||
-        !albumArtistsElement ||
+        !artistsElement ||
         !artworkElement ||
         !titleElement ||
         !currentTimeElement ||
@@ -66,14 +67,21 @@ function playerControlsCompiler(up, player) {
 
     const updateNowPlaying = (event) => {
         const track = event.track;
+        for (const link of albumLinks) {
+            if (track?.albumURL) {
+                link.setAttribute("href", track.albumURL);
+            } else {
+                link.removeAttribute("href");
+            }
+        }
         if (!track) {
             titleElement.textContent = "Choose a track";
             titleElement.removeAttribute("title");
             albumElement.textContent = "";
             albumElement.removeAttribute("title");
-            albumArtistsElement.textContent = "";
-            albumArtistsElement.removeAttribute("title");
-            albumArtistsElement.hidden = true;
+            artistsElement.textContent = "";
+            artistsElement.removeAttribute("title");
+            artistsElement.hidden = true;
             artworkElement.removeAttribute("src");
             artworkElement.alt = "";
             artworkElement.hidden = true;
@@ -84,9 +92,9 @@ function playerControlsCompiler(up, player) {
         titleElement.title = track.title;
         albumElement.textContent = track.album;
         albumElement.title = track.album;
-        albumArtistsElement.textContent = track.albumArtists;
-        albumArtistsElement.title = track.albumArtists;
-        albumArtistsElement.hidden = track.albumArtists === "";
+        artistsElement.textContent = track.artists;
+        artistsElement.title = track.artists;
+        artistsElement.hidden = track.artists === "";
 
         if (track.artworkURL) {
             artworkElement.src = track.artworkURL;

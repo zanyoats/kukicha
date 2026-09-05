@@ -2,7 +2,7 @@ SELECT
     albums.id,
     albums.album,
     json_group_array(
-        artists.artist
+        json_object('id', artists.id, 'name', artists.artist)
             ORDER BY
                 artists.artist COLLATE NOCASE,
                 artists.id

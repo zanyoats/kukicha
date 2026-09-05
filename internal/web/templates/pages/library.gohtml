@@ -20,11 +20,11 @@
             </a>
 
             <div class="album-card-details">
-                <h2 class="album-card-title" title="{{.Title}}">{{.Title}}</h2>
+                <h2 class="album-card-title" title="{{.Title}}"><a href="{{.AlbumURL}}" up-follow>{{.Title}}</a></h2>
 
                 {{with .Artists}}
                 <p class="album-card-artists">
-                    {{range $index, $artist := .}}{{if $index}}, {{end}}{{$artist}}{{end}}
+                    {{range $index, $artist := .}}{{if $index}}, {{end}}<a href="{{$artist.URL}}" up-follow>{{$artist.Name}}</a>{{end}}
                 </p>
                 {{end}}
             </div>
