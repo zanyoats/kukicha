@@ -7,7 +7,7 @@ level = "info"
 roots = []
 
 # Set to "0s" to disable periodic scan progress messages.
-progress_log_interval = "15s"
+progress_log_interval = "5s"
 
 # Oversized sidecar and embedded artwork is ignored.
 # Size = 25 × 1024 × 1024 = 26,214,400 bytes
@@ -36,7 +36,6 @@ retry_attempts = 2
 "="    = true
 
 [scan.album_artist_split_auto_tokens]
-"&" = true
 "/" = true
 
 [scan.recognized_sidecar_artwork]
