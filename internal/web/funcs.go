@@ -1,6 +1,32 @@
 package web
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+	"time"
+)
+
+func formatDate(value string) string {
+	trimmed := strings.TrimSpace(value)
+	for _, layout := range []string{
+		time.RFC3339,
+		"2006-01-02T15:04:05",
+		"2006-01-02 15:04:05",
+		"2006-1-2",
+		"2006/1/2",
+	} {
+		if date, err := time.Parse(layout, trimmed); err == nil {
+			return date.Format("January 2, 2006")
+		}
+	}
+	for _, layout := range []string{"2006-1", "2006/1"} {
+		if date, err := time.Parse(layout, trimmed); err == nil {
+			return date.Format("January 2006")
+		}
+	}
+
+	return value
+}
 
 func formatDuration(seconds int64) string {
 	if seconds < 0 {

@@ -27,6 +27,7 @@ func NewPageRenderer() (Renderer, error) {
 	base, err := template.
 		New("site").
 		Funcs(template.FuncMap{
+			"formatDate":     formatDate,
 			"formatDuration": formatDuration,
 			"yesNo":          yesNo,
 		}).

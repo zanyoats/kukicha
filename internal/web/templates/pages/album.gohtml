@@ -31,7 +31,7 @@
                 {{with .Album.ReleaseDate}}
                 <div>
                     <dt>Released</dt>
-                    <dd>{{.}}</dd>
+                    <dd>{{formatDate .}}</dd>
                 </div>
                 {{else}}
                 {{with .Album.ReleaseYear}}
@@ -45,7 +45,7 @@
                 {{with .Album.OriginalReleaseDate}}
                 <div>
                     <dt>Original release</dt>
-                    <dd>{{.}}</dd>
+                    <dd>{{formatDate .}}</dd>
                 </div>
                 {{else}}
                 {{with .Album.OriginalReleaseYear}}
@@ -80,7 +80,7 @@
                 {{with .Album.PurchaseDate}}
                 <div>
                     <dt>Purchased</dt>
-                    <dd>{{.}}</dd>
+                    <dd>{{formatDate .}}</dd>
                 </div>
                 {{end}}
 
