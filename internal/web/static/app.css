@@ -105,6 +105,12 @@ a:focus-visible {
     outline-offset: 0.125rem;
 }
 
+.text-truncate {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
 .visually-hidden {
     position: absolute;
     inline-size: 1px;
@@ -282,9 +288,6 @@ article h1 {
     .radio-card-name {
         flex: 0 1 auto;
         min-inline-size: 0;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
     }
 
     .radio-card-leader {
@@ -333,12 +336,6 @@ article h1 {
     }
 
     .album-card-title {
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-    }
-
-    .album-card-title {
         font-size: 0.8rem;
         font-weight: 600;
 
@@ -361,13 +358,6 @@ article h1 {
 /*
  * Pages: Album
 **/
-
-.album-title,
-.album-artists {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
 
 .album-header {
     display: grid;
@@ -488,13 +478,6 @@ article h1 {
         min-inline-size: 0;
     }
 
-    .track-title,
-    .track-artists {
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-    }
-
     .track-title {
         font-size: 0.9rem;
     }
@@ -567,9 +550,6 @@ article h1 {
         }
 
         .track-artists {
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
             color: var(--text-secondary);
             font-size: 0.8rem;
         }
@@ -611,9 +591,6 @@ article h1 {
 
                 .track-title {
                     min-inline-size: 0;
-                    overflow: hidden;
-                    text-overflow: ellipsis;
-                    white-space: nowrap;
                 }
 
                 .track-time {
@@ -917,10 +894,6 @@ svg.player-queue-play-icon {
 .player-queue-title {
     min-inline-size: 0;
     color: var(--text-primary);
-
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
 }
 
 .player-queue-duration {

@@ -170,7 +170,7 @@ function createPlayerQueueRow(track, index) {
     position.textContent = `${index + 1}`;
 
     const title = document.createElement("span");
-    title.className = "player-queue-title";
+    title.className = "player-queue-title text-truncate";
     title.textContent = track.title;
     title.title = track.title;
 

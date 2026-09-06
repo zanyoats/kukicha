@@ -14,7 +14,7 @@
 
         <div class="album-summary">
             <h1
-                class="album-title"
+                class="album-title text-truncate"
                 data-player-album-title
                 title="{{.Album.Title}}"
             >
@@ -22,7 +22,7 @@
             </h1>
 
             {{with .Album.Artists}}
-            <p class="album-artists" data-player-album-artists-source>
+            <p class="album-artists text-truncate" data-player-album-artists-source>
                 {{range $index, $artist := .}}{{if $index}}, {{end}}{{$artist.Name}}{{end}}
             </p>
             {{end}}
@@ -161,12 +161,12 @@
             </span>
 
             <span class="track-info">
-                <span class="track-title">
+                <span class="track-title text-truncate">
                     {{.Title}}
                 </span>
 
                 {{with .Artists}}
-                <p class="track-artists">
+                <p class="track-artists text-truncate">
                     {{range $index, $artist := .}}{{if $index}}, {{end}}{{$artist}}{{end}}
                 </p>
                 {{end}}
