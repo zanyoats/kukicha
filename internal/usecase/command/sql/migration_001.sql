@@ -260,6 +260,7 @@ CREATE TABLE library_tracks (
     UNIQUE (root_id, path)                                ,
     CHECK (
             duration_seconds >= 0
+        AND json_valid(track_metadata)
         AND json_valid(artists)
         AND json_type(artists) = 'array'
     )                                                     ,
