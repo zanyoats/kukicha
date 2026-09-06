@@ -1,0 +1,23 @@
+{{define "title"}}{{.Title}}{{end}}
+
+{{define "body"}}
+<body class="config-document">
+    <main class="config-standalone" up-main>
+        <nav aria-label="Configuration navigation">
+            <a href="{{.HomeURL}}">Back to Home</a>
+        </nav>
+        {{template "page-content" .}}
+    </main>
+</body>
+{{end}}
+
+{{define "page-content"}}
+<article class="config-page">
+    <header>
+        <p class="page-eyebrow">Kukicha</p>
+        <h1>{{.Title}}</h1>
+    </header>
+
+    <p>{{.Description}}</p>
+</article>
+{{end}}

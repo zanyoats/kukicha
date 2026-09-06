@@ -68,6 +68,9 @@ func newAppRoutes(appBasePath string, renderer Renderer, db *sql.DB) http.Handle
 	mux.HandleFunc("GET /library/album/artwork", router.getAlbumArtwork)
 	mux.HandleFunc("GET /library/album/tracks/audio", router.streamTrackAudio)
 	mux.HandleFunc("GET /search", router.showSearch)
+	for _, page := range configPages {
+		mux.HandleFunc("GET "+page.Path, router.showConfig(page))
+	}
 	mux.HandleFunc("GET /instance/identicon.svg", func(w http.ResponseWriter, r *http.Request) {
 		getIdenticon(db, w, r)
 	})

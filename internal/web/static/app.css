@@ -224,8 +224,25 @@ article h1 {
 
 .home-page h1,
 .library-page h1,
-.search-page h1 {
+.search-page h1,
+.config-page h1 {
     padding-block-end: 2rem;
+}
+
+.avatar-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+
+    h2 {
+        font-size: 1.1rem;
+        font-weight: 500;
+        line-height: 1.05;
+
+        a {
+            font-size: inherit;
+        }
+    }
 }
 
 .home-page h2 {
@@ -738,6 +755,44 @@ article h1 {
 /*
  * Unpoly customizations
 **/
+
+.config-document {
+    background: var(--up-overlay-backdrop);
+}
+
+.config-standalone {
+    margin-inline: auto;
+}
+
+.config-standalone > nav {
+    margin-block-end: 1.25rem;
+}
+
+up-modal.config-modal[nesting] up-modal-viewport {
+    padding: 0;
+}
+
+up-modal.config-modal[size] up-modal-box,
+.config-standalone {
+    inline-size: 80svi;
+    min-block-size: 100dvh;
+    padding: 1.25rem;
+    background: var(--surface);
+    box-shadow: none;
+}
+
+body:has(up-modal.config-modal:not(.up-destroying))
+    up-drawer.avatar-drawer
+    up-drawer-backdrop {
+    background: transparent;
+}
+
+/* Hand the backdrop back to the drawer before the modal's exit animation. */
+body:has(up-drawer.avatar-drawer:not(.up-destroying))
+    up-modal.config-modal.up-destroying
+    up-modal-backdrop {
+    background: transparent;
+}
 
 up-drawer.avatar-drawer up-drawer-box,
 up-drawer.player-queue-drawer up-drawer-box {

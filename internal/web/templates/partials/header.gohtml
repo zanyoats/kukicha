@@ -22,8 +22,20 @@
 
 <template id="avatar-panel-template">
     <aside class="avatar-panel" aria-label="Avatar panel">
-        <p>TODO</p>
-        <a href="#" up-dismiss>close</a>
+        {{range .ConfigLinks}}
+        <h2>
+            <a
+                href="{{.URL}}"
+                up-layer="new modal"
+                up-target=".config-page"
+                up-class="config-modal"
+                up-history="true"
+                up-animation="false"
+                up-close-animation="false"
+                >{{.Title}}</a
+            >
+        </h2>
+        {{end}}
     </aside>
 </template>
 {{end}}
