@@ -22,20 +22,90 @@
 
 <template id="avatar-panel-template">
     <aside class="avatar-panel" aria-label="Avatar panel">
-        {{range .ConfigLinks}}
         <h2>
             <a
-                href="{{.URL}}"
+                href="{{.HomeURL}}/roots"
                 up-layer="new modal"
                 up-target=".config-page"
                 up-class="config-modal"
                 up-history="true"
                 up-animation="false"
                 up-close-animation="false"
-                >{{.Title}}</a
+                >Roots</a
             >
         </h2>
-        {{end}}
+        <h2>
+            <a
+                href="{{.HomeURL}}/artistSplitRules"
+                up-layer="new modal"
+                up-target=".config-page"
+                up-class="config-modal"
+                up-history="true"
+                up-animation="false"
+                up-close-animation="false"
+                >Artist Split Rules</a
+            >
+        </h2>
+        <h2>
+            <a
+                href="{{.HomeURL}}/metadataOverrides"
+                up-layer="new modal"
+                up-target=".config-page"
+                up-class="config-modal"
+                up-history="true"
+                up-animation="false"
+                up-close-animation="false"
+                >Metadata Overrides</a
+            >
+        </h2>
+        <h2>
+            <a
+                href="{{.HomeURL}}/listeningData"
+                up-layer="new modal"
+                up-target=".config-page"
+                up-class="config-modal"
+                up-history="true"
+                up-animation="false"
+                up-close-animation="false"
+                >Listening Data</a
+            >
+        </h2>
+        <h2>
+            <a
+                href="{{.HomeURL}}/cache"
+                up-layer="new modal"
+                up-target=".config-page"
+                up-class="config-modal"
+                up-history="true"
+                up-animation="false"
+                up-close-animation="false"
+                >Cache</a
+            >
+        </h2>
+        <h2>
+            <a
+                href="{{.HomeURL}}/jobs"
+                up-layer="new modal"
+                up-target=".config-page"
+                up-class="config-modal"
+                up-history="true"
+                up-animation="false"
+                up-close-animation="false"
+                >Jobs</a
+            >
+        </h2>
+        <h2>
+            <a
+                href="{{.HomeURL}}/help"
+                up-layer="new modal"
+                up-target=".config-page"
+                up-class="config-modal"
+                up-history="true"
+                up-animation="false"
+                up-close-animation="false"
+                >Help</a
+            >
+        </h2>
     </aside>
 </template>
 {{end}}

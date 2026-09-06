@@ -10,7 +10,6 @@ type sharedURLs struct {
 	HomeURL              string
 	LibraryURL           string
 	SearchURL            string
-	ConfigLinks          []configLink
 	UnpolyStylesheetURL  string
 	StylesheetURL        string
 	AppJavaScriptURL     string
@@ -23,7 +22,6 @@ func getSharedURLs(appBasePath string) sharedURLs {
 		HomeURL:              appBasePath,
 		LibraryURL:           appBasePath + "/library",
 		SearchURL:            appBasePath + "/search",
-		ConfigLinks:          configLinks(appBasePath),
 		UnpolyStylesheetURL:  appBasePath + "/assets/unpoly.min.css",
 		StylesheetURL:        appBasePath + "/assets/app.css",
 		AppJavaScriptURL:     appBasePath + "/assets/app.js",

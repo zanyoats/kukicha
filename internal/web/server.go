@@ -68,6 +68,8 @@ func newAppRoutes(appBasePath string, renderer Renderer, db *sql.DB) http.Handle
 	mux.HandleFunc("GET /library/album/artwork", router.getAlbumArtwork)
 	mux.HandleFunc("GET /library/album/tracks/audio", router.streamTrackAudio)
 	mux.HandleFunc("GET /search", router.showSearch)
+	mux.HandleFunc("GET /artistSplitRules", router.showArtistSplitRules)
+	mux.HandleFunc("PATCH /api/artistSplitRules", router.updateArtistSplitRule)
 	for _, page := range configPages {
 		mux.HandleFunc("GET "+page.Path, router.showConfig(page))
 	}
