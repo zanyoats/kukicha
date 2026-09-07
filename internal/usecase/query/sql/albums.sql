@@ -67,6 +67,24 @@ LEFT JOIN library_album_artists AS album_artists
     ON album_artists.album_id = albums.id
 LEFT JOIN library_artist_ids AS artists
     ON artists.id = album_artists.artist_id
+WHERE (:artist_id = 0 OR EXISTS (
+    SELECT 1
+    FROM library_album_artists AS matching_artists
+    WHERE matching_artists.album_id = albums.id
+        AND matching_artists.artist_id = :artist_id
+))
+AND (:genre_id = 0 OR EXISTS (
+    SELECT 1
+    FROM library_album_genres AS matching_genres
+    WHERE matching_genres.album_id = albums.id
+        AND matching_genres.genre_id = :genre_id
+))
+AND (:style_id = 0 OR EXISTS (
+    SELECT 1
+    FROM library_album_styles AS matching_styles
+    WHERE matching_styles.album_id = albums.id
+        AND matching_styles.style_id = :style_id
+))
 GROUP BY
     albums.id,
     albums.album

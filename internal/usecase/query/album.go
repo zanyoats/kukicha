@@ -14,6 +14,9 @@ var ErrAlbumNotFound = errors.New("album not found")
 //go:embed sql/albums.sql
 var albumsSQL string
 
+//go:embed sql/album_filter_names.sql
+var albumFilterNamesSQL string
+
 //go:embed sql/album.sql
 var albumSQL string
 
@@ -85,10 +88,43 @@ type AlbumTrack struct {
 	TrackNumber     *int
 }
 
-// Albums loads all albums and their artists in display order.
+// AlbumFilters restricts albums to matching relationships. Zero means no filter.
+// Supplied filters are combined with AND.
+type AlbumFilters struct {
+	ArtistID int64
+	GenreID  int64
+	StyleID  int64
+}
+
+// AlbumFilterNames contains the names of selected filters. Missing IDs have empty names.
+type AlbumFilterNames struct {
+	Artist string
+	Genre  string
+	Style  string
+}
+
+// NamesForAlbumFilters resolves filter names independently of matching albums.
+func NamesForAlbumFilters(ctx context.Context, db *sql.DB, filters AlbumFilters) (AlbumFilterNames, error) {
+	var names AlbumFilterNames
+	if filters == (AlbumFilters{}) {
+		return names, nil
+	}
+	err := db.QueryRowContext(ctx, albumFilterNamesSQL,
+		sql.Named("artist_id", filters.ArtistID),
+		sql.Named("genre_id", filters.GenreID),
+		sql.Named("style_id", filters.StyleID),
+	).Scan(&names.Artist, &names.Genre, &names.Style)
+	if err != nil {
+		return AlbumFilterNames{}, fmt.Errorf("query album filter names: %w", err)
+	}
+	return names, nil
+}
+
+// Albums loads matching albums and all their artists in display order.
 func Albums(
 	ctx context.Context,
 	db *sql.DB,
+	filters AlbumFilters,
 ) ([]AlbumSummary, error) {
 	smallWidth, err := albumArtworkWidth(AlbumArtwork64)
 	if err != nil {
@@ -99,6 +135,9 @@ func Albums(
 		return nil, err
 	}
 	rows, err := db.QueryContext(ctx, albumsSQL,
+		sql.Named("artist_id", filters.ArtistID),
+		sql.Named("genre_id", filters.GenreID),
+		sql.Named("style_id", filters.StyleID),
 		sql.Named("artwork_width_small", smallWidth),
 		sql.Named("artwork_width_large", largeWidth),
 	)

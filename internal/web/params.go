@@ -18,6 +18,29 @@ func parseTrackID(r *http.Request) (int64, error) {
 	return parsePositiveID(r, "track_id")
 }
 
+func parseAlbumFilters(r *http.Request) (query.AlbumFilters, error) {
+	var filters query.AlbumFilters
+	values := r.URL.Query()
+	for _, filter := range []struct {
+		name string
+		id   *int64
+	}{
+		{"artist_id", &filters.ArtistID},
+		{"genre_id", &filters.GenreID},
+		{"style_id", &filters.StyleID},
+	} {
+		if !values.Has(filter.name) {
+			continue
+		}
+		id, err := parsePositiveID(r, filter.name)
+		if err != nil {
+			return query.AlbumFilters{}, err
+		}
+		*filter.id = id
+	}
+	return filters, nil
+}
+
 func parseArtworkSize(r *http.Request) (query.AlbumArtworkSize, error) {
 	value, err := requiredQueryValue(
 		r.URL.Query(),

@@ -11,8 +11,9 @@ import (
 )
 
 type libraryViewModel struct {
-	URLs   URLs
-	Albums []albumCard
+	URLs    URLs
+	Heading string
+	Albums  []albumCard
 }
 
 type albumCard struct {
@@ -63,7 +64,25 @@ type playerAlbumPageTrack struct {
 }
 
 func (c *appRoutes) showLibrary(w http.ResponseWriter, r *http.Request) {
-	albums, err := query.Albums(r.Context(), c.db)
+	filters, err := parseAlbumFilters(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	filterNames, err := query.NamesForAlbumFilters(r.Context(), c.db, filters)
+	if err != nil {
+		internalServerError(w, "unable to load album filter names", "error", err)
+		return
+	}
+
+	heading, err := libraryHeading(filters, filterNames)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+
+	albums, err := query.Albums(r.Context(), c.db, filters)
 	if err != nil {
 		internalServerError(w, "unable to load albums", "error", err)
 		return
@@ -82,9 +101,36 @@ func (c *appRoutes) showLibrary(w http.ResponseWriter, r *http.Request) {
 	}
 
 	renderPage(w, c.renderer, "library.gohtml", libraryViewModel{
-		URLs:   c.urls,
-		Albums: albumCards,
+		URLs:    c.urls,
+		Heading: heading,
+		Albums:  albumCards,
 	})
+}
+
+func libraryHeading(filters query.AlbumFilters, names query.AlbumFilterNames) (string, error) {
+	var parts []string
+	for _, filter := range []struct {
+		id       int64
+		name     string
+		notFound string
+	}{
+		{filters.ArtistID, names.Artist, "Artist not found"},
+		{filters.GenreID, names.Genre, "Genre not found"},
+		{filters.StyleID, names.Style, "Style not found"},
+	} {
+		if filter.id == 0 {
+			continue
+		}
+		name := filter.name
+		if name == "" {
+			return "", errors.New(filter.notFound)
+		}
+		parts = append(parts, name)
+	}
+	if len(parts) == 0 {
+		return "Albums", nil
+	}
+	return strings.Join(parts, " · "), nil
 }
 
 func (c *appRoutes) showAlbum(w http.ResponseWriter, r *http.Request) {

@@ -16,9 +16,6 @@ type URLs struct {
 	Album                 string
 	AlbumArtwork          string
 	TrackAudio            string
-	Artist                string
-	Genre                 string
-	Style                 string
 	Search                string
 	ArtistSplitRules      string
 	Roots                 string
@@ -47,9 +44,6 @@ func NewURLs(basePath string) URLs {
 		Album:                 app + "/library/album/",
 		AlbumArtwork:          app + "/library/album/artwork/",
 		TrackAudio:            app + "/library/album/tracks/audio/",
-		Artist:                app + "/library/artist/",
-		Genre:                 app + "/library/genre/",
-		Style:                 app + "/library/style/",
 		Search:                app + "/search/",
 		ArtistSplitRules:      app + "/artistSplitRules/",
 		Roots:                 app + "/roots/",
@@ -90,19 +84,19 @@ func (u URLs) AlbumURL(id int64) string {
 func (u URLs) ArtistURL(id int64) string {
 	q := url.Values{}
 	q.Set("artist_id", strconv.FormatInt(id, 10))
-	return u.Artist + "?" + q.Encode()
+	return u.Library + "?" + q.Encode()
 }
 
 func (u URLs) GenreURL(id int64) string {
 	q := url.Values{}
 	q.Set("genre_id", strconv.FormatInt(id, 10))
-	return u.Genre + "?" + q.Encode()
+	return u.Library + "?" + q.Encode()
 }
 
 func (u URLs) StyleURL(id int64) string {
 	q := url.Values{}
 	q.Set("style_id", strconv.FormatInt(id, 10))
-	return u.Style + "?" + q.Encode()
+	return u.Library + "?" + q.Encode()
 }
 
 func (u URLs) TrackAudioURL(id int64) string {
