@@ -76,7 +76,7 @@ server_address = "127.0.0.1:4533"
 
 # URL path where the kukicha web app is mounted.
 # Must not be empty or the root path ("/").
-app_base_path = "/kukicha/app"
+app_base_path = "/kukicha"
 
 read_header_timeout = "5s"
 

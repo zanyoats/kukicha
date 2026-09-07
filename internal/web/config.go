@@ -4,28 +4,30 @@ import "net/http"
 
 type configPage struct {
 	Title       string
-	Path        string
+	URL         string
 	Description string
 }
 
-var configPages = []configPage{
-	{"Roots", "/roots", "Music library roots will appear here."},
-	{"Metadata Overrides", "/metadataOverrides", "Metadata overrides will appear here."},
-	{"Listening Data", "/listeningData", "Listening data will appear here."},
-	{"Cache", "/cache", "Cache information will appear here."},
-	{"Jobs", "/jobs", "Jobs will appear here."},
-	{"Help", "/help", "Help and app information will appear here."},
+func configPages(urls URLs) []configPage {
+	return []configPage{
+		{"Roots", urls.Roots, "Music library roots will appear here."},
+		{"Metadata Overrides", urls.MetadataOverrides, "Metadata overrides will appear here."},
+		{"Listening Data", urls.ListeningData, "Listening data will appear here."},
+		{"Cache", urls.Cache, "Cache information will appear here."},
+		{"Jobs", urls.Jobs, "Jobs will appear here."},
+		{"Help", urls.Help, "Help and app information will appear here."},
+	}
 }
 
 type configViewModel struct {
-	sharedURLs
+	URLs URLs
 	configPage
 }
 
 func (c *appRoutes) showConfig(page configPage) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		renderPage(w, c.renderer, "config.gohtml", configViewModel{
-			sharedURLs: getSharedURLs(c.appBasePath),
+			URLs:       c.urls,
 			configPage: page,
 		})
 	}

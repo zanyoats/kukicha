@@ -14,7 +14,7 @@ import (
 )
 
 type artistSplitRulesViewModel struct {
-	sharedURLs
+	URLs  URLs
 	Rules []artistSplitRuleViewModel
 }
 
@@ -38,11 +38,11 @@ func (c *appRoutes) showArtistSplitRules(w http.ResponseWriter, r *http.Request)
 	}
 	views := make([]artistSplitRuleViewModel, 0, len(rules))
 	for _, rule := range rules {
-		artworkURL := albumArtworkURL(c.appBasePath, rule.AlbumID, query.AlbumArtwork64)
+		artworkURL := c.urls.AlbumArtworkURL(rule.AlbumID, query.AlbumArtwork64)
 		data, err := json.Marshal(artistSplitRuleEditorData{
 			AlbumKey:      rule.AlbumKey,
 			MappedArtists: rule.MappedArtists,
-			UpdateURL:     c.appBasePath + "/api/artistSplitRules",
+			UpdateURL:     c.urls.UpdateArtistSplitRule,
 		})
 		if err != nil {
 			internalServerError(w, "unable to encode artist split rule editor data", "error", err)
@@ -55,8 +55,8 @@ func (c *appRoutes) showArtistSplitRules(w http.ResponseWriter, r *http.Request)
 		})
 	}
 	renderPage(w, c.renderer, "artist_split_rules.gohtml", artistSplitRulesViewModel{
-		sharedURLs: getSharedURLs(c.appBasePath),
-		Rules:      views,
+		URLs:  c.urls,
+		Rules: views,
 	})
 }
 

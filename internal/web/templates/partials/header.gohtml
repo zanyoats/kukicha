@@ -1,11 +1,11 @@
 {{define "header" -}}
 <header class="top-nav">
     <nav aria-label="Primary navigation" up-nav>
-        <a href="{{.HomeURL}}" up-follow>home</a>
-        <a href="{{.LibraryURL}}" up-alias="{{.LibraryURL}}/*" up-follow
+        <a href="{{.URLs.Home}}" up-follow>home</a>
+        <a href="{{.URLs.Library}}" up-alias="{{.URLs.Library}}*" up-follow
             >library</a
         >
-        <a href="{{.SearchURL}}" up-follow>search</a>
+        <a href="{{.URLs.Search}}" up-follow>search</a>
     </nav>
 
     <a
@@ -16,7 +16,7 @@
         up-position="right"
         up-content="#avatar-panel-template"
     >
-        <img src="{{.InstanceIdenticonURL}}" alt="Kukicha instance identicon" />
+        <img src="{{.URLs.InstanceIdenticon}}" alt="Kukicha instance identicon" />
     </a>
 </header>
 
@@ -24,7 +24,7 @@
     <aside class="avatar-panel" aria-label="Avatar panel">
         <h2>
             <a
-                href="{{.HomeURL}}/roots"
+                href="{{.URLs.Roots}}"
                 up-layer="new modal"
                 up-target=".config-page"
                 up-class="config-modal"
@@ -36,7 +36,7 @@
         </h2>
         <h2>
             <a
-                href="{{.HomeURL}}/artistSplitRules"
+                href="{{.URLs.ArtistSplitRules}}"
                 up-layer="new modal"
                 up-target=".config-page"
                 up-class="config-modal"
@@ -48,7 +48,7 @@
         </h2>
         <h2>
             <a
-                href="{{.HomeURL}}/metadataOverrides"
+                href="{{.URLs.MetadataOverrides}}"
                 up-layer="new modal"
                 up-target=".config-page"
                 up-class="config-modal"
@@ -60,7 +60,7 @@
         </h2>
         <h2>
             <a
-                href="{{.HomeURL}}/listeningData"
+                href="{{.URLs.ListeningData}}"
                 up-layer="new modal"
                 up-target=".config-page"
                 up-class="config-modal"
@@ -72,7 +72,7 @@
         </h2>
         <h2>
             <a
-                href="{{.HomeURL}}/cache"
+                href="{{.URLs.Cache}}"
                 up-layer="new modal"
                 up-target=".config-page"
                 up-class="config-modal"
@@ -84,7 +84,7 @@
         </h2>
         <h2>
             <a
-                href="{{.HomeURL}}/jobs"
+                href="{{.URLs.Jobs}}"
                 up-layer="new modal"
                 up-target=".config-page"
                 up-class="config-modal"
@@ -96,7 +96,7 @@
         </h2>
         <h2>
             <a
-                href="{{.HomeURL}}/help"
+                href="{{.URLs.Help}}"
                 up-layer="new modal"
                 up-target=".config-page"
                 up-class="config-modal"

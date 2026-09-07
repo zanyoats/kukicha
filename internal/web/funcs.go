@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/zanyoats/kukicha/internal/usecase/query"
 )
 
 func formatDate(value string) string {
@@ -54,4 +56,8 @@ func yesNo(value *bool) string {
 	}
 
 	return "No"
+}
+
+func playerArtworkSize() query.AlbumArtworkSize {
+	return query.AlbumArtwork64
 }

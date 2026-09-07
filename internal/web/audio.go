@@ -2,12 +2,118 @@ package web
 
 import (
 	"errors"
+	"io/fs"
+	"log/slog"
 	"mime"
+	"net/http"
+	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/zanyoats/kukicha/internal/usecase/query"
 )
 
 var errUnsafeTrackAudioPath = errors.New("unsafe track audio path")
+
+func (c *appRoutes) streamTrackAudio(w http.ResponseWriter, r *http.Request) {
+	trackID, err := parseTrackID(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	audio, err := query.TrackAudioByID(
+		r.Context(),
+		c.db,
+		trackID,
+	)
+	switch {
+	case errors.Is(err, query.ErrTrackNotFound):
+		http.Error(w, "Track not found", http.StatusNotFound)
+		return
+
+	case err != nil:
+		internalServerError(
+			w,
+			"unable to load track audio information",
+			"track_id", trackID,
+			"error", err,
+		)
+		return
+	}
+
+	audioPath, err := resolveTrackAudioPath(
+		audio.RootPath,
+		audio.RelativePath,
+	)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		http.Error(w, "Track not found", http.StatusNotFound)
+		return
+
+	case err != nil:
+		internalServerError(
+			w,
+			"unable to resolve track audio path",
+			"track_id", trackID,
+			"error", err,
+		)
+		return
+	}
+
+	file, err := os.Open(audioPath)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		http.Error(w, "Track not found", http.StatusNotFound)
+		return
+
+	case err != nil:
+		internalServerError(
+			w,
+			"unable to open track audio",
+			"track_id", trackID,
+			"error", err,
+		)
+		return
+	}
+	defer file.Close()
+
+	info, err := file.Stat()
+	if err != nil {
+		internalServerError(
+			w,
+			"unable to inspect track audio",
+			"track_id", trackID,
+			"error", err,
+		)
+		return
+	}
+
+	if !info.Mode().IsRegular() {
+		slog.WarnContext(
+			r.Context(),
+			"refusing non-regular track audio file",
+			"track_id", trackID,
+			"path", audioPath,
+		)
+		http.Error(w, "Track not found", http.StatusNotFound)
+		return
+	}
+
+	w.Header().Set(
+		"Content-Type",
+		trackAudioContentType(audio.Extension),
+	)
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+
+	http.ServeContent(
+		w,
+		r,
+		filepath.Base(audio.RelativePath),
+		info.ModTime(),
+		file,
+	)
+}
 
 func resolveTrackAudioPath(
 	rootPath string,

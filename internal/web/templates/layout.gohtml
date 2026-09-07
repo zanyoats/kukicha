@@ -8,11 +8,11 @@
         <link
             rel="icon"
             type="image/svg+xml"
-            href="{{.InstanceIdenticonURL}}"
+            href="{{.URLs.InstanceIdenticon}}"
         />
-        <link rel="stylesheet" href="{{.UnpolyStylesheetURL}}" />
-        <link rel="stylesheet" href="{{.StylesheetURL}}" />
-        <script type="module" src="{{.AppJavaScriptURL}}"></script>
+        <link rel="stylesheet" href="{{.URLs.UnpolyStylesheet}}" />
+        <link rel="stylesheet" href="{{.URLs.Stylesheet}}" />
+        <script type="module" src="{{.URLs.AppJavaScript}}"></script>
     </head>
 
     {{block "body" .}}
