@@ -70,41 +70,88 @@ func (c *appRoutes) showLibrary(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	filterNames, err := query.NamesForAlbumFilters(r.Context(), c.db, filters)
-	if err != nil {
-		internalServerError(w, "unable to load album filter names", "error", err)
-		return
-	}
+	switch {
+	case filters.AlbumID != 0: // show album page
+		album, err := query.AlbumByFilters(r.Context(), c.db, filters)
+		if errors.Is(err, query.ErrAlbumNotFound) {
+			http.Error(w, "Album not found", http.StatusNotFound)
+			return
+		} else if err != nil {
+			internalServerError(
+				w,
+				"unable to load album",
+				"album_id", filters.AlbumID,
+				"error", err,
+			)
+			return
+		}
 
-	heading, err := libraryHeading(filters, filterNames)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusNotFound)
-		return
-	}
+		smallArtwork := newArtworkViewModel(c.urls, album.ID, query.AlbumArtwork64, album.SmallArtwork)
+		largeArtwork := newArtworkViewModel(c.urls, album.ID, query.AlbumArtwork256, album.LargeArtwork)
+		albumPageDataJSON, err := json.Marshal(
+			newAlbumPageData(album, c.urls, smallArtwork),
+		)
+		if err != nil {
+			internalServerError(
+				w,
+				"unable to encode player queue",
+				"album_id", filters.AlbumID,
+				"error", err,
+			)
+			return
+		}
 
-	albums, err := query.Albums(r.Context(), c.db, filters)
-	if err != nil {
-		internalServerError(w, "unable to load albums", "error", err)
-		return
-	}
+		renderPage(w, c.renderer, "album.gohtml", albumViewModel{
+			URLs:          c.urls,
+			Album:         &album,
+			SmallArtwork:  smallArtwork,
+			LargeArtwork:  largeArtwork,
+			AlbumPageData: string(albumPageDataJSON),
+			Genres: albumCategoryLinks(album.Genres, func(id int64) string {
+				return c.urls.GenreURL(id)
+			}),
+			Styles: albumCategoryLinks(album.Styles, func(id int64) string {
+				return c.urls.StyleURL(id)
+			}),
+		})
 
-	albumCards := make([]albumCard, 0, len(albums))
+	default: // show library (album collection) page
+		filterNames, err := query.NamesForAlbumFilters(r.Context(), c.db, filters)
+		if err != nil {
+			internalServerError(w, "unable to load album filter names", "error", err)
+			return
+		}
 
-	for _, album := range albums {
-		albumCards = append(albumCards, albumCard{
-			Title:        album.Title,
-			Artists:      albumArtistLinks(album.Artists, c.urls),
-			SmallArtwork: newArtworkViewModel(c.urls, album.ID, query.AlbumArtwork64, album.SmallArtwork),
-			LargeArtwork: newArtworkViewModel(c.urls, album.ID, query.AlbumArtwork256, album.LargeArtwork),
-			AlbumURL:     c.urls.AlbumURL(album.ID),
+		heading, err := libraryHeading(filters, filterNames)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusNotFound)
+			return
+		}
+
+		albums, err := query.Albums(r.Context(), c.db, filters)
+		if err != nil {
+			internalServerError(w, "unable to load albums", "error", err)
+			return
+		}
+
+		albumCards := make([]albumCard, 0, len(albums))
+
+		for _, album := range albums {
+			albumCards = append(albumCards, albumCard{
+				Title:        album.Title,
+				Artists:      albumArtistLinks(album.Artists, c.urls),
+				SmallArtwork: newArtworkViewModel(c.urls, album.ID, query.AlbumArtwork64, album.SmallArtwork),
+				LargeArtwork: newArtworkViewModel(c.urls, album.ID, query.AlbumArtwork256, album.LargeArtwork),
+				AlbumURL:     c.urls.AlbumURL(album.ID),
+			})
+		}
+
+		renderPage(w, c.renderer, "library.gohtml", libraryViewModel{
+			URLs:    c.urls,
+			Heading: heading,
+			Albums:  albumCards,
 		})
 	}
-
-	renderPage(w, c.renderer, "library.gohtml", libraryViewModel{
-		URLs:    c.urls,
-		Heading: heading,
-		Albums:  albumCards,
-	})
 }
 
 func libraryHeading(filters query.AlbumFilters, names query.AlbumFilterNames) (string, error) {
@@ -131,57 +178,6 @@ func libraryHeading(filters query.AlbumFilters, names query.AlbumFilterNames) (s
 		return "Albums", nil
 	}
 	return strings.Join(parts, " · "), nil
-}
-
-func (c *appRoutes) showAlbum(w http.ResponseWriter, r *http.Request) {
-	albumID, err := parseAlbumID(r)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
-	}
-
-	album, err := query.AlbumByID(r.Context(), c.db, albumID)
-	if errors.Is(err, query.ErrAlbumNotFound) {
-		http.Error(w, "Album not found", http.StatusNotFound)
-		return
-	} else if err != nil {
-		internalServerError(
-			w,
-			"unable to load album",
-			"album_id", albumID,
-			"error", err,
-		)
-		return
-	}
-
-	smallArtwork := newArtworkViewModel(c.urls, album.ID, query.AlbumArtwork64, album.SmallArtwork)
-	largeArtwork := newArtworkViewModel(c.urls, album.ID, query.AlbumArtwork256, album.LargeArtwork)
-	albumPageDataJSON, err := json.Marshal(
-		newAlbumPageData(album, c.urls, smallArtwork),
-	)
-	if err != nil {
-		internalServerError(
-			w,
-			"unable to encode player queue",
-			"album_id", albumID,
-			"error", err,
-		)
-		return
-	}
-
-	renderPage(w, c.renderer, "album.gohtml", albumViewModel{
-		URLs:          c.urls,
-		Album:         &album,
-		SmallArtwork:  smallArtwork,
-		LargeArtwork:  largeArtwork,
-		AlbumPageData: string(albumPageDataJSON),
-		Genres: albumCategoryLinks(album.Genres, func(id int64) string {
-			return c.urls.GenreURL(id)
-		}),
-		Styles: albumCategoryLinks(album.Styles, func(id int64) string {
-			return c.urls.StyleURL(id)
-		}),
-	})
 }
 
 func newAlbumPageData(

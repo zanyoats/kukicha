@@ -88,9 +88,10 @@ type AlbumTrack struct {
 	TrackNumber     *int
 }
 
-// AlbumFilters restricts albums to matching relationships. Zero means no filter.
+// AlbumFilters restricts albums by ID and matching relationships. Zero means no filter.
 // Supplied filters are combined with AND.
 type AlbumFilters struct {
+	AlbumID  int64
 	ArtistID int64
 	GenreID  int64
 	StyleID  int64
@@ -187,12 +188,12 @@ func Albums(
 	return albums, nil
 }
 
-// AlbumByID loads an album and its ordered tracks in a consistent read
-// transaction.
-func AlbumByID(
+// AlbumByFilters loads the selected album and its ordered tracks in a consistent
+// read transaction. AlbumID is required; all supplied filters must match.
+func AlbumByFilters(
 	ctx context.Context,
 	db *sql.DB,
-	albumID int64,
+	filters AlbumFilters,
 ) (Album, error) {
 	tx, err := db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
 	if err != nil {
@@ -200,36 +201,36 @@ func AlbumByID(
 	}
 	defer tx.Rollback()
 
-	album, err := queryAlbum(ctx, tx, albumID)
+	album, err := queryAlbum(ctx, tx, filters)
 	if err != nil {
 		return Album{}, err
 	}
 
-	album.SmallArtwork, err = queryAlbumArtworkDimensions(ctx, tx, albumID, AlbumArtwork64)
+	album.SmallArtwork, err = queryAlbumArtworkDimensions(ctx, tx, filters.AlbumID, AlbumArtwork64)
 	if err != nil {
 		return Album{}, err
 	}
-	album.LargeArtwork, err = queryAlbumArtworkDimensions(ctx, tx, albumID, AlbumArtwork256)
-	if err != nil {
-		return Album{}, err
-	}
-
-	album.Artists, err = queryAlbumArtists(ctx, tx, albumID)
+	album.LargeArtwork, err = queryAlbumArtworkDimensions(ctx, tx, filters.AlbumID, AlbumArtwork256)
 	if err != nil {
 		return Album{}, err
 	}
 
-	album.Genres, err = queryAlbumCategories(ctx, tx, albumID, albumGenresSQL, "genres")
+	album.Artists, err = queryAlbumArtists(ctx, tx, filters.AlbumID)
 	if err != nil {
 		return Album{}, err
 	}
 
-	album.Styles, err = queryAlbumCategories(ctx, tx, albumID, albumStylesSQL, "styles")
+	album.Genres, err = queryAlbumCategories(ctx, tx, filters.AlbumID, albumGenresSQL, "genres")
 	if err != nil {
 		return Album{}, err
 	}
 
-	album.Tracks, err = queryAlbumTracks(ctx, tx, albumID)
+	album.Styles, err = queryAlbumCategories(ctx, tx, filters.AlbumID, albumStylesSQL, "styles")
+	if err != nil {
+		return Album{}, err
+	}
+
+	album.Tracks, err = queryAlbumTracks(ctx, tx, filters.AlbumID)
 	if err != nil {
 		return Album{}, err
 	}
@@ -247,7 +248,7 @@ func AlbumByID(
 func queryAlbum(
 	ctx context.Context,
 	tx *sql.Tx,
-	albumID int64,
+	filters AlbumFilters,
 ) (Album, error) {
 	album := Album{
 		Artists: make([]AlbumArtist, 0),
@@ -257,7 +258,10 @@ func queryAlbum(
 	err := tx.QueryRowContext(
 		ctx,
 		albumSQL,
-		sql.Named("album_id", albumID),
+		sql.Named("album_id", filters.AlbumID),
+		sql.Named("artist_id", filters.ArtistID),
+		sql.Named("genre_id", filters.GenreID),
+		sql.Named("style_id", filters.StyleID),
 	).Scan(
 		&album.ID,
 		&album.Title,
@@ -277,14 +281,14 @@ func queryAlbum(
 	if errors.Is(err, sql.ErrNoRows) {
 		return Album{}, fmt.Errorf(
 			"query album %d: %w",
-			albumID,
+			filters.AlbumID,
 			ErrAlbumNotFound,
 		)
 	}
 	if err != nil {
 		return Album{}, fmt.Errorf(
 			"query album %d: %w",
-			albumID,
+			filters.AlbumID,
 			err,
 		)
 	}

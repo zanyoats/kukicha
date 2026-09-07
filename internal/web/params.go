@@ -25,6 +25,7 @@ func parseAlbumFilters(r *http.Request) (query.AlbumFilters, error) {
 		name string
 		id   *int64
 	}{
+		{"album_id", &filters.AlbumID},
 		{"artist_id", &filters.ArtistID},
 		{"genre_id", &filters.GenreID},
 		{"style_id", &filters.StyleID},

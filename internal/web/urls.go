@@ -13,7 +13,6 @@ import (
 type URLs struct {
 	Home                  string
 	Library               string
-	Album                 string
 	AlbumArtwork          string
 	TrackAudio            string
 	Search                string
@@ -41,7 +40,6 @@ func NewURLs(basePath string) URLs {
 	return URLs{
 		Home:                  app + "/",
 		Library:               app + "/library/",
-		Album:                 app + "/library/album/",
 		AlbumArtwork:          app + "/library/album/artwork/",
 		TrackAudio:            app + "/library/album/tracks/audio/",
 		Search:                app + "/search/",
@@ -78,7 +76,7 @@ func (u URLs) AlbumArtworkURL(albumID int64, size query.AlbumArtworkSize) string
 func (u URLs) AlbumURL(id int64) string {
 	q := url.Values{}
 	q.Set("album_id", strconv.FormatInt(id, 10))
-	return u.Album + "?" + q.Encode()
+	return u.Library + "?" + q.Encode()
 }
 
 func (u URLs) ArtistURL(id int64) string {

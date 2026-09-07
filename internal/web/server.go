@@ -41,10 +41,6 @@ func NewWebRouter(basePath string, renderer Renderer, db *sql.DB) http.Handler {
 		router.showLibrary,
 	)
 	mux.HandleFunc(
-		exactPattern(http.MethodGet, urls.Album),
-		router.showAlbum,
-	)
-	mux.HandleFunc(
 		exactPattern(http.MethodGet, urls.AlbumArtwork),
 		router.getAlbumArtwork,
 	)
