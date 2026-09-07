@@ -21,13 +21,18 @@
                 {{.Album.Title}}
             </h1>
 
-            {{with .Album.Artists}}
-            <p class="album-artists text-truncate" data-player-album-artists-source>
-                {{range $index, $artist := .}}{{if $index}}, {{end}}{{$artist.Name}}{{end}}
-            </p>
-            {{end}}
-
             <dl class="album-facts">
+                {{with .Album.Artists}}
+                <div>
+                    <dt>Album artists</dt>
+                    <dd class="album-fact-links">
+                    {{range .}}
+                    <a href="{{$.URLs.ArtistURL .ID}}" up-follow>{{.Name}}</a>
+                    {{end}}
+                    </dd>
+                </div>
+                {{end}}
+
                 {{with .Album.ReleaseDate}}
                 <div>
                     <dt>Released</dt>
@@ -119,7 +124,9 @@
                 <div>
                     <dt>Genres</dt>
                     <dd class="album-fact-links">
-                        {{range .}}<a href="{{.URL}}">{{.Name}}</a>{{end}}
+                        {{range .}}
+                        <a href="{{.URL}}" up-follow>{{.Name}}</a>
+                        {{end}}
                     </dd>
                 </div>
                 {{end}}
@@ -128,7 +135,9 @@
                 <div>
                     <dt>Styles</dt>
                     <dd class="album-fact-links">
-                        {{range .}}<a href="{{.URL}}">{{.Name}}</a>{{end}}
+                        {{range .}}
+                        <a href="{{.URL}}" up-follow>{{.Name}}</a>
+                        {{end}}
                     </dd>
                 </div>
                 {{end}}
