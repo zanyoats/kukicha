@@ -2,148 +2,139 @@
 
 {{define "page-content"}}
 <article class="album-page" data-album-page up-data="{{.AlbumPageData}}">
-    <header class="album-header">
+    {{template "collection-header" .Album.Title}}
+
+    <div class="album-header">
         <img
             class="album-artwork"
             src="{{.LargeArtwork.URL}}"
             alt="Artwork for {{.Album.Title}}"
             width="{{.LargeArtwork.Width}}"
             height="{{.LargeArtwork.Height}}"
-            data-player-album-artwork
         />
 
-        <div class="album-summary">
-            <h1
-                class="album-title text-truncate"
-                data-player-album-title
-                title="{{.Album.Title}}"
-            >
-                {{.Album.Title}}
-            </h1>
-
-            <dl class="album-facts">
-                {{with .Album.Artists}}
-                <div>
-                    <dt>Album artists</dt>
-                    <dd class="album-fact-links">
+        <dl class="album-facts">
+            {{with .Album.Artists}}
+            <div>
+                <dt>Album artists</dt>
+                <dd class="album-fact-links">
                     {{range .}}
                     <a href="{{$.URLs.ArtistURL .ID}}" up-follow>{{.Name}}</a>
                     {{end}}
-                    </dd>
-                </div>
-                {{end}}
+                </dd>
+            </div>
+            {{end}}
 
-                {{with .Album.ReleaseDate}}
-                <div>
-                    <dt>Released</dt>
-                    <dd>{{formatDate .}}</dd>
-                </div>
-                {{else}}
-                {{with .Album.ReleaseYear}}
-                <div>
-                    <dt>Released</dt>
-                    <dd>{{.}}</dd>
-                </div>
-                {{end}}
-                {{end}}
+            {{with .Album.ReleaseDate}}
+            <div>
+                <dt>Released</dt>
+                <dd>{{formatDate .}}</dd>
+            </div>
+            {{else}}
+            {{with .Album.ReleaseYear}}
+            <div>
+                <dt>Released</dt>
+                <dd>{{.}}</dd>
+            </div>
+            {{end}}
+            {{end}}
 
-                {{with .Album.OriginalReleaseDate}}
-                <div>
-                    <dt>Original release</dt>
-                    <dd>{{formatDate .}}</dd>
-                </div>
-                {{else}}
-                {{with .Album.OriginalReleaseYear}}
-                <div>
-                    <dt>Original release</dt>
-                    <dd>{{.}}</dd>
-                </div>
-                {{end}}
-                {{end}}
+            {{with .Album.OriginalReleaseDate}}
+            <div>
+                <dt>Original release</dt>
+                <dd>{{formatDate .}}</dd>
+            </div>
+            {{else}}
+            {{with .Album.OriginalReleaseYear}}
+            <div>
+                <dt>Original release</dt>
+                <dd>{{.}}</dd>
+            </div>
+            {{end}}
+            {{end}}
 
-                {{with .Album.ReleaseCountry}}
-                <div>
-                    <dt>Release country</dt>
-                    <dd>{{.}}</dd>
-                </div>
-                {{end}}
+            {{with .Album.ReleaseCountry}}
+            <div>
+                <dt>Release country</dt>
+                <dd>{{.}}</dd>
+            </div>
+            {{end}}
 
-                {{with .Album.Label}}
-                <div>
-                    <dt>Label</dt>
-                    <dd>{{.}}</dd>
-                </div>
-                {{end}}
+            {{with .Album.Label}}
+            <div>
+                <dt>Label</dt>
+                <dd>{{.}}</dd>
+            </div>
+            {{end}}
 
-                {{with .Album.Composer}}
-                <div>
-                    <dt>Composer</dt>
-                    <dd>{{.}}</dd>
-                </div>
-                {{end}}
+            {{with .Album.Composer}}
+            <div>
+                <dt>Composer</dt>
+                <dd>{{.}}</dd>
+            </div>
+            {{end}}
 
-                {{with .Album.PurchaseDate}}
-                <div>
-                    <dt>Purchased</dt>
-                    <dd>{{formatDate .}}</dd>
-                </div>
-                {{end}}
+            {{with .Album.PurchaseDate}}
+            <div>
+                <dt>Purchased</dt>
+                <dd>{{formatDate .}}</dd>
+            </div>
+            {{end}}
 
-                {{with .Album.Format}}
-                <div>
-                    <dt>Format</dt>
-                    <dd>{{.}}</dd>
-                </div>
-                {{end}}
+            {{with .Album.Format}}
+            <div>
+                <dt>Format</dt>
+                <dd>{{.}}</dd>
+            </div>
+            {{end}}
 
-                {{with .Album.IsCompilation}}
-                <div>
-                    <dt>Compilation</dt>
-                    <dd>{{yesNo .}}</dd>
-                </div>
-                {{end}}
+            {{with .Album.IsCompilation}}
+            <div>
+                <dt>Compilation</dt>
+                <dd>{{yesNo .}}</dd>
+            </div>
+            {{end}}
 
-                {{with .Album.DiscCount}}
-                <div>
-                    <dt>Discs</dt>
-                    <dd>{{.}}</dd>
-                </div>
-                {{end}}
+            {{with .Album.DiscCount}}
+            <div>
+                <dt>Discs</dt>
+                <dd>{{.}}</dd>
+            </div>
+            {{end}}
 
-                <div>
-                    <dt>Tracks</dt>
-                    <dd>{{len .Album.Tracks}}</dd>
-                </div>
+            <div>
+                <dt>Tracks</dt>
+                <dd>{{len .Album.Tracks}}</dd>
+            </div>
 
-                <div>
-                    <dt>Duration</dt>
-                    <dd>{{formatDuration .Album.DurationSeconds}}</dd>
-                </div>
+            <div>
+                <dt>Duration</dt>
+                <dd>{{formatDuration .Album.DurationSeconds}}</dd>
+            </div>
 
-                {{with .Genres}}
-                <div>
-                    <dt>Genres</dt>
-                    <dd class="album-fact-links">
-                        {{range .}}
-                        <a href="{{.URL}}" up-follow>{{.Name}}</a>
-                        {{end}}
-                    </dd>
-                </div>
-                {{end}}
+            {{with .Genres}}
+            <div>
+                <dt>Genres</dt>
+                <dd class="album-fact-links">
+                    {{range .}}
+                    <a href="{{.URL}}" up-follow>{{.Name}}</a>
+                    {{end}}
+                </dd>
+            </div>
+            {{end}}
 
-                {{with .Styles}}
-                <div>
-                    <dt>Styles</dt>
-                    <dd class="album-fact-links">
-                        {{range .}}
-                        <a href="{{.URL}}" up-follow>{{.Name}}</a>
-                        {{end}}
-                    </dd>
-                </div>
-                {{end}}
-            </dl>
-        </div>
-    </header>
+            {{with .Styles}}
+            <div>
+                <dt>Styles</dt>
+                <dd class="album-fact-links">
+                    {{range .}}
+                    <a href="{{.URL}}" up-follow>{{.Name}}</a>
+                    {{end}}
+                </dd>
+            </div>
+            {{end}}
+        </dl>
+    </div>
 
     <ol class="track-list">
         {{range $index, $track := .Album.Tracks}}

@@ -239,9 +239,10 @@ article h1 {
 
 .home-page h1,
 .library-page h1,
+.album-page h1,
 .search-page h1,
 .config-page h1 {
-    padding-block-end: 2rem;
+    padding-block-end: 1.3rem;
 }
 
 .avatar-panel {
@@ -383,48 +384,44 @@ article h1 {
         block-size: auto;
     }
 
-    .album-summary {
+    .album-facts {
         min-inline-size: 0;
+        line-height: 2;
 
-        .album-facts {
-            margin-block-start: 1.25rem;
-            line-height: 2;
+        > div {
+            display: inline-block;
+            max-inline-size: 100%;
+            margin-inline-end: 0.8rem;
 
-            > div {
-                display: inline-block;
-                max-inline-size: 100%;
-                margin-inline-end: 0.8rem;
-
-                &:has(.album-fact-links) {
-                    display: inline;
-                }
-            }
-
-            dt {
+            &:has(.album-fact-links) {
                 display: inline;
-                font-size: 1rem;
-                color: var(--text-secondary);
-            }
-
-            dd {
-                display: inline;
-                margin: 0;
-                font-size: 0.9rem;
-                font-weight: 500;
             }
         }
 
-        .album-fact-links {
+        dt {
             display: inline;
+            font-size: 1rem;
+            color: var(--text-secondary);
+        }
 
-            a {
-                display: inline-block;
-                max-inline-size: 100%;
-            }
+        dd {
+            display: inline;
+            margin: 0;
+            font-size: 0.9rem;
+            font-weight: 500;
+        }
+    }
 
-            a:not(:last-child) {
-                margin-inline-end: 0.3rem;
-            }
+    .album-fact-links {
+        display: inline;
+
+        a {
+            display: inline-block;
+            max-inline-size: 100%;
+        }
+
+        a:not(:last-child) {
+            margin-inline-end: 0.3rem;
         }
     }
 }

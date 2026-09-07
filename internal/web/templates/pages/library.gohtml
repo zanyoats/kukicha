@@ -2,10 +2,7 @@
 
 {{define "page-content"}}
 <article class="library-page">
-    <header>
-        <p class="page-eyebrow">Collection</p>
-        <h1>{{.Heading}}</h1>
-    </header>
+    {{template "collection-header" .Heading}}
 
     <ul class="item-grid">
         {{range .Albums}}
