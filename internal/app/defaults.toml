@@ -35,9 +35,6 @@ retry_attempts = 2
 "-"    = true
 "="    = true
 
-[scan.album_artist_split_auto_tokens]
-"/" = true
-
 [scan.recognized_sidecar_artwork]
 "cover"    = true
 "folder"   = true

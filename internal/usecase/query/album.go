@@ -97,11 +97,11 @@ type AlbumFilters struct {
 	StyleID  int64
 }
 
-// AlbumFilterNames contains the names of selected filters. Missing IDs have empty names.
+// AlbumFilterNames contains the names of selected filters. Missing IDs have nil names.
 type AlbumFilterNames struct {
-	Artist string
-	Genre  string
-	Style  string
+	Artist *string
+	Genre  *string
+	Style  *string
 }
 
 // NamesForAlbumFilters resolves filter names independently of matching albums.

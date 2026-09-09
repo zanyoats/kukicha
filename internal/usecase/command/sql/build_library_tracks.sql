@@ -32,7 +32,7 @@ SELECT
     s.track_metadata,
     s.scan_error,
     json_extract(s.normalized_metadata, '$.track_display'),
-    json_extract(s.normalized_metadata, '$.mapped_track_artist_displays'),
+    json_extract(s.normalized_metadata, '$.raw_track_artist_displays'),
     NULLIF(json_extract(s.track_metadata, '$.work'), ''),
     NULLIF(json_extract(s.track_metadata, '$.grouping'), ''),
     NULLIF(json_extract(s.track_metadata, '$.movement_name'), ''),

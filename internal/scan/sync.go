@@ -143,13 +143,11 @@ func processFileTypeAudio(
 		}
 	}
 
-	// apply *album* artist split rules using all split tokens
 	mapping, err := applyAlbumArtistSplitRules(
 		ctx, conn,
 		scannedFile.NormalizedMetadata.AlbumKey,
 		scannedFile.NormalizedMetadata.RawAlbumArtistDisplays,
 		conf.Settings.Scan.AlbumArtistSplitTokens,
-		conf.Settings.Scan.AlbumArtistSplitAuto,
 	)
 
 	if err != nil {
@@ -163,26 +161,7 @@ func processFileTypeAudio(
 			append(scannedFile.NormalizedMetadata.MappedAlbumArtistDisplays, textkey.NormDisplay(mapped))
 	}
 
-	// apply *track* artist split rules using auto tokens
 	scannedFile.NormalizedMetadata.RawTrackArtistDisplays = rawTrackArtistDisplays(scannedFile.Metadata)
-	if apply, err := displaysContainAnyToken(
-		scannedFile.NormalizedMetadata.RawTrackArtistDisplays,
-		conf.Settings.Scan.AlbumArtistSplitAuto,
-	); err != nil {
-		return err
-	} else if apply {
-		mapping =
-			applyAutoMapping(
-				scannedFile.NormalizedMetadata.RawTrackArtistDisplays,
-				conf.Settings.Scan.AlbumArtistSplitAuto,
-			)
-	} else {
-		mapping =
-			slices.Clone(scannedFile.NormalizedMetadata.RawTrackArtistDisplays)
-	}
-	slices.Sort(mapping)
-	mapping = slices.Compact(mapping)
-	scannedFile.NormalizedMetadata.MappedTrackArtistDisplays = mapping
 
 	return nil
 }
@@ -207,17 +186,14 @@ func applyAlbumArtistSplitRules(
 	albumKey string,
 	rawAlbumArtistDisplays []string,
 	albumArtistSplitTokens map[string]bool,
-	albumArtistSplitAuto map[string]bool,
 ) (mapping []string, err error) {
 	var apply bool
 
 	if apply, err = displaysContainAnyToken(rawAlbumArtistDisplays, albumArtistSplitTokens); err != nil {
 		return
 	} else if apply {
-		autoMapping := applyAutoMapping(rawAlbumArtistDisplays, albumArtistSplitAuto)
-
 		if mapping, err = command.FindOrInsertMapping(
-			ctx, conn, albumKey, autoMapping,
+			ctx, conn, albumKey, rawAlbumArtistDisplays,
 		); err != nil {
 			return
 		}
@@ -228,29 +204,6 @@ func applyAlbumArtistSplitRules(
 	slices.Sort(mapping)
 	mapping = slices.Compact(mapping)
 	return
-}
-
-func applyAutoMapping(displays []string, tokens map[string]bool) []string {
-	for token, enabled := range tokens {
-		if !enabled {
-			continue
-		}
-
-		var tmp []string
-
-		for _, display := range displays {
-			tmp = append(tmp, strings.Split(display, token)...)
-		}
-
-		displays = tmp
-	}
-
-	var result []string
-	for _, display := range displays {
-		result = append(result, strings.TrimSpace(display))
-	}
-
-	return result
 }
 
 func displaysContainAnyToken(displays []string, tokens map[string]bool) (bool, error) {

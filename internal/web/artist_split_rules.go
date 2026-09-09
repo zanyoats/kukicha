@@ -88,22 +88,24 @@ func (c *appRoutes) updateArtistSplitRule(w http.ResponseWriter, r *http.Request
 	}
 	artists := make([]string, 0, len(input.MappedArtists))
 	for _, value := range input.MappedArtists {
-		if value == nil || strings.ContainsAny(*value, "\r\n") {
-			artistSplitRuleError(w, http.StatusBadRequest, "Each artist must be a string on a single line.")
+		if value == nil {
+			artistSplitRuleError(
+				w,
+				http.StatusBadRequest,
+				"Artist must be a string and not null",
+			)
 			return
 		}
-		if artist := strings.TrimSpace(*value); artist != "" {
-			artists = append(artists, artist)
-		}
-	}
-	if len(artists) == 0 {
-		artistSplitRuleError(w, http.StatusBadRequest, "Enter at least one artist.")
-		return
+		artists = append(artists, *value)
 	}
 	if err := command.UpdateArtistSplitRule(r.Context(), c.db, input.AlbumKey, artists); err != nil {
-		if errors.Is(err, command.ErrArtistSplitRuleNotFound) {
+		switch {
+		case errors.Is(err, command.ErrInvalidArtistMapping),
+			errors.Is(err, command.ErrEmptyArtistMapping):
+			artistSplitRuleError(w, http.StatusBadRequest, err.Error())
+		case errors.Is(err, command.ErrArtistSplitRuleNotFound):
 			artistSplitRuleError(w, http.StatusNotFound, "Artist split rule not found.")
-		} else {
+		default:
 			slog.ErrorContext(r.Context(), "unable to update artist split rule", "error", err)
 			artistSplitRuleError(w, http.StatusInternalServerError, "Unable to save the artist split rule.")
 		}

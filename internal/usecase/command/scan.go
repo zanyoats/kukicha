@@ -37,9 +37,6 @@ var insertScannedSidecarCoverSQL string
 //go:embed sql/insert_scanned_sidecar_other.sql
 var insertScannedSidecarOtherSQL string
 
-//go:embed sql/find_or_insert_mapping.sql
-var findOrInsertMappingSQL string
-
 //go:embed sql/reset_library.sql
 var resetLibrarySQL string
 
@@ -582,37 +579,6 @@ func cacheScannedFileITunesArtwork(
 	}
 
 	return nil
-}
-
-func FindOrInsertMapping(
-	ctx context.Context,
-	conn *sql.Conn,
-	albumKey string,
-	mapping []string,
-) ([]string, error) {
-	b, err := json.Marshal(mapping)
-	if err != nil {
-		return nil, err
-	}
-
-	var mappingJSON string
-
-	err = conn.QueryRowContext(
-		ctx,
-		findOrInsertMappingSQL,
-		sql.Named("album_key", albumKey),
-		sql.Named("mapped_artists", string(b)),
-	).Scan(&mappingJSON)
-
-	if err != nil {
-		return nil, err
-	}
-
-	if err := json.Unmarshal([]byte(mappingJSON), &mapping); err != nil {
-		return nil, err
-	}
-
-	return mapping, nil
 }
 
 // -----------------------------------------------------------------------------

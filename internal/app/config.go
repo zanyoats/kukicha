@@ -84,7 +84,6 @@ type AppConfig struct {
 				RetryAttempts  int      `toml:"retry_attempts"`
 			} `toml:"itunes"`
 			AlbumArtistSplitTokens    map[string]bool   `toml:"album_artist_split_tokens"`
-			AlbumArtistSplitAuto      map[string]bool   `toml:"album_artist_split_auto_tokens"`
 			RecognizedSidecarArtwork  map[string]bool   `toml:"recognized_sidecar_artwork"`
 			PrimaryGenreSplitTokens   map[string]bool   `toml:"primary_genre_split_tokens"`
 			SecondaryGenreSplitTokens map[string]bool   `toml:"secondary_genre_split_tokens"`
@@ -176,7 +175,6 @@ func LoadAppConfig(catalog *Catalog) (*AppConfig, error) {
 	// ...no empty tokens
 	if slices.Contains(slices.Concat(
 		slices.Collect(maps.Keys(result.Settings.Scan.AlbumArtistSplitTokens)),
-		slices.Collect(maps.Keys(result.Settings.Scan.AlbumArtistSplitAuto)),
 		slices.Collect(maps.Keys(result.Settings.Scan.PrimaryGenreSplitTokens)),
 		slices.Collect(maps.Keys(result.Settings.Scan.SecondaryGenreSplitTokens)),
 	), "") {
@@ -184,31 +182,9 @@ func LoadAppConfig(catalog *Catalog) (*AppConfig, error) {
 			"I found a empty token in one of: %s",
 			strings.Join([]string{
 				"scan.album_artist_split_tokens",
-				"scan.album_artist_split_auto_tokens",
 				"scan.primary_genre_split_tokens",
 				"scan.secondary_genre_split_tokens",
 			}, ", "))
-	}
-
-	// ...auto tokens are valid and a subset of artist split tokens
-	for token, enabled := range result.Settings.Scan.AlbumArtistSplitAuto {
-		if !enabled {
-			continue
-		}
-
-		if !isSymbolToken(token) {
-			return nil, fmt.Errorf(
-				"%s key %q must contain only punctuation/symbol characters",
-				"scan.album_artist_split_auto_tokens", token,
-			)
-		}
-
-		if enabled := result.Settings.Scan.AlbumArtistSplitTokens[token]; !enabled {
-			return nil, fmt.Errorf(
-				"The token %q should be present/set in config key %s",
-				token, "scan.album_artist_split_tokens",
-			)
-		}
 	}
 
 	// ... user provided genres/styles are valid terms
@@ -490,18 +466,4 @@ func validateAppBasePath(basePath string) error {
 	}
 
 	return nil
-}
-
-func isSymbolToken(token string) bool {
-	if token == "" {
-		return false
-	}
-
-	for _, r := range token {
-		if !unicode.IsPunct(r) && !unicode.IsSymbol(r) {
-			return false
-		}
-	}
-
-	return true
 }

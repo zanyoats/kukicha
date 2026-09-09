@@ -158,7 +158,7 @@ func libraryHeading(filters query.AlbumFilters, names query.AlbumFilterNames) (s
 	var parts []string
 	for _, filter := range []struct {
 		id       int64
-		name     string
+		name     *string
 		notFound string
 	}{
 		{filters.ArtistID, names.Artist, "Artist not found"},
@@ -168,11 +168,10 @@ func libraryHeading(filters query.AlbumFilters, names query.AlbumFilterNames) (s
 		if filter.id == 0 {
 			continue
 		}
-		name := filter.name
-		if name == "" {
+		if filter.name == nil {
 			return "", errors.New(filter.notFound)
 		}
-		parts = append(parts, name)
+		parts = append(parts, *filter.name)
 	}
 	if len(parts) == 0 {
 		return "Albums", nil

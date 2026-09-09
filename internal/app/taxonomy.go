@@ -138,12 +138,12 @@ func parseRecord(row []string) (TaxonomyRecord, error) {
 		return TaxonomyRecord{}, err
 	}
 
-	name := row[1]
+	name := strings.TrimSpace(row[1])
 	if name == "" {
 		return TaxonomyRecord{}, fmt.Errorf("name is empty")
 	}
 
-	parent := row[2]
+	parent := strings.TrimSpace(row[2])
 	if kind == Genre && parent != "" {
 		return TaxonomyRecord{}, fmt.Errorf(
 			"genre %q unexpectedly has parent %q",
@@ -157,17 +157,17 @@ func parseRecord(row []string) (TaxonomyRecord, error) {
 		)
 	}
 
-	source := row[3]
+	source := strings.TrimSpace(row[3])
 	if source == "" {
 		return TaxonomyRecord{}, fmt.Errorf("record %q has no source", name)
 	}
 
-	sourceTerm := row[4]
+	sourceTerm := strings.TrimSpace(row[4])
 	if sourceTerm == "" {
 		return TaxonomyRecord{}, fmt.Errorf("record %q has no source term", name)
 	}
 
-	status := row[5]
+	status := strings.TrimSpace(row[5])
 	if status == "" {
 		return TaxonomyRecord{}, fmt.Errorf("record %q has no status", name)
 	}
