@@ -10,8 +10,7 @@ INSERT INTO scan_tracks (
     file_mtime_unix_nano,
     duration_seconds,
     track_metadata,
-    normalized_metadata,
-    scan_error
+    normalized_metadata
 )
 VALUES (
     :root_pos,
@@ -25,6 +24,5 @@ VALUES (
     :file_mtime_unix_nano,
     :duration_seconds,
     json(:track_metadata),
-    json(:normalized_metadata),
-    :scan_error
+    json(:normalized_metadata)
 );

@@ -3,7 +3,6 @@ package scan
 import (
 	"context"
 	"database/sql"
-	"log/slog"
 	"slices"
 	"strings"
 
@@ -84,7 +83,8 @@ func localFolderWalk(
 			err = processFileTypeSidecar(scannedFile)
 
 		default: // app.FileTypePlaylist
-			err = processFileTypePlaylist(scannedFile)
+			err = command.InsertLibrarySyncLog(ctx, conn, "info",
+				"skipping unsupported playlist item", scannedFile.RootPath, scannedFile.Path)
 		}
 
 		if err == nil {
@@ -100,11 +100,9 @@ func localFolderWalk(
 		return err
 	}
 
-	if err := walk(conf, walker); err != nil {
-		return err
-	}
-
-	return nil
+	state := &walkState{ctx: ctx, conn: conn}
+	walk(conf, state, walker)
+	return state.err
 }
 
 func processFileTypeAudio(
@@ -169,14 +167,6 @@ func processFileTypeAudio(
 func processFileTypeSidecar(
 	_ *app.ScannedFile,
 ) error {
-	return nil
-}
-
-func processFileTypePlaylist(scannedFile *app.ScannedFile) error {
-	slog.Debug(
-		"skipping unsupported playlist item",
-		"path", scannedFile.Path,
-	)
 	return nil
 }
 

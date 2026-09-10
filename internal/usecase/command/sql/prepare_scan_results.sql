@@ -1,3 +1,5 @@
+DELETE FROM library_sync_logs;
+
 DROP TABLE IF EXISTS scan_tracks;
 
 CREATE TEMP TABLE scan_tracks (
@@ -13,7 +15,6 @@ CREATE TEMP TABLE scan_tracks (
     duration_seconds     INTEGER NOT NULL                 ,
     track_metadata       TEXT    NOT NULL                 ,
     normalized_metadata  TEXT    NOT NULL                 ,
-    scan_error           TEXT    NOT NULL                 ,
 
     PRIMARY KEY (root_pos, path)                          ,
     CHECK (
@@ -93,4 +94,13 @@ CREATE TEMP TABLE scan_sidecar_others (
 
     PRIMARY KEY (root_pos, path)                          ,
     CHECK (length(trim(path)) > 0)
+) WITHOUT ROWID;
+
+DROP TABLE IF EXISTS scan_playlists;
+
+-- Count recognized playlists without importing them into the library.
+CREATE TEMP TABLE scan_playlists (
+    root_pos INTEGER NOT NULL,
+    path TEXT NOT NULL,
+    PRIMARY KEY (root_pos, path)
 ) WITHOUT ROWID;

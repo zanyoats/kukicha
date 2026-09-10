@@ -1,6 +1,8 @@
 package scan
 
 import (
+	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"io"
@@ -13,15 +15,49 @@ import (
 	"github.com/zanyoats/kukicha/internal/app"
 	"github.com/zanyoats/kukicha/internal/scan/duration"
 	"github.com/zanyoats/kukicha/internal/textkey"
+	"github.com/zanyoats/kukicha/internal/usecase/command"
 )
 
 type walkFunc func(scannedFile *app.ScannedFile) error
 
+// walkState keeps infrastructure failures separate from recoverable file issues.
+type walkState struct {
+	ctx  context.Context
+	conn *sql.Conn
+	err  error
+}
+
+func (w *walkState) stopped() bool {
+	if w.err == nil {
+		w.err = w.ctx.Err()
+	}
+	return w.err != nil
+}
+
+func (w *walkState) log(level, message string, root *app.Root, path string) {
+	if w.stopped() {
+		return
+	}
+	if err := command.InsertLibrarySyncLog(w.ctx, w.conn, level, message, root.RootPath, path); err != nil {
+		w.err = fmt.Errorf("%s: %w", message, err)
+	}
+}
+
+func (w *walkState) fail(err error, root *app.Root, path string) {
+	if !errors.Is(err, command.ErrSyncLogWrite) && w.ctx.Err() == nil {
+		w.log("error", fmt.Sprintf("cannot process file: %v", err), root, path)
+	}
+	w.err = errors.Join(err, w.err)
+}
+
 // Normalized roots are valid dir paths
-func walk(conf *app.AppConfig, fn walkFunc) error {
+func walk(conf *app.AppConfig, state *walkState, fn walkFunc) {
 	progressLogInterval := conf.Settings.Scan.ProgressLogInterval.Duration
 
 	for _, root := range conf.Roots {
+		if state.stopped() {
+			return
+		}
 		processedFiles := 0
 		lastProgressLog := time.Now()
 
@@ -51,8 +87,9 @@ func walk(conf *app.AppConfig, fn walkFunc) error {
 			return nil
 		}
 
-		if err := walkDir(conf, &root, "", progressFn); err != nil {
-			return err
+		walkDir(conf, state, &root, "", progressFn)
+		if state.stopped() {
+			return
 		}
 
 		slog.Info(
@@ -62,29 +99,30 @@ func walk(conf *app.AppConfig, fn walkFunc) error {
 			"processed_files", processedFiles,
 		)
 	}
-
-	return nil
 }
 
 func walkDir(
 	conf *app.AppConfig,
+	state *walkState,
 	root *app.Root,
 	folderPath string,
 	fn walkFunc,
-) error {
+) {
+	if state.stopped() {
+		return
+	}
 	dir := filepath.Join(root.RootPath, folderPath)
 	files, err := os.ReadDir(dir)
 
 	if err != nil {
-		slog.Warn(
-			"cannot read folder; skipping it",
-			"path", dir,
-			"error", err,
-		)
-		return nil
+		state.log("error", fmt.Sprintf("cannot read folder; skipping it: %v", err), root, folderPath)
+		return
 	}
 
 	for _, file := range files {
+		if state.stopped() {
+			return
+		}
 		switch {
 		case file.Type().IsRegular():
 			name := file.Name()
@@ -117,35 +155,35 @@ func walkDir(
 				}
 
 				if info, err := os.Lstat(fullPath); err != nil {
-					scannedFile.ScanError = err.Error()
+					state.log("error", fmt.Sprintf("cannot stat file; skipping it: %v", err), root, path)
+					continue
 				} else {
 					scannedFile.FileSize = info.Size()
 					scannedFile.FileModTime = info.ModTime()
 
 					if fileType == app.FileTypeAudio {
-						applyTrackMetadata(
-							fullPath,
-							scannedFile,
-							conf.Settings.Scan.LocalArtworkMaxBytes,
-						)
+						if err := applyTrackMetadata(fullPath, scannedFile); err != nil {
+							state.log("error", fmt.Sprintf("cannot read audio metadata: %v", err), root, path)
+						}
+						filterEmbeddedArtwork(scannedFile, conf.Settings.Scan.LocalArtworkMaxBytes, state)
 					}
 				}
 
+				if state.stopped() {
+					return
+				}
 				if err := fn(scannedFile); err != nil {
-					return err
+					state.fail(err, root, path)
+					return
 				}
 			}
 
 		case file.Type().IsDir():
 			folderPath_ := filepath.Join(folderPath, file.Name())
 
-			if err := walkDir(conf, root, folderPath_, fn); err != nil {
-				return err
-			}
+			walkDir(conf, state, root, folderPath_, fn)
 		}
 	}
-
-	return nil
 }
 
 func isRecognizable(name string, recognizedSidecarArtwork map[string]bool) (filetype app.FileType, ok bool) {
@@ -203,8 +241,7 @@ func isRecognizable(name string, recognizedSidecarArtwork map[string]bool) (file
 func applyTrackMetadata(
 	path string,
 	scannedFile *app.ScannedFile,
-	localArtworkMaxBytes int64,
-) {
+) error {
 	defer func() {
 		if scannedFile.Metadata.ReleaseYear == 0 {
 			scannedFile.Metadata.ReleaseYear = yearFromDate(scannedFile.Metadata.ReleaseDate)
@@ -216,20 +253,15 @@ func applyTrackMetadata(
 
 	f, err := os.Open(path)
 	if err != nil {
-		scannedFile.ScanError = err.Error()
-		return
+		return err
 	}
 	defer f.Close()
 
 	if err := scanTrackMetadata(path, f, scannedFile); err != nil {
-		scannedFile.ScanError = err.Error()
-		return
+		return err
 	}
 
-	filterEmbeddedArtwork(
-		scannedFile,
-		localArtworkMaxBytes,
-	)
+	return nil
 }
 
 // NOTE: ensure stays synced with `scan.RecognizedAudioExtensions`
@@ -313,18 +345,16 @@ func applyEmbeddedArtwork(embeddedArtwork *[]app.EmbeddedArtwork, artwork []artw
 func filterEmbeddedArtwork(
 	scannedFile *app.ScannedFile,
 	maxBytes int64,
+	state *walkState,
 ) {
 	// Reuse the existing backing array while compacting accepted artwork in place.
 	artwork := scannedFile.Artwork[:0]
 	for position, candidate := range scannedFile.Artwork {
 		if int64(candidate.ArtworkContentSize) > maxBytes {
-			slog.Warn(
-				"ignoring oversized embedded artwork",
-				"path", scannedFile.Path,
-				"position", position,
-				"size_bytes", candidate.ArtworkContentSize,
-				"limit_bytes", maxBytes,
-			)
+			state.log("warn", fmt.Sprintf(
+				"ignoring oversized embedded artwork: position %d, size %d bytes, limit %d bytes",
+				position, candidate.ArtworkContentSize, maxBytes,
+			), &scannedFile.Root, scannedFile.Path)
 			continue
 		}
 

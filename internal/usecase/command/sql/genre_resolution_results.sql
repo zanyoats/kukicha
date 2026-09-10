@@ -38,14 +38,12 @@ WITH summaries AS (
     FROM scan_track_genre_resolution
     GROUP BY track_id
 )
+INSERT INTO library_sync_logs (level, message, root_path, path)
 SELECT
-    track_id,
-    path,
     CASE
-        WHEN input_count = 0 THEN 'empty'
-        WHEN resolved_count = 0 THEN 'unresolved'
-        WHEN unresolved_count > 0 THEN 'partial'
-    END AS status,
+        WHEN input_count > 0 AND resolved_count = 0 THEN 'error'
+        ELSE 'warn'
+    END,
     CASE
         WHEN input_count = 0
             THEN 'set to unknown since audio file genres was empty'
@@ -53,9 +51,13 @@ SELECT
             THEN 'set to unknown since the following audio file genres could not resolve to either a canonical style or genre: ' || unresolved_display
         WHEN unresolved_count > 0
             THEN 'the following audio file genres could not resolve to either a canonical style or genre: ' || unresolved_display
-    END AS log_message
+    END,
+    roots.path,
+    summaries.path
 FROM summaries
+JOIN library_tracks AS tracks ON tracks.id = summaries.track_id
+JOIN library_roots AS roots ON roots.id = tracks.root_id
 WHERE input_count = 0
     OR resolved_count = 0
     OR unresolved_count > 0
-ORDER BY track_id;
+ORDER BY summaries.track_id;

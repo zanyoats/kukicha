@@ -52,7 +52,7 @@ func StoreCachedITunesArtwork(
 
 	default:
 		return fmt.Errorf(
-			"cannot cache iTunes result kind %q",
+			"bug: unsupported iTunes artwork result kind %q",
 			result.ResultKind,
 		)
 	}

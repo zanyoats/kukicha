@@ -77,13 +77,40 @@ func run() error {
 		return err
 	}
 
-	slog.Info("library sync complete")
-
-	for _, genreResolution := range result.GenreResolutionResult {
-		slog.Warn(
-			genreResolution.LogMessage,
-			"path", genreResolution.Path,
-			"status", genreResolution.Status,
+	// TextHandler escapes newlines, so print this human-readable summary directly.
+	if slog.Default().Enabled(ctx, slog.LevelInfo) {
+		fmt.Fprintf(os.Stderr,
+			"library sync complete\n"+
+				"\tscan summary:\n"+
+				"\t\tprocessed_files=%d\n"+
+				"\t\troots=%d\n"+
+				"\t\talbums=%d\n"+
+				"\t\ttracks=%d\n"+
+				"\t\tplaylists=%d\n"+
+				"\t\tsidecar_files=%d\n"+
+				"\t\talbum_sidecars=%d\n"+
+				"\t\tunassociated_sidecars=%d\n"+
+				"\t\ttracks_with_unknown_titles=%d\n"+
+				"\t\talbums_with_unknown_names=%d\n"+
+				"\t\talbums_with_unknown_artists=%d\n"+
+				"\tlog summary:\n"+
+				"\t\terrors=%d\n"+
+				"\t\twarnings=%d\n"+
+				"\t\tinfo=%d\n",
+			result.ScanStats.ProcessedFiles,
+			result.ScanStats.LibraryRoots,
+			result.ScanStats.LibraryAlbums,
+			result.ScanStats.LibraryTracks,
+			result.ScanStats.LibraryPlaylists,
+			result.ScanStats.SidecarFiles,
+			result.ScanStats.LibraryAlbumSidecars,
+			result.ScanStats.UnassociatedSidecars,
+			result.ScanStats.LibraryTrackTitleUnknowns,
+			result.ScanStats.LibraryAlbumUnknowns,
+			result.ScanStats.LibraryAlbumArtistUnknowns,
+			result.LogStats.ErrorCount,
+			result.LogStats.WarnCount,
+			result.LogStats.InfoCount,
 		)
 	}
 
@@ -100,9 +127,8 @@ func run() error {
 	slog.Info(
 		"web server listening",
 		"url", fmt.Sprintf(
-			"http://%s%s",
+			"http://%s",
 			conf.Settings.Server.ServerAddress,
-			conf.Settings.Server.AppBasePath,
 		),
 	)
 

@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log/slog"
 	"os"
 	"path/filepath"
 	"slices"
@@ -21,6 +20,9 @@ var prepareScanResultsSQL string
 
 //go:embed sql/library_counts.sql
 var libraryCountsSQL string
+
+//go:embed sql/insert_scanned_playlist.sql
+var insertScannedPlaylistSQL string
 
 //go:embed sql/insert_scanned_file.sql
 var insertScannedFileSQL string
@@ -67,8 +69,8 @@ var buildLibraryAlbumGenresAndStylesSQL string
 //go:embed sql/genre_resolution_results.sql
 var genreResolutionResultsSQL string
 
-//go:embed sql/build_library_track_sidecars.sql
-var buildLibraryTrackSidecarsSQL string
+//go:embed sql/build_library_album_sidecars.sql
+var buildLibraryAlbumSidecarsSQL string
 
 //go:embed sql/insert_library_track_artwork.sql
 var insertLibraryTrackArtworkSQL string
@@ -102,24 +104,23 @@ func PrepareScanResults(
 	return err
 }
 
-type GenreResolutionResult struct {
-	TrackId    int
-	Path       string
-	Status     string
-	LogMessage string
+type BuildLibraryResult struct {
+	ScanStats SyncScanStats
+	LogStats  SyncLogStats
 }
 
-type BuildLibraryResult struct {
-	LibraryRoots                    int
-	LibraryAlbums                   int
-	LibraryTracks                   int
-	LibraryPlaylists                int
-	LibraryTrackSidecars            int
-	LibraryTrackTitleUnknowns       int
-	LibraryTrackAlbumUnknowns       int
-	LibraryTrackAlbumArtistUnknowns int
-	LibraryTrackScanErrors          int
-	GenreResolutionResult           []GenreResolutionResult
+type SyncScanStats struct {
+	ProcessedFiles             int
+	SidecarFiles               int
+	UnassociatedSidecars       int
+	LibraryRoots               int
+	LibraryAlbums              int
+	LibraryTracks              int
+	LibraryPlaylists           int
+	LibraryAlbumSidecars       int
+	LibraryTrackTitleUnknowns  int
+	LibraryAlbumUnknowns       int
+	LibraryAlbumArtistUnknowns int
 }
 
 func BuildLibraryFromScan(
@@ -155,7 +156,7 @@ func BuildLibraryFromScan(
 		return result, err
 	}
 
-	if err = buildLibraryAlbums(ctx, tx); err != nil {
+	if err = buildLibraryAlbums(ctx, tx, unknownItem); err != nil {
 		_ = tx.Rollback()
 		return result, err
 	}
@@ -175,7 +176,7 @@ func BuildLibraryFromScan(
 		return result, err
 	}
 
-	if result.GenreResolutionResult, err = buildLibraryTrackGenresAndStyles(
+	if err = buildLibraryTrackGenresAndStyles(
 		ctx, tx,
 		unknownItem,
 		secondaryGenreSplitTokens,
@@ -189,7 +190,7 @@ func BuildLibraryFromScan(
 		return result, err
 	}
 
-	if err = buildLibraryTrackSidecars(ctx, tx); err != nil {
+	if err = buildLibraryAlbumSidecars(ctx, tx); err != nil {
 		_ = tx.Rollback()
 		return result, err
 	}
@@ -209,16 +210,32 @@ func BuildLibraryFromScan(
 		return result, err
 	}
 
-	err = tx.QueryRowContext(ctx, libraryCountsSQL).Scan(
-		&result.LibraryRoots,
-		&result.LibraryAlbums,
-		&result.LibraryTracks,
+	err = tx.QueryRowContext(ctx, libraryCountsSQL, sql.Named("unknown_item", unknownItem)).Scan(
+		&result.ScanStats.ProcessedFiles,
+		&result.ScanStats.SidecarFiles,
+		&result.ScanStats.UnassociatedSidecars,
+		&result.ScanStats.LibraryRoots,
+		&result.ScanStats.LibraryAlbums,
+		&result.ScanStats.LibraryTracks,
+		&result.ScanStats.LibraryPlaylists,
+		&result.ScanStats.LibraryAlbumSidecars,
+		&result.ScanStats.LibraryTrackTitleUnknowns,
+		&result.ScanStats.LibraryAlbumUnknowns,
+		&result.ScanStats.LibraryAlbumArtistUnknowns,
 	)
 	if err != nil {
 		_ = tx.Rollback()
 		return result, err
 	}
 
+	if err = tx.QueryRowContext(ctx, syncLogCountsSQL).Scan(
+		&result.LogStats.ErrorCount,
+		&result.LogStats.WarnCount,
+		&result.LogStats.InfoCount,
+	); err != nil {
+		_ = tx.Rollback()
+		return result, err
+	}
 	return result, tx.Commit()
 }
 
@@ -251,7 +268,9 @@ func InsertScannedFile(
 		return insertScannedSidecarOther(ctx, conn, r)
 
 	case app.FileTypePlaylist:
-		return nil
+		_, err := conn.ExecContext(ctx, insertScannedPlaylistSQL,
+			sql.Named("root_pos", r.RootPos), sql.Named("path", r.Path))
+		return err
 
 	default:
 		return fmt.Errorf("unsupported scanned file type %d", r.FileType)
@@ -295,7 +314,6 @@ func insertScannedTrack(
 		sql.Named("duration_seconds", r.DurationSeconds),
 		sql.Named("track_metadata", metadata),
 		sql.Named("normalized_metadata", normalizedMetadata),
-		sql.Named("scan_error", r.ScanError),
 	)
 	if err != nil {
 		return err
@@ -322,6 +340,7 @@ func insertScannedTrack(
 			thumbnailCacheName, err = cacheArtworkForScan(
 				ctx,
 				conn,
+				r,
 				fmt.Sprintf("embedded artwork %q position %d", r.Path, artworkPos),
 				artwork.ArtworkBytes,
 			)
@@ -357,42 +376,26 @@ func insertScannedSidecarCover(
 	localArtworkMaxBytes int64,
 ) error {
 	thumbnailCacheName := ""
-	if r.ScanError == "" {
-		artworkBytes, err := readLocalArtworkFile(
-			filepath.Join(r.RootPath, r.Path),
-			localArtworkMaxBytes,
-		)
-		if err != nil {
-			if ctx.Err() != nil {
-				return ctx.Err()
-			}
-			slog.WarnContext(
-				ctx,
-				"cannot read sidecar artwork",
-				"path", r.Path,
-				"error", err,
-			)
-		} else {
-			thumbnailCacheName, err = cacheArtworkForScan(
-				ctx,
-				conn,
-				fmt.Sprintf("sidecar artwork %q", r.Path),
-				artworkBytes,
-			)
-			if err != nil {
-				return err
-			}
+	artworkBytes, err := readLocalArtworkFile(
+		filepath.Join(r.RootPath, r.Path), localArtworkMaxBytes,
+	)
+	if err != nil {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		if logErr := InsertLibrarySyncLog(ctx, conn, "warn",
+			fmt.Sprintf("cannot read sidecar artwork: %v", err), r.RootPath, r.Path); logErr != nil {
+			return fmt.Errorf("%v: %w", err, logErr)
 		}
 	} else {
-		slog.WarnContext(
-			ctx,
-			"cannot read sidecar artwork",
-			"path", r.Path,
-			"error", r.ScanError,
-		)
+		thumbnailCacheName, err = cacheArtworkForScan(ctx, conn, r,
+			fmt.Sprintf("sidecar artwork %q", r.Path), artworkBytes)
+		if err != nil {
+			return err
+		}
 	}
 
-	_, err := conn.ExecContext(
+	_, err = conn.ExecContext(
 		ctx,
 		insertScannedSidecarCoverSQL,
 		sql.Named("root_pos", r.RootPos),
@@ -471,17 +474,16 @@ func insertScannedSidecarOther(
 func cacheArtworkForScan(
 	ctx context.Context,
 	conn *sql.Conn,
+	r *app.ScannedFile,
 	description string,
 	artworkBytes []byte,
 ) (string, error) {
 	name, err := cacheArtworkThumbnails(ctx, conn, artworkBytes)
 	if errors.Is(err, errInvalidArtwork) {
-		slog.WarnContext(
-			ctx,
-			"cannot cache artwork",
-			"description", description,
-			"error", err,
-		)
+		if logErr := InsertLibrarySyncLog(ctx, conn, "warn",
+			fmt.Sprintf("cannot cache %s: %v", description, err), r.RootPath, r.Path); logErr != nil {
+			return "", fmt.Errorf("%v: %w", err, logErr)
+		}
 		return "", nil
 	}
 	if err != nil {
@@ -530,13 +532,11 @@ func cacheScannedFileITunesArtwork(
 			if errors.Is(err, ErrITunesArtworkCache) {
 				return err
 			}
-			slog.WarnContext(
-				ctx,
-				"iTunes artwork lookup failed",
-				"kind", candidate.kind,
-				"lookup_id", lookupID,
-				"error", err,
-			)
+			if logErr := InsertLibrarySyncLog(ctx, conn, "warn",
+				fmt.Sprintf("iTunes artwork lookup failed: kind %s, lookup ID %s: %v", candidate.kind, lookupID, err),
+				r.RootPath, r.Path); logErr != nil {
+				return fmt.Errorf("%v: %w", err, logErr)
+			}
 			continue
 		}
 
@@ -545,6 +545,7 @@ func cacheScannedFileITunesArtwork(
 			thumbnailCacheName, err := cacheArtworkForScan(
 				ctx,
 				conn,
+				r,
 				fmt.Sprintf("iTunes %s artwork %s", candidate.kind, lookupID),
 				result.Bytes,
 			)
@@ -568,12 +569,9 @@ func cacheScannedFileITunesArtwork(
 		case app.ITunesResultMissing:
 			continue
 		default:
-			slog.ErrorContext(
-				ctx,
-				"iTunes artwork lookup returned unsupported result kind",
-				"kind", candidate.kind,
-				"lookup_id", lookupID,
-				"result_kind", result.ResultKind,
+			return fmt.Errorf(
+				"bug: unsupported iTunes artwork result kind %q",
+				result.ResultKind,
 			)
 		}
 	}
@@ -609,8 +607,8 @@ func buildLibraryRoots(ctx context.Context, tx *sql.Tx) error {
 	return nil
 }
 
-func buildLibraryAlbums(ctx context.Context, tx *sql.Tx) error {
-	if _, err := tx.ExecContext(ctx, buildLibraryAlbumsSQL); err != nil {
+func buildLibraryAlbums(ctx context.Context, tx *sql.Tx, unknownItem string) error {
+	if _, err := tx.ExecContext(ctx, buildLibraryAlbumsSQL, sql.Named("unknown_item", unknownItem)); err != nil {
 		return fmt.Errorf("build library albums: %w", err)
 	}
 
@@ -646,7 +644,7 @@ func buildLibraryTrackGenresAndStyles(
 	tx *sql.Tx,
 	unknownItem string,
 	secondaryGenreSplitTokens map[string]bool,
-) (result []GenreResolutionResult, err error) {
+) error {
 	splitDelimiters := make([]string, 0, len(secondaryGenreSplitTokens))
 	for delimiter, enabled := range secondaryGenreSplitTokens {
 		if enabled {
@@ -657,7 +655,7 @@ func buildLibraryTrackGenresAndStyles(
 
 	splitDelimitersJSON, err := json.Marshal(splitDelimiters)
 	if err != nil {
-		return nil, fmt.Errorf("JSON encoding error for secondary genre split tokens: %w", err)
+		return fmt.Errorf("JSON encoding error for secondary genre split tokens: %w", err)
 	}
 
 	if _, err = tx.ExecContext(
@@ -670,36 +668,13 @@ func buildLibraryTrackGenresAndStyles(
 			"build library track genres and styles: %w",
 			err,
 		)
-		return
+		return err
 	}
 
-	var rows *sql.Rows
-
-	if rows, err = tx.QueryContext(ctx, genreResolutionResultsSQL); err != nil {
-		return
+	if _, err := tx.ExecContext(ctx, genreResolutionResultsSQL); err != nil {
+		return fmt.Errorf("record genre resolution issues: %w", err)
 	}
-	defer rows.Close()
-
-	for rows.Next() {
-		var item GenreResolutionResult
-
-		if err = rows.Scan(
-			&item.TrackId,
-			&item.Path,
-			&item.Status,
-			&item.LogMessage,
-		); err != nil {
-			return
-		}
-
-		result = append(result, item)
-	}
-
-	if err = rows.Err(); err != nil {
-		return
-	}
-
-	return
+	return nil
 }
 
 func buildLibraryAlbumGenresAndStyles(
@@ -719,9 +694,9 @@ func buildLibraryAlbumGenresAndStyles(
 	return nil
 }
 
-func buildLibraryTrackSidecars(ctx context.Context, tx *sql.Tx) error {
-	if _, err := tx.ExecContext(ctx, buildLibraryTrackSidecarsSQL); err != nil {
-		return fmt.Errorf("build library track sidecars: %w", err)
+func buildLibraryAlbumSidecars(ctx context.Context, tx *sql.Tx) error {
+	if _, err := tx.ExecContext(ctx, buildLibraryAlbumSidecarsSQL); err != nil {
+		return fmt.Errorf("build library album sidecars: %w", err)
 	}
 
 	return nil

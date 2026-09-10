@@ -61,7 +61,7 @@ INSERT INTO library_albums (
 )
 SELECT
     ids.id,
-    MAX(CASE WHEN field = 'format' THEN value END),
+    COALESCE(MAX(CASE WHEN field = 'format' THEN value END), :unknown_item),
     MAX(CASE WHEN field = 'album' THEN value END),
     CAST(MAX(CASE WHEN field = 'disc_count' THEN value END) AS INTEGER),
     MAX(CASE WHEN field = 'release_date' THEN value END),

@@ -99,6 +99,16 @@ CREATE TABLE library_roots (
     CHECK (length(trim(path)) > 0)
 );
 
+CREATE TABLE library_sync_logs (
+    level     TEXT NOT NULL                          ,
+    message   TEXT NOT NULL                          ,
+    timestamp TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    root_path TEXT NOT NULL                          ,
+    path      TEXT NOT NULL                          ,
+
+    CHECK (level IN ('error', 'warn', 'info'))
+);
+
 CREATE TABLE library_albums (
     id                    INTEGER PRIMARY KEY,
     album                 TEXT    NOT NULL   ,
@@ -136,17 +146,22 @@ CREATE TABLE library_album_artists (
 CREATE INDEX library_album_artists_artist_id_idx
 ON library_album_artists (artist_id, album_id);
 
-CREATE TABLE library_track_sidecars (
+CREATE TABLE library_album_sidecars (
     id                   INTEGER PRIMARY KEY AUTOINCREMENT,
-    track_id             INTEGER NOT NULL                 ,
+    album_id             INTEGER NOT NULL                 ,
+    root_id              INTEGER NOT NULL                 ,
     stem                 TEXT    NOT NULL                 ,
     ext                  TEXT    NOT NULL                 ,
     path                 TEXT    NOT NULL                 ,
     file_size            INTEGER NOT NULL                 ,
     file_mtime_unix_nano INTEGER NOT NULL                 ,
 
-    FOREIGN KEY (track_id)
-      REFERENCES library_tracks (id)
+    UNIQUE (album_id, root_id, path)                      ,
+    FOREIGN KEY (album_id)
+      REFERENCES library_albums (id)
+      ON DELETE CASCADE                                   ,
+    FOREIGN KEY (root_id)
+      REFERENCES library_roots (id)
       ON DELETE CASCADE
 );
 
@@ -267,7 +282,6 @@ CREATE TABLE library_tracks (
     file_mtime_unix_nano INTEGER NOT NULL   ,
     duration_seconds     INTEGER NOT NULL   ,
     track_metadata       TEXT    NOT NULL   ,
-    scan_error           TEXT    NOT NULL   ,
     title                TEXT    NOT NULL   ,
     artists              TEXT    NOT NULL   ,
     work                 TEXT               ,

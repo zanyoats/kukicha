@@ -101,7 +101,6 @@ type ScannedFile struct {
 	Metadata           *TrackMetadata
 	NormalizedMetadata *NormalizedTrackMetadata
 	Artwork            []EmbeddedArtwork
-	ScanError          string
 }
 
 type LibraryTrack struct {

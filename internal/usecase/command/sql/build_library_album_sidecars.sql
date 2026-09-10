@@ -21,16 +21,18 @@ WITH sidecars AS (
         file_mtime_unix_nano
     FROM scan_sidecar_others
 )
-INSERT INTO library_track_sidecars (
-    track_id,
+INSERT INTO library_album_sidecars (
+    album_id,
+    root_id,
     stem,
     ext,
     path,
     file_size,
     file_mtime_unix_nano
 )
-SELECT
-    tracks.id,
+SELECT DISTINCT
+    tracks.album_id,
+    roots.id,
     sidecars.stem,
     sidecars.ext,
     sidecars.path,
@@ -48,4 +50,4 @@ JOIN library_roots AS roots
 JOIN library_tracks AS tracks
     ON tracks.root_id = roots.id
     AND tracks.path = audio.path
-ORDER BY tracks.id, sidecars.path;
+ORDER BY tracks.album_id, roots.id, sidecars.path;
