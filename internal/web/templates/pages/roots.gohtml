@@ -13,12 +13,7 @@
 
 {{define "page-content"}}
 <article class="config-page">
-    <header>
-        <div>
-            <p class="page-eyebrow">Kukicha</p>
-            <h1>Roots</h1>
-        </div>
-    </header>
+    {{template "page-header" .}}
     {{if .Roots}}
     <aside class="alert alert-info" aria-label="Info">
         <strong>Info</strong>

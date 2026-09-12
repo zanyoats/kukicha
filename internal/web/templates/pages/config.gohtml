@@ -13,10 +13,7 @@
 
 {{define "page-content"}}
 <article class="config-page">
-    <header>
-        <p class="page-eyebrow">Kukicha</p>
-        <h1>{{.Title}}</h1>
-    </header>
+    {{template "page-header" .}}
 
     <p>{{.Description}}</p>
 </article>

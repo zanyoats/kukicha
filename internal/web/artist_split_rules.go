@@ -14,8 +14,10 @@ import (
 )
 
 type artistSplitRulesViewModel struct {
-	URLs  URLs
-	Rules []artistSplitRuleViewModel
+	EyeBrow string
+	Heading string
+	URLs    URLs
+	Rules   []artistSplitRuleViewModel
 }
 
 type artistSplitRuleViewModel struct {
@@ -55,8 +57,10 @@ func (c *appRoutes) showArtistSplitRules(w http.ResponseWriter, r *http.Request)
 		})
 	}
 	renderPage(w, c.renderer, "artist_split_rules.gohtml", artistSplitRulesViewModel{
-		URLs:  c.urls,
-		Rules: views,
+		EyeBrow: "Settings",
+		Heading: "Artist Split Rules",
+		URLs:    c.urls,
+		Rules:   views,
 	})
 }
 

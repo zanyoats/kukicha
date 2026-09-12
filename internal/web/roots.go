@@ -7,6 +7,8 @@ import (
 )
 
 type rootsViewModel struct {
+	EyeBrow     string
+	Heading     string
 	URLs        URLs
 	Roots       []query.Root
 	LogStats    query.SyncLogStats
@@ -37,6 +39,8 @@ func (c *appRoutes) showRoots(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	model := rootsViewModel{
+		EyeBrow:  "Settings",
+		Heading:  "Roots",
 		URLs:     c.urls,
 		Roots:    roots,
 		LogStats: stats,

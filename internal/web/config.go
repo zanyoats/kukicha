@@ -19,13 +19,17 @@ func configPages(urls URLs) []configPage {
 }
 
 type configViewModel struct {
-	URLs URLs
+	EyeBrow string
+	Heading string
+	URLs    URLs
 	configPage
 }
 
 func (c *appRoutes) showConfig(page configPage) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		renderPage(w, c.renderer, "config.gohtml", configViewModel{
+			EyeBrow:    "Settings",
+			Heading:    page.Title,
 			URLs:       c.urls,
 			configPage: page,
 		})

@@ -7,6 +7,8 @@ import (
 )
 
 type homeViewModel struct {
+	EyeBrow string
+	Heading string
 	URLs    URLs
 	Artists []homeLink
 	Genres  []homeLink
@@ -26,7 +28,9 @@ func (c *appRoutes) showHome(w http.ResponseWriter, r *http.Request) {
 	}
 
 	renderPage(w, c.renderer, "home.gohtml", homeViewModel{
-		URLs: c.urls,
+		EyeBrow: "Kukicha",
+		Heading: "Browse",
+		URLs:    c.urls,
 		Artists: homeLinks(home.Artists, func(id int64) string {
 			return c.urls.ArtistURL(id)
 		}),

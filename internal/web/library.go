@@ -11,6 +11,7 @@ import (
 )
 
 type libraryViewModel struct {
+	EyeBrow string
 	URLs    URLs
 	Heading string
 	Albums  []albumCard
@@ -31,6 +32,8 @@ type artworkViewModel struct {
 }
 
 type albumViewModel struct {
+	EyeBrow       string
+	Heading       string
 	URLs          URLs
 	Album         *query.Album
 	SmallArtwork  artworkViewModel
@@ -102,6 +105,8 @@ func (c *appRoutes) showLibrary(w http.ResponseWriter, r *http.Request) {
 		}
 
 		renderPage(w, c.renderer, "album.gohtml", albumViewModel{
+			EyeBrow:       "Collection",
+			Heading:       album.Title,
 			URLs:          c.urls,
 			Album:         &album,
 			SmallArtwork:  smallArtwork,
@@ -147,6 +152,7 @@ func (c *appRoutes) showLibrary(w http.ResponseWriter, r *http.Request) {
 		}
 
 		renderPage(w, c.renderer, "library.gohtml", libraryViewModel{
+			EyeBrow: "Collection",
 			URLs:    c.urls,
 			Heading: heading,
 			Albums:  albumCards,

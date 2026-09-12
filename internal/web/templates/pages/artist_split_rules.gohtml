@@ -13,10 +13,7 @@
 
 {{define "page-content"}}
 <article class="config-page">
-    <header>
-        <p class="page-eyebrow">Settings</p>
-        <h1>Artist Split Rules</h1>
-    </header>
+    {{template "page-header" .}}
     {{if .Rules}}
     <aside class="alert alert-info" aria-label="Info">
         <strong>Info</strong>

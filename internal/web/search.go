@@ -3,11 +3,15 @@ package web
 import "net/http"
 
 type searchViewModel struct {
-	URLs URLs
+	EyeBrow string
+	Heading string
+	URLs    URLs
 }
 
 func (c *appRoutes) showSearch(w http.ResponseWriter, r *http.Request) {
 	renderPage(w, c.renderer, "search.gohtml", searchViewModel{
-		URLs: c.urls,
+		EyeBrow: "Discover",
+		Heading: "Search Results",
+		URLs:    c.urls,
 	})
 }
