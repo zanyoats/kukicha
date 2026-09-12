@@ -84,3 +84,6 @@ cache_size_kib = 32_768
 
 [ui]
 per_page = 200
+
+# Default library order: recentlyAdded, album, or artistAlbum.
+default_album_sort = "recentlyAdded"

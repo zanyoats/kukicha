@@ -2,7 +2,36 @@
 
 {{define "page-content"}}
 <article class="library-page">
-    {{template "page-header" .}}
+    <div class="library-header">
+        {{template "page-header" .}}
+
+        <button
+            type="button"
+            class="library-sort-trigger"
+            aria-haspopup="dialog"
+            up-follow
+            up-layer="new popup"
+            up-content="#library-sort-options"
+            up-class="library-sort-popup"
+            up-position="bottom"
+            up-align="right"
+            up-history="false"
+            up-dismissible="key outside"
+            up-focus=".library-sort-option[data-current]"
+        >
+            Sort: <strong>{{range .SortOptions}}{{if .Current}}{{.Label}}{{end}}{{end}}</strong>
+            <svg class="sort-chevron" aria-hidden="true" focusable="false"><use href="#icon-chevron-down"></use></svg>
+        </button>
+    </div>
+
+    <template id="library-sort-options">
+        <nav class="library-sort-menu" aria-label="Sort albums">
+            {{range .SortOptions}}
+            <a class="library-sort-option" href="{{.URL}}" {{if .Current}}data-current="true" aria-label="{{.Label}} (current sort)"{{end}}
+                up-follow up-layer="root" up-target="[up-main]" up-history="true">{{.Label}}</a>
+            {{end}}
+        </nav>
+    </template>
 
     <ul class="item-grid">
         {{range .Albums}}

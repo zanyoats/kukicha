@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+
+	"github.com/zanyoats/kukicha/internal/app"
 )
 
 var ErrAlbumNotFound = errors.New("album not found")
@@ -126,7 +128,13 @@ func Albums(
 	ctx context.Context,
 	db *sql.DB,
 	filters AlbumFilters,
+	sort app.AlbumSort,
 ) ([]AlbumSummary, error) {
+	switch sort {
+	case app.AlbumSortRecentlyAdded, app.AlbumSortAlbum, app.AlbumSortArtistAlbum:
+	default:
+		return nil, fmt.Errorf("bug: unsupported album sort %q", sort)
+	}
 	smallWidth, err := albumArtworkWidth(AlbumArtwork64)
 	if err != nil {
 		return nil, err
@@ -136,6 +144,7 @@ func Albums(
 		return nil, err
 	}
 	rows, err := db.QueryContext(ctx, albumsSQL,
+		sql.Named("sort", string(sort)),
 		sql.Named("artist_id", filters.ArtistID),
 		sql.Named("genre_id", filters.GenreID),
 		sql.Named("style_id", filters.StyleID),

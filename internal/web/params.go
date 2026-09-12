@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"strconv"
 
+	"github.com/zanyoats/kukicha/internal/app"
 	"github.com/zanyoats/kukicha/internal/usecase/query"
 )
 
@@ -100,4 +101,20 @@ func requiredQueryValue(
 	}
 
 	return found[0], nil
+}
+
+// parseAlbumSort uses configuration only when the URL omits sort.
+func parseAlbumSort(r *http.Request, fallback app.AlbumSort) (app.AlbumSort, error) {
+	if !r.URL.Query().Has("sort") {
+		return fallback, nil
+	}
+	value, err := requiredQueryValue(r.URL.Query(), "sort")
+	if err != nil {
+		return "", err
+	}
+	var sort app.AlbumSort
+	if err := sort.UnmarshalText([]byte(value)); err != nil {
+		return "", err
+	}
+	return sort, nil
 }

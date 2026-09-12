@@ -121,6 +121,7 @@ func run() error {
 			renderer,
 			db,
 			conf.Settings.UI.PerPage,
+			conf.Settings.UI.DefaultAlbumSort,
 		),
 		ReadHeaderTimeout: conf.Settings.Server.ReadHeaderTimeout.Duration,
 	}

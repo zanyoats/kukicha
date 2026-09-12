@@ -4,17 +4,56 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 
+	"github.com/zanyoats/kukicha/internal/app"
 	"github.com/zanyoats/kukicha/internal/usecase/query"
 )
 
 type libraryViewModel struct {
-	EyeBrow string
-	URLs    URLs
-	Heading string
-	Albums  []albumCard
+	EyeBrow     string
+	URLs        URLs
+	Heading     string
+	Albums      []albumCard
+	SortOptions []albumSortOption
+}
+
+type albumSortOption struct {
+	Label   string
+	URL     string
+	Current bool
+}
+
+func librarySortOptions(libraryURL string, filters query.AlbumFilters, current app.AlbumSort) []albumSortOption {
+	values := url.Values{}
+	for key, id := range map[string]int64{
+		"artist_id": filters.ArtistID,
+		"genre_id":  filters.GenreID,
+		"style_id":  filters.StyleID,
+	} {
+		if id != 0 {
+			values.Set(key, strconv.FormatInt(id, 10))
+		}
+	}
+	options := make([]albumSortOption, 0, 3)
+	for _, option := range []struct {
+		sort  app.AlbumSort
+		label string
+	}{
+		{app.AlbumSortRecentlyAdded, "Recently added"},
+		{app.AlbumSortAlbum, "Album"},
+		{app.AlbumSortArtistAlbum, "Artist, album"},
+	} {
+		values.Set("sort", string(option.sort))
+		options = append(options, albumSortOption{
+			Label:   option.label,
+			URL:     libraryURL + "?" + values.Encode(),
+			Current: option.sort == current,
+		})
+	}
+	return options
 }
 
 type albumCard struct {
@@ -121,6 +160,12 @@ func (c *appRoutes) showLibrary(w http.ResponseWriter, r *http.Request) {
 		})
 
 	default: // show library (album collection) page
+		sort, err := parseAlbumSort(r, c.defaultAlbumSort)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
 		filterNames, err := query.NamesForAlbumFilters(r.Context(), c.db, filters)
 		if err != nil {
 			internalServerError(w, "unable to load album filter names", "error", err)
@@ -133,7 +178,7 @@ func (c *appRoutes) showLibrary(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		albums, err := query.Albums(r.Context(), c.db, filters)
+		albums, err := query.Albums(r.Context(), c.db, filters, sort)
 		if err != nil {
 			internalServerError(w, "unable to load albums", "error", err)
 			return
@@ -152,10 +197,11 @@ func (c *appRoutes) showLibrary(w http.ResponseWriter, r *http.Request) {
 		}
 
 		renderPage(w, c.renderer, "library.gohtml", libraryViewModel{
-			EyeBrow: "Collection",
-			URLs:    c.urls,
-			Heading: heading,
-			Albums:  albumCards,
+			EyeBrow:     "Collection",
+			URLs:        c.urls,
+			Heading:     heading,
+			Albums:      albumCards,
+			SortOptions: librarySortOptions(c.urls.Library, filters, sort),
 		})
 	}
 }

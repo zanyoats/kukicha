@@ -56,35 +56,39 @@ CREATE TABLE album_artist_split_mappings (
 ) WITHOUT ROWID;
 
 CREATE TABLE library_root_ids (
-    id        INTEGER PRIMARY KEY AUTOINCREMENT,
-    root_path TEXT    NOT NULL                 ,
+    id        INTEGER PRIMARY KEY AUTOINCREMENT      ,
+    root_path TEXT    NOT NULL                       ,
+    timestamp TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
-    UNIQUE (root_path)                         ,
+    UNIQUE (root_path)                               ,
     CHECK (length(trim(root_path)) > 0)
 );
 
 CREATE TABLE library_album_ids (
-    id        INTEGER PRIMARY KEY AUTOINCREMENT,
-    album_key TEXT    NOT NULL                 ,
+    id        INTEGER PRIMARY KEY AUTOINCREMENT      ,
+    album_key TEXT    NOT NULL                       ,
+    timestamp TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
-    UNIQUE (album_key)                         ,
+    UNIQUE (album_key)                               ,
     CHECK (length(trim(album_key)) > 0)
 );
 
 CREATE TABLE library_artist_ids (
-    id     INTEGER PRIMARY KEY AUTOINCREMENT,
-    artist TEXT    NOT NULL COLLATE NOCASE  ,
+    id     INTEGER PRIMARY KEY AUTOINCREMENT         ,
+    artist TEXT    NOT NULL COLLATE NOCASE           ,
+    timestamp TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
-    UNIQUE (artist)                         ,
+    UNIQUE (artist)                                  ,
     CHECK (length(trim(artist)) > 0)
 );
 
 CREATE TABLE library_track_ids (
-    id        INTEGER PRIMARY KEY AUTOINCREMENT,
-    root_path TEXT    NOT NULL                 ,
-    path      TEXT    NOT NULL                 ,
+    id        INTEGER PRIMARY KEY AUTOINCREMENT      ,
+    root_path TEXT    NOT NULL                       ,
+    path      TEXT    NOT NULL                       ,
+    timestamp TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
-    UNIQUE (root_path, path)                   ,
+    UNIQUE (root_path, path)                         ,
     CHECK (
             length(trim(root_path)) > 0
         AND length(trim(path)) > 0
@@ -311,6 +315,9 @@ CREATE TABLE library_tracks (
       REFERENCES library_albums (id)
       ON DELETE CASCADE
 );
+
+CREATE INDEX library_tracks_album_id_idx
+ON library_tracks (album_id);
 
 CREATE TABLE itunes_lookup_image_cache (
     cache_key            TEXT    PRIMARY KEY ,

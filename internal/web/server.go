@@ -4,18 +4,33 @@ import (
 	"database/sql"
 	"log/slog"
 	"net/http"
+
+	"github.com/zanyoats/kukicha/internal/app"
 )
 
 type appRoutes struct {
-	urls     URLs
-	renderer Renderer
-	db       *sql.DB
-	perPage  int
+	urls             URLs
+	renderer         Renderer
+	db               *sql.DB
+	perPage          int
+	defaultAlbumSort app.AlbumSort
 }
 
-func NewWebRouter(basePath string, renderer Renderer, db *sql.DB, perPage int) http.Handler {
+func NewWebRouter(
+	basePath string,
+	renderer Renderer,
+	db *sql.DB,
+	perPage int,
+	defaultAlbumSort app.AlbumSort,
+) http.Handler {
 	urls := NewURLs(basePath)
-	router := appRoutes{urls: urls, renderer: renderer, db: db, perPage: perPage}
+	router := appRoutes{
+		urls:             urls,
+		renderer:         renderer,
+		db:               db,
+		perPage:          perPage,
+		defaultAlbumSort: defaultAlbumSort,
+	}
 	mux := http.NewServeMux()
 
 	mux.Handle(

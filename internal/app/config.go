@@ -65,6 +65,27 @@ func (level *LogLevel) UnmarshalText(text []byte) error {
 	return nil
 }
 
+// AlbumSort selects the ordering of an album collection.
+type AlbumSort string
+
+const (
+	AlbumSortRecentlyAdded AlbumSort = "recentlyAdded"
+	AlbumSortAlbum         AlbumSort = "album"
+	AlbumSortArtistAlbum   AlbumSort = "artistAlbum"
+)
+
+// UnmarshalText validates the album sort while decoding configuration.
+func (sort *AlbumSort) UnmarshalText(text []byte) error {
+	value := AlbumSort(text)
+	switch value {
+	case AlbumSortRecentlyAdded, AlbumSortAlbum, AlbumSortArtistAlbum:
+		*sort = value
+		return nil
+	default:
+		return fmt.Errorf("album sort %q must be one of recentlyAdded, album, or artistAlbum", text)
+	}
+}
+
 type AppConfig struct {
 	AppDir         string
 	Roots          []Root
@@ -100,7 +121,8 @@ type AppConfig struct {
 			} `toml:"database"`
 		} `toml:"server"`
 		UI struct {
-			PerPage int `toml:"per_page"`
+			PerPage          int       `toml:"per_page"`
+			DefaultAlbumSort AlbumSort `toml:"default_album_sort"`
 		} `toml:"ui"`
 	}
 }

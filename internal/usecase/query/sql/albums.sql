@@ -14,6 +14,8 @@ SELECT
         WHERE artists.id IS NOT NULL
     )
 FROM library_albums AS albums
+JOIN library_album_ids AS album_ids
+    ON album_ids.id = albums.id
 -- Keep artwork selection aligned with album_artwork.sql.
 LEFT JOIN thumbnail_cache AS small_artwork
     ON small_artwork.id = (
@@ -89,5 +91,8 @@ GROUP BY
     albums.id,
     albums.album
 ORDER BY
-    albums.album COLLATE NOCASE,
-    albums.id;
+    CASE WHEN :sort = 'recentlyAdded' THEN album_ids.timestamp END DESC,
+    CASE WHEN :sort = 'recentlyAdded' THEN albums.id END DESC,
+    CASE WHEN :sort = 'artistAlbum' THEN MIN(artists.artist COLLATE NOCASE) END COLLATE NOCASE ASC,
+    CASE WHEN :sort IN ('album', 'artistAlbum') THEN albums.album END COLLATE NOCASE ASC,
+    albums.id ASC;
