@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
+	"strings"
 
 	"github.com/zanyoats/kukicha/internal/app"
 )
@@ -123,78 +125,88 @@ func NamesForAlbumFilters(ctx context.Context, db *sql.DB, filters AlbumFilters)
 	return names, nil
 }
 
-// Albums loads matching albums and all their artists in display order.
+// AlbumPage contains the requested albums and whether another page follows.
+type AlbumPage struct {
+	Albums  []AlbumSummary
+	HasNext bool
+}
+
+// Albums selects a page before loading artwork and complete artist lists.
 func Albums(
 	ctx context.Context,
 	db *sql.DB,
 	filters AlbumFilters,
 	sort app.AlbumSort,
-) ([]AlbumSummary, error) {
+	perPage int,
+	offset int,
+) (AlbumPage, error) {
+	if perPage < 1 || perPage == math.MaxInt {
+		return AlbumPage{}, fmt.Errorf("invalid album page size: %d", perPage)
+	}
+	if offset < 0 {
+		return AlbumPage{}, errors.New("album offset must be non-negative")
+	}
+
+	// Only trusted ordering clauses are substituted; request values are bound.
+	var order string
 	switch sort {
-	case app.AlbumSortRecentlyAdded, app.AlbumSortAlbum, app.AlbumSortArtistAlbum:
+	case app.AlbumSortRecentlyAdded:
+		order = "albums.added_at DESC, albums.id DESC"
+	case app.AlbumSortAlbum:
+		order = "albums.album COLLATE NOCASE, albums.id"
+	case app.AlbumSortArtistAlbum:
+		order = "albums.first_artist COLLATE NOCASE, albums.album COLLATE NOCASE, albums.id"
 	default:
-		return nil, fmt.Errorf("bug: unsupported album sort %q", sort)
+		return AlbumPage{}, fmt.Errorf("bug: unsupported album sort %q", sort)
 	}
 	smallWidth, err := albumArtworkWidth(AlbumArtwork64)
 	if err != nil {
-		return nil, err
+		return AlbumPage{}, err
 	}
 	largeWidth, err := albumArtworkWidth(AlbumArtwork256)
 	if err != nil {
-		return nil, err
+		return AlbumPage{}, err
 	}
-	rows, err := db.QueryContext(ctx, albumsSQL,
-		sql.Named("sort", string(sort)),
+	rows, err := db.QueryContext(ctx, strings.ReplaceAll(albumsSQL, "{{order}}", order),
 		sql.Named("artist_id", filters.ArtistID),
 		sql.Named("genre_id", filters.GenreID),
 		sql.Named("style_id", filters.StyleID),
+		sql.Named("per_page", perPage),
+		sql.Named("candidate_limit", perPage+1),
+		sql.Named("offset", offset),
 		sql.Named("artwork_width_small", smallWidth),
 		sql.Named("artwork_width_large", largeWidth),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("query albums: %w", err)
+		return AlbumPage{}, fmt.Errorf("query albums: %w", err)
 	}
 	defer rows.Close()
 
-	albums := make([]AlbumSummary, 0)
-
+	page := AlbumPage{Albums: make([]AlbumSummary, 0)}
 	for rows.Next() {
-		var (
-			album       AlbumSummary
-			artistsJSON []byte
-		)
-
+		var album AlbumSummary
+		var artistsJSON []byte
 		if err := rows.Scan(
 			&album.ID,
 			&album.Title,
+			&page.HasNext,
 			&album.SmallArtwork.Width,
 			&album.SmallArtwork.Height,
 			&album.LargeArtwork.Width,
 			&album.LargeArtwork.Height,
 			&artistsJSON,
 		); err != nil {
-			return nil, fmt.Errorf("scan album summary: %w", err)
+			return AlbumPage{}, fmt.Errorf("scan album summary: %w", err)
 		}
-
-		if err := json.Unmarshal(
-			artistsJSON,
-			&album.Artists,
-		); err != nil {
-			return nil, fmt.Errorf(
-				"decode artists for album %d: %w",
-				album.ID,
-				err,
-			)
+		if err := json.Unmarshal(artistsJSON, &album.Artists); err != nil {
+			return AlbumPage{}, fmt.Errorf("decode artists for album %d: %w", album.ID, err)
 		}
-
-		albums = append(albums, album)
+		page.Albums = append(page.Albums, album)
 	}
-
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate album summaries: %w", err)
+		return AlbumPage{}, fmt.Errorf("iterate album summaries: %w", err)
 	}
-
-	return albums, nil
+	return page, nil
 }
 
 // AlbumByFilters loads the selected album and its ordered tracks in a consistent

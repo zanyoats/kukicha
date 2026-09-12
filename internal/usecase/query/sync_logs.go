@@ -44,14 +44,14 @@ func SyncLogCounts(ctx context.Context, db *sql.DB) (SyncLogStats, error) {
 
 // SyncLogs loads one batch, using zero as the cursor for the initial batch.
 func SyncLogs(ctx context.Context, db *sql.DB, before int64, perPage int) (SyncLogBatch, error) {
-	if perPage < 1 || int64(perPage) == math.MaxInt64 {
+	if perPage < 1 || perPage == math.MaxInt {
 		return SyncLogBatch{}, fmt.Errorf("invalid sync log batch size: %d", perPage)
 	}
 	if before == 0 {
 		before = math.MaxInt64
 	}
 	rows, err := db.QueryContext(ctx, syncLogsSQL,
-		sql.Named("before", before), sql.Named("limit", int64(perPage)+1))
+		sql.Named("before", before), sql.Named("limit", perPage+1))
 	if err != nil {
 		return SyncLogBatch{}, fmt.Errorf("query sync logs: %w", err)
 	}

@@ -365,6 +365,13 @@ up-popup.library-sort-popup[size] {
     outline-offset: -0.125rem;
 }
 
+.library-pagination {
+    display: flex;
+    justify-content: flex-end;
+    gap: 1rem;
+    margin-block-start: 1.5rem;
+}
+
 .library-page {
     .album-card {
         display: flex;

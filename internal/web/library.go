@@ -18,6 +18,9 @@ type libraryViewModel struct {
 	Heading     string
 	Albums      []albumCard
 	SortOptions []albumSortOption
+	PreviousURL string
+	NextURL     string
+	FirstURL    string
 }
 
 type albumSortOption struct {
@@ -26,7 +29,7 @@ type albumSortOption struct {
 	Current bool
 }
 
-func librarySortOptions(libraryURL string, filters query.AlbumFilters, current app.AlbumSort) []albumSortOption {
+func libraryFilterValues(filters query.AlbumFilters) url.Values {
 	values := url.Values{}
 	for key, id := range map[string]int64{
 		"artist_id": filters.ArtistID,
@@ -37,6 +40,20 @@ func librarySortOptions(libraryURL string, filters query.AlbumFilters, current a
 			values.Set(key, strconv.FormatInt(id, 10))
 		}
 	}
+	return values
+}
+
+func libraryPageURL(libraryURL string, filters query.AlbumFilters, sort app.AlbumSort, offset int) string {
+	values := libraryFilterValues(filters)
+	values.Set("sort", string(sort))
+	if offset > 0 {
+		values.Set("offset", strconv.Itoa(offset))
+	}
+	return libraryURL + "?" + values.Encode()
+}
+
+func librarySortOptions(libraryURL string, filters query.AlbumFilters, current app.AlbumSort) []albumSortOption {
+	values := libraryFilterValues(filters)
 	options := make([]albumSortOption, 0, 3)
 	for _, option := range []struct {
 		sort  app.AlbumSort
@@ -165,6 +182,11 @@ func (c *appRoutes) showLibrary(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
+		offset, err := parseAlbumOffset(r)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
 
 		filterNames, err := query.NamesForAlbumFilters(r.Context(), c.db, filters)
 		if err != nil {
@@ -178,15 +200,15 @@ func (c *appRoutes) showLibrary(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		albums, err := query.Albums(r.Context(), c.db, filters, sort)
+		page, err := query.Albums(r.Context(), c.db, filters, sort, c.perPage, offset)
 		if err != nil {
 			internalServerError(w, "unable to load albums", "error", err)
 			return
 		}
 
-		albumCards := make([]albumCard, 0, len(albums))
+		albumCards := make([]albumCard, 0, len(page.Albums))
 
-		for _, album := range albums {
+		for _, album := range page.Albums {
 			albumCards = append(albumCards, albumCard{
 				Title:        album.Title,
 				Artists:      albumArtistLinks(album.Artists, c.urls),
@@ -196,13 +218,23 @@ func (c *appRoutes) showLibrary(w http.ResponseWriter, r *http.Request) {
 			})
 		}
 
-		renderPage(w, c.renderer, "library.gohtml", libraryViewModel{
+		model := libraryViewModel{
 			EyeBrow:     "Collection",
 			URLs:        c.urls,
 			Heading:     heading,
 			Albums:      albumCards,
 			SortOptions: librarySortOptions(c.urls.Library, filters, sort),
-		})
+		}
+		if offset > 0 {
+			model.PreviousURL = libraryPageURL(c.urls.Library, filters, sort, max(0, offset-c.perPage))
+		}
+		if page.HasNext {
+			model.NextURL = libraryPageURL(c.urls.Library, filters, sort, offset+c.perPage)
+		}
+		if offset > 0 && len(page.Albums) == 0 {
+			model.FirstURL = libraryPageURL(c.urls.Library, filters, sort, 0)
+		}
+		renderPage(w, c.renderer, "library.gohtml", model)
 	}
 }
 

@@ -83,6 +83,7 @@ busy_timeout = "5s"
 cache_size_kib = 32_768
 
 [ui]
+# Number of items per page in the album library and sync logs.
 per_page = 200
 
 # Default library order: recentlyAdded, album, or artistAlbum.

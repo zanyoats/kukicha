@@ -58,8 +58,16 @@
             </div>
         </li>
         {{else}}
-        <li class="item-grid-empty">No albums found.</li>
+        <li class="item-grid-empty">{{if .FirstURL}}No albums on this page.{{else}}No albums found.{{end}}</li>
         {{end}}
     </ul>
+
+    {{if or .PreviousURL .NextURL .FirstURL}}
+    <nav class="library-pagination" aria-label="Album pages">
+        {{with .PreviousURL}}<a href="{{.}}" rel="prev" up-follow up-target="[up-main]" up-history="true">Previous</a>{{end}}
+        {{with .FirstURL}}<a href="{{.}}" up-follow up-target="[up-main]" up-history="true">Return to first page</a>{{end}}
+        {{with .NextURL}}<a href="{{.}}" rel="next" up-follow up-target="[up-main]" up-history="true">Next</a>{{end}}
+    </nav>
+    {{end}}
 </article>
 {{end}}

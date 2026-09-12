@@ -1,6 +1,38 @@
+-- Only the trusted ordering clause is substituted.
+WITH candidates AS MATERIALIZED (
+    SELECT albums.id, albums.album, albums.added_at, albums.first_artist
+    FROM library_albums AS albums
+    WHERE (:artist_id = 0 OR EXISTS (
+        SELECT 1
+        FROM library_album_artists AS matching_artists
+        WHERE matching_artists.album_id = albums.id
+            AND matching_artists.artist_id = :artist_id
+    ))
+    AND (:genre_id = 0 OR EXISTS (
+        SELECT 1
+        FROM library_album_genres AS matching_genres
+        WHERE matching_genres.album_id = albums.id
+            AND matching_genres.genre_id = :genre_id
+    ))
+    AND (:style_id = 0 OR EXISTS (
+        SELECT 1
+        FROM library_album_styles AS matching_styles
+        WHERE matching_styles.album_id = albums.id
+            AND matching_styles.style_id = :style_id
+    ))
+    ORDER BY {{order}}
+    LIMIT :candidate_limit OFFSET :offset
+),
+page AS MATERIALIZED (
+    SELECT *
+    FROM candidates AS albums
+    ORDER BY {{order}}
+    LIMIT :per_page
+)
 SELECT
     albums.id,
     albums.album,
+    (SELECT COUNT(*) > :per_page FROM candidates),
     COALESCE(small_artwork.width_px, :artwork_width_small),
     COALESCE(small_artwork.height_px, :artwork_width_small),
     COALESCE(large_artwork.width_px, :artwork_width_large),
@@ -13,9 +45,7 @@ SELECT
     ) FILTER (
         WHERE artists.id IS NOT NULL
     )
-FROM library_albums AS albums
-JOIN library_album_ids AS album_ids
-    ON album_ids.id = albums.id
+FROM page AS albums
 -- Keep artwork selection aligned with album_artwork.sql.
 LEFT JOIN thumbnail_cache AS small_artwork
     ON small_artwork.id = (
@@ -69,30 +99,7 @@ LEFT JOIN library_album_artists AS album_artists
     ON album_artists.album_id = albums.id
 LEFT JOIN library_artist_ids AS artists
     ON artists.id = album_artists.artist_id
-WHERE (:artist_id = 0 OR EXISTS (
-    SELECT 1
-    FROM library_album_artists AS matching_artists
-    WHERE matching_artists.album_id = albums.id
-        AND matching_artists.artist_id = :artist_id
-))
-AND (:genre_id = 0 OR EXISTS (
-    SELECT 1
-    FROM library_album_genres AS matching_genres
-    WHERE matching_genres.album_id = albums.id
-        AND matching_genres.genre_id = :genre_id
-))
-AND (:style_id = 0 OR EXISTS (
-    SELECT 1
-    FROM library_album_styles AS matching_styles
-    WHERE matching_styles.album_id = albums.id
-        AND matching_styles.style_id = :style_id
-))
 GROUP BY
     albums.id,
     albums.album
-ORDER BY
-    CASE WHEN :sort = 'recentlyAdded' THEN album_ids.timestamp END DESC,
-    CASE WHEN :sort = 'recentlyAdded' THEN albums.id END DESC,
-    CASE WHEN :sort = 'artistAlbum' THEN MIN(artists.artist COLLATE NOCASE) END COLLATE NOCASE ASC,
-    CASE WHEN :sort IN ('album', 'artistAlbum') THEN albums.album END COLLATE NOCASE ASC,
-    albums.id ASC;
+ORDER BY {{order}};

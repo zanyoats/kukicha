@@ -37,6 +37,16 @@ ranked_album_values AS (
     WHERE value IS NOT NULL
     GROUP BY album_key, field, value
 ),
+album_artist_sort AS (
+    -- Use the same canonical artists as build_library_album_artists.sql.
+    -- Scanning guarantees at least one artist, including the unknown fallback.
+    SELECT tracks.album_key, MIN(artists.artist COLLATE NOCASE) AS first_artist
+    FROM scan_tracks AS tracks
+    JOIN json_each(tracks.normalized_metadata, '$.mapped_album_artist_displays') AS displays
+    JOIN library_artist_ids AS artists
+        ON artists.artist = displays.value
+    GROUP BY tracks.album_key
+),
 album_keys AS (
     SELECT album_key
     FROM audio_tracks
@@ -44,6 +54,8 @@ album_keys AS (
 )
 INSERT INTO library_albums (
     id,
+    added_at,
+    first_artist,
     format,
     album,
     disc_count,
@@ -61,6 +73,8 @@ INSERT INTO library_albums (
 )
 SELECT
     ids.id,
+    ids.timestamp,
+    artist_sort.first_artist,
     COALESCE(MAX(CASE WHEN field = 'format' THEN value END), :unknown_item),
     MAX(CASE WHEN field = 'album' THEN value END),
     CAST(MAX(CASE WHEN field = 'disc_count' THEN value END) AS INTEGER),
@@ -78,6 +92,8 @@ SELECT
 FROM album_keys
 JOIN library_album_ids AS ids
     ON ids.album_key = album_keys.album_key
+LEFT JOIN album_artist_sort AS artist_sort
+    ON artist_sort.album_key = album_keys.album_key
 LEFT JOIN ranked_album_values
     ON ranked_album_values.album_key = album_keys.album_key
     AND ranked_album_values.rank = 1

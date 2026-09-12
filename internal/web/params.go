@@ -118,3 +118,20 @@ func parseAlbumSort(r *http.Request, fallback app.AlbumSort) (app.AlbumSort, err
 	}
 	return sort, nil
 }
+
+// parseAlbumOffset starts at the first page when offset is omitted.
+func parseAlbumOffset(r *http.Request) (int, error) {
+	values := r.URL.Query()
+	if !values.Has("offset") {
+		return 0, nil
+	}
+	value, err := requiredQueryValue(values, "offset")
+	if err != nil {
+		return 0, err
+	}
+	offset, err := strconv.Atoi(value)
+	if err != nil || offset < 0 {
+		return 0, errors.New("offset must be a non-negative integer")
+	}
+	return offset, nil
+}

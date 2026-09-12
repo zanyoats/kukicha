@@ -116,6 +116,8 @@ CREATE TABLE library_sync_logs (
 CREATE TABLE library_albums (
     id                    INTEGER PRIMARY KEY,
     album                 TEXT    NOT NULL   ,
+    added_at              TEXT    NOT NULL   ,
+    first_artist          TEXT    NOT NULL COLLATE NOCASE,
     format                TEXT    NOT NULL   ,
     disc_count            INTEGER            ,
     release_date          TEXT               ,
@@ -133,6 +135,15 @@ CREATE TABLE library_albums (
     CHECK (length(trim(album)) > 0)          ,
     CHECK (length(trim(format)) > 0)
 );
+
+CREATE INDEX library_albums_added_at_idx
+ON library_albums (added_at DESC, id DESC);
+
+CREATE INDEX library_albums_album_idx
+ON library_albums (album COLLATE NOCASE, id);
+
+CREATE INDEX library_albums_artist_album_idx
+ON library_albums (first_artist COLLATE NOCASE, album COLLATE NOCASE, id);
 
 CREATE TABLE library_album_artists (
     album_id  INTEGER NOT NULL              ,
