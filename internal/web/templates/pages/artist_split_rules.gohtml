@@ -17,10 +17,12 @@
         <p class="page-eyebrow">Settings</p>
         <h1>Artist Split Rules</h1>
     </header>
+    {{if .Rules}}
     <aside class="alert alert-info" aria-label="Info">
         <strong>Info</strong>
         <p>Changes apply on the next scan.</p>
     </aside>
+    {{end}}
     <div class="split-rules-grid">
         {{range $index, $rule := .Rules}}
         <section class="split-rule" data-split-rule up-data="{{.EditorData}}" aria-labelledby="split-album-{{$index}}">

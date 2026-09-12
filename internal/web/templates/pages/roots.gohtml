@@ -1,0 +1,128 @@
+{{define "title"}}Roots{{end}}
+
+{{define "body"}}
+<body class="config-document">
+    <main class="config-standalone" up-main>
+        <nav aria-label="Configuration navigation">
+            <a href="{{.URLs.Home}}">Back to Home</a>
+        </nav>
+        {{template "page-content" .}}
+    </main>
+</body>
+{{end}}
+
+{{define "page-content"}}
+<article class="config-page">
+    <header>
+        <div>
+            <p class="page-eyebrow">Kukicha</p>
+            <h1>Roots</h1>
+        </div>
+    </header>
+    {{if .Roots}}
+    <aside class="alert alert-info" aria-label="Info">
+        <strong>Info</strong>
+        <p>
+            Configured roots are synced at startup.
+            You can run <a href="">Scan</a> to rebuild the library,
+            or <a href="">Sync</a> to also re-download all files.
+            Either option starts a new job that runs in the background.
+            For a full factory reset, use <a href="">Reset</a>,
+            which runs a sync and removes all listening data.
+        </p>
+    </aside>
+    {{end}}
+    {{range $index, $root := .Roots}}
+    <section class="root-summary" aria-labelledby="root-path-{{$index}}">
+        <h2 id="root-path-{{$index}}">{{.Path}}</h2>
+        <dl class="facts">
+            <div>
+                <dt>Tracks</dt>
+                <dd>{{formatNumber .Tracks}}</dd>
+            </div>
+            <div>
+                <dt>Albums</dt>
+                <dd>{{formatNumber .Albums}}</dd>
+            </div>
+            <div>
+                <dt>Playlists</dt>
+                <dd>{{formatNumber .Playlists}}</dd>
+            </div>
+            <div>
+                <dt>Album sidecars</dt>
+                <dd>{{formatNumber .AlbumSidecars}}</dd>
+            </div>
+        </dl>
+    </section>
+    {{else}}
+    <p>No indexed roots found. Add roots to your config.</p>
+    {{end}}
+
+    <section class="root-summary sync-logs" aria-labelledby="sync-logs-heading">
+        <h2 id="sync-logs-heading">Sync logs</h2>
+        <dl class="facts">
+            <div>
+                <dt>Errors</dt>
+                <dd>{{formatNumber .LogStats.Errors}}</dd>
+            </div>
+            <div>
+                <dt>Warnings</dt>
+                <dd>{{formatNumber .LogStats.Warnings}}</dd>
+            </div>
+            <div>
+                <dt>Info</dt>
+                <dd>{{formatNumber .LogStats.Info}}</dd>
+            </div>
+        </dl>
+        <div id="sync-log-view">
+            {{if .ShowLogs}}
+            <a id="sync-logs-toggle" href="{{.URLs.Roots}}"
+                up-target="#sync-log-view" up-layer="current"
+                up-history="false" up-scroll="false" up-focus="#sync-logs-toggle"
+                up-cache="false"
+                aria-expanded="true" aria-controls="sync-log-entries">Hide logs</a>
+            <ul id="sync-log-entries" aria-label="Sync log entries">
+                {{range .Logs.Entries}}
+                <li class="sync-log-entry" id="sync-log-{{.ID}}">
+                    <div class="sync-log-meta">
+                        <strong class="sync-log-level sync-log-level-{{.Level}}">{{if eq .Level "error"}}Error{{else if eq .Level "warn"}}Warning{{else}}Info{{end}}</strong>
+                        <time>{{formatTimestamp .Timestamp}}</time>
+                        <p class="sync-log-message">{{.Message}}</p>
+                    </div>
+                    <dl class="sync-log-paths">
+                        <div>
+                            <dt>Root</dt>
+                            <dd>{{.RootPath}}</dd>
+                        </div>
+                        <div>
+                            <dt>Path</dt>
+                            <dd>{{.Path}}</dd>
+                        </div>
+                    </dl>
+                </li>
+                {{end}}
+            </ul>
+            <div id="sync-log-more" tabindex="-1">
+                {{if .NextLogsURL}}
+                <a href="{{.NextLogsURL}}"
+                    up-target="#sync-log-entries:after, #sync-log-more"
+                    up-layer="current" up-history="false" up-scroll="false" up-focus="#sync-log-more"
+                    up-cache="false">Load more</a>
+                {{else if .Logs.Entries}}
+                <p>All sync logs loaded.</p>
+                {{else}}
+                <p>No sync logs available.</p>
+                {{end}}
+            </div>
+            {{else}}
+            <a id="sync-logs-toggle" href="{{.URLs.SyncLogsURL 0}}"
+                up-target="#sync-log-view" up-layer="current"
+                up-history="false" up-scroll="false" up-focus="#sync-logs-toggle"
+                up-cache="false"
+                aria-expanded="false" aria-controls="sync-log-entries">View sync logs</a>
+            <ul id="sync-log-entries" aria-label="Sync log entries" hidden></ul>
+            {{end}}
+        </div>
+    </section>
+</article>
+{{end}}

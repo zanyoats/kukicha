@@ -18,8 +18,8 @@
     --info-border: oklch(62.3% 0.214 259.815); /* blue-500 */
     --info-text: oklch(48.8% 0.243 264.376); /* blue-700 */
     --warning-background: oklch(95.4% 0.038 75.164); /* orange-100 */
-    --warning-border: oklch(70.5% 0.213 47.604); /* orange-500 */
-    --warning-text: oklch(55.3% 0.195 38.402); /* orange-700 */
+    --warning-border: oklch(75% 0.183 55.934); /* orange-400 */
+    --warning-text: oklch(70.5% 0.213 47.604); /* orange-500 */
     --error-background: oklch(93.6% 0.032 17.717); /* red-100 */
     --error-border: oklch(63.7% 0.237 25.331); /* red-500 */
     --error-text: oklch(50.5% 0.213 27.518); /* red-700 */
@@ -267,16 +267,6 @@ article h1 {
     padding-block-end: 1rem;
 }
 
-.text-link {
-    display: inline-block;
-    margin-block-start: 1rem;
-    color: var(--accent);
-}
-
-.text-link:hover {
-    color: var(--accent-hover);
-}
-
 .item-grid {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(min(14rem, 100%), 1fr));
@@ -365,6 +355,44 @@ article h1 {
     }
 }
 
+/* Shared inline facts */
+.facts {
+    min-inline-size: 0;
+    line-height: 2;
+}
+
+.facts > div {
+    display: inline-block;
+    max-inline-size: 100%;
+    margin-inline-end: 0.8rem;
+}
+
+.facts > div:has(.fact-links) {
+    display: inline;
+}
+
+.fact-links a {
+    display: inline-block;
+    max-inline-size: 100%;
+}
+
+.fact-links a:not(:last-child) {
+    margin-inline-end: 0.3rem;
+}
+
+.facts > div > dt {
+    display: inline;
+    font-size: 1rem;
+    color: var(--text-secondary);
+}
+
+.facts > div > dd {
+    display: inline;
+    margin: 0;
+    font-size: 0.9rem;
+    font-weight: 500;
+}
+
 /*
  * Pages: Album
 **/
@@ -382,47 +410,6 @@ article h1 {
         display: block;
         max-inline-size: 100%;
         block-size: auto;
-    }
-
-    .album-facts {
-        min-inline-size: 0;
-        line-height: 2;
-
-        > div {
-            display: inline-block;
-            max-inline-size: 100%;
-            margin-inline-end: 0.8rem;
-
-            &:has(.album-fact-links) {
-                display: inline;
-            }
-        }
-
-        dt {
-            display: inline;
-            font-size: 1rem;
-            color: var(--text-secondary);
-        }
-
-        dd {
-            display: inline;
-            margin: 0;
-            font-size: 0.9rem;
-            font-weight: 500;
-        }
-    }
-
-    .album-fact-links {
-        display: inline;
-
-        a {
-            display: inline-block;
-            max-inline-size: 100%;
-        }
-
-        a:not(:last-child) {
-            margin-inline-end: 0.3rem;
-        }
     }
 }
 
@@ -786,6 +773,89 @@ article h1 {
 .alert > strong {
     display: block;
     margin-block-end: 0.25rem;
+}
+
+/* Roots */
+.root-summary {
+    padding-block: 0.75rem;
+    border-block-start: 0.0625rem solid var(--border);
+}
+
+.root-summary h2 {
+    font-size: 1.1rem;
+    font-weight: 500;
+    line-height: 1.4;
+    overflow-wrap: anywhere;
+}
+
+#sync-log-view {
+    margin-block-start: 0.5rem;
+}
+
+#sync-log-entries {
+    list-style: none;
+    padding: 0;
+}
+
+.sync-log-entry {
+    padding-block: 0.4rem;
+    border-block-end: 0.0625rem solid var(--border);
+    font-size: 0.85rem;
+    line-height: 1.35;
+    overflow-wrap: anywhere;
+}
+
+.sync-log-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.125rem 0.65rem;
+    align-items: baseline;
+}
+
+.sync-log-meta time {
+    color: var(--text-secondary);
+    font-size: 0.8rem;
+    font-variant-numeric: tabular-nums;
+}
+
+.sync-log-level-error {
+    color: var(--error-text);
+}
+
+.sync-log-level-warn {
+    color: var(--warning-text);
+}
+
+.sync-log-level-info {
+    color: var(--info-text);
+}
+
+.sync-log-message {
+    flex: 1 1 20rem;
+    min-inline-size: 0;
+    white-space: pre-wrap;
+}
+
+.sync-log-paths {
+    margin-block-start: 0.125rem;
+    color: var(--text-secondary);
+    font-size: 0.8rem;
+}
+
+.sync-log-paths > div {
+    display: inline;
+    margin-inline-end: 0.75rem;
+}
+
+.sync-log-paths dt,
+.sync-log-paths dd {
+    display: inline;
+}
+
+#sync-log-more > p {
+    margin-block-start: 1rem;
+    color: var(--text-secondary);
+    font-size: 0.9rem;
 }
 
 .split-rule {

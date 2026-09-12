@@ -102,3 +102,11 @@ func (u URLs) TrackAudioURL(id int64) string {
 	q.Set("track_id", strconv.FormatInt(id, 10))
 	return u.TrackAudio + "?" + q.Encode()
 }
+
+func (u URLs) SyncLogsURL(before int64) string {
+	q := url.Values{"logs": {"1"}}
+	if before > 0 {
+		q.Set("before", strconv.FormatInt(before, 10))
+	}
+	return u.Roots + "?" + q.Encode()
+}

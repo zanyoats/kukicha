@@ -120,6 +120,7 @@ func run() error {
 			conf.Settings.Server.AppBasePath,
 			renderer,
 			db,
+			conf.Settings.UI.PerPage,
 		),
 		ReadHeaderTimeout: conf.Settings.Server.ReadHeaderTimeout.Duration,
 	}

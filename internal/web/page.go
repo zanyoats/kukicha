@@ -29,6 +29,8 @@ func NewPageRenderer() (Renderer, error) {
 		Funcs(template.FuncMap{
 			"formatDate":        formatDate,
 			"formatDuration":    formatDuration,
+			"formatNumber":      formatNumber,
+			"formatTimestamp":   formatTimestamp,
 			"yesNo":             yesNo,
 			"playerArtworkSize": playerArtworkSize,
 		}).

@@ -6,7 +6,22 @@ import (
 	"time"
 
 	"github.com/zanyoats/kukicha/internal/usecase/query"
+	"golang.org/x/text/language"
+	"golang.org/x/text/message"
 )
+
+func formatNumber(value int64) string {
+	return message.NewPrinter(language.English).Sprintf("%d", value)
+}
+
+func formatTimestamp(value string) string {
+	// SQLite CURRENT_TIMESTAMP stores UTC without an explicit timezone.
+	timestamp, err := time.Parse(time.DateTime, value)
+	if err != nil {
+		return value
+	}
+	return timestamp.In(time.Local).Format("2006-01-02 15:04:05 MST")
+}
 
 func formatDate(value string) string {
 	trimmed := strings.TrimSpace(value)

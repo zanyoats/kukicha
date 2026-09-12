@@ -10,11 +10,12 @@ type appRoutes struct {
 	urls     URLs
 	renderer Renderer
 	db       *sql.DB
+	perPage  int
 }
 
-func NewWebRouter(basePath string, renderer Renderer, db *sql.DB) http.Handler {
+func NewWebRouter(basePath string, renderer Renderer, db *sql.DB, perPage int) http.Handler {
 	urls := NewURLs(basePath)
-	router := appRoutes{urls: urls, renderer: renderer, db: db}
+	router := appRoutes{urls: urls, renderer: renderer, db: db, perPage: perPage}
 	mux := http.NewServeMux()
 
 	mux.Handle(
@@ -59,6 +60,10 @@ func NewWebRouter(basePath string, renderer Renderer, db *sql.DB) http.Handler {
 	mux.HandleFunc(
 		exactPattern(http.MethodPatch, urls.UpdateArtistSplitRule),
 		router.updateArtistSplitRule,
+	)
+	mux.HandleFunc(
+		exactPattern(http.MethodGet, urls.Roots),
+		router.showRoots,
 	)
 	for _, page := range configPages(urls) {
 		mux.HandleFunc(

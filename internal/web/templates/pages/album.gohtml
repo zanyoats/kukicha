@@ -13,11 +13,11 @@
             height="{{.LargeArtwork.Height}}"
         />
 
-        <dl class="album-facts">
+        <dl class="facts">
             {{with .Album.Artists}}
             <div>
                 <dt>Album artists</dt>
-                <dd class="album-fact-links">
+                <dd class="fact-links">
                     {{range .}}
                     <a href="{{$.URLs.ArtistURL .ID}}" up-follow>{{.Name}}</a>
                     {{end}}
@@ -115,7 +115,7 @@
             {{with .Genres}}
             <div>
                 <dt>Genres</dt>
-                <dd class="album-fact-links">
+                <dd class="fact-links">
                     {{range .}}
                     <a href="{{.URL}}" up-follow>{{.Name}}</a>
                     {{end}}
@@ -126,7 +126,7 @@
             {{with .Styles}}
             <div>
                 <dt>Styles</dt>
-                <dd class="album-fact-links">
+                <dd class="fact-links">
                     {{range .}}
                     <a href="{{.URL}}" up-follow>{{.Name}}</a>
                     {{end}}
