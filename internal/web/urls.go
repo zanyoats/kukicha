@@ -11,25 +11,27 @@ import (
 // URLs contains paths shared by router registration and page links.
 // Directory paths include their canonical trailing slash.
 type URLs struct {
-	Home                  string
-	Library               string
-	AlbumArtwork          string
-	TrackAudio            string
-	Search                string
-	ArtistSplitRules      string
-	Roots                 string
-	MetadataOverrides     string
-	ListeningData         string
-	Cache                 string
-	Jobs                  string
-	Help                  string
-	InstanceIdenticon     string
-	UpdateArtistSplitRule string
-	Assets                string
-	Favicon               string
-	UnpolyStylesheet      string
-	Stylesheet            string
-	AppJavaScript         string
+	Home                    string
+	Library                 string
+	AlbumArtwork            string
+	TrackAudio              string
+	Search                  string
+	ArtistSplitRules        string
+	Roots                   string
+	MetadataOverrides       string
+	ListeningData           string
+	Cache                   string
+	Jobs                    string
+	Help                    string
+	InstanceIdenticon       string
+	UpdateArtistSplitRule   string
+	Assets                  string
+	Favicon                 string
+	UnpolyStylesheet        string
+	Stylesheet              string
+	AppJavaScript           string
+	AlbumArtwork64Fallback  string
+	AlbumArtwork256Fallback string
 }
 
 func NewURLs(basePath string) URLs {
@@ -38,25 +40,27 @@ func NewURLs(basePath string) URLs {
 	api := base + "/api"
 	assets := "/assets/"
 	return URLs{
-		Home:                  app + "/",
-		Library:               app + "/library/",
-		AlbumArtwork:          app + "/library/album/artwork/",
-		TrackAudio:            app + "/library/album/tracks/audio/",
-		Search:                app + "/search/",
-		ArtistSplitRules:      app + "/artistSplitRules/",
-		Roots:                 app + "/roots/",
-		MetadataOverrides:     app + "/metadataOverrides/",
-		ListeningData:         app + "/listeningData/",
-		Cache:                 app + "/cache/",
-		Jobs:                  app + "/jobs/",
-		Help:                  app + "/help/",
-		InstanceIdenticon:     app + "/instance/identicon.svg",
-		UpdateArtistSplitRule: api + "/artistSplitRules/",
-		Assets:                assets,
-		Favicon:               "/favicon.ico",
-		UnpolyStylesheet:      assets + "unpoly.min.css",
-		Stylesheet:            assets + "app.css",
-		AppJavaScript:         assets + "app.js",
+		Home:                    app + "/",
+		Library:                 app + "/library/",
+		AlbumArtwork:            app + "/library/album/artwork/",
+		TrackAudio:              app + "/library/album/tracks/audio/",
+		Search:                  app + "/search/",
+		ArtistSplitRules:        app + "/artistSplitRules/",
+		Roots:                   app + "/roots/",
+		MetadataOverrides:       app + "/metadataOverrides/",
+		ListeningData:           app + "/listeningData/",
+		Cache:                   app + "/cache/",
+		Jobs:                    app + "/jobs/",
+		Help:                    app + "/help/",
+		InstanceIdenticon:       app + "/instance/identicon.svg",
+		UpdateArtistSplitRule:   api + "/artistSplitRules/",
+		Assets:                  assets,
+		Favicon:                 "/favicon.ico",
+		UnpolyStylesheet:        assets + "unpoly.min.css",
+		Stylesheet:              assets + "app.css",
+		AppJavaScript:           assets + "app.js",
+		AlbumArtwork64Fallback:  assets + "album-fallback-64.svg",
+		AlbumArtwork256Fallback: assets + "album-fallback-256.svg",
 	}
 }
 

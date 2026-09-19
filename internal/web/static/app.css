@@ -424,6 +424,24 @@ up-popup.library-sort-popup[size] {
     }
 }
 
+.album-card-artwork,
+.album-artwork,
+[data-player-artwork] {
+    transition: opacity 150ms ease-in;
+
+    &.is-loading {
+        opacity: 0;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .album-card-artwork,
+    .album-artwork,
+    [data-player-artwork] {
+        transition: none;
+    }
+}
+
 /* Shared inline facts */
 .facts {
     min-inline-size: 0;

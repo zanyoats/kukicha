@@ -39,6 +39,7 @@
             <a class="album-card-artwork-link" href="{{.AlbumURL}}" up-follow>
                 <img
                     class="album-card-artwork"
+                    data-artwork-fallback-url="{{$.URLs.AlbumArtwork64Fallback}}"
                     src="{{.SmallArtwork.URL}}"
                     alt="Artwork for {{.Title}}"
                     width="{{.SmallArtwork.Width}}"
