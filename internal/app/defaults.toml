@@ -75,12 +75,24 @@ server_address = "127.0.0.1:4533"
 # Must not be empty or the root path ("/").
 app_base_path = "/kukicha"
 
+# Maximum time to read an HTTP request's headers.
+# Closes connections if the client takes too long to send request headers.
+# Note: This does not limit how long audio streaming can run.
 read_header_timeout = "5s"
+
+# Maximum time to wait for active HTTP requests during shutdown.
+# After this timeout, remaining connections are forcibly closed.
+# Increase if HTTP shutdown logs "context deadline exceeded"
+# and you want to give active requests more time to finish.
+shutdown_timeout = "5s"
 
 [server.database]
 busy_timeout = "5s"
 
 cache_size_kib = 32_768
+
+[jobs]
+poll_interval = "250ms"
 
 [ui]
 # Number of items per page in the album library and sync logs.

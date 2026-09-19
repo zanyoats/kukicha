@@ -8,9 +8,12 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
 
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/zanyoats/kukicha/internal/app"
+	proc "github.com/zanyoats/kukicha/internal/processor"
 	"github.com/zanyoats/kukicha/internal/scan"
 	"github.com/zanyoats/kukicha/internal/usecase/command"
 	"github.com/zanyoats/kukicha/internal/web"
@@ -51,7 +54,8 @@ func run() error {
 	}
 	defer db.Close()
 
-	db.SetMaxOpenConns(1)
+	db.SetMaxOpenConns(2)
+	db.SetMaxIdleConns(2)
 
 	if _, err = db.ExecContext(ctx, `PRAGMA journal_mode = WAL`); err != nil {
 		return err
@@ -114,6 +118,13 @@ func run() error {
 		)
 	}
 
+	processor, err := proc.New(
+		db, slog.Default(), conf.Settings.Jobs.PollInterval.Duration,
+	)
+	if err != nil {
+		return err
+	}
+
 	server := &http.Server{
 		Addr: conf.Settings.Server.ServerAddress,
 		Handler: web.NewWebRouter(
@@ -134,9 +145,58 @@ func run() error {
 		),
 	)
 
-	if err = server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-		return err
+	runCtx, stop := signal.NotifyContext(
+		context.Background(), os.Interrupt, syscall.SIGTERM,
+	)
+	defer stop()
+
+	done := make(chan error, 2)
+	go func() {
+		err := processor.Run(runCtx)
+		slog.Info("processor stopped")
+		done <- err
+	}()
+	go func() { done <- server.ListenAndServe() }()
+
+	var serviceErr error
+	remaining := 2
+
+	select {
+	case <-runCtx.Done():
+	case serviceErr = <-done:
+		remaining--
 	}
 
-	return nil
+	// stop will cancel the processor, for example if the http server errored early
+	slog.Info("processor shutdown requested")
+	stop()
+
+	shutdownCtx, cancel := context.WithTimeout(
+		context.Background(), conf.Settings.Server.ShutdownTimeout.Duration,
+	)
+	defer cancel()
+
+	slog.Info("http server shutting down")
+	err = server.Shutdown(shutdownCtx)
+	if err != nil {
+		serviceErr = errors.Join(serviceErr, err)
+		_ = server.Close()
+	}
+	slog.Info("http server stopped", "error", err)
+
+	for ; remaining > 0; remaining-- {
+		err := <-done
+		if err != nil &&
+			!errors.Is(err, context.Canceled) &&
+			!errors.Is(err, http.ErrServerClosed) {
+			serviceErr = errors.Join(serviceErr, err)
+		}
+	}
+
+	if errors.Is(serviceErr, context.Canceled) ||
+		errors.Is(serviceErr, http.ErrServerClosed) {
+		return nil
+	}
+
+	return serviceErr
 }

@@ -115,11 +115,15 @@ type AppConfig struct {
 			ServerAddress     string   `toml:"server_address"`
 			AppBasePath       string   `toml:"app_base_path"`
 			ReadHeaderTimeout Duration `toml:"read_header_timeout"`
+			ShutdownTimeout   Duration `toml:"shutdown_timeout"`
 			Database          struct {
 				BusyTimeout  Duration `toml:"busy_timeout"`
 				CacheSizeKiB int64    `toml:"cache_size_kib"`
 			} `toml:"database"`
 		} `toml:"server"`
+		Jobs struct {
+			PollInterval Duration `toml:"poll_interval"`
+		} `toml:"jobs"`
 		UI struct {
 			PerPage          int       `toml:"per_page"`
 			DefaultAlbumSort AlbumSort `toml:"default_album_sort"`

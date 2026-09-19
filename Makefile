@@ -6,8 +6,8 @@ BIN := dist/$(APP)
 TAGS ?= sqlite_fts5 sqlite_json
 GO_TAGS := $(if $(strip $(TAGS)),-tags "$(TAGS)")
 
-run:
-	CGO_ENABLED=1 go run $(GO_TAGS) $(CMD)
+run: build
+	./$(BIN)
 
 build:
 	mkdir -p dist
