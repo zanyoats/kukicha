@@ -360,3 +360,31 @@ CREATE TABLE itunes_lookup_image_cache (
         )
     )
 ) WITHOUT ROWID;
+
+CREATE TABLE jobs (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT      ,
+    type                TEXT NOT NULL                          ,
+    payload             TEXT NOT NULL                          ,
+    state               TEXT NOT NULL DEFAULT 'queued'         ,
+    attempts            INTEGER NOT NULL DEFAULT 0             ,
+    created_at          TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    started_at          TEXT                                   ,
+    finished_at         TEXT                                   ,
+    last_error          TEXT                                   ,
+    cancel_requested_at TEXT                                   ,
+
+    CHECK (type IN ('sync', 'scan', 'itunesLookup'))           ,
+    CHECK (json_valid(payload))                                ,
+    CHECK (state IN (
+        -- transient states
+        'queued',
+        'running',
+        -- final states
+        'failed',
+        'succeeded',
+        'canceled'
+    ))                                                         ,
+    CHECK (attempts >= 0)
+);
+
+CREATE INDEX jobs_queued_id ON jobs (id) WHERE state = 'queued';

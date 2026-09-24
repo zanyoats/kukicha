@@ -122,7 +122,8 @@ type AppConfig struct {
 			} `toml:"database"`
 		} `toml:"server"`
 		Jobs struct {
-			PollInterval Duration `toml:"poll_interval"`
+			PollInterval    Duration `toml:"poll_interval"`
+			FinalizeTimeout Duration `toml:"finalize_timeout"`
 		} `toml:"jobs"`
 		UI struct {
 			PerPage          int       `toml:"per_page"`

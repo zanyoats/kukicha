@@ -92,7 +92,12 @@ busy_timeout = "5s"
 cache_size_kib = 32_768
 
 [jobs]
+# How often to check for queued jobs. Don't make this too small: your CPU needs
+# its naps and to allow other work to be done.
 poll_interval = "250ms"
+
+# Maximum time to save a job's final state, even after cancellation.
+finalize_timeout = "5s"
 
 [ui]
 # Number of items per page in the album library and sync logs.

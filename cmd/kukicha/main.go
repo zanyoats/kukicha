@@ -13,6 +13,7 @@ import (
 
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/zanyoats/kukicha/internal/app"
+	"github.com/zanyoats/kukicha/internal/jobs"
 	proc "github.com/zanyoats/kukicha/internal/processor"
 	"github.com/zanyoats/kukicha/internal/scan"
 	"github.com/zanyoats/kukicha/internal/usecase/command"
@@ -21,7 +22,7 @@ import (
 
 func main() {
 	if err := run(); err != nil {
-		slog.Error("kukicha stopped", "error", err)
+		slog.Error("kukicha stopped with error", "error", err)
 		os.Exit(1)
 	}
 }
@@ -76,50 +77,67 @@ func run() error {
 		return err
 	}
 
-	result, err := scan.Sync(ctx, db, conf)
+	recovered, err := command.RecoverJobs(ctx, db)
 	if err != nil {
 		return err
 	}
 
-	// TextHandler escapes newlines, so print this human-readable summary directly.
-	if slog.Default().Enabled(ctx, slog.LevelInfo) {
-		fmt.Fprintf(os.Stderr,
-			"library sync complete\n"+
-				"\tscan summary:\n"+
-				"\t\tprocessed_files=%d\n"+
-				"\t\troots=%d\n"+
-				"\t\talbums=%d\n"+
-				"\t\ttracks=%d\n"+
-				"\t\tplaylists=%d\n"+
-				"\t\tsidecar_files=%d\n"+
-				"\t\talbum_sidecars=%d\n"+
-				"\t\tunassociated_sidecars=%d\n"+
-				"\t\ttracks_with_unknown_titles=%d\n"+
-				"\t\talbums_with_unknown_names=%d\n"+
-				"\t\talbums_with_unknown_artists=%d\n"+
-				"\tlog summary:\n"+
-				"\t\terrors=%d\n"+
-				"\t\twarnings=%d\n"+
-				"\t\tinfo=%d\n",
-			result.ScanStats.ProcessedFiles,
-			result.ScanStats.LibraryRoots,
-			result.ScanStats.LibraryAlbums,
-			result.ScanStats.LibraryTracks,
-			result.ScanStats.LibraryPlaylists,
-			result.ScanStats.SidecarFiles,
-			result.ScanStats.LibraryAlbumSidecars,
-			result.ScanStats.UnassociatedSidecars,
-			result.ScanStats.LibraryTrackTitleUnknowns,
-			result.ScanStats.LibraryAlbumUnknowns,
-			result.ScanStats.LibraryAlbumArtistUnknowns,
-			result.LogStats.ErrorCount,
-			result.LogStats.WarnCount,
-			result.LogStats.InfoCount,
+	if recovered > 0 {
+		slog.Info(
+			"recovered interrupted jobs",
+			"count", recovered,
 		)
 	}
 
+	// TODO: turn scan into a Job
+	// result, err := scan.Sync(ctx, db, conf)
+	// if err != nil {
+	// 	return err
+	// }
+
+	// // TextHandler escapes newlines, so print this human-readable summary directly.
+	// if slog.Default().Enabled(ctx, slog.LevelInfo) {
+	// 	fmt.Fprintf(os.Stderr,
+	// 		"library sync complete\n"+
+	// 			"\tscan summary:\n"+
+	// 			"\t\tprocessed_files=%d\n"+
+	// 			"\t\troots=%d\n"+
+	// 			"\t\talbums=%d\n"+
+	// 			"\t\ttracks=%d\n"+
+	// 			"\t\tplaylists=%d\n"+
+	// 			"\t\tsidecar_files=%d\n"+
+	// 			"\t\talbum_sidecars=%d\n"+
+	// 			"\t\tunassociated_sidecars=%d\n"+
+	// 			"\t\ttracks_with_unknown_titles=%d\n"+
+	// 			"\t\talbums_with_unknown_names=%d\n"+
+	// 			"\t\talbums_with_unknown_artists=%d\n"+
+	// 			"\tlog summary:\n"+
+	// 			"\t\terrors=%d\n"+
+	// 			"\t\twarnings=%d\n"+
+	// 			"\t\tinfo=%d\n",
+	// 		result.ScanStats.ProcessedFiles,
+	// 		result.ScanStats.LibraryRoots,
+	// 		result.ScanStats.LibraryAlbums,
+	// 		result.ScanStats.LibraryTracks,
+	// 		result.ScanStats.LibraryPlaylists,
+	// 		result.ScanStats.SidecarFiles,
+	// 		result.ScanStats.LibraryAlbumSidecars,
+	// 		result.ScanStats.UnassociatedSidecars,
+	// 		result.ScanStats.LibraryTrackTitleUnknowns,
+	// 		result.ScanStats.LibraryAlbumUnknowns,
+	// 		result.ScanStats.LibraryAlbumArtistUnknowns,
+	// 		result.LogStats.ErrorCount,
+	// 		result.LogStats.WarnCount,
+	// 		result.LogStats.InfoCount,
+	// 	)
+	// }
+
 	processor, err := proc.New(
-		db, slog.Default(), conf.Settings.Jobs.PollInterval.Duration,
+		db,
+		registry(),
+		slog.Default(),
+		conf.Settings.Jobs.PollInterval.Duration,
+		conf.Settings.Jobs.FinalizeTimeout.Duration,
 	)
 	if err != nil {
 		return err
@@ -138,65 +156,66 @@ func run() error {
 	}
 
 	slog.Info(
-		"web server listening",
+		"starting http",
 		"url", fmt.Sprintf(
 			"http://%s",
 			conf.Settings.Server.ServerAddress,
 		),
 	)
 
-	runCtx, stop := signal.NotifyContext(
+	ctx, stop := signal.NotifyContext(
 		context.Background(), os.Interrupt, syscall.SIGTERM,
 	)
 	defer stop()
 
 	done := make(chan error, 2)
+
 	go func() {
-		err := processor.Run(runCtx)
+		err := processor.Run(ctx)
 		slog.Info("processor stopped")
+		if errors.Is(err, context.Canceled) {
+			err = nil
+		}
 		done <- err
+		stop()
 	}()
-	go func() { done <- server.ListenAndServe() }()
+	go func() {
+		err := server.ListenAndServe()
+		if errors.Is(err, http.ErrServerClosed) {
+			err = nil
+		}
+		done <- err
+		stop()
+	}()
 
-	var serviceErr error
-	remaining := 2
-
-	select {
-	case <-runCtx.Done():
-	case serviceErr = <-done:
-		remaining--
-	}
-
-	// stop will cancel the processor, for example if the http server errored early
-	slog.Info("processor shutdown requested")
+	// A signal or either service exiting starts shutdown
+	<-ctx.Done()
+	slog.Info("shutdown requested")
 	stop()
 
 	shutdownCtx, cancel := context.WithTimeout(
-		context.Background(), conf.Settings.Server.ShutdownTimeout.Duration,
+		context.Background(),
+		conf.Settings.Server.ShutdownTimeout.Duration,
 	)
 	defer cancel()
 
-	slog.Info("http server shutting down")
-	err = server.Shutdown(shutdownCtx)
-	if err != nil {
-		serviceErr = errors.Join(serviceErr, err)
-		_ = server.Close()
+	shutdownErr := server.Shutdown(shutdownCtx)
+	if shutdownErr != nil {
+		shutdownErr = errors.Join(shutdownErr, server.Close())
 	}
-	slog.Info("http server stopped", "error", err)
+	slog.Info("http stopped")
 
-	for ; remaining > 0; remaining-- {
-		err := <-done
-		if err != nil &&
-			!errors.Is(err, context.Canceled) &&
-			!errors.Is(err, http.ErrServerClosed) {
-			serviceErr = errors.Join(serviceErr, err)
-		}
+	// Wait for both sevices to end
+	processorOrHTTPErr := <-done
+	otherErr := <-done
+
+	return errors.Join(shutdownErr, processorOrHTTPErr, otherErr)
+}
+
+func registry() proc.Registry {
+	return proc.Registry{
+		"sync":         proc.Decode(func(struct{}) (proc.Job, error) { return &jobs.Sync{}, nil }),
+		"scan":         proc.Decode(func(struct{}) (proc.Job, error) { return &jobs.Scan{}, nil }),
+		"itunesLookup": proc.Decode(func(struct{}) (proc.Job, error) { return &jobs.ItunesLookup{}, nil }),
 	}
-
-	if errors.Is(serviceErr, context.Canceled) ||
-		errors.Is(serviceErr, http.ErrServerClosed) {
-		return nil
-	}
-
-	return serviceErr
 }
