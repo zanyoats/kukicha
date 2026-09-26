@@ -1,17 +1,28 @@
 package web
 
 import (
+	"context"
 	"database/sql"
+	"encoding/json"
 	"log/slog"
 	"net/http"
 
 	"github.com/zanyoats/kukicha/internal/app"
+	"github.com/zanyoats/kukicha/internal/processor"
+	"github.com/zanyoats/kukicha/internal/usecase/query"
 )
+
+// JobProcessor provides job submission and cancellation for the web handlers.
+type JobProcessor interface {
+	Submit(context.Context, processor.JobSubmission) (int64, error)
+	Cancel(context.Context, int64) (query.Job, error)
+}
 
 type appRoutes struct {
 	urls             URLs
 	renderer         Renderer
 	db               *sql.DB
+	processor        JobProcessor
 	perPage          int
 	defaultAlbumSort app.AlbumSort
 }
@@ -22,12 +33,14 @@ func NewWebRouter(
 	db *sql.DB,
 	perPage int,
 	defaultAlbumSort app.AlbumSort,
+	jobProcessor JobProcessor,
 ) http.Handler {
 	urls := NewURLs(basePath)
 	router := appRoutes{
 		urls:             urls,
 		renderer:         renderer,
 		db:               db,
+		processor:        jobProcessor,
 		perPage:          perPage,
 		defaultAlbumSort: defaultAlbumSort,
 	}
@@ -77,6 +90,14 @@ func NewWebRouter(
 		router.updateArtistSplitRule,
 	)
 	mux.HandleFunc(
+		exactPattern(http.MethodPost, urls.SubmitJob),
+		router.submitJob,
+	)
+	mux.HandleFunc(
+		exactPattern(http.MethodPost, urls.CancelJob),
+		router.cancelJob,
+	)
+	mux.HandleFunc(
 		exactPattern(http.MethodGet, urls.Roots),
 		router.showRoots,
 	)
@@ -102,4 +123,10 @@ func internalServerError(w http.ResponseWriter, message string, args ...any) {
 			"If you are a web admin see the server logs for more details.",
 		http.StatusInternalServerError,
 	)
+}
+
+func apiError(w http.ResponseWriter, status int, message string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(map[string]string{"error": message})
 }

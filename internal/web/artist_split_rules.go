@@ -67,7 +67,7 @@ func (c *appRoutes) showArtistSplitRules(w http.ResponseWriter, r *http.Request)
 func (c *appRoutes) updateArtistSplitRule(w http.ResponseWriter, r *http.Request) {
 	contentType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
 	if err != nil || contentType != "application/json" {
-		artistSplitRuleError(w, http.StatusUnsupportedMediaType, "Content-Type must be application/json.")
+		apiError(w, http.StatusUnsupportedMediaType, "Content-Type must be application/json.")
 		return
 	}
 	var input struct {
@@ -77,23 +77,23 @@ func (c *appRoutes) updateArtistSplitRule(w http.ResponseWriter, r *http.Request
 	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)) // 1 MiB
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&input); err != nil {
-		artistSplitRuleError(w, http.StatusBadRequest, "Invalid JSON request.")
+		apiError(w, http.StatusBadRequest, "Invalid JSON request.")
 		return
 	}
 	// checks to make sure no more to parse:
 	// e.g. {"album_key":"abc","mapped_artists":["Artist"]} {"extra":"object"}
 	if err := decoder.Decode(new(any)); err != io.EOF {
-		artistSplitRuleError(w, http.StatusBadRequest, "Expected a single JSON object.")
+		apiError(w, http.StatusBadRequest, "Expected a single JSON object.")
 		return
 	}
 	if strings.TrimSpace(input.AlbumKey) == "" {
-		artistSplitRuleError(w, http.StatusBadRequest, "An album key is required.")
+		apiError(w, http.StatusBadRequest, "An album key is required.")
 		return
 	}
 	artists := make([]string, 0, len(input.MappedArtists))
 	for _, value := range input.MappedArtists {
 		if value == nil {
-			artistSplitRuleError(
+			apiError(
 				w,
 				http.StatusBadRequest,
 				"Artist must be a string and not null",
@@ -106,20 +106,14 @@ func (c *appRoutes) updateArtistSplitRule(w http.ResponseWriter, r *http.Request
 		switch {
 		case errors.Is(err, command.ErrInvalidArtistMapping),
 			errors.Is(err, command.ErrEmptyArtistMapping):
-			artistSplitRuleError(w, http.StatusBadRequest, err.Error())
+			apiError(w, http.StatusBadRequest, err.Error())
 		case errors.Is(err, command.ErrArtistSplitRuleNotFound):
-			artistSplitRuleError(w, http.StatusNotFound, "Artist split rule not found.")
+			apiError(w, http.StatusNotFound, err.Error())
 		default:
 			slog.ErrorContext(r.Context(), "unable to update artist split rule", "error", err)
-			artistSplitRuleError(w, http.StatusInternalServerError, "Unable to save the artist split rule.")
+			apiError(w, http.StatusInternalServerError, "Unable to save the artist split rule.")
 		}
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
-}
-
-func artistSplitRuleError(w http.ResponseWriter, status int, message string) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(map[string]string{"error": message})
 }

@@ -12,7 +12,7 @@ import (
 
 var ErrInvalidArtistMapping = errors.New("Each artist must be a string on a single line.")
 var ErrEmptyArtistMapping = errors.New("Enter at least one artist.")
-var ErrArtistSplitRuleNotFound = errors.New("artist split rule not found")
+var ErrArtistSplitRuleNotFound = errors.New("Artist split rule not found.")
 
 //go:embed sql/find_or_insert_mapping.sql
 var findOrInsertMappingSQL string

@@ -25,6 +25,8 @@ type URLs struct {
 	Help                    string
 	InstanceIdenticon       string
 	UpdateArtistSplitRule   string
+	SubmitJob               string
+	CancelJob               string
 	Assets                  string
 	Favicon                 string
 	UnpolyStylesheet        string
@@ -54,6 +56,8 @@ func NewURLs(basePath string) URLs {
 		Help:                    app + "/help/",
 		InstanceIdenticon:       app + "/instance/identicon.svg",
 		UpdateArtistSplitRule:   api + "/artistSplitRules/",
+		SubmitJob:               api + "/jobs/",
+		CancelJob:               api + "/jobs/cancel/",
 		Assets:                  assets,
 		Favicon:                 "/favicon.ico",
 		UnpolyStylesheet:        assets + "unpoly.min.css",

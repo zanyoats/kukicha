@@ -12,7 +12,7 @@ import (
 )
 
 var ErrEmptyJobsQueue = errors.New("empty jobs queue")
-var ErrJobNotCancelable = errors.New("job can no longer be canceled because it has already ended")
+var ErrJobNotCancelable = errors.New("Job can no longer be canceled because it has already ended")
 
 //go:embed sql/insert_job.sql
 var insertJobSQL string
@@ -181,11 +181,11 @@ func RecoverJobs(ctx context.Context, db JobExecutor) (int64, error) {
 
 func ValidateJobSubmission(job JobSubmission) error {
 	if !SupportedJobType(job.Type) {
-		return fmt.Errorf("unsupported job type %q", job.Type)
+		return fmt.Errorf("Unsupported job type %q", job.Type)
 	}
 
 	if !json.Valid(job.Payload) {
-		return errors.New("job payload must contain valid JSON")
+		return errors.New("Job payload must contain valid JSON")
 	}
 
 	return nil
