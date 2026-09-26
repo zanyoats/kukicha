@@ -5,7 +5,9 @@ import (
 	"database/sql"
 	"encoding/json"
 	"log/slog"
+	"maps"
 	"net/http"
+	"slices"
 
 	"github.com/zanyoats/kukicha/internal/app"
 	"github.com/zanyoats/kukicha/internal/processor"
@@ -19,12 +21,15 @@ type JobProcessor interface {
 }
 
 type appRoutes struct {
-	urls             URLs
-	renderer         Renderer
-	db               *sql.DB
-	processor        JobProcessor
-	perPage          int
-	defaultAlbumSort app.AlbumSort
+	urls                      URLs
+	renderer                  Renderer
+	db                        *sql.DB
+	processor                 JobProcessor
+	perPage                   int
+	defaultAlbumSort          app.AlbumSort
+	configuredRoots           []app.Root
+	configFilePath            string
+	recognizedAudioExtensions []string
 }
 
 func NewWebRouter(
@@ -34,15 +39,21 @@ func NewWebRouter(
 	perPage int,
 	defaultAlbumSort app.AlbumSort,
 	jobProcessor JobProcessor,
+	configuredRoots []app.Root,
+	configFilePath string,
+	recognizedAudioExtensions map[string]bool,
 ) http.Handler {
 	urls := NewURLs(basePath)
 	router := appRoutes{
-		urls:             urls,
-		renderer:         renderer,
-		db:               db,
-		processor:        jobProcessor,
-		perPage:          perPage,
-		defaultAlbumSort: defaultAlbumSort,
+		urls:                      urls,
+		renderer:                  renderer,
+		db:                        db,
+		processor:                 jobProcessor,
+		perPage:                   perPage,
+		defaultAlbumSort:          defaultAlbumSort,
+		configuredRoots:           configuredRoots,
+		configFilePath:            configFilePath,
+		recognizedAudioExtensions: slices.Sorted(maps.Keys(recognizedAudioExtensions)),
 	}
 	mux := http.NewServeMux()
 

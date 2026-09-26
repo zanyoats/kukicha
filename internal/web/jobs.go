@@ -4,9 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
-	"io"
 	"log/slog"
-	"mime"
 	"net/http"
 
 	"github.com/zanyoats/kukicha/internal/processor"
@@ -18,7 +16,7 @@ func (c *appRoutes) submitJob(w http.ResponseWriter, r *http.Request) {
 		Type    string          `json:"type"`
 		Payload json.RawMessage `json:"payload"`
 	}
-	if !decodeJobRequest(w, r, &input) {
+	if !decodeJSONRequest(w, r, &input) {
 		return
 	}
 	submission := command.JobSubmission{Type: input.Type, Payload: input.Payload}
@@ -38,7 +36,7 @@ func (c *appRoutes) cancelJob(w http.ResponseWriter, r *http.Request) {
 	var input struct {
 		JobID int64 `json:"job_id"`
 	}
-	if !decodeJobRequest(w, r, &input) {
+	if !decodeJSONRequest(w, r, &input) {
 		return
 	}
 	if input.JobID <= 0 {
@@ -58,23 +56,4 @@ func (c *appRoutes) cancelJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
-}
-
-func decodeJobRequest(w http.ResponseWriter, r *http.Request, input any) bool {
-	contentType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
-	if err != nil || contentType != "application/json" {
-		apiError(w, http.StatusUnsupportedMediaType, "Content-Type must be application/json.")
-		return false
-	}
-	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)) // 1 MiB
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(input); err != nil {
-		apiError(w, http.StatusBadRequest, "Invalid JSON request.")
-		return false
-	}
-	if err := decoder.Decode(new(any)); err != io.EOF {
-		apiError(w, http.StatusBadRequest, "Expected a single JSON object.")
-		return false
-	}
-	return true
 }

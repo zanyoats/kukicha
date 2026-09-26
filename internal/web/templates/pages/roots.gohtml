@@ -14,22 +14,24 @@
 {{define "page-content"}}
 <article class="config-page">
     {{template "page-header" .}}
-    {{if .Roots}}
-    <aside class="alert alert-info" aria-label="Info">
+    {{if .ConfiguredRoots}}
+    <aside class="alert alert-info" aria-label="Info" data-sync-job>
         <strong>Info</strong>
         <p>
             Configured roots are synced at startup.
             You can run <a href="">Scan</a> to rebuild the library,
-            or <a href="">Sync</a> to also re-download all files.
+            or <a href="{{.URLs.SubmitJob}}" data-sync-submit up-follow="false">Sync</a> to also re-download all files.
             Either option starts a new job that runs in the background.
             For a full factory reset, use <a href="">Reset</a>,
             which runs a sync and removes all listening data.
         </p>
+        <p role="status" data-job-message hidden></p>
     </aside>
     {{end}}
-    {{range $index, $root := .Roots}}
+    {{range $index, $root := .ConfiguredRoots}}
     <section class="root-summary" aria-labelledby="root-path-{{$index}}">
-        <h2 id="root-path-{{$index}}">{{.Path}}</h2>
+        <h2 id="root-path-{{$index}}">{{.RootPath}}</h2>
+        {{with index $.RootsByPath .RootPath}}
         <dl class="facts">
             <div>
                 <dt>Tracks</dt>
@@ -48,9 +50,12 @@
                 <dd>{{formatNumber .AlbumSidecars}}</dd>
             </div>
         </dl>
+        {{else}}
+        <p class="text-secondary">No data found for this root.</p>
+        {{end}}
     </section>
     {{else}}
-    <p>No indexed roots found. Add roots to your config.</p>
+    <p>No music roots are configured. Add roots to your config.</p>
     {{end}}
 
     <section class="root-summary sync-logs" aria-labelledby="sync-logs-heading">

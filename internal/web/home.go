@@ -3,16 +3,23 @@ package web
 import (
 	"net/http"
 
+	"github.com/zanyoats/kukicha/internal/app"
 	"github.com/zanyoats/kukicha/internal/usecase/query"
 )
 
 type homeViewModel struct {
-	EyeBrow string
-	Heading string
-	URLs    URLs
-	Artists []homeLink
-	Genres  []homeLink
-	Styles  []homeLink
+	LibraryGenerated          bool
+	HasIndexedRoots           bool
+	HasConfiguredRoots        bool
+	ConfiguredRoots           []app.Root
+	ConfigFilePath            string
+	RecognizedAudioExtensions []string
+	EyeBrow                   string
+	Heading                   string
+	URLs                      URLs
+	Artists                   []homeLink
+	Genres                    []homeLink
+	Styles                    []homeLink
 }
 
 type homeLink struct {
@@ -28,9 +35,15 @@ func (c *appRoutes) showHome(w http.ResponseWriter, r *http.Request) {
 	}
 
 	renderPage(w, c.renderer, "home.gohtml", homeViewModel{
-		EyeBrow: "Kukicha",
-		Heading: "Browse",
-		URLs:    c.urls,
+		LibraryGenerated:          home.LibraryGenerated,
+		HasIndexedRoots:           home.HasIndexedRoots,
+		HasConfiguredRoots:        len(c.configuredRoots) > 0,
+		ConfiguredRoots:           c.configuredRoots,
+		ConfigFilePath:            c.configFilePath,
+		RecognizedAudioExtensions: c.recognizedAudioExtensions,
+		EyeBrow:                   "Kukicha",
+		Heading:                   "Browse",
+		URLs:                      c.urls,
 		Artists: homeLinks(home.Artists, func(id int64) string {
 			return c.urls.ArtistURL(id)
 		}),

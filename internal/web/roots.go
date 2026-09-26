@@ -3,18 +3,20 @@ package web
 import (
 	"net/http"
 
+	"github.com/zanyoats/kukicha/internal/app"
 	"github.com/zanyoats/kukicha/internal/usecase/query"
 )
 
 type rootsViewModel struct {
-	EyeBrow     string
-	Heading     string
-	URLs        URLs
-	Roots       []query.Root
-	LogStats    query.SyncLogStats
-	ShowLogs    bool
-	Logs        query.SyncLogBatch
-	NextLogsURL string
+	EyeBrow         string
+	Heading         string
+	URLs            URLs
+	ConfiguredRoots []app.Root
+	RootsByPath     map[string]*query.Root
+	LogStats        query.SyncLogStats
+	ShowLogs        bool
+	Logs            query.SyncLogBatch
+	NextLogsURL     string
 }
 
 func (c *appRoutes) showRoots(w http.ResponseWriter, r *http.Request) {
@@ -38,13 +40,18 @@ func (c *appRoutes) showRoots(w http.ResponseWriter, r *http.Request) {
 		internalServerError(w, "unable to load roots or sync logs", "error", err)
 		return
 	}
+	rootsByPath := make(map[string]*query.Root, len(roots))
+	for i := range roots {
+		rootsByPath[roots[i].Path] = &roots[i]
+	}
 	model := rootsViewModel{
-		EyeBrow:  "Settings",
-		Heading:  "Roots",
-		URLs:     c.urls,
-		Roots:    roots,
-		LogStats: stats,
-		ShowLogs: showLogs,
+		EyeBrow:         "Settings",
+		Heading:         "Roots",
+		URLs:            c.urls,
+		ConfiguredRoots: c.configuredRoots,
+		RootsByPath:     rootsByPath,
+		LogStats:        stats,
+		ShowLogs:        showLogs,
 	}
 	if showLogs {
 		model.Logs, err = query.SyncLogs(r.Context(), c.db, before, c.perPage)

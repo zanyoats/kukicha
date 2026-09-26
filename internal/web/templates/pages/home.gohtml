@@ -4,67 +4,131 @@
 <article class="home-page">
     {{template "page-header" .}}
 
-    <section>
-        <h2>Artists</h2>
-        <ul class="item-grid">
-            {{range .Artists}}
-            <li class="radio-card">
-                <a
-                    class="radio-card-name text-truncate"
-                    href="{{.URL}}"
-                    title="{{.Name}}"
-                    up-follow
-                    >{{.Name}}</a
-                >
-                <span class="radio-card-leader" aria-hidden="true"></span>
-                <a class="radio-card-link" href="" up-follow>(radio)</a>
-            </li>
+    {{if .HasConfiguredRoots}}
+        {{if .LibraryGenerated}}
+            {{if .HasIndexedRoots}}
+            {{template "home-content" .}}
             {{else}}
-            <li class="item-grid-empty">No artist found.</li>
+            <aside class="alert alert-info" aria-label="Empty library">
+                <strong>No tracks were found in your configured roots.</strong>
+                <ul>
+                    {{range .ConfiguredRoots}}
+                    <li><code>{{.RootPath}}</code></li>
+                    {{end}}
+                </ul>
+                <p>
+                    Recognized audio file extensions:
+                    {{range $index, $extension := .RecognizedAudioExtensions}}{{if $index}}, {{end}}<code>{{$extension}}</code>{{end}}.
+                </p>
+                <p>Check your files and sync again.</p>
+            </aside>
             {{end}}
-        </ul>
-    </section>
-
-    <section>
-        <h2>Genres</h2>
-        <ul class="item-grid">
-            {{range .Genres}}
-            <li class="radio-card">
-                <a
-                    class="radio-card-name text-truncate"
-                    href="{{.URL}}"
-                    title="{{.Name}}"
-                    up-follow
-                    >{{.Name}}</a
-                >
-                <span class="radio-card-leader" aria-hidden="true"></span>
-                <a class="radio-card-link" href="" up-follow>(radio)</a>
-            </li>
-            {{else}}
-            <li class="item-grid-empty">No genres found.</li>
-            {{end}}
-        </ul>
-    </section>
-
-    <section>
-        <h2>Styles</h2>
-        <ul class="item-grid">
-            {{range .Styles}}
-            <li class="radio-card">
-                <a
-                    class="radio-card-name text-truncate"
-                    href="{{.URL}}"
-                    title="{{.Name}}"
-                    up-follow
-                    >{{.Name}}</a
-                >
-                <span class="radio-card-leader" aria-hidden="true"></span>
-                <a class="radio-card-link" href="" up-follow>(radio)</a>
-            </li>
-            {{else}}
-            <li class="item-grid-empty">No styles found.</li>
-            {{end}}
-        </ul>
-    </section>
+        {{else}}
+        <aside class="alert alert-info" aria-label="Library not generated" data-sync-job>
+            <strong>Your library hasn’t been generated yet.</strong>
+            <p>Click <a href="{{.URLs.SubmitJob}}" data-sync-submit up-follow="false">here</a> to begin syncing your library.</p>
+            <p role="status" data-job-message hidden></p>
+        </aside>
+        {{end}}
+    {{else}}
+        {{if and .LibraryGenerated .HasIndexedRoots}}
+        <aside class="alert alert-info" aria-label="No configured roots">
+            <strong>No music roots are configured for your library.</strong>
+            <p>
+                Your library is missing its configured roots. If you sync again
+                it will delete your existing library. To prevent this add back
+                the roots to <code>{{.ConfigFilePath}}</code>.
+            </p>
+        </aside>
+        {{template "home-content" .}}
+        {{else}}
+        <aside class="alert alert-info" aria-label="No configured roots">
+            <strong>No music roots are configured.</strong>
+            {{template "home-configure-roots" .}}
+        </aside>
+        {{end}}
+    {{end}}
 </article>
+{{end}}
+
+{{define "home-configure-roots"}}
+<p>
+    Configure music roots in <code>{{.ConfigFilePath}}</code>, then you will be
+    able to sync your library. You can start with a minimal config like this:
+</p>
+<pre><code>[scan]
+roots = [
+    "~/Music",
+]</code></pre>
+<p>
+    Replace <code>~/Music</code> with the path to your music folder.
+    To include multiple folders, add each path to the list.
+    If your config already has a <code>[scan]</code> section, add/update its
+    <code>roots</code> setting instead of adding another section.
+</p>
+{{end}}
+
+{{define "home-content"}}
+<section>
+    <h2>Artists</h2>
+    <ul class="item-grid">
+        {{range .Artists}}
+        <li class="radio-card">
+            <a
+                class="radio-card-name text-truncate"
+                href="{{.URL}}"
+                title="{{.Name}}"
+                up-follow
+                >{{.Name}}</a
+            >
+            <span class="radio-card-leader" aria-hidden="true"></span>
+            <a class="radio-card-link" href="" up-follow>(radio)</a>
+        </li>
+        {{else}}
+        <li class="item-grid-empty">No artist found.</li>
+        {{end}}
+    </ul>
+</section>
+
+<section>
+    <h2>Genres</h2>
+    <ul class="item-grid">
+        {{range .Genres}}
+        <li class="radio-card">
+            <a
+                class="radio-card-name text-truncate"
+                href="{{.URL}}"
+                title="{{.Name}}"
+                up-follow
+                >{{.Name}}</a
+            >
+            <span class="radio-card-leader" aria-hidden="true"></span>
+            <a class="radio-card-link" href="" up-follow>(radio)</a>
+        </li>
+        {{else}}
+        <li class="item-grid-empty">No genres found.</li>
+        {{end}}
+    </ul>
+</section>
+
+<section>
+    <h2>Styles</h2>
+    <ul class="item-grid">
+        {{range .Styles}}
+        <li class="radio-card">
+            <a
+                class="radio-card-name text-truncate"
+                href="{{.URL}}"
+                title="{{.Name}}"
+                up-follow
+                >{{.Name}}</a
+            >
+            <span class="radio-card-leader" aria-hidden="true"></span>
+            <a class="radio-card-link" href="" up-follow>(radio)</a>
+        </li>
+        {{else}}
+        <li class="item-grid-empty">No styles found.</li>
+        {{end}}
+    </ul>
+</section>
 {{end}}

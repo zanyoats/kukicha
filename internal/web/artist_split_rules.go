@@ -3,9 +3,7 @@ package web
 import (
 	"encoding/json"
 	"errors"
-	"io"
 	"log/slog"
-	"mime"
 	"net/http"
 	"strings"
 
@@ -65,25 +63,11 @@ func (c *appRoutes) showArtistSplitRules(w http.ResponseWriter, r *http.Request)
 }
 
 func (c *appRoutes) updateArtistSplitRule(w http.ResponseWriter, r *http.Request) {
-	contentType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
-	if err != nil || contentType != "application/json" {
-		apiError(w, http.StatusUnsupportedMediaType, "Content-Type must be application/json.")
-		return
-	}
 	var input struct {
 		AlbumKey      string    `json:"album_key"`
 		MappedArtists []*string `json:"mapped_artists"`
 	}
-	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)) // 1 MiB
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&input); err != nil {
-		apiError(w, http.StatusBadRequest, "Invalid JSON request.")
-		return
-	}
-	// checks to make sure no more to parse:
-	// e.g. {"album_key":"abc","mapped_artists":["Artist"]} {"extra":"object"}
-	if err := decoder.Decode(new(any)); err != io.EOF {
-		apiError(w, http.StatusBadRequest, "Expected a single JSON object.")
+	if !decodeJSONRequest(w, r, &input) {
 		return
 	}
 	if strings.TrimSpace(input.AlbumKey) == "" {

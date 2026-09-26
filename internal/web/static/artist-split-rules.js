@@ -1,3 +1,5 @@
+import { requestJSON } from "./json-api.js";
+
 export default function registerArtistSplitRules(up) {
     up.compiler("[data-split-rule]", (row, data) => {
         let destroyed = false;
@@ -48,14 +50,13 @@ export default function registerArtistSplitRules(up) {
             fieldset.disabled = true;
             form.setAttribute("aria-busy", "true");
             try {
-                await up.request(data.update_url, {
+                await requestJSON(up, data.update_url, {
                     method: "PATCH",
-                    wrapMethod: false,
-                    contentType: "application/json",
-                    payload: JSON.stringify({
+                    body: {
                         album_key: data.album_key,
                         mapped_artists: artists,
-                    }),
+                    },
+                    errorMessage: "Unable to save. Please try again.",
                 });
                 if (destroyed) return;
                 saved = artists;
@@ -69,14 +70,7 @@ export default function registerArtistSplitRules(up) {
                 close();
             } catch (failure) {
                 if (destroyed) return;
-                let message = "Unable to save. Please try again.";
-                try {
-                    const body = JSON.parse(failure.text);
-                    if (typeof body.error === "string") message = body.error;
-                } catch {
-                    // Network failures may not have a JSON response.
-                }
-                showError(message);
+                showError(failure.message);
             } finally {
                 saving = false;
                 fieldset.disabled = false;

@@ -109,17 +109,12 @@ func run() error {
 			conf.Settings.UI.PerPage,
 			conf.Settings.UI.DefaultAlbumSort,
 			processor,
+			conf.Roots,
+			conf.ConfigFilePath,
+			scan.RecognizedAudioExtensions,
 		),
 		ReadHeaderTimeout: conf.Settings.Server.ReadHeaderTimeout.Duration,
 	}
-
-	slog.Info(
-		"starting http",
-		"url", fmt.Sprintf(
-			"http://%s",
-			conf.Settings.Server.ServerAddress,
-		),
-	)
 
 	ctx, stop := signal.NotifyContext(
 		context.Background(), os.Interrupt, syscall.SIGTERM,
@@ -129,6 +124,7 @@ func run() error {
 	done := make(chan error, 2)
 
 	go func() {
+		slog.Info("starting background job processor")
 		err := processor.Run(ctx)
 		slog.Info("processor stopped")
 		if errors.Is(err, context.Canceled) {
@@ -138,6 +134,13 @@ func run() error {
 		stop()
 	}()
 	go func() {
+		slog.Info(
+			"starting http",
+			"url", fmt.Sprintf(
+				"http://%s",
+				conf.Settings.Server.ServerAddress,
+			),
+		)
 		err := server.ListenAndServe()
 		if errors.Is(err, http.ErrServerClosed) {
 			err = nil

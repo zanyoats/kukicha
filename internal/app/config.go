@@ -139,6 +139,7 @@ func (w *WorkerCount) Resolve() int {
 
 type AppConfig struct {
 	AppDir         string
+	ConfigFilePath string
 	Roots          []Root
 	DataSourceName string
 	Settings       struct {
@@ -189,24 +190,23 @@ var defaultsTomlData []byte
 
 func LoadAppConfig(catalog *Catalog) (*AppConfig, error) {
 	var (
-		path         string
 		dbPath       string
 		userTomlData []byte
 		err          error
 		result       = new(AppConfig)
 	)
 
-	if result.AppDir, path, err = ensureConfigFile(); err != nil {
+	if result.AppDir, result.ConfigFilePath, err = ensureConfigFile(); err != nil {
 		return nil, fmt.Errorf(
 			"error setting up config file name %q: %w",
 			ConfigFileName, err,
 		)
 	}
 
-	if userTomlData, err = os.ReadFile(path); err != nil {
+	if userTomlData, err = os.ReadFile(result.ConfigFilePath); err != nil {
 		return nil, fmt.Errorf(
 			"error reading config file path %q: %w",
-			path, err,
+			result.ConfigFilePath, err,
 		)
 	}
 
@@ -220,7 +220,7 @@ func LoadAppConfig(catalog *Catalog) (*AppConfig, error) {
 	if err = decodeSettings(userTomlData, &result.Settings); err != nil {
 		return nil, fmt.Errorf(
 			"error decoding user's toml config file %q: %w",
-			path, err,
+			result.ConfigFilePath, err,
 		)
 	}
 

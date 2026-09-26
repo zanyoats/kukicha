@@ -5,7 +5,12 @@ import (
 	"database/sql"
 	_ "embed"
 	"fmt"
+
+	"github.com/zanyoats/kukicha/internal/app"
 )
+
+//go:embed sql/home_library_state.sql
+var homeLibraryStateSQL string
 
 //go:embed sql/home_artists.sql
 var homeArtistsSQL string
@@ -24,9 +29,11 @@ type HomeItem struct {
 
 // HomeData contains the library categories displayed on the home page.
 type HomeData struct {
-	Artists []HomeItem
-	Genres  []HomeItem
-	Styles  []HomeItem
+	LibraryGenerated bool
+	HasIndexedRoots  bool
+	Artists          []HomeItem
+	Genres           []HomeItem
+	Styles           []HomeItem
 }
 
 // Home loads the artists, genres, and styles associated with library albums.
@@ -38,6 +45,11 @@ func Home(ctx context.Context, db *sql.DB) (HomeData, error) {
 	defer tx.Rollback()
 
 	result := HomeData{}
+	if err := tx.QueryRowContext(ctx, homeLibraryStateSQL,
+		sql.Named("generated_at_key", app.LibraryGeneratedAt),
+	).Scan(&result.LibraryGenerated, &result.HasIndexedRoots); err != nil {
+		return HomeData{}, fmt.Errorf("query home library state: %w", err)
+	}
 
 	result.Artists, err = queryHomeItems(ctx, tx, homeArtistsSQL, "artists")
 	if err != nil {
