@@ -89,52 +89,9 @@ func run() error {
 		)
 	}
 
-	// TODO: turn scan into a Job
-	// result, err := scan.Sync(ctx, db, conf)
-	// if err != nil {
-	// 	return err
-	// }
-
-	// // TextHandler escapes newlines, so print this human-readable summary directly.
-	// if slog.Default().Enabled(ctx, slog.LevelInfo) {
-	// 	fmt.Fprintf(os.Stderr,
-	// 		"library sync complete\n"+
-	// 			"\tscan summary:\n"+
-	// 			"\t\tprocessed_files=%d\n"+
-	// 			"\t\troots=%d\n"+
-	// 			"\t\talbums=%d\n"+
-	// 			"\t\ttracks=%d\n"+
-	// 			"\t\tplaylists=%d\n"+
-	// 			"\t\tsidecar_files=%d\n"+
-	// 			"\t\talbum_sidecars=%d\n"+
-	// 			"\t\tunassociated_sidecars=%d\n"+
-	// 			"\t\ttracks_with_unknown_titles=%d\n"+
-	// 			"\t\talbums_with_unknown_names=%d\n"+
-	// 			"\t\talbums_with_unknown_artists=%d\n"+
-	// 			"\tlog summary:\n"+
-	// 			"\t\terrors=%d\n"+
-	// 			"\t\twarnings=%d\n"+
-	// 			"\t\tinfo=%d\n",
-	// 		result.ScanStats.ProcessedFiles,
-	// 		result.ScanStats.LibraryRoots,
-	// 		result.ScanStats.LibraryAlbums,
-	// 		result.ScanStats.LibraryTracks,
-	// 		result.ScanStats.LibraryPlaylists,
-	// 		result.ScanStats.SidecarFiles,
-	// 		result.ScanStats.LibraryAlbumSidecars,
-	// 		result.ScanStats.UnassociatedSidecars,
-	// 		result.ScanStats.LibraryTrackTitleUnknowns,
-	// 		result.ScanStats.LibraryAlbumUnknowns,
-	// 		result.ScanStats.LibraryAlbumArtistUnknowns,
-	// 		result.LogStats.ErrorCount,
-	// 		result.LogStats.WarnCount,
-	// 		result.LogStats.InfoCount,
-	// 	)
-	// }
-
 	processor, err := proc.New(
 		db,
-		registry(),
+		registry(db, conf),
 		slog.Default(),
 		conf.Settings.Jobs.PollInterval.Duration,
 		conf.Settings.Jobs.FinalizeTimeout.Duration,
@@ -212,10 +169,10 @@ func run() error {
 	return errors.Join(shutdownErr, processorOrHTTPErr, otherErr)
 }
 
-func registry() proc.Registry {
+func registry(db *sql.DB, conf *app.AppConfig) proc.Registry {
 	return proc.Registry{
-		"sync":         proc.Decode(func(struct{}) (proc.Job, error) { return &jobs.Sync{}, nil }),
+		"sync":         proc.Decode(func(struct{}) (proc.Job, error) { return &jobs.Sync{DB: db, Conf: conf}, nil }),
 		"scan":         proc.Decode(func(struct{}) (proc.Job, error) { return &jobs.Scan{}, nil }),
-		"itunesLookup": proc.Decode(func(struct{}) (proc.Job, error) { return &jobs.ItunesLookup{}, nil }),
+		"iTunesLookup": proc.Decode(func(struct{}) (proc.Job, error) { return &jobs.ItunesLookup{DB: db, Conf: conf}, nil }),
 	}
 }

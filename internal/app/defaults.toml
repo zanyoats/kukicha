@@ -20,8 +20,9 @@ enabled = true
 
 request_timeout = "20s"
 
-# Space lookup starts to reduce bursts; HTTP 429 responses can extend the delay.
-lookup_interval = "250ms"
+# Space itunes network lookups out to reduce bursts;
+# HTTP 429 responses can extend the delay.
+lookup_interval = "1s"
 
 retry_attempts = 2
 
@@ -92,6 +93,11 @@ busy_timeout = "5s"
 cache_size_kib = 32_768
 
 [jobs]
+# Positive integer, or "auto"
+# Controls jobs that use a worker pool to potentially speed up tasks.
+# "auto" is most likely a good default.
+workers = "auto"
+
 # How often to check for queued jobs. Don't make this too small: your CPU needs
 # its naps and to allow other work to be done.
 poll_interval = "250ms"

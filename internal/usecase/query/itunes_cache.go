@@ -10,6 +10,8 @@ import (
 	"github.com/zanyoats/kukicha/internal/app"
 )
 
+var ErrInvalidCachedITunesArtwork = errors.New("fetch from itunes cache")
+
 //go:embed sql/load_itunes_lookup_image.sql
 var loadITunesLookupImageSQL string
 
@@ -64,39 +66,49 @@ func LoadCachedITunesArtwork(
 	}
 
 	if storedKind != string(kind) || storedLookupID != lookupID {
-		return result, false, errors.New(
-			"cached iTunes lookup identity does not match its cache key",
-		)
+		return result, false, fmt.Errorf(
+			"%w: %w",
+			ErrInvalidCachedITunesArtwork, errors.New(
+				"cached iTunes lookup identity does not match its cache key",
+			))
 	}
 
 	result.ResultKind = app.ITunesResultKind(storedResultKind)
 
 	if contentSize != len(result.Bytes) {
-		return result, false, errors.New(
-			"cached iTunes artwork size does not match its data",
-		)
+		return result, false, fmt.Errorf(
+			"%w: %w",
+			ErrInvalidCachedITunesArtwork, errors.New(
+				"cached iTunes artwork size does not match its data",
+			))
 	}
 
 	switch result.ResultKind {
 	case app.ITunesResultHit:
 		if len(result.Bytes) == 0 {
-			return result, false, errors.New(
-				"cached iTunes artwork hit is empty",
-			)
+			return result, false, fmt.Errorf(
+				"%w: %w",
+				ErrInvalidCachedITunesArtwork, errors.New(
+					"cached iTunes artwork hit is empty",
+				))
 		}
 
 	case app.ITunesResultMissing:
 		if len(result.Bytes) != 0 {
-			return result, false, errors.New(
-				"cached missing iTunes artwork contains image data",
-			)
+			return result, false, fmt.Errorf(
+				"%w: %w",
+				ErrInvalidCachedITunesArtwork, errors.New(
+					"cached missing iTunes artwork contains image data",
+				))
 		}
 
 	default:
 		return result, false, fmt.Errorf(
-			"unsupported cached iTunes result kind %q",
-			result.ResultKind,
-		)
+			"%w: %w",
+			ErrInvalidCachedITunesArtwork,
+			fmt.Errorf(
+				"unsupported cached iTunes result kind %q", result.ResultKind,
+			))
 	}
 
 	return result, true, nil

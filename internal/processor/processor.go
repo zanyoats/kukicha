@@ -13,6 +13,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/zanyoats/kukicha/internal/app"
 	"github.com/zanyoats/kukicha/internal/usecase/command"
 	"github.com/zanyoats/kukicha/internal/usecase/query"
 )
@@ -306,7 +307,7 @@ func (p *Processor) execute(
 		"attempt", record.Attempts,
 	)
 
-	return job.Run(runCtx)
+	return job.Run(app.WithJobID(runCtx, record.ID))
 }
 
 // end records the job's final state in this order:

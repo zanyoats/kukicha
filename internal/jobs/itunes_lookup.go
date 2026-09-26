@@ -41,6 +41,12 @@ func (j *ItunesLookup) Run(ctx context.Context) error {
 		},
 	)
 
+	// TODO: Batch by track IDs since candidates can be a large list
+	// 1. Load up to 100 track IDs after the cursor.
+	// 2. Load candidates for that selected ID range.
+	// 3. Close rows and process candidates.
+	// 4. Advance to the last ID from step 1.
+
 	candidates, err := query.LibraryArtworkCandidates(ctx, conn)
 	if err != nil {
 		return err
@@ -101,15 +107,19 @@ func (j *ItunesLookup) Run(ctx context.Context) error {
 			return err
 		}
 
-		if err := command.AttachLibraryArtwork(
-			ctx, conn, candidate.TrackID, name,
-		); err != nil {
-			return err
-		}
-
 		resolved[candidate.TrackID] = true
 	}
-	return ctx.Err()
+	// Apply the same final selection that the next Sync will use.
+	tx, err := conn.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	if err := command.ReconcileITunesArtwork(ctx, tx); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 type itunesArtworkCache interface {

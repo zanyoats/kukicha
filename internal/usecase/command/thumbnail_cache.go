@@ -37,16 +37,26 @@ type thumbnailVariant struct {
 	bytes       []byte
 }
 
-func cacheArtworkThumbnails(
+func CacheArtworkThumbnails(
 	ctx context.Context,
 	conn *sql.Conn,
 	sourceBytes []byte,
+	info, rootPath, path string,
 ) (string, error) {
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
 	if len(sourceBytes) == 0 {
-		return "", fmt.Errorf("%w: image data is empty", errInvalidArtwork)
+		err := fmt.Errorf("%w: image data is empty", errInvalidArtwork)
+
+		if logErr := InsertLibrarySyncLog(
+			ctx, conn, "warn",
+			fmt.Sprintf("cannot cache %s: %v", info, err), rootPath, path,
+		); logErr != nil {
+			return "", fmt.Errorf("%v: %w", err, logErr)
+		}
+
+		return "", nil
 	}
 
 	sum := sha256.Sum256(sourceBytes)
@@ -62,10 +72,28 @@ func cacheArtworkThumbnails(
 
 	decoded, sourceFormat, err := image.Decode(bytes.NewReader(sourceBytes))
 	if err != nil {
-		return "", fmt.Errorf("%w: decode image: %v", errInvalidArtwork, err)
+		err := fmt.Errorf("%w: decode image: %v", errInvalidArtwork, err)
+
+		if logErr := InsertLibrarySyncLog(
+			ctx, conn, "warn",
+			fmt.Sprintf("cannot cache %s: %v", info, err), rootPath, path,
+		); logErr != nil {
+			return "", fmt.Errorf("%v: %w", err, logErr)
+		}
+
+		return "", nil
 	}
 	if decoded.Bounds().Dx() < 1 || decoded.Bounds().Dy() < 1 {
-		return "", fmt.Errorf("%w: image dimensions must be positive", errInvalidArtwork)
+		err := fmt.Errorf("%w: image dimensions must be positive", errInvalidArtwork)
+
+		if logErr := InsertLibrarySyncLog(
+			ctx, conn, "warn",
+			fmt.Sprintf("cannot cache %s: %v", info, err), rootPath, path,
+		); logErr != nil {
+			return "", fmt.Errorf("%v: %w", err, logErr)
+		}
+
+		return "", nil
 	}
 
 	variants := make([]thumbnailVariant, 0, 2)
@@ -95,13 +123,12 @@ func cacheArtworkThumbnails(
 		})
 	}
 
-	tx, err := conn.BeginTx(ctx, nil)
-	if err != nil {
-		return "", fmt.Errorf("begin thumbnail cache update: %w", err)
-	}
+	// Each variant is immutable and keyed by its content hash and width.
+	// Conflict-safe independent writes permit interleaving on the scan connection.
+	// A partial cache is repaired on the next attempt; association requires both sizes.
 
 	for _, variant := range variants {
-		if _, err := tx.ExecContext(
+		if _, err := conn.ExecContext(
 			ctx,
 			insertThumbnailCacheSQL,
 			sql.Named("name", name),
@@ -111,17 +138,12 @@ func cacheArtworkThumbnails(
 			sql.Named("artwork_content_size", len(variant.bytes)),
 			sql.Named("artwork_bytes", variant.bytes),
 		); err != nil {
-			_ = tx.Rollback()
 			return "", fmt.Errorf(
 				"insert thumbnail cache width %d: %w",
 				variant.width,
 				err,
 			)
 		}
-	}
-
-	if err := tx.Commit(); err != nil {
-		return "", fmt.Errorf("commit thumbnail cache update: %w", err)
 	}
 
 	return name, nil

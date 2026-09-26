@@ -193,7 +193,7 @@ func ValidateJobSubmission(job JobSubmission) error {
 
 func SupportedJobType(jobType string) bool {
 	switch jobType {
-	case "sync", "scan", "itunesLookup":
+	case "sync", "scan", "iTunesLookup":
 		return true
 	default:
 		return false

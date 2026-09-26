@@ -17,7 +17,21 @@ var storeITunesLookupImageSQL string
 //go:embed sql/link_itunes_lookup_thumbnail.sql
 var linkITunesLookupThumbnailSQL string
 
-var ErrITunesArtworkCache = errors.New("iTunes artwork cache")
+//go:embed sql/reconcile_itunes_artwork.sql
+var reconcileITunesArtworkSQL string
+
+// ReconcileITunesArtwork selects artwork from the completed cache, preserving
+// local associations. The caller must commit or roll back the transaction.
+func ReconcileITunesArtwork(ctx context.Context, tx *sql.Tx) error {
+	if _, err := tx.ExecContext(
+		ctx, reconcileITunesArtworkSQL,
+		sql.Named("artwork_width_small", AlbumArtwork64),
+		sql.Named("artwork_width_large", AlbumArtwork256),
+	); err != nil {
+		return fmt.Errorf("reconcile iTunes artwork: %w", err)
+	}
+	return nil
+}
 
 type itunesArtworkCacheWriter interface {
 	ExecContext(

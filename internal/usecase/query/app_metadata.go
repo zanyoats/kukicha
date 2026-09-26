@@ -17,12 +17,14 @@ var appMetadataSQL string
 
 func AppMetadata(
 	ctx context.Context,
-	tx *sql.Tx,
+	db interface {
+		QueryRowContext(context.Context, string, ...any) *sql.Row
+	},
 	key app.AppMetadataKey,
 ) (string, error) {
 	var value string
 
-	err := tx.QueryRowContext(
+	err := db.QueryRowContext(
 		ctx,
 		appMetadataSQL,
 		sql.Named("key", key),

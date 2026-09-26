@@ -3,6 +3,7 @@ sidecar_candidates AS (
     SELECT
         tracks.id AS track_id,
         covers.thumbnail_cache_name,
+        'sidecar' AS source,
         0 AS source_priority,
         0 AS candidate_priority,
         0 AS count_priority,
@@ -33,6 +34,7 @@ embedded_candidates AS (
     SELECT
         tracks.id AS track_id,
         artwork.thumbnail_cache_name,
+        'embedded' AS source,
         1 AS source_priority,
         CASE artwork.picture_type
             WHEN 'front_cover' THEN 0
@@ -53,120 +55,15 @@ embedded_candidates AS (
     WHERE artwork.thumbnail_cache_name IS NOT NULL
         AND artwork.picture_type IN ('front_cover', 'other')
 ),
-current_itunes_candidates AS (
-    SELECT
-        tracks.id AS track_id,
-        cache.thumbnail_cache_name,
-        2 AS source_priority,
-        candidates.candidate_priority,
-        0 AS count_priority,
-        tracks.id AS id_priority,
-        candidates.lookup_id AS text_priority
-    FROM library_tracks AS tracks
-    JOIN (
-        SELECT
-            id AS track_id,
-            0 AS candidate_priority,
-            CAST(
-                json_extract(track_metadata, '$.itunes_store_album_id')
-                AS TEXT
-            ) AS lookup_id,
-            'album' AS lookup_kind
-        FROM library_tracks
-
-        UNION ALL
-
-        SELECT
-            id AS track_id,
-            1 AS candidate_priority,
-            CAST(
-                json_extract(track_metadata, '$.itunes_store_track_id')
-                AS TEXT
-            ) AS lookup_id,
-            'track' AS lookup_kind
-        FROM library_tracks
-    ) AS candidates
-        ON candidates.track_id = tracks.id
-    JOIN itunes_lookup_image_cache AS cache
-        ON cache.cache_key =
-            candidates.lookup_kind || ':' || candidates.lookup_id
-    WHERE CAST(candidates.lookup_id AS INTEGER) > 0
-        AND cache.result_kind = 'hit'
-        AND cache.thumbnail_cache_name IS NOT NULL
-),
-sibling_itunes_candidates AS (
-    SELECT
-        current_track.id AS track_id,
-        cache.thumbnail_cache_name,
-        2 AS source_priority,
-        2 AS candidate_priority,
-        -COUNT(*) AS count_priority,
-        MIN(siblings.id) AS id_priority,
-        CAST(
-            json_extract(
-                siblings.track_metadata,
-                '$.itunes_store_album_id'
-            )
-            AS TEXT
-        ) AS text_priority
-    FROM library_tracks AS current_track
-    JOIN library_tracks AS siblings
-        ON siblings.album_id = current_track.album_id
-        AND siblings.id != current_track.id
-    JOIN itunes_lookup_image_cache AS cache
-        ON cache.cache_key = 'album:' || CAST(
-            json_extract(
-                siblings.track_metadata,
-                '$.itunes_store_album_id'
-            )
-            AS TEXT
-        )
-    WHERE CAST(
-        json_extract(
-            siblings.track_metadata,
-            '$.itunes_store_album_id'
-        )
-        AS INTEGER
-    ) > 0
-        AND CAST(
-            json_extract(
-                siblings.track_metadata,
-                '$.itunes_store_album_id'
-            )
-            AS INTEGER
-        ) != COALESCE(
-            CAST(
-                json_extract(
-                    current_track.track_metadata,
-                    '$.itunes_store_album_id'
-                )
-                AS INTEGER
-            ),
-            0
-        )
-        AND cache.result_kind = 'hit'
-        AND cache.thumbnail_cache_name IS NOT NULL
-    GROUP BY
-        current_track.id,
-        cache.thumbnail_cache_name,
-        CAST(
-            json_extract(
-                siblings.track_metadata,
-                '$.itunes_store_album_id'
-            )
-            AS TEXT
-        )
-),
 all_candidates AS (
     SELECT * FROM sidecar_candidates
     UNION ALL SELECT * FROM embedded_candidates
-    UNION ALL SELECT * FROM current_itunes_candidates
-    UNION ALL SELECT * FROM sibling_itunes_candidates
 ),
 ranked_candidates AS (
     SELECT
         candidates.track_id,
         candidates.thumbnail_cache_name,
+        candidates.source,
         ROW_NUMBER() OVER (
             PARTITION BY candidates.track_id
             ORDER BY
@@ -193,11 +90,13 @@ ranked_candidates AS (
 )
 INSERT OR IGNORE INTO library_track_artwork (
     track_id,
-    thumbnail_cache_id
+    thumbnail_cache_id,
+    source
 )
 SELECT
     ranked.track_id,
-    thumbnail.id
+    thumbnail.id,
+    ranked.source
 FROM ranked_candidates AS ranked
 JOIN thumbnail_cache AS thumbnail
     ON thumbnail.name = ranked.thumbnail_cache_name

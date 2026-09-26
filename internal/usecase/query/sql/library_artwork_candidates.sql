@@ -1,0 +1,71 @@
+WITH candidates AS (
+    SELECT -- track itunes store album id
+        id AS track_id,
+        'album' AS lookup_kind,
+        CAST(json_extract(track_metadata, '$.itunes_store_album_id') AS TEXT) AS lookup_id,
+        0 AS priority,
+        0 AS frequency,
+        id AS first_id
+    FROM library_tracks
+    UNION ALL
+    SELECT -- track itunes store track id
+        id,
+        'track',
+        CAST(json_extract(track_metadata, '$.itunes_store_track_id') AS TEXT),
+        1,
+        0,
+        id
+    FROM library_tracks
+    UNION ALL
+    SELECT -- use siblings (library_tracks.album_id) itunes store album ids as fallback for this track
+        current.id,
+        'album',
+        CAST(json_extract(sibling.track_metadata, '$.itunes_store_album_id') AS TEXT),
+        2,
+        -COUNT(*),
+        MIN(sibling.id)
+    FROM library_tracks AS current
+    JOIN library_tracks AS sibling
+        ON sibling.album_id = current.album_id
+        AND sibling.id != current.id
+    WHERE COALESCE(json_extract(current.track_metadata, '$.itunes_store_album_id'), 0)
+        != json_extract(sibling.track_metadata, '$.itunes_store_album_id')
+    GROUP BY
+        current.id,
+        json_extract(sibling.track_metadata, '$.itunes_store_album_id')
+)
+SELECT
+    candidates.track_id,
+    roots.path,
+    tracks.path,
+    candidates.lookup_kind,
+    candidates.lookup_id
+FROM candidates
+JOIN library_tracks AS tracks
+    ON tracks.id = candidates.track_id
+JOIN library_roots AS roots
+    ON roots.id = tracks.root_id
+WHERE CAST(candidates.lookup_id AS INTEGER) > 0
+    AND NOT EXISTS ( -- candidate = when we don't have both thumbnail sizes
+        SELECT 1
+        FROM library_track_artwork AS artwork
+        JOIN thumbnail_cache AS thumbnail
+            ON thumbnail.id = artwork.thumbnail_cache_id
+        WHERE artwork.track_id = tracks.id
+            AND thumbnail.width_px = 64
+            AND EXISTS (
+                SELECT 1
+                FROM library_track_artwork AS large_artwork
+                JOIN thumbnail_cache AS large_thumbnail
+                    ON large_thumbnail.id = large_artwork.thumbnail_cache_id
+                WHERE large_artwork.track_id = tracks.id
+                    AND large_thumbnail.name = thumbnail.name
+                    AND large_thumbnail.width_px = 256
+            )
+    )
+ORDER BY
+    candidates.track_id,
+    candidates.priority,
+    candidates.frequency,
+    candidates.first_id,
+    candidates.lookup_id COLLATE BINARY;

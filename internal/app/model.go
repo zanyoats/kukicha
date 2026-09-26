@@ -17,6 +17,7 @@ type AppMetadataKey int
 const (
 	LibraryGeneratedAt AppMetadataKey = iota
 	LibrarySupportedExtensionsJson
+	LibraryGeneratedJobId
 	InstanceID
 	InstanceIdenticon
 	TaxonomyChecksum

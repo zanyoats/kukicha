@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 
 	"github.com/zanyoats/kukicha/internal/app"
 )
@@ -72,8 +73,8 @@ var genreResolutionResultsSQL string
 //go:embed sql/build_library_album_sidecars.sql
 var buildLibraryAlbumSidecarsSQL string
 
-//go:embed sql/insert_library_track_artwork.sql
-var insertLibraryTrackArtworkSQL string
+//go:embed sql/build_library_track_artwork.sql
+var buildLibraryTrackArtworkSQL string
 
 //go:embed sql/current_timestamp.sql
 var currentTimestampSQL string
@@ -123,9 +124,10 @@ type SyncScanStats struct {
 	LibraryAlbumArtistUnknowns int
 }
 
+// BuildLibraryFromScan rebuilds the library in the caller-owned transaction.
 func BuildLibraryFromScan(
 	ctx context.Context,
-	conn *sql.Conn,
+	tx *sql.Tx,
 	recognizedAudioExtensions map[string]bool,
 	recognizedPlaylistExtensions map[string]bool,
 	recognizedSidecarExtensions map[string]bool,
@@ -135,44 +137,31 @@ func BuildLibraryFromScan(
 	var result BuildLibraryResult
 	var err error
 
-	var tx *sql.Tx
-
-	if tx, err = conn.BeginTx(ctx, nil); err != nil {
-		return result, err
-	}
-
 	if err = allocateLibraryIDs(ctx, tx); err != nil {
-		_ = tx.Rollback()
 		return result, err
 	}
 
 	if err = resetLibrary(ctx, tx); err != nil {
-		_ = tx.Rollback()
 		return result, err
 	}
 
 	if err = buildLibraryRoots(ctx, tx); err != nil {
-		_ = tx.Rollback()
 		return result, err
 	}
 
 	if err = buildLibraryAlbums(ctx, tx, unknownItem); err != nil {
-		_ = tx.Rollback()
 		return result, err
 	}
 
 	if err = buildLibraryAlbumArtists(ctx, tx); err != nil {
-		_ = tx.Rollback()
 		return result, err
 	}
 
 	if err = buildLibraryTracks(ctx, tx); err != nil {
-		_ = tx.Rollback()
 		return result, err
 	}
 
 	if err = buildLibraryTrackEmbeddedArtwork(ctx, tx); err != nil {
-		_ = tx.Rollback()
 		return result, err
 	}
 
@@ -181,22 +170,22 @@ func BuildLibraryFromScan(
 		unknownItem,
 		secondaryGenreSplitTokens,
 	); err != nil {
-		_ = tx.Rollback()
 		return result, err
 	}
 
 	if err = buildLibraryAlbumGenresAndStyles(ctx, tx); err != nil {
-		_ = tx.Rollback()
 		return result, err
 	}
 
 	if err = buildLibraryAlbumSidecars(ctx, tx); err != nil {
-		_ = tx.Rollback()
 		return result, err
 	}
 
 	if err = buildLibraryTrackArtwork(ctx, tx); err != nil {
-		_ = tx.Rollback()
+		return result, err
+	}
+
+	if err = ReconcileITunesArtwork(ctx, tx); err != nil {
 		return result, err
 	}
 
@@ -206,7 +195,6 @@ func BuildLibraryFromScan(
 		recognizedPlaylistExtensions,
 		recognizedSidecarExtensions,
 	); err != nil {
-		_ = tx.Rollback()
 		return result, err
 	}
 
@@ -224,7 +212,6 @@ func BuildLibraryFromScan(
 		&result.ScanStats.LibraryAlbumArtistUnknowns,
 	)
 	if err != nil {
-		_ = tx.Rollback()
 		return result, err
 	}
 
@@ -233,28 +220,21 @@ func BuildLibraryFromScan(
 		&result.LogStats.WarnCount,
 		&result.LogStats.InfoCount,
 	); err != nil {
-		_ = tx.Rollback()
 		return result, err
 	}
-	return result, tx.Commit()
-}
 
-type ITunesArtworkLookup func(
-	context.Context,
-	app.ITunesLookupKind,
-	string,
-) (app.ITunesLookupResult, bool, error)
+	return result, nil
+}
 
 func InsertScannedFile(
 	ctx context.Context,
 	conn *sql.Conn,
 	r *app.ScannedFile,
 	localArtworkMaxBytes int64,
-	itunesLookup ITunesArtworkLookup,
 ) error {
 	switch r.FileType {
 	case app.FileTypeAudio:
-		return insertScannedTrack(ctx, conn, r, itunesLookup)
+		return insertScannedTrack(ctx, conn, r)
 
 	case app.FileTypeSidecarCover:
 		return insertScannedSidecarCover(
@@ -281,7 +261,6 @@ func insertScannedTrack(
 	ctx context.Context,
 	conn *sql.Conn,
 	r *app.ScannedFile,
-	itunesLookup ITunesArtworkLookup,
 ) error {
 	if r.Metadata == nil || r.NormalizedMetadata == nil {
 		return errors.New("scanned audio track is missing metadata")
@@ -337,12 +316,10 @@ func insertScannedTrack(
 
 		thumbnailCacheName := ""
 		if artwork.PictureType == "front_cover" || artwork.PictureType == "other" {
-			thumbnailCacheName, err = cacheArtworkForScan(
-				ctx,
-				conn,
-				r,
+			thumbnailCacheName, err = CacheArtworkThumbnails(
+				ctx, conn, artwork.ArtworkBytes,
 				fmt.Sprintf("embedded artwork %q position %d", r.Path, artworkPos),
-				artwork.ArtworkBytes,
+				r.RootPath, r.Path,
 			)
 			if err != nil {
 				return err
@@ -366,7 +343,7 @@ func insertScannedTrack(
 		}
 	}
 
-	return cacheScannedFileITunesArtwork(ctx, conn, r, itunesLookup)
+	return nil
 }
 
 func insertScannedSidecarCover(
@@ -388,8 +365,11 @@ func insertScannedSidecarCover(
 			return fmt.Errorf("%v: %w", err, logErr)
 		}
 	} else {
-		thumbnailCacheName, err = cacheArtworkForScan(ctx, conn, r,
-			fmt.Sprintf("sidecar artwork %q", r.Path), artworkBytes)
+		thumbnailCacheName, err = CacheArtworkThumbnails(
+			ctx, conn, artworkBytes,
+			fmt.Sprintf("sidecar artwork %q", r.Path),
+			r.RootPath, r.Path,
+		)
 		if err != nil {
 			return err
 		}
@@ -471,112 +451,11 @@ func insertScannedSidecarOther(
 	return nil
 }
 
-func cacheArtworkForScan(
-	ctx context.Context,
-	conn *sql.Conn,
-	r *app.ScannedFile,
-	description string,
-	artworkBytes []byte,
-) (string, error) {
-	name, err := cacheArtworkThumbnails(ctx, conn, artworkBytes)
-	if errors.Is(err, errInvalidArtwork) {
-		if logErr := InsertLibrarySyncLog(ctx, conn, "warn",
-			fmt.Sprintf("cannot cache %s: %v", description, err), r.RootPath, r.Path); logErr != nil {
-			return "", fmt.Errorf("%v: %w", err, logErr)
-		}
-		return "", nil
-	}
-	if err != nil {
-		return "", fmt.Errorf("cache %s: %w", description, err)
-	}
-
-	return name, nil
-}
-
 func nullableThumbnailCacheName(name string) any {
 	if name == "" {
 		return nil
 	}
 	return name
-}
-
-func cacheScannedFileITunesArtwork(
-	ctx context.Context,
-	conn *sql.Conn,
-	r *app.ScannedFile,
-	itunesLookup ITunesArtworkLookup,
-) error {
-	if itunesLookup == nil || r.Metadata == nil || len(r.Artwork) > 0 {
-		return nil
-	}
-
-	candidates := [...]struct {
-		kind app.ITunesLookupKind
-		id   int64
-	}{
-		{app.ITunesLookupAlbum, r.Metadata.ItunesStoreAlbumId},
-		{app.ITunesLookupTrack, r.Metadata.ItunesStoreTrackId},
-	}
-
-	for _, candidate := range candidates {
-		if candidate.id < 1 {
-			continue
-		}
-
-		lookupID := fmt.Sprintf("%d", candidate.id)
-		result, _, err := itunesLookup(ctx, candidate.kind, lookupID)
-		if err != nil {
-			if ctx.Err() != nil {
-				return ctx.Err()
-			}
-			if errors.Is(err, ErrITunesArtworkCache) {
-				return err
-			}
-			if logErr := InsertLibrarySyncLog(ctx, conn, "warn",
-				fmt.Sprintf("iTunes artwork lookup failed: kind %s, lookup ID %s: %v", candidate.kind, lookupID, err),
-				r.RootPath, r.Path); logErr != nil {
-				return fmt.Errorf("%v: %w", err, logErr)
-			}
-			continue
-		}
-
-		switch result.ResultKind {
-		case app.ITunesResultHit:
-			thumbnailCacheName, err := cacheArtworkForScan(
-				ctx,
-				conn,
-				r,
-				fmt.Sprintf("iTunes %s artwork %s", candidate.kind, lookupID),
-				result.Bytes,
-			)
-			if err != nil {
-				return err
-			}
-			if thumbnailCacheName == "" {
-				continue
-			}
-
-			if err := LinkCachedITunesArtworkThumbnail(
-				ctx,
-				conn,
-				candidate.kind,
-				lookupID,
-				thumbnailCacheName,
-			); err != nil {
-				return err
-			}
-			return nil
-		case app.ITunesResultMissing:
-			continue
-		default:
-			return fmt.Errorf(
-				"bug: unsupported iTunes artwork result kind %q",
-				result.ResultKind,
-			)
-		}
-	}
-
-	return nil
 }
 
 // -----------------------------------------------------------------------------
@@ -705,7 +584,7 @@ func buildLibraryAlbumSidecars(ctx context.Context, tx *sql.Tx) error {
 func buildLibraryTrackArtwork(ctx context.Context, tx *sql.Tx) error {
 	if _, err := tx.ExecContext(
 		ctx,
-		insertLibraryTrackArtworkSQL,
+		buildLibraryTrackArtworkSQL,
 		sql.Named("artwork_width_small", AlbumArtwork64),
 		sql.Named("artwork_width_large", AlbumArtwork256),
 	); err != nil {
@@ -722,6 +601,13 @@ func setBuildLibraryAppMetadata(
 	recognizedPlaylistExtensions map[string]bool,
 	recognizedSidecarExtensions map[string]bool,
 ) error {
+	jobID, ok := app.JobIDFromContext(ctx)
+	if !ok {
+		return errors.New("library build requires a job ID in context")
+	}
+	if err := SetAppMetadata(ctx, tx, app.LibraryGeneratedJobId, strconv.FormatInt(jobID, 10)); err != nil {
+		return err
+	}
 	{
 		var currentTimestamp string
 		if err := tx.QueryRowContext(ctx, currentTimestampSQL).Scan(&currentTimestamp); err != nil {

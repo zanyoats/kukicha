@@ -7,10 +7,12 @@ import (
 	"io/fs"
 	"log/slog"
 	"maps"
+	"math"
 	"net"
 	"os"
 	"path"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -86,6 +88,55 @@ func (sort *AlbumSort) UnmarshalText(text []byte) error {
 	}
 }
 
+// WorkerCount stores a fixed count, or zero for auto selection
+type WorkerCount struct {
+	count int
+}
+
+// UnmarshalTOML accepts only a positive int or "auto"
+func (w *WorkerCount) UnmarshalTOML(value any) error {
+	switch value := value.(type) {
+	case string:
+		if value != "auto" {
+			return fmt.Errorf(
+				"jobs.workers must be a positive integer or \"auto\"; got %q",
+				value,
+			)
+		}
+		w.count = 0
+
+	case int64:
+		if value < 1 || value > math.MaxInt {
+			return fmt.Errorf(
+				"jobs.workers must be between 1 and %d; got %d",
+				math.MaxInt, value,
+			)
+		}
+		w.count = int(value)
+
+	default:
+		return fmt.Errorf(
+			"jobs.workers must be a positive integer or \"auto\"; got %T",
+			value,
+		)
+	}
+
+	return nil
+}
+
+func (w *WorkerCount) IsAuto() bool {
+	return w.count == 0
+}
+
+// Resolve selects the worker count from runtime if equals 0
+func (w *WorkerCount) Resolve() int {
+	if w.IsAuto() {
+		return runtime.GOMAXPROCS(0)
+	}
+
+	return w.count
+}
+
 type AppConfig struct {
 	AppDir         string
 	Roots          []Root
@@ -122,8 +173,9 @@ type AppConfig struct {
 			} `toml:"database"`
 		} `toml:"server"`
 		Jobs struct {
-			PollInterval    Duration `toml:"poll_interval"`
-			FinalizeTimeout Duration `toml:"finalize_timeout"`
+			Workers         WorkerCount `toml:"workers"`
+			PollInterval    Duration    `toml:"poll_interval"`
+			FinalizeTimeout Duration    `toml:"finalize_timeout"`
 		} `toml:"jobs"`
 		UI struct {
 			PerPage          int       `toml:"per_page"`
