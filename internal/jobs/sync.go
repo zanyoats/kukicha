@@ -20,25 +20,44 @@ import (
 	"github.com/zanyoats/kukicha/internal/walk"
 )
 
+// Complete rebuild of library using cached resources. Reads and processes the
+// the files. Any metadata changes to the files will be reflected.
+//
+// Use one connection for the entire job.
+// This connections uses temporary tables and serializes writes from
+// different goroutine workers.
 type Sync struct {
-	DB   *sql.DB
-	Conf *app.AppConfig
+	DB     *sql.DB
+	Conf   *app.AppConfig
+	logger *slog.Logger
 }
 
 func (j *Sync) Run(ctx context.Context) error {
+	j.logger = app.JobLogger(ctx)
 	jobID, ok := app.JobIDFromContext(ctx)
 	if !ok {
 		return errors.New("sync requires a job ID in context")
 	}
 
-	// Use one connection for the entire job.
-	// This connections uses temporary tables and serializes writes from
-	// different goroutine workers.
 	conn, err := j.DB.Conn(ctx)
 	if err != nil {
 		return err
 	}
 	defer conn.Close()
+	// This is kind of a hack to create a derived context that uses this `conn`
+	// instead of `j.DB`. Any writes need to happen on `conn` for this job otherwise
+	// sqlite could reject writes coming from another connection on `j.DB`
+	//
+	// The underying insert from slog does something like this
+	// ```
+	//    db := h.db
+	//    if scoped, ok := ctx.Value(jobLogDBKey{}).(JobLogDB); ok {
+	//.       db = scoped
+	//    }
+	//    ...
+	// ```
+	// Below method sets jobLogDBKey with `conn`
+	ctx = command.WithJobLogDB(ctx, conn)
 
 	// Recovery preserves IDs and claims the oldest job first, so a later Sync
 	// cannot overwrite this marker before the interrupted Sync is retried.
@@ -58,7 +77,7 @@ func (j *Sync) Run(ctx context.Context) error {
 		return err
 	}
 
-	if err := localFileScanWithWorkers(ctx, conn, j.Conf); err != nil {
+	if err := j.localFileScanWithWorkers(ctx, conn); err != nil {
 		return err
 	}
 
@@ -96,7 +115,7 @@ func (j *Sync) Run(ctx context.Context) error {
 	}
 
 	s, l := result.ScanStats, result.LogStats
-	slog.Info("library sync complete",
+	j.logger.InfoContext(ctx, "library sync complete",
 		"processed_files", s.ProcessedFiles,
 		"roots", s.LibraryRoots,
 		"albums", s.LibraryAlbums,
@@ -108,9 +127,10 @@ func (j *Sync) Run(ctx context.Context) error {
 		"tracks_with_unknown_titles", s.LibraryTrackTitleUnknowns,
 		"albums_with_unknown_names", s.LibraryAlbumUnknowns,
 		"albums_with_unknown_artists", s.LibraryAlbumArtistUnknowns,
-		"errors", l.ErrorCount,
-		"warnings", l.WarnCount,
-		"info", l.InfoCount,
+		"errors", l.Errors,
+		"warnings", l.Warnings,
+		"info", l.Info,
+		"debug", l.Debug,
 	)
 
 	return nil
@@ -122,17 +142,16 @@ type work struct {
 	fileType  app.FileType
 }
 
-func localFileScanWithWorkers(
+func (j *Sync) localFileScanWithWorkers(
 	ctx context.Context,
 	conn *sql.Conn,
-	conf *app.AppConfig,
 ) error {
 	workCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
-	workers := conf.Settings.Jobs.Workers.Resolve()
-	if conf.Settings.Jobs.Workers.IsAuto() {
-		slog.Info("resolved number of workers",
+	workers := j.Conf.Settings.Jobs.Workers.Resolve()
+	if j.Conf.Settings.Jobs.Workers.IsAuto() {
+		j.logger.InfoContext(ctx, "resolved number of workers",
 			"workers", workers,
 		)
 	}
@@ -157,8 +176,9 @@ func localFileScanWithWorkers(
 	}
 
 	progress := &syncProgress{
+		logger:   j.logger,
 		lastLog:  time.Now(),
-		interval: conf.Settings.Scan.ProgressLogInterval.Duration,
+		interval: j.Conf.Settings.Scan.ProgressLogInterval.Duration,
 	}
 
 	// Start the workers/consumers
@@ -182,7 +202,7 @@ func localFileScanWithWorkers(
 						return
 					}
 
-					if err := workOn(workCtx, conn, conf, item); err != nil {
+					if err := j.workOn(workCtx, conn, item); err != nil {
 						fail(
 							fmt.Errorf(
 								"work on %q: %w",
@@ -194,7 +214,7 @@ func localFileScanWithWorkers(
 						return
 					}
 
-					progress.complete()
+					progress.complete(workCtx)
 				}
 			}
 		}()
@@ -202,12 +222,12 @@ func localFileScanWithWorkers(
 
 	// Produce work in this goroutine
 	if err := func() error {
-		for _, root := range conf.Roots {
+		for _, root := range j.Conf.Roots {
 			if err := workCtx.Err(); err != nil {
 				return err
 			}
 
-			slog.Info("scanning library root: starting",
+			j.logger.InfoContext(ctx, "scanning library root: starting",
 				"path", root.RootPath,
 			)
 
@@ -220,30 +240,24 @@ func localFileScanWithWorkers(
 				}
 
 				if walkErr != nil {
-					return command.InsertLibrarySyncLog(
-						workCtx, conn, "error",
-						fmt.Sprintf(
-							"skipped work on file: %v",
-							walkErr,
-						),
-						root.RootPath, localFile.RelPath,
-					)
+					j.logger.ErrorContext(workCtx, fmt.Sprintf(
+						"skipped work on file: %v",
+						walkErr,
+					), "root_path", root.RootPath, "path", localFile.RelPath)
+					return nil
 				}
 
 				if localFile.StatErr != nil {
-					return command.InsertLibrarySyncLog(
-						workCtx, conn, "error",
-						fmt.Sprintf(
-							"skipped work on file: %v",
-							localFile.StatErr,
-						),
-						root.RootPath, localFile.RelPath,
-					)
+					j.logger.ErrorContext(workCtx, fmt.Sprintf(
+						"skipped work on file: %v",
+						localFile.StatErr,
+					), "root_path", root.RootPath, "path", localFile.RelPath)
+					return nil
 				}
 
 				fileType, recognizable := scan.IsRecognizable(
 					localFile.Name,
-					conf.Settings.Scan.RecognizedSidecarArtwork,
+					j.Conf.Settings.Scan.RecognizedSidecarArtwork,
 				)
 				if !recognizable {
 					return nil
@@ -267,7 +281,7 @@ func localFileScanWithWorkers(
 				)
 			}
 
-			slog.Info("library root queued",
+			j.logger.InfoContext(ctx, "library root queued",
 				"path", root.RootPath,
 			)
 		}
@@ -287,23 +301,9 @@ func localFileScanWithWorkers(
 	if firstErr != nil {
 		// All workers have stopped. Use the original job context:
 		// workCtx was canceled by fail().
-		if firstWork != nil &&
-			ctx.Err() == nil &&
-			!errors.Is(firstErr, command.ErrSyncLogWrite) {
-
-			logErr := command.InsertLibrarySyncLog(
-				ctx, conn, "error",
-				fmt.Sprintf("cannot process file: %v", firstErr),
-				firstWork.root.RootPath,
-				firstWork.localFile.RelPath,
-			)
-			if logErr != nil {
-				slog.Error(
-					"cannot record sync failure",
-					"processing_error", firstErr,
-					"log_error", logErr,
-				)
-			}
+		if firstWork != nil && ctx.Err() == nil {
+			j.logger.ErrorContext(ctx, fmt.Sprintf("cannot process file: %v", firstErr),
+				"root_path", firstWork.root.RootPath, "path", firstWork.localFile.RelPath)
 		}
 
 		return firstErr
@@ -316,7 +316,7 @@ func localFileScanWithWorkers(
 		return err
 	}
 
-	slog.Info("library scan completed",
+	j.logger.InfoContext(ctx, "library scan completed",
 		"processed_files", progress.count(),
 	)
 
@@ -327,10 +327,9 @@ func localFileScanWithWorkers(
 // Implements the processing of a recognizable file; essentially
 // 1. parses file metadata and normalizes its,
 // 2. appends it to a temporary table to hold scanned tracks.
-func workOn(
+func (j *Sync) workOn(
 	workCtx context.Context,
 	conn *sql.Conn,
-	conf *app.AppConfig,
 	item work,
 ) (err error) {
 	defer func() {
@@ -368,29 +367,18 @@ func workOn(
 	case app.FileTypeAudio:
 		localPath := filepath.Join(item.root.RootPath, item.localFile.RelPath)
 
-		if err := scan.ApplyTrackMetadata(localPath, conf, scannedFile); err != nil {
-			if err := command.InsertLibrarySyncLog(
-				workCtx, conn, "error", err.Error(),
-				item.root.RootPath, item.localFile.RelPath,
-			); err != nil {
-				return err
-			}
+		if err := scan.ApplyTrackMetadata(localPath, j.Conf, scannedFile); err != nil {
+			j.logger.ErrorContext(workCtx, err.Error(), "root_path", item.root.RootPath, "path", item.localFile.RelPath)
 		}
 
 		// Since this call involves a db connection its error should
 		// fail the job.
-		err = scan.ApplyMetadataNormalizations(workCtx, conf, conn, scannedFile)
+		err = scan.ApplyMetadataNormalizations(workCtx, j.Conf, conn, scannedFile)
 
 	case app.FileTypeSidecarCover, app.FileTypeSidecarOther:
 
 	default: // app.FileTypePlaylist
-		if err := command.InsertLibrarySyncLog(
-			workCtx, conn, "info",
-			"skipping unsupported playlist item",
-			scannedFile.RootPath, scannedFile.Path,
-		); err != nil {
-			return err
-		}
+		j.logger.InfoContext(workCtx, "skipping unsupported playlist item", "root_path", scannedFile.RootPath, "path", scannedFile.Path)
 	}
 
 	if err == nil {
@@ -398,7 +386,7 @@ func workOn(
 			workCtx,
 			conn,
 			scannedFile,
-			conf.Settings.Scan.LocalArtworkMaxBytes,
+			j.Conf.Settings.Scan.LocalArtworkMaxBytes,
 		)
 	}
 
@@ -406,13 +394,14 @@ func workOn(
 }
 
 type syncProgress struct {
+	logger    *slog.Logger
 	mu        sync.Mutex
 	processed int
 	lastLog   time.Time
 	interval  time.Duration
 }
 
-func (p *syncProgress) complete() {
+func (p *syncProgress) complete(ctx context.Context) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
@@ -420,7 +409,7 @@ func (p *syncProgress) complete() {
 
 	now := time.Now()
 	if p.interval > 0 && now.Sub(p.lastLog) >= p.interval {
-		slog.Info("library scan progress",
+		p.logger.InfoContext(ctx, "library scan progress",
 			"processed_files", p.processed,
 		)
 		p.lastLog = now

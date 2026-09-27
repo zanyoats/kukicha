@@ -935,6 +935,10 @@ aside.alert {
     color: var(--info-text);
 }
 
+.sync-log-level-debug {
+    color: var(--text-secondary);
+}
+
 .sync-log-message {
     flex: 1 1 20rem;
     min-inline-size: 0;

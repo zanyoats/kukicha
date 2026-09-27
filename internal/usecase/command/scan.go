@@ -8,12 +8,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"slices"
 	"strconv"
 
 	"github.com/zanyoats/kukicha/internal/app"
+	"github.com/zanyoats/kukicha/internal/usecase/query"
 )
 
 //go:embed sql/prepare_scan_results.sql
@@ -107,7 +109,7 @@ func PrepareScanResults(
 
 type BuildLibraryResult struct {
 	ScanStats SyncScanStats
-	LogStats  SyncLogStats
+	LogStats  query.JobLogStats
 }
 
 type SyncScanStats struct {
@@ -135,6 +137,10 @@ func BuildLibraryFromScan(
 	secondaryGenreSplitTokens map[string]bool,
 ) (BuildLibraryResult, error) {
 	var result BuildLibraryResult
+	jobID, ok := app.JobIDFromContext(ctx)
+	if !ok {
+		return result, errors.New("library build requires a job ID in context")
+	}
 	var err error
 
 	if err = allocateLibraryIDs(ctx, tx); err != nil {
@@ -169,6 +175,7 @@ func BuildLibraryFromScan(
 		ctx, tx,
 		unknownItem,
 		secondaryGenreSplitTokens,
+		jobID,
 	); err != nil {
 		return result, err
 	}
@@ -194,6 +201,7 @@ func BuildLibraryFromScan(
 		recognizedAudioExtensions,
 		recognizedPlaylistExtensions,
 		recognizedSidecarExtensions,
+		jobID,
 	); err != nil {
 		return result, err
 	}
@@ -215,11 +223,7 @@ func BuildLibraryFromScan(
 		return result, err
 	}
 
-	if err = tx.QueryRowContext(ctx, syncLogCountsSQL).Scan(
-		&result.LogStats.ErrorCount,
-		&result.LogStats.WarnCount,
-		&result.LogStats.InfoCount,
-	); err != nil {
+	if result.LogStats, err = query.JobLogCounts(ctx, tx, jobID); err != nil {
 		return result, err
 	}
 
@@ -360,10 +364,7 @@ func insertScannedSidecarCover(
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		if logErr := InsertLibrarySyncLog(ctx, conn, "warn",
-			fmt.Sprintf("cannot read sidecar artwork: %v", err), r.RootPath, r.Path); logErr != nil {
-			return fmt.Errorf("%v: %w", err, logErr)
-		}
+		app.JobLogger(ctx).WarnContext(ctx, fmt.Sprintf("cannot read sidecar artwork: %v", err), "root_path", r.RootPath, "path", r.Path)
 	} else {
 		thumbnailCacheName, err = CacheArtworkThumbnails(
 			ctx, conn, artworkBytes,
@@ -523,6 +524,7 @@ func buildLibraryTrackGenresAndStyles(
 	tx *sql.Tx,
 	unknownItem string,
 	secondaryGenreSplitTokens map[string]bool,
+	jobID int64,
 ) error {
 	splitDelimiters := make([]string, 0, len(secondaryGenreSplitTokens))
 	for delimiter, enabled := range secondaryGenreSplitTokens {
@@ -550,7 +552,12 @@ func buildLibraryTrackGenresAndStyles(
 		return err
 	}
 
-	if _, err := tx.ExecContext(ctx, genreResolutionResultsSQL); err != nil {
+	logger := app.JobLogger(ctx)
+	if _, err := tx.ExecContext(ctx, genreResolutionResultsSQL,
+		sql.Named("job_id", jobID),
+		sql.Named("error_enabled", logger.Enabled(ctx, slog.LevelError)),
+		sql.Named("warn_enabled", logger.Enabled(ctx, slog.LevelWarn)),
+	); err != nil {
 		return fmt.Errorf("record genre resolution issues: %w", err)
 	}
 	return nil
@@ -600,11 +607,8 @@ func setBuildLibraryAppMetadata(
 	recognizedAudioExtensions map[string]bool,
 	recognizedPlaylistExtensions map[string]bool,
 	recognizedSidecarExtensions map[string]bool,
+	jobID int64,
 ) error {
-	jobID, ok := app.JobIDFromContext(ctx)
-	if !ok {
-		return errors.New("library build requires a job ID in context")
-	}
 	if err := SetAppMetadata(ctx, tx, app.LibraryGeneratedJobId, strconv.FormatInt(jobID, 10)); err != nil {
 		return err
 	}

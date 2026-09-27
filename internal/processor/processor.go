@@ -32,6 +32,8 @@ type Processor struct {
 }
 
 type Job interface {
+	// Run executes the job. The processor calls Run synchronously,
+	// with at most one job running per processor.
 	Run(context.Context) error
 }
 
@@ -177,7 +179,7 @@ func (p *Processor) Submit(
 		return 0, err
 	}
 
-	p.logger.Info(
+	p.logger.InfoContext(app.WithJobID(ctx, id),
 		"job processor: submission",
 		"job_id", id,
 		"type", submission.Type,
@@ -208,7 +210,7 @@ func (p *Processor) Cancel(ctx context.Context, id int64) (query.Job, error) {
 		p.activeMu.Unlock()
 	}
 
-	p.logger.Info(
+	p.logger.InfoContext(app.WithJobID(ctx, record.ID),
 		"job processor: request cancellation",
 		"job_id", record.ID,
 		"type", record.Type,
@@ -269,6 +271,10 @@ func (p *Processor) execute(
 	job Job,
 ) error {
 	runCtx, cancel := context.WithCancel(parent)
+	runCtx = app.WithJobLogger(
+		app.WithJobID(runCtx, record.ID),
+		p.logger.With("job_id", record.ID, "job_type", record.Type, "attempt", record.Attempts),
+	)
 
 	p.activeMu.Lock()
 	p.activeID = record.ID
@@ -300,14 +306,14 @@ func (p *Processor) execute(
 	}
 	// End Edge Case
 
-	p.logger.Info(
+	p.logger.InfoContext(runCtx,
 		"job processor: starting",
 		"job_id", record.ID,
 		"type", record.Type,
 		"attempt", record.Attempts,
 	)
 
-	return job.Run(app.WithJobID(runCtx, record.ID))
+	return job.Run(runCtx)
 }
 
 // end records the job's final state in this order:
@@ -344,7 +350,7 @@ func (p *Processor) end(
 	if err != nil {
 		return fmt.Errorf("end job id=%d: %w", record.ID, err)
 	}
-	p.logger.Info(
+	p.logger.InfoContext(app.WithJobID(ctx, record.ID),
 		"job processor: completed",
 		"job_id", record.ID,
 		"state", finalState,

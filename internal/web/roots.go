@@ -1,7 +1,9 @@
 package web
 
 import (
+	"errors"
 	"net/http"
+	"strconv"
 
 	"github.com/zanyoats/kukicha/internal/app"
 	"github.com/zanyoats/kukicha/internal/usecase/query"
@@ -13,9 +15,9 @@ type rootsViewModel struct {
 	URLs            URLs
 	ConfiguredRoots []app.Root
 	RootsByPath     map[string]*query.Root
-	LogStats        query.SyncLogStats
+	LogStats        query.JobLogStats
 	ShowLogs        bool
-	Logs            query.SyncLogBatch
+	Logs            query.JobLogBatch
 	NextLogsURL     string
 }
 
@@ -35,7 +37,20 @@ func (c *appRoutes) showRoots(w http.ResponseWriter, r *http.Request) {
 		internalServerError(w, "unable to load roots or sync logs", "error", err)
 		return
 	}
-	stats, err := query.SyncLogCounts(r.Context(), c.db)
+	var jobID int64
+	generatedID, err := query.AppMetadata(r.Context(), c.db, app.LibraryGeneratedJobId)
+	if err != nil && !errors.Is(err, query.ErrAppMetadataNotFound) {
+		internalServerError(w, "unable to load latest sync job", "error", err)
+		return
+	}
+	if err == nil {
+		jobID, err = strconv.ParseInt(generatedID, 10, 64)
+		if err != nil || jobID <= 0 {
+			internalServerError(w, "invalid latest sync job ID", "job_id", generatedID)
+			return
+		}
+	}
+	stats, err := query.JobLogCounts(r.Context(), c.db, jobID)
 	if err != nil {
 		internalServerError(w, "unable to load roots or sync logs", "error", err)
 		return
@@ -54,7 +69,7 @@ func (c *appRoutes) showRoots(w http.ResponseWriter, r *http.Request) {
 		ShowLogs:        showLogs,
 	}
 	if showLogs {
-		model.Logs, err = query.SyncLogs(r.Context(), c.db, before, c.perPage)
+		model.Logs, err = query.JobLogs(r.Context(), c.db, jobID, before, c.perPage)
 		if err != nil {
 			internalServerError(w, "unable to load roots or sync logs", "error", err)
 			return

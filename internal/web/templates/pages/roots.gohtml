@@ -73,6 +73,10 @@
                 <dt>Info</dt>
                 <dd>{{formatNumber .LogStats.Info}}</dd>
             </div>
+            <div>
+                <dt>Debug</dt>
+                <dd>{{formatNumber .LogStats.Debug}}</dd>
+            </div>
         </dl>
         <div id="sync-log-view">
             {{if .ShowLogs}}
@@ -85,20 +89,26 @@
                 {{range .Logs.Entries}}
                 <li class="sync-log-entry" id="sync-log-{{.ID}}">
                     <div class="sync-log-meta">
-                        <strong class="sync-log-level sync-log-level-{{.Level}}">{{if eq .Level "error"}}Error{{else if eq .Level "warn"}}Warning{{else}}Info{{end}}</strong>
+                        <strong class="sync-log-level sync-log-level-{{.Level}}">{{if eq .Level "error"}}Error{{else if eq .Level "warn"}}Warning{{else if eq .Level "debug"}}Debug{{else}}Info{{end}}</strong>
                         <time>{{formatTimestamp .Timestamp}}</time>
                         <p class="sync-log-message">{{.Message}}</p>
                     </div>
+                    {{if or .Data.root_path .Data.path}}
                     <dl class="sync-log-paths">
+                        {{with .Data.root_path}}
                         <div>
                             <dt>Root</dt>
-                            <dd>{{.RootPath}}</dd>
+                            <dd>{{.}}</dd>
                         </div>
+                        {{end}}
+                        {{with .Data.path}}
                         <div>
                             <dt>Path</dt>
-                            <dd>{{.Path}}</dd>
+                            <dd>{{.}}</dd>
                         </div>
+                        {{end}}
                     </dl>
+                    {{end}}
                 </li>
                 {{end}}
             </ul>

@@ -15,22 +15,21 @@ import (
 
 var ErrITunesArtworkLookup = errors.New("iTunes artwork lookup")
 
+// Attempts to fetch artwork for tracks with iTunes's store ids. A lot of
+// iTunes tracks don't embed the artwork in the file metadata. This job attempts
+// to get more artwork coverage.
 type ItunesLookup struct {
-	DB   *sql.DB
-	Conf *app.AppConfig
+	DB     *sql.DB
+	Conf   *app.AppConfig
+	logger *slog.Logger
 }
 
 func (j *ItunesLookup) Run(ctx context.Context) error {
+	j.logger = app.JobLogger(ctx)
 	if !j.Conf.Settings.Scan.ITunes.Enabled {
-		slog.Warn("iTunes lookup is not enabled")
+		j.logger.WarnContext(ctx, "iTunes lookup is not enabled")
 		return nil
 	}
-
-	conn, err := j.DB.Conn(ctx)
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
 
 	client := scanartwork.NewITunesClient(
 		nil,
@@ -47,7 +46,7 @@ func (j *ItunesLookup) Run(ctx context.Context) error {
 	// 3. Close rows and process candidates.
 	// 4. Advance to the last ID from step 1.
 
-	candidates, err := query.LibraryArtworkCandidates(ctx, conn)
+	candidates, err := query.LibraryArtworkCandidates(ctx, j.DB)
 	if err != nil {
 		return err
 	}
@@ -61,7 +60,7 @@ func (j *ItunesLookup) Run(ctx context.Context) error {
 			continue
 		}
 		result, _, err := LookupCachedArtwork(
-			ctx, conn, client, candidate.Kind, candidate.LookupID,
+			ctx, j.DB, client, candidate.Kind, candidate.LookupID,
 		)
 		if err != nil {
 			if ctx.Err() != nil {
@@ -70,16 +69,10 @@ func (j *ItunesLookup) Run(ctx context.Context) error {
 			if !errors.Is(err, ErrITunesArtworkLookup) {
 				return err
 			}
-			if logErr := command.InsertLibrarySyncLog(
-				ctx, conn, "warn",
-				fmt.Sprintf(
-					"iTunes artwork lookup failed: kind %s, lookup ID %s: %v",
-					candidate.Kind, candidate.LookupID, err,
-				),
-				candidate.RootPath, candidate.Path,
-			); logErr != nil {
-				return fmt.Errorf("%v: %w", err, logErr)
-			}
+			j.logger.WarnContext(ctx, fmt.Sprintf(
+				"iTunes artwork lookup failed: kind %s, lookup ID %s: %v",
+				candidate.Kind, candidate.LookupID, err,
+			), "root_path", candidate.RootPath, "path", candidate.Path)
 			continue
 		}
 
@@ -90,7 +83,7 @@ func (j *ItunesLookup) Run(ctx context.Context) error {
 		// Cache into artwork thumbnails table, then repair itunes cache
 		// with hashed `name` value
 		name, err := command.CacheArtworkThumbnails(
-			ctx, conn, result.Bytes,
+			ctx, j.DB, result.Bytes,
 			fmt.Sprintf("iTunes %s artwork %s", candidate.Kind, candidate.LookupID),
 			candidate.RootPath, candidate.Path,
 		)
@@ -102,7 +95,7 @@ func (j *ItunesLookup) Run(ctx context.Context) error {
 		}
 
 		if err := command.LinkCachedITunesArtworkThumbnail(
-			ctx, conn, result.LookupKind, result.LookupID, name,
+			ctx, j.DB, result.LookupKind, result.LookupID, name,
 		); err != nil {
 			return err
 		}
@@ -110,7 +103,7 @@ func (j *ItunesLookup) Run(ctx context.Context) error {
 		resolved[candidate.TrackID] = true
 	}
 	// Apply the same final selection that the next Sync will use.
-	tx, err := conn.BeginTx(ctx, nil)
+	tx, err := j.DB.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}

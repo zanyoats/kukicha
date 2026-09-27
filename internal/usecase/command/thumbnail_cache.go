@@ -13,6 +13,8 @@ import (
 	"image/jpeg"
 	"image/png"
 
+	"github.com/zanyoats/kukicha/internal/app"
+
 	"golang.org/x/image/draw"
 	_ "golang.org/x/image/webp"
 )
@@ -37,9 +39,14 @@ type thumbnailVariant struct {
 	bytes       []byte
 }
 
+type thumbnailCacheDB interface {
+	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
+	ExecContext(context.Context, string, ...any) (sql.Result, error)
+}
+
 func CacheArtworkThumbnails(
 	ctx context.Context,
-	conn *sql.Conn,
+	db thumbnailCacheDB,
 	sourceBytes []byte,
 	info, rootPath, path string,
 ) (string, error) {
@@ -49,12 +56,7 @@ func CacheArtworkThumbnails(
 	if len(sourceBytes) == 0 {
 		err := fmt.Errorf("%w: image data is empty", errInvalidArtwork)
 
-		if logErr := InsertLibrarySyncLog(
-			ctx, conn, "warn",
-			fmt.Sprintf("cannot cache %s: %v", info, err), rootPath, path,
-		); logErr != nil {
-			return "", fmt.Errorf("%v: %w", err, logErr)
-		}
+		app.JobLogger(ctx).WarnContext(ctx, fmt.Sprintf("cannot cache %s: %v", info, err), "root_path", rootPath, "path", path)
 
 		return "", nil
 	}
@@ -62,7 +64,7 @@ func CacheArtworkThumbnails(
 	sum := sha256.Sum256(sourceBytes)
 	name := fmt.Sprintf("%x", sum)
 
-	existingWidths, err := cachedThumbnailWidths(ctx, conn, name)
+	existingWidths, err := cachedThumbnailWidths(ctx, db, name)
 	if err != nil {
 		return "", err
 	}
@@ -74,24 +76,14 @@ func CacheArtworkThumbnails(
 	if err != nil {
 		err := fmt.Errorf("%w: decode image: %v", errInvalidArtwork, err)
 
-		if logErr := InsertLibrarySyncLog(
-			ctx, conn, "warn",
-			fmt.Sprintf("cannot cache %s: %v", info, err), rootPath, path,
-		); logErr != nil {
-			return "", fmt.Errorf("%v: %w", err, logErr)
-		}
+		app.JobLogger(ctx).WarnContext(ctx, fmt.Sprintf("cannot cache %s: %v", info, err), "root_path", rootPath, "path", path)
 
 		return "", nil
 	}
 	if decoded.Bounds().Dx() < 1 || decoded.Bounds().Dy() < 1 {
 		err := fmt.Errorf("%w: image dimensions must be positive", errInvalidArtwork)
 
-		if logErr := InsertLibrarySyncLog(
-			ctx, conn, "warn",
-			fmt.Sprintf("cannot cache %s: %v", info, err), rootPath, path,
-		); logErr != nil {
-			return "", fmt.Errorf("%v: %w", err, logErr)
-		}
+		app.JobLogger(ctx).WarnContext(ctx, fmt.Sprintf("cannot cache %s: %v", info, err), "root_path", rootPath, "path", path)
 
 		return "", nil
 	}
@@ -124,11 +116,11 @@ func CacheArtworkThumbnails(
 	}
 
 	// Each variant is immutable and keyed by its content hash and width.
-	// Conflict-safe independent writes permit interleaving on the scan connection.
+	// Conflict-safe independent writes permit interleaving across callers.
 	// A partial cache is repaired on the next attempt; association requires both sizes.
 
 	for _, variant := range variants {
-		if _, err := conn.ExecContext(
+		if _, err := db.ExecContext(
 			ctx,
 			insertThumbnailCacheSQL,
 			sql.Named("name", name),
@@ -151,10 +143,12 @@ func CacheArtworkThumbnails(
 
 func cachedThumbnailWidths(
 	ctx context.Context,
-	conn *sql.Conn,
+	db interface {
+		QueryContext(context.Context, string, ...any) (*sql.Rows, error)
+	},
 	name string,
 ) (map[int]bool, error) {
-	rows, err := conn.QueryContext(
+	rows, err := db.QueryContext(
 		ctx,
 		thumbnailCacheWidthsSQL,
 		sql.Named("name", name),

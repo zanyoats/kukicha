@@ -103,15 +103,21 @@ CREATE TABLE library_roots (
     CHECK (length(trim(path)) > 0)
 );
 
-CREATE TABLE library_sync_logs (
+CREATE TABLE library_job_logs (
+    id        INTEGER PRIMARY KEY AUTOINCREMENT      ,
+    job_id    INTEGER NOT NULL                       ,
     level     TEXT NOT NULL                          ,
     message   TEXT NOT NULL                          ,
     timestamp TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    root_path TEXT NOT NULL                          ,
-    path      TEXT NOT NULL                          ,
+    data      TEXT NOT NULL DEFAULT '{}'             ,
 
-    CHECK (level IN ('error', 'warn', 'info'))
+    CHECK (job_id > 0),
+    CHECK (level IN ('error', 'warn', 'info', 'debug')),
+    CHECK (json_valid(data) AND json_type(data) = 'object')
 );
+
+CREATE INDEX library_job_logs_job_id_id
+ON library_job_logs (job_id, id);
 
 CREATE TABLE library_albums (
     id                    INTEGER PRIMARY KEY,

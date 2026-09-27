@@ -1,5 +1,3 @@
-DELETE FROM library_sync_logs;
-
 DROP TABLE IF EXISTS scan_tracks;
 
 CREATE TEMP TABLE scan_tracks (

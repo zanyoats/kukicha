@@ -19,8 +19,10 @@ type LibraryArtworkCandidate struct {
 }
 
 // LibraryArtworkCandidates closes its rows before the caller starts network work.
-func LibraryArtworkCandidates(ctx context.Context, conn *sql.Conn) ([]LibraryArtworkCandidate, error) {
-	rows, err := conn.QueryContext(ctx, libraryArtworkCandidatesSQL)
+func LibraryArtworkCandidates(ctx context.Context, db interface {
+	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
+}) ([]LibraryArtworkCandidate, error) {
+	rows, err := db.QueryContext(ctx, libraryArtworkCandidatesSQL)
 	if err != nil {
 		return nil, err
 	}

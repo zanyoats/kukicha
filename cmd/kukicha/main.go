@@ -92,7 +92,7 @@ func run() error {
 	processor, err := proc.New(
 		db,
 		registry(db, conf),
-		slog.Default(),
+		command.NewJobLogger(db, slog.Default()),
 		conf.Settings.Jobs.PollInterval.Duration,
 		conf.Settings.Jobs.FinalizeTimeout.Duration,
 	)
@@ -176,7 +176,7 @@ func run() error {
 func registry(db *sql.DB, conf *app.AppConfig) proc.Registry {
 	return proc.Registry{
 		"sync":         proc.Decode(func(struct{}) (proc.Job, error) { return &jobs.Sync{DB: db, Conf: conf}, nil }),
-		"scan":         proc.Decode(func(struct{}) (proc.Job, error) { return &jobs.Scan{}, nil }),
+		"scan":         proc.Decode(func(struct{}) (proc.Job, error) { return &jobs.Scan{DB: db, Conf: conf}, nil }),
 		"iTunesLookup": proc.Decode(func(struct{}) (proc.Job, error) { return &jobs.ItunesLookup{DB: db, Conf: conf}, nil }),
 	}
 }
