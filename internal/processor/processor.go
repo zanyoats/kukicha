@@ -182,7 +182,7 @@ func (p *Processor) Submit(
 	p.logger.InfoContext(app.WithJobID(ctx, id),
 		"job processor: submission",
 		"job_id", id,
-		"type", submission.Type,
+		"job_type", submission.Type,
 	)
 
 	return id, nil
@@ -309,7 +309,7 @@ func (p *Processor) execute(
 	p.logger.InfoContext(runCtx,
 		"job processor: starting",
 		"job_id", record.ID,
-		"type", record.Type,
+		"job_type", record.Type,
 		"attempt", record.Attempts,
 	)
 

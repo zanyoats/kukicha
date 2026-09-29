@@ -952,13 +952,23 @@ aside.alert {
 }
 
 .sync-log-paths > div {
-    display: inline;
+    display: inline-flex;
     margin-inline-end: 0.75rem;
+    max-inline-size: 100%;
+    gap: 0.35em;
+    vertical-align: bottom;
 }
 
-.sync-log-paths dt,
+.sync-log-paths dt {
+    flex-shrink: 0;
+}
+
 .sync-log-paths dd {
-    display: inline;
+    min-inline-size: 0;
+    max-inline-size: 48ch;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 #sync-log-more > p {

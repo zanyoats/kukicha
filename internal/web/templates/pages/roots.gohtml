@@ -93,18 +93,48 @@
                         <time>{{formatTimestamp .Timestamp}}</time>
                         <p class="sync-log-message">{{.Message}}</p>
                     </div>
-                    {{if or .Data.root_path .Data.path}}
+                    {{if or .Data.root_path .Data.path (ne .Data.job_id nil) (ne .Data.job_type nil) (ne .Data.attempt nil) (ne .Data.state nil) (ne .Data.processed_files nil)}}
                     <dl class="sync-log-paths">
                         {{with .Data.root_path}}
                         <div>
                             <dt>Root</dt>
-                            <dd>{{.}}</dd>
+                            <dd title="{{.}}">{{.}}</dd>
                         </div>
                         {{end}}
                         {{with .Data.path}}
                         <div>
                             <dt>Path</dt>
-                            <dd>{{.}}</dd>
+                            <dd title="{{.}}">{{.}}</dd>
+                        </div>
+                        {{end}}
+                        {{if ne .Data.job_id nil}}
+                        <div>
+                            <dt>Job ID</dt>
+                            <dd title="{{.Data.job_id}}">{{.Data.job_id}}</dd>
+                        </div>
+                        {{end}}
+                        {{if ne .Data.job_type nil}}
+                        <div>
+                            <dt>Job type</dt>
+                            <dd title="{{.Data.job_type}}">{{.Data.job_type}}</dd>
+                        </div>
+                        {{end}}
+                        {{if ne .Data.attempt nil}}
+                        <div>
+                            <dt>Attempt</dt>
+                            <dd title="{{.Data.attempt}}">{{.Data.attempt}}</dd>
+                        </div>
+                        {{end}}
+                        {{if ne .Data.state nil}}
+                        <div>
+                            <dt>State</dt>
+                            <dd title="{{.Data.state}}">{{.Data.state}}</dd>
+                        </div>
+                        {{end}}
+                        {{if ne .Data.processed_files nil}}
+                        <div>
+                            <dt>Processed files</dt>
+                            <dd title="{{.Data.processed_files}}">{{.Data.processed_files}}</dd>
                         </div>
                         {{end}}
                     </dl>

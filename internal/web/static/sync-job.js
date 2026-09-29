@@ -4,7 +4,6 @@ export default function registerSyncJob(up) {
     up.compiler("[data-sync-job]", (container) => {
         const link = container.querySelector("[data-sync-submit]");
         const message = container.querySelector("[data-job-message]");
-        const label = link.textContent;
         let submitting = false;
         let destroyed = false;
 
@@ -12,11 +11,10 @@ export default function registerSyncJob(up) {
             event.preventDefault();
             if (submitting) return;
             submitting = true;
-            message.hidden = true;
-            message.textContent = "";
             message.className = "";
             message.setAttribute("role", "status");
-            link.textContent = "Submitting…";
+            message.textContent = "Submitting…";
+            message.hidden = false;
             link.setAttribute("aria-disabled", "true");
             link.setAttribute("aria-busy", "true");
             try {
@@ -37,7 +35,6 @@ export default function registerSyncJob(up) {
             } finally {
                 submitting = false;
                 if (!destroyed) {
-                    link.textContent = label;
                     link.removeAttribute("aria-disabled");
                     link.removeAttribute("aria-busy");
                 }
