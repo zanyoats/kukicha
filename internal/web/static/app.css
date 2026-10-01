@@ -156,6 +156,7 @@ a:focus-visible {
 **/
 
 .top-nav {
+    position: relative;
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -186,6 +187,68 @@ a:focus-visible {
             aspect-ratio: 1;
             object-fit: cover;
         }
+    }
+}
+
+/* Shared snackbar and toast stack, anchored across the header/content boundary. */
+.notification-layer {
+    position: absolute;
+    inset-block-start: 100%;
+    inset-inline-start: 50%;
+    transform: translate(-50%, -1.5rem);
+    z-index: 10000;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    inline-size: min(28rem, calc(100vw - 1.5rem));
+    max-block-size: calc(100svh - 8rem);
+    overflow-y: auto;
+    pointer-events: none;
+}
+.notification {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-shrink: 0;
+    min-block-size: 3rem;
+    padding: 0.5rem 1rem;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text-primary);
+    font-size: 0.9rem;
+    pointer-events: auto;
+}
+.notification[hidden] {
+    display: none;
+}
+.notification > span {
+    min-inline-size: 0;
+    overflow-wrap: anywhere;
+}
+.notification-action {
+    flex-shrink: 0;
+    color: var(--accent);
+    text-underline-offset: 0.15em;
+}
+.notification-action[aria-disabled="true"] {
+    color: var(--text-muted);
+    cursor: default;
+}
+.notification-dismiss {
+    align-self: flex-start;
+    flex-shrink: 0;
+    font: inherit;
+    font-size: 1.25rem;
+    min-inline-size: 2rem;
+    min-block-size: 2rem;
+}
+@media (pointer: coarse) {
+    .notification-action,
+    .notification-dismiss {
+        min-block-size: 2.75rem;
+        display: grid;
+        place-items: center;
     }
 }
 
@@ -869,15 +932,23 @@ aside.alert {
     --alert-text: var(--error-text);
 }
 
-[data-sync-submit][aria-disabled="true"] {
-    color: var(--text-secondary);
-    cursor: wait;
-    text-decoration: none;
+/* Compact buttons that fit within explanatory text. */
+.inline-action {
+    display: inline-block;
+    padding: 0.15rem 0.5rem;
+    border: 1px solid currentColor;
+    border-radius: 0;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    line-height: 1.3;
+    vertical-align: baseline;
 }
-
-[data-job-message][role="status"] {
-    color: var(--text-secondary);
-    font-size: 0.8rem;
+.inline-action:hover:not(:disabled) {
+    color: inherit;
+}
+[data-sync-submit][aria-busy="true"] {
+    cursor: wait;
 }
 
 /* Roots */

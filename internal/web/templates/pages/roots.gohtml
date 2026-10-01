@@ -19,13 +19,12 @@
         <strong>Info</strong>
         <p>
             Configured roots are synced at startup.
-            You can run <a href="">Scan</a> to rebuild the library,
-            or <a href="{{.URLs.SubmitJob}}" data-sync-submit up-follow="false">Sync</a> to also re-download all files.
+            You can run <button type="button" class="inline-action" disabled title="Scan is not available yet">Scan</button> to rebuild the library,
+            or <button type="button" class="inline-action" data-sync-submit="{{.URLs.SubmitJob}}">Sync</button> to also re-download all files.
             Either option starts a new job that runs in the background.
-            For a full factory reset, use <a href="">Reset</a>,
+            For a full factory reset, use <button type="button" class="inline-action" disabled title="Reset is not available yet">Reset</button>,
             which runs a sync and removes all listening data.
         </p>
-        <p role="status" data-job-message hidden></p>
     </aside>
     {{end}}
     {{range $index, $root := .ConfiguredRoots}}

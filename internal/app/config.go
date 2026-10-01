@@ -181,6 +181,7 @@ type AppConfig struct {
 		UI struct {
 			PerPage          int       `toml:"per_page"`
 			DefaultAlbumSort AlbumSort `toml:"default_album_sort"`
+			ToastMinDuration Duration  `toml:"toast_min_duration"`
 		} `toml:"ui"`
 	}
 }
@@ -331,6 +332,11 @@ func LoadAppConfig(catalog *Catalog) (*AppConfig, error) {
 	}
 
 	// ...valid UI settings
+	if result.Settings.UI.ToastMinDuration.Duration <= 0 {
+		return nil, errors.New(
+			`"ui.toast_min_duration" setting must be greater than zero`,
+		)
+	}
 	if result.Settings.UI.PerPage < 1 {
 		return nil, errors.New(
 			`"ui.per_page" setting must be a positive integer`,

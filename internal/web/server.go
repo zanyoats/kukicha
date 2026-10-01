@@ -105,6 +105,10 @@ func NewWebRouter(
 		router.submitJob,
 	)
 	mux.HandleFunc(
+		exactPattern(http.MethodGet, urls.JobEvents),
+		router.jobEvents,
+	)
+	mux.HandleFunc(
 		exactPattern(http.MethodPost, urls.CancelJob),
 		router.cancelJob,
 	)

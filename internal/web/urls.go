@@ -27,6 +27,7 @@ type URLs struct {
 	UpdateArtistSplitRule   string
 	SubmitJob               string
 	CancelJob               string
+	JobEvents               string
 	Assets                  string
 	Favicon                 string
 	UnpolyStylesheet        string
@@ -58,6 +59,7 @@ func NewURLs(basePath string) URLs {
 		UpdateArtistSplitRule:   api + "/artistSplitRules/",
 		SubmitJob:               api + "/jobs/",
 		CancelJob:               api + "/jobs/cancel/",
+		JobEvents:               api + "/jobs/events/",
 		Assets:                  assets,
 		Favicon:                 "/favicon.ico",
 		UnpolyStylesheet:        assets + "unpoly.min.css",

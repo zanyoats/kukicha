@@ -76,3 +76,9 @@ func yesNo(value *bool) string {
 func playerArtworkSize() query.AlbumArtworkSize {
 	return query.AlbumArtwork64
 }
+
+func toastMinDurationMS(toastMinDuration time.Duration) func() float64 {
+	return func() float64 {
+		return float64(toastMinDuration) / float64(time.Millisecond)
+	}
+}

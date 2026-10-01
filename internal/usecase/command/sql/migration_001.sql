@@ -396,3 +396,7 @@ CREATE TABLE jobs (
 );
 
 CREATE INDEX jobs_queued_id ON jobs (id) WHERE state = 'queued';
+
+CREATE INDEX jobs_pending_state_id
+ON jobs (state, id)
+WHERE state IN ('running', 'queued');

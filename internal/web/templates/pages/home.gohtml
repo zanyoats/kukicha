@@ -26,8 +26,7 @@
         {{else}}
         <aside class="alert alert-info" aria-label="Library not generated" data-sync-job>
             <strong>Your library hasn’t been generated yet.</strong>
-            <p>Click <a href="{{.URLs.SubmitJob}}" data-sync-submit up-follow="false">here</a> to begin syncing your library.</p>
-            <p role="status" data-job-message hidden></p>
+            <p>Click <button type="button" class="inline-action" data-sync-submit="{{.URLs.SubmitJob}}">Sync</button> to begin syncing your library.</p>
         </aside>
         {{end}}
     {{else}}

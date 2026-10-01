@@ -6,6 +6,7 @@ import registerPlayerQueuePanel from "./player-queue-panel.js";
 import registerArtistSplitRules from "./artist-split-rules.js";
 import registerArtwork from "./artwork.js";
 import registerSyncJob from "./sync-job.js";
+import registerJobStatus from "./job-status.js";
 
 up.log.config.banner = false;
 up.history.config.restoreTargets = ["[up-main]"];
@@ -17,3 +18,4 @@ registerAlbumPage(up);
 registerPlayerQueuePanel(up);
 registerArtistSplitRules(up);
 registerSyncJob(up);
+registerJobStatus(up);

@@ -1,47 +1,50 @@
 import { requestJSON } from "./json-api.js";
+import { showToast } from "./notifications.js";
 
 export default function registerSyncJob(up) {
     up.compiler("[data-sync-job]", (container) => {
-        const link = container.querySelector("[data-sync-submit]");
-        const message = container.querySelector("[data-job-message]");
+        const button = container.querySelector("[data-sync-submit]");
         let submitting = false;
         let destroyed = false;
+        let enableTimer;
 
-        const unbind = up.on(link, "click", async (event) => {
+        const unbind = up.on(button, "click", async (event) => {
             event.preventDefault();
             if (submitting) return;
             submitting = true;
-            message.className = "";
-            message.setAttribute("role", "status");
-            message.textContent = "Submitting…";
-            message.hidden = false;
-            link.setAttribute("aria-disabled", "true");
-            link.setAttribute("aria-busy", "true");
+            const submittedAt = performance.now();
+            button.disabled = true;
+            button.setAttribute("aria-busy", "true");
             try {
-                await requestJSON(up, link.href, {
+                await requestJSON(up, button.dataset.syncSubmit, {
                     method: "POST",
                     body: { type: "sync", payload: {} },
-                    errorMessage: "Unable to submit the sync job. Please try again.",
+                    errorMessage:
+                        "Unable to submit the sync job. Please try again.",
                 });
-                if (destroyed) return;
-                message.hidden = false;
-                message.textContent = "Sync job queued.";
+                showToast("Sync job queued.", { trigger: button });
             } catch (failure) {
-                if (destroyed) return;
-                message.className = "alert alert-error";
-                message.setAttribute("role", "alert");
-                message.hidden = false;
-                message.textContent = failure.message;
+                showToast(failure.message, { role: "alert", trigger: button });
             } finally {
-                submitting = false;
                 if (!destroyed) {
-                    link.removeAttribute("aria-disabled");
-                    link.removeAttribute("aria-busy");
+                    const enable = () => {
+                        submitting = false;
+                        button.disabled = false;
+                        button.removeAttribute("aria-busy");
+                    };
+                    // Keep quick responses from flashing the button's disabled state.
+                    const remaining = 3000 - (performance.now() - submittedAt);
+                    if (remaining > 0)
+                        enableTimer = setTimeout(enable, remaining);
+                    else enable();
                 }
             }
         });
         return [
-            () => { destroyed = true; },
+            () => {
+                destroyed = true;
+                clearTimeout(enableTimer);
+            },
             unbind,
         ];
     });

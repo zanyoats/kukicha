@@ -1,9 +1,13 @@
 // Returns the Unpoly response without parsing its body, including empty 204 responses.
-export async function requestJSON(up, url, {
-    method,
-    body,
-    errorMessage = "Unable to complete the request. Please try again.",
-}) {
+export async function requestJSON(
+    up,
+    url,
+    {
+        method,
+        body,
+        errorMessage = "Unable to complete the request. Please try again.",
+    },
+) {
     try {
         return await up.request(url, {
             method,

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -42,7 +43,7 @@ func run() error {
 		&slog.HandlerOptions{Level: conf.Settings.Logging.Level.Level},
 	)))
 
-	renderer, err := web.NewPageRenderer()
+	renderer, err := web.NewPageRenderer(conf.Settings.UI.ToastMinDuration.Duration)
 	if err != nil {
 		return err
 	}
@@ -100,8 +101,16 @@ func run() error {
 		return err
 	}
 
+	ctx, stop := signal.NotifyContext(
+		context.Background(), os.Interrupt, syscall.SIGTERM,
+	)
+	defer stop()
+
 	server := &http.Server{
-		Addr: conf.Settings.Server.ServerAddress,
+		// alert long-running SSE handlers if parent `ctx` is interrupted,
+		// otherwise server. Shutdown will never succeed on its own.
+		BaseContext: func(net.Listener) context.Context { return ctx },
+		Addr:        conf.Settings.Server.ServerAddress,
 		Handler: web.NewWebRouter(
 			conf.Settings.Server.AppBasePath,
 			renderer,
@@ -115,11 +124,6 @@ func run() error {
 		),
 		ReadHeaderTimeout: conf.Settings.Server.ReadHeaderTimeout.Duration,
 	}
-
-	ctx, stop := signal.NotifyContext(
-		context.Background(), os.Interrupt, syscall.SIGTERM,
-	)
-	defer stop()
 
 	done := make(chan error, 2)
 

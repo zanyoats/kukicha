@@ -18,6 +18,29 @@
     >
         <img src="{{.URLs.InstanceIdenticon}}" alt="Kukicha instance identicon" />
     </a>
+
+    <section class="notification-layer"
+        aria-label="Notifications"
+        data-notifications
+        data-toast-min-duration-ms="{{toastMinDurationMS}}"
+        data-job-events="{{.URLs.JobEvents}}"
+        data-job-cancel-url="{{.URLs.CancelJob}}">
+        <div class="notification snackbar" data-job-snackbar hidden>
+            <span data-job-description role="status" aria-live="polite" aria-atomic="true"></span>
+            <a href="{{.URLs.CancelJob}}" class="notification-action" data-job-cancel up-follow="false">Cancel</a>
+        </div>
+        <template data-toast-template>
+            <div class="notification toast">
+                <span data-toast-message role="status" aria-atomic="true"></span>
+                <button type="button" class="notification-dismiss" data-toast-dismiss aria-label="Dismiss notification">×</button>
+            </div>
+        </template>
+        <template data-job-labels>
+            <span data-type="sync">Sync library</span>
+            <span data-type="scan">Scan library</span>
+            <span data-type="iTunesLookup">iTunes artwork</span>
+        </template>
+    </section>
 </header>
 
 <template id="avatar-panel-template">

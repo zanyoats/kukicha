@@ -8,6 +8,7 @@ import (
 	"io"
 	"io/fs"
 	"path"
+	"time"
 )
 
 var (
@@ -23,16 +24,17 @@ type PageRenderer struct {
 	pages map[string]*template.Template
 }
 
-func NewPageRenderer() (Renderer, error) {
+func NewPageRenderer(toastMinDuration time.Duration) (Renderer, error) {
 	base, err := template.
 		New("site").
 		Funcs(template.FuncMap{
-			"formatDate":        formatDate,
-			"formatDuration":    formatDuration,
-			"formatNumber":      formatNumber,
-			"formatTimestamp":   formatTimestamp,
-			"yesNo":             yesNo,
-			"playerArtworkSize": playerArtworkSize,
+			"toastMinDurationMS": toastMinDurationMS(toastMinDuration),
+			"formatDate":         formatDate,
+			"formatDuration":     formatDuration,
+			"formatNumber":       formatNumber,
+			"formatTimestamp":    formatTimestamp,
+			"yesNo":              yesNo,
+			"playerArtworkSize":  playerArtworkSize,
 		}).
 		ParseFS(
 			templates,
