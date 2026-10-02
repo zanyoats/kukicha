@@ -179,8 +179,7 @@ func run() error {
 
 func registry(db *sql.DB, conf *app.AppConfig) proc.Registry {
 	return proc.Registry{
-		"sync":         proc.Decode(func(struct{}) (proc.Job, error) { return &jobs.Sync{DB: db, Conf: conf}, nil }),
-		"scan":         proc.Decode(func(struct{}) (proc.Job, error) { return &jobs.Scan{DB: db, Conf: conf}, nil }),
-		"iTunesLookup": proc.Decode(func(struct{}) (proc.Job, error) { return &jobs.ItunesLookup{DB: db, Conf: conf}, nil }),
+		"sync": proc.Decode(func(struct{}) (proc.Job, error) { return &jobs.Sync{DB: db, Conf: conf}, nil }),
+		"scan": proc.Decode(func(struct{}) (proc.Job, error) { return &jobs.Scan{DB: db, Conf: conf}, nil }),
 	}
 }

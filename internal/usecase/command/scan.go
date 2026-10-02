@@ -126,13 +126,10 @@ type SyncScanStats struct {
 	LibraryAlbumArtistUnknowns int
 }
 
-// BuildLibraryFromScan rebuilds the library in the caller-owned transaction.
+// BuildLibraryFromScan rebuilds the library in a transaction on the scan connection.
 func BuildLibraryFromScan(
 	ctx context.Context,
-	tx *sql.Tx,
-	recognizedAudioExtensions map[string]bool,
-	recognizedPlaylistExtensions map[string]bool,
-	recognizedSidecarExtensions map[string]bool,
+	conn *sql.Conn,
 	unknownItem string,
 	secondaryGenreSplitTokens map[string]bool,
 ) (BuildLibraryResult, error) {
@@ -141,7 +138,11 @@ func BuildLibraryFromScan(
 	if !ok {
 		return result, errors.New("library build requires a job ID in context")
 	}
-	var err error
+	tx, err := conn.BeginTx(ctx, nil)
+	if err != nil {
+		return result, err
+	}
+	defer tx.Rollback()
 
 	if err = allocateLibraryIDs(ctx, tx); err != nil {
 		return result, err
@@ -192,20 +193,6 @@ func BuildLibraryFromScan(
 		return result, err
 	}
 
-	if err = ReconcileITunesArtwork(ctx, tx); err != nil {
-		return result, err
-	}
-
-	if err = setBuildLibraryAppMetadata(
-		ctx, tx,
-		recognizedAudioExtensions,
-		recognizedPlaylistExtensions,
-		recognizedSidecarExtensions,
-		jobID,
-	); err != nil {
-		return result, err
-	}
-
 	err = tx.QueryRowContext(ctx, libraryCountsSQL, sql.Named("unknown_item", unknownItem)).Scan(
 		&result.ScanStats.ProcessedFiles,
 		&result.ScanStats.SidecarFiles,
@@ -227,7 +214,7 @@ func BuildLibraryFromScan(
 		return result, err
 	}
 
-	return result, nil
+	return result, tx.Commit()
 }
 
 func InsertScannedFile(
@@ -601,14 +588,21 @@ func buildLibraryTrackArtwork(ctx context.Context, tx *sql.Tx) error {
 	return nil
 }
 
-func setBuildLibraryAppMetadata(
+// SetBuildLibraryAppMetadata atomically records a completed sync after artwork lookup.
+func SetBuildLibraryAppMetadata(
 	ctx context.Context,
-	tx *sql.Tx,
+	conn *sql.Conn,
 	recognizedAudioExtensions map[string]bool,
 	recognizedPlaylistExtensions map[string]bool,
 	recognizedSidecarExtensions map[string]bool,
 	jobID int64,
 ) error {
+	tx, err := conn.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
 	if err := SetAppMetadata(ctx, tx, app.LibraryGeneratedJobId, strconv.FormatInt(jobID, 10)); err != nil {
 		return err
 	}
@@ -638,5 +632,5 @@ func setBuildLibraryAppMetadata(
 		return fmt.Errorf("setting app metadata key %d: %w", int(app.LibrarySupportedExtensionsJson), err)
 	}
 
-	return nil
+	return tx.Commit()
 }

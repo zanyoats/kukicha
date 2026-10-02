@@ -224,7 +224,7 @@ CREATE TABLE library_track_artwork (
     thumbnail_cache_id INTEGER NOT NULL                 ,
     source             TEXT    NOT NULL                 ,
 
-    CHECK (source IN ('sidecar', 'embedded', 'itunes'))   ,
+    CHECK (source IN ('sidecar', 'embedded', 'itunes')) ,
     UNIQUE (track_id, thumbnail_cache_id)               ,
     FOREIGN KEY (track_id)
       REFERENCES library_tracks (id)
@@ -381,7 +381,7 @@ CREATE TABLE jobs (
     last_error          TEXT                                   ,
     cancel_requested_at TEXT                                   ,
 
-    CHECK (type IN ('sync', 'scan', 'iTunesLookup'))           ,
+    CHECK (type IN ('sync', 'scan'))                           ,
     CHECK (json_valid(payload))                                ,
     CHECK (state IN (
         -- transient states

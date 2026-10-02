@@ -3,7 +3,6 @@ package jobs
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -15,6 +14,7 @@ import (
 
 	"github.com/zanyoats/kukicha/internal/app"
 	"github.com/zanyoats/kukicha/internal/scan"
+	scanartwork "github.com/zanyoats/kukicha/internal/scan/artwork"
 	"github.com/zanyoats/kukicha/internal/usecase/command"
 	"github.com/zanyoats/kukicha/internal/usecase/query"
 	"github.com/zanyoats/kukicha/internal/walk"
@@ -31,6 +31,8 @@ type Sync struct {
 	Conf   *app.AppConfig
 	logger *slog.Logger
 }
+
+var ErrITunesArtworkLookup = errors.New("iTunes artwork lookup")
 
 func (j *Sync) Run(ctx context.Context) error {
 	j.logger = app.JobLogger(ctx)
@@ -81,36 +83,34 @@ func (j *Sync) Run(ctx context.Context) error {
 		return err
 	}
 
-	// Complete Sync job by atomically:
-	//   1. building the entire library from scanned data in temp tables, and
-	//   2. create subsequent iTunesLookup job (if enabled) to fetch artwork
-	//      if neither: sidecar, embedded
-	tx, err := conn.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-
 	result, err := command.BuildLibraryFromScan(
-		ctx, tx,
-		scan.RecognizedAudioExtensions,
-		scan.RecognizedPlaylistExtensions,
-		scan.RecognizedSidecarExtensions,
+		ctx, conn,
 		scan.UnknownItem,
 		j.Conf.Settings.Scan.SecondaryGenreSplitTokens,
 	)
 	if err != nil {
 		return err
 	}
+
 	if j.Conf.Settings.Scan.ITunes.Enabled {
-		if _, err := command.InsertJob(ctx, tx, command.JobSubmission{
-			Type:    "iTunesLookup",
-			Payload: json.RawMessage(`{}`),
-		}); err != nil {
+		if err := j.lookupITunesArtwork(ctx, conn); err != nil {
 			return err
 		}
 	}
-	if err := tx.Commit(); err != nil {
+
+	if result.LogStats, err = query.JobLogCounts(ctx, conn, jobID); err != nil {
+		return err
+	}
+
+	// Only mark this sync complete after all artwork has been attached. An
+	// interrupted lookup retries the rebuild and reuses cached lookup results.
+	if err := command.SetBuildLibraryAppMetadata(
+		ctx, conn,
+		scan.RecognizedAudioExtensions,
+		scan.RecognizedPlaylistExtensions,
+		scan.RecognizedSidecarExtensions,
+		jobID,
+	); err != nil {
 		return err
 	}
 
@@ -132,6 +132,85 @@ func (j *Sync) Run(ctx context.Context) error {
 		"info", l.Info,
 		"debug", l.Debug,
 	)
+
+	return nil
+}
+
+func (j *Sync) lookupITunesArtwork(ctx context.Context, conn *sql.Conn) error {
+	client := scanartwork.NewITunesClient(
+		nil,
+		scanartwork.ITunesClientConfig{
+			RequestTimeout: j.Conf.Settings.Scan.ITunes.RequestTimeout.Duration,
+			LookupInterval: j.Conf.Settings.Scan.ITunes.LookupInterval.Duration,
+			RetryAttempts:  j.Conf.Settings.Scan.ITunes.RetryAttempts,
+		},
+	)
+
+	// TODO: Batch by track IDs since candidates can be a large list
+	// 1. Load up to 100 track IDs after the cursor.
+	// 2. Load candidates for that selected ID range.
+	// 3. Close rows and process candidates.
+	// 4. Advance to the last ID from step 1.
+
+	candidates, err := query.LibraryArtworkCandidates(ctx, conn)
+	if err != nil {
+		return err
+	}
+
+	resolved := make(map[int64]bool)
+	for _, candidate := range candidates {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if resolved[candidate.TrackID] {
+			continue
+		}
+		result, _, err := lookupCachedArtwork(
+			ctx, conn, client, candidate.Kind, candidate.LookupID,
+		)
+		if err != nil {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			if !errors.Is(err, ErrITunesArtworkLookup) {
+				return err
+			}
+			j.logger.WarnContext(ctx, fmt.Sprintf(
+				"iTunes artwork lookup failed: kind %s, lookup ID %s: %v",
+				candidate.Kind, candidate.LookupID, err,
+			), "root_path", candidate.RootPath, "path", candidate.Path)
+			continue
+		}
+
+		if result.ResultKind != app.ITunesResultHit {
+			continue
+		}
+
+		// Cache into artwork thumbnails table, then repair itunes cache
+		// with hashed `name` value
+		name, err := command.CacheArtworkThumbnails(
+			ctx, conn, result.Bytes,
+			fmt.Sprintf("iTunes %s artwork %s", candidate.Kind, candidate.LookupID),
+			candidate.RootPath, candidate.Path,
+		)
+		if err != nil {
+			return err
+		}
+		if name == "" {
+			continue
+		}
+
+		if err := command.LinkCachedITunesArtworkThumbnail(
+			ctx, conn, result.LookupKind, result.LookupID, name,
+		); err != nil {
+			return err
+		}
+
+		if err := command.AttachLibraryArtwork(ctx, conn, candidate.TrackID, name); err != nil {
+			return err
+		}
+		resolved[candidate.TrackID] = true
+	}
 
 	return nil
 }
@@ -420,4 +499,56 @@ func (p *syncProgress) count() int {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	return p.processed
+}
+
+type itunesArtworkCache interface {
+	ExecContext(
+		context.Context,
+		string,
+		...any,
+	) (sql.Result, error)
+	QueryRowContext(
+		context.Context,
+		string,
+		...any,
+	) *sql.Row
+}
+
+// lookupCachedArtwork returns the result and whether it came from the cache.
+func lookupCachedArtwork(
+	ctx context.Context,
+	db itunesArtworkCache,
+	client *scanartwork.ITunesClient,
+	kind app.ITunesLookupKind,
+	lookupID string,
+) (app.ITunesLookupResult, bool, error) {
+	cached, found, err := query.LoadCachedITunesArtwork(
+		ctx, db, kind, lookupID,
+	)
+	if err != nil {
+		if !errors.Is(err, query.ErrInvalidCachedITunesArtwork) {
+			return app.ITunesLookupResult{}, false, err
+		}
+
+		// Invalid cached data: fall through to fetch and replace it.
+	} else if found {
+		return cached, true, nil
+	}
+
+	if client == nil {
+		return app.ITunesLookupResult{}, false, errors.New("iTunes client is nil")
+	}
+
+	result, err := client.LookupArtwork(ctx, kind, lookupID)
+	if err != nil {
+		return app.ITunesLookupResult{}, false, fmt.Errorf(
+			"%w: %w", ErrITunesArtworkLookup, err,
+		)
+	}
+
+	if err := command.StoreCachedITunesArtwork(ctx, db, result); err != nil {
+		return app.ITunesLookupResult{}, false, err
+	}
+
+	return result, false, nil
 }
