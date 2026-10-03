@@ -146,73 +146,74 @@ func (j *Sync) lookupITunesArtwork(ctx context.Context, conn *sql.Conn) error {
 		},
 	)
 
-	// TODO: Batch by track IDs since candidates can be a large list
-	// 1. Load up to 100 track IDs after the cursor.
-	// 2. Load candidates for that selected ID range.
-	// 3. Close rows and process candidates.
-	// 4. Advance to the last ID from step 1.
-
-	candidates, err := query.LibraryArtworkCandidates(ctx, conn)
-	if err != nil {
-		return err
-	}
-
-	resolved := make(map[int64]bool)
-	for _, candidate := range candidates {
-		if err := ctx.Err(); err != nil {
+	const batchSize = 100
+	var afterID int64
+	for {
+		candidates, lastID, err := query.LibraryArtworkCandidates(ctx, conn, afterID, batchSize)
+		if err != nil {
 			return err
 		}
-		if resolved[candidate.TrackID] {
-			continue
+		if lastID == 0 {
+			return nil
 		}
-		result, _, err := lookupCachedArtwork(
-			ctx, conn, client, candidate.Kind, candidate.LookupID,
-		)
-		if err != nil {
-			if ctx.Err() != nil {
-				return ctx.Err()
-			}
-			if !errors.Is(err, ErrITunesArtworkLookup) {
+
+		resolved := make(map[int64]bool)
+		for _, candidate := range candidates {
+			if err := ctx.Err(); err != nil {
 				return err
 			}
-			j.logger.WarnContext(ctx, fmt.Sprintf(
-				"iTunes artwork lookup failed: kind %s, lookup ID %s: %v",
-				candidate.Kind, candidate.LookupID, err,
-			), "root_path", candidate.RootPath, "path", candidate.Path)
-			continue
+			if resolved[candidate.TrackID] {
+				continue
+			}
+			result, _, err := lookupCachedArtwork(
+				ctx, conn, client, candidate.Kind, candidate.LookupID,
+			)
+			if err != nil {
+				if ctx.Err() != nil {
+					return ctx.Err()
+				}
+				if !errors.Is(err, ErrITunesArtworkLookup) {
+					return err
+				}
+				j.logger.ErrorContext(ctx, fmt.Sprintf(
+					"iTunes artwork lookup failed: kind %s, lookup ID %s: %v",
+					candidate.Kind, candidate.LookupID, err,
+				), "root_path", candidate.RootPath, "path", candidate.Path)
+				continue
+			}
+
+			if result.ResultKind != app.ITunesResultHit {
+				continue
+			}
+
+			// Cache into artwork thumbnails table, then repair itunes cache
+			// with hashed `name` value
+			name, err := command.CacheArtworkThumbnails(
+				ctx, conn, result.Bytes,
+				fmt.Sprintf("iTunes %s artwork %s", candidate.Kind, candidate.LookupID),
+				candidate.RootPath, candidate.Path,
+			)
+			if err != nil {
+				return err
+			}
+			if name == "" {
+				continue
+			}
+
+			if err := command.LinkCachedITunesArtworkThumbnail(
+				ctx, conn, result.LookupKind, result.LookupID, name,
+			); err != nil {
+				return err
+			}
+
+			if err := command.AttachLibraryArtwork(ctx, conn, candidate.TrackID, name); err != nil {
+				return err
+			}
+			resolved[candidate.TrackID] = true
 		}
 
-		if result.ResultKind != app.ITunesResultHit {
-			continue
-		}
-
-		// Cache into artwork thumbnails table, then repair itunes cache
-		// with hashed `name` value
-		name, err := command.CacheArtworkThumbnails(
-			ctx, conn, result.Bytes,
-			fmt.Sprintf("iTunes %s artwork %s", candidate.Kind, candidate.LookupID),
-			candidate.RootPath, candidate.Path,
-		)
-		if err != nil {
-			return err
-		}
-		if name == "" {
-			continue
-		}
-
-		if err := command.LinkCachedITunesArtworkThumbnail(
-			ctx, conn, result.LookupKind, result.LookupID, name,
-		); err != nil {
-			return err
-		}
-
-		if err := command.AttachLibraryArtwork(ctx, conn, candidate.TrackID, name); err != nil {
-			return err
-		}
-		resolved[candidate.TrackID] = true
+		afterID = lastID
 	}
-
-	return nil
 }
 
 type work struct {

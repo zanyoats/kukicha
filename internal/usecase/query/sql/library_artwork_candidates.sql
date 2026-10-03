@@ -1,4 +1,27 @@
-WITH candidates AS (
+-- Each selected track can produce:
+--  * 1 candidate from its own album lookup ID.
+--  * 1 candidate from its own track lookup ID.
+--  * 1 candidate per distinct eligible album lookup ID found on sibling tracks,
+--    excluding its own album lookup ID.
+--
+-- If the selected tracks are
+-- | Track ID | Path           | iTunes album ID | iTunes track ID |
+-- | 101      | album/01.mp3   | 700             | 9001            |
+-- | 102      | album/02.mp3   | 701             | 9002            |
+-- | 103      | album/03.mp3   | 701             | —               |
+--
+-- ... and we batch [101-102]; it will  be expanded for like
+-- | track_id | path           | lookup_kind | lookup_id |
+-- | 101      | album/01.mp3   | album       | 700       |
+-- | 101      | album/01.mp3   | track       | 9001      |
+-- | 101      | album/01.mp3   | album       | 701       |
+-- | 102      | album/02.mp3   | album       | 701       |
+-- | 102      | album/02.mp3   | track       | 9002      |
+-- | 102      | album/02.mp3   | album       | 700       |
+--
+WITH selected_tracks AS (
+    SELECT * FROM library_tracks WHERE id > :after_id AND id <= :last_id
+), candidates AS (
     SELECT -- track itunes store album id
         id AS track_id,
         'album' AS lookup_kind,
@@ -6,7 +29,7 @@ WITH candidates AS (
         0 AS priority,
         0 AS frequency,
         id AS first_id
-    FROM library_tracks
+    FROM selected_tracks
     UNION ALL
     SELECT -- track itunes store track id
         id,
@@ -15,7 +38,7 @@ WITH candidates AS (
         1,
         0,
         id
-    FROM library_tracks
+    FROM selected_tracks
     UNION ALL
     SELECT -- use siblings (library_tracks.album_id) itunes store album ids as fallback for this track
         current.id,
@@ -24,7 +47,7 @@ WITH candidates AS (
         2,
         -COUNT(*),
         MIN(sibling.id)
-    FROM library_tracks AS current
+    FROM selected_tracks AS current
     JOIN library_tracks AS sibling
         ON sibling.album_id = current.album_id
         AND sibling.id != current.id
