@@ -116,6 +116,8 @@ func NewWebRouter(
 		exactPattern(http.MethodGet, urls.Roots),
 		router.showRoots,
 	)
+	mux.HandleFunc(exactPattern(http.MethodGet, urls.Jobs), router.showJobs)
+	mux.HandleFunc(exactPattern(http.MethodGet, urls.JobLogs), router.showJobLogs)
 	for _, page := range configPages(urls) {
 		mux.HandleFunc(
 			exactPattern(http.MethodGet, page.URL),

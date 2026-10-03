@@ -126,12 +126,15 @@ type SyncScanStats struct {
 	LibraryAlbumArtistUnknowns int
 }
 
-// BuildLibraryFromScan rebuilds the library in a transaction on the scan connection.
+// BuildLibraryFromScan atomically rebuilds the library
 func BuildLibraryFromScan(
 	ctx context.Context,
 	conn *sql.Conn,
 	unknownItem string,
 	secondaryGenreSplitTokens map[string]bool,
+	recognizedAudioExtensions map[string]bool,
+	recognizedPlaylistExtensions map[string]bool,
+	recognizedSidecarExtensions map[string]bool,
 ) (BuildLibraryResult, error) {
 	var result BuildLibraryResult
 	jobID, ok := app.JobIDFromContext(ctx)
@@ -211,6 +214,12 @@ func BuildLibraryFromScan(
 	}
 
 	if result.LogStats, err = query.JobLogCounts(ctx, tx, jobID); err != nil {
+		return result, err
+	}
+
+	if err := setLibraryBuildMetadata(ctx, tx,
+		recognizedAudioExtensions, recognizedPlaylistExtensions, recognizedSidecarExtensions,
+	); err != nil {
 		return result, err
 	}
 
@@ -588,24 +597,26 @@ func buildLibraryTrackArtwork(ctx context.Context, tx *sql.Tx) error {
 	return nil
 }
 
-// SetBuildLibraryAppMetadata atomically records a completed sync after artwork lookup.
-func SetBuildLibraryAppMetadata(
-	ctx context.Context,
-	conn *sql.Conn,
-	recognizedAudioExtensions map[string]bool,
-	recognizedPlaylistExtensions map[string]bool,
-	recognizedSidecarExtensions map[string]bool,
-	jobID int64,
-) error {
+// MarkLibrarySyncComplete records the recovery marker only after artwork lookup finishes.
+func MarkLibrarySyncComplete(ctx context.Context, conn *sql.Conn, jobID int64) error {
 	tx, err := conn.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
-
 	if err := SetAppMetadata(ctx, tx, app.LibraryGeneratedJobId, strconv.FormatInt(jobID, 10)); err != nil {
 		return err
 	}
+	return tx.Commit()
+}
+
+func setLibraryBuildMetadata(
+	ctx context.Context,
+	tx *sql.Tx,
+	recognizedAudioExtensions map[string]bool,
+	recognizedPlaylistExtensions map[string]bool,
+	recognizedSidecarExtensions map[string]bool,
+) error {
 	{
 		var currentTimestamp string
 		if err := tx.QueryRowContext(ctx, currentTimestampSQL).Scan(&currentTimestamp); err != nil {
@@ -632,5 +643,5 @@ func SetBuildLibraryAppMetadata(
 		return fmt.Errorf("setting app metadata key %d: %w", int(app.LibrarySupportedExtensionsJson), err)
 	}
 
-	return tx.Commit()
+	return nil
 }

@@ -15,11 +15,31 @@ type AppMetadataKey int
 
 // TODO (?) add key for what version library was built on
 const (
+	// LibraryGeneratedAt stores the UTC timestamp committed with the rebuilt
+	// library. Its presence lets Home display library data while artwork lookup
+	// is still running; it does not indicate that the sync job has finished.
 	LibraryGeneratedAt AppMetadataKey = iota
+
+	// LibrarySupportedExtensionsJson records the audio, playlist, and sidecar
+	// extension maps used for the build, committed with the rebuilt library.
 	LibrarySupportedExtensionsJson
+
+	// LibraryGeneratedJobId records the sync job whose work, including artwork
+	// lookup, completed. If interrupted before the processor marks it succeeded,
+	// the recovered job skips repeating that work when its ID matches this marker.
+	// It is also used to get the latest successful sync logs for the roots page.
 	LibraryGeneratedJobId
+
+	// InstanceID is a persistent random identifier created at initialization
+	// and used to generate this instance's identicon.
 	InstanceID
+
+	// InstanceIdenticon stores the generated SVG served as the instance avatar
+	// and favicon, preserving its appearance across restarts.
 	InstanceIdenticon
+
+	// TaxonomyChecksum identifies the seeded genre/style catalog so initialization
+	// can skip rebuilding taxonomy tables when the catalog has not changed.
 	TaxonomyChecksum
 )
 

@@ -87,6 +87,9 @@ func (j *Sync) Run(ctx context.Context) error {
 		ctx, conn,
 		scan.UnknownItem,
 		j.Conf.Settings.Scan.SecondaryGenreSplitTokens,
+		scan.RecognizedAudioExtensions,
+		scan.RecognizedPlaylistExtensions,
+		scan.RecognizedSidecarExtensions,
 	)
 	if err != nil {
 		return err
@@ -104,13 +107,7 @@ func (j *Sync) Run(ctx context.Context) error {
 
 	// Only mark this sync complete after all artwork has been attached. An
 	// interrupted lookup retries the rebuild and reuses cached lookup results.
-	if err := command.SetBuildLibraryAppMetadata(
-		ctx, conn,
-		scan.RecognizedAudioExtensions,
-		scan.RecognizedPlaylistExtensions,
-		scan.RecognizedSidecarExtensions,
-		jobID,
-	); err != nil {
+	if err := command.MarkLibrarySyncComplete(ctx, conn, jobID); err != nil {
 		return err
 	}
 

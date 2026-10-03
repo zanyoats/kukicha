@@ -1,0 +1,95 @@
+{{define "title"}}Jobs{{end}}
+
+{{define "body"}}
+<body class="config-document">
+    <main class="config-standalone" up-main>
+        <nav aria-label="Configuration navigation">
+            <a href="{{.URLs.Home}}">Back to Home</a>
+        </nav>
+        {{template "page-content" .}}
+    </main>
+</body>
+{{end}}
+
+{{define "page-content"}}
+<article class="config-page jobs-page">
+    {{template "page-header" .}}
+    <aside class="alert alert-info" aria-label="Info">
+        <strong>Info</strong>
+        <p>Jobs run in the background and are listed newest first. View a job’s logs for details about its progress and results.</p>
+    </aside>
+    <div id="job-entries">
+        {{range .Jobs.Entries}}
+        <section class="job-summary" aria-labelledby="job-{{.ID}}">
+            <div class="job-summary-heading">
+                <h2 id="job-{{.ID}}">
+                    {{.Type}}
+                    <span class="job-summary-id">Job #{{.ID}}</span>
+                </h2>
+                <a
+                    class="job-summary-logs"
+                    aria-label="View logs for job {{.ID}}"
+                    href="{{$.URLs.JobLogsURL .ID 0}}"
+                    up-layer="new modal"
+                    up-target="#job-logs-page"
+                    up-class="config-modal"
+                    up-history="false"
+                    up-animation="false"
+                    up-close-animation="false"
+                    up-cache="false"
+                >View logs</a>
+            </div>
+            <dl class="facts">
+                <div>
+                    <dt>State</dt>
+                    <dd><span class="job-state job-state-{{.State}}">{{.State}}</span></dd>
+                </div>
+                <div>
+                    <dt>Created</dt>
+                    <dd><time>{{formatTimestamp .CreatedAt}}</time></dd>
+                </div>
+                {{if .StartedAt.Valid}}
+                <div>
+                    <dt>Started</dt>
+                    <dd><time>{{formatTimestamp .StartedAt.String}}</time></dd>
+                </div>
+                {{end}}
+                {{if .FinishedAt.Valid}}
+                <div>
+                    <dt>Finished</dt>
+                    <dd><time>{{formatTimestamp .FinishedAt.String}}</time></dd>
+                </div>
+                {{end}}
+                <div>
+                    <dt>Attempts</dt>
+                    <dd>{{.Attempts}}</dd>
+                </div>
+            </dl>
+            {{if .LastError.Valid}}
+            <aside class="alert alert-error job-error" aria-label="Last error">
+                <strong>Last error</strong>
+                <p>{{.LastError.String}}</p>
+            </aside>
+            {{end}}
+        </section>
+        {{end}}
+    </div>
+    <section id="job-more" class="job-summary" tabindex="-1">
+        {{if .NextJobsURL}}
+        <a
+            href="{{.NextJobsURL}}"
+            up-target="#job-entries:after, #job-more"
+            up-layer="current"
+            up-history="false"
+            up-scroll="false"
+            up-focus="#job-more"
+            up-cache="false"
+        >Load more</a>
+        {{else if .Jobs.Entries}}
+        <p>All jobs loaded.</p>
+        {{else}}
+        <p>No jobs available.</p>
+        {{end}}
+    </section>
+</article>
+{{end}}

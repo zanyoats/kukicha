@@ -22,6 +22,7 @@ type URLs struct {
 	ListeningData           string
 	Cache                   string
 	Jobs                    string
+	JobLogs                 string
 	Help                    string
 	InstanceIdenticon       string
 	UpdateArtistSplitRule   string
@@ -54,6 +55,7 @@ func NewURLs(basePath string) URLs {
 		ListeningData:           app + "/listeningData/",
 		Cache:                   app + "/cache/",
 		Jobs:                    app + "/jobs/",
+		JobLogs:                 app + "/jobs/logs/",
 		Help:                    app + "/help/",
 		InstanceIdenticon:       app + "/instance/identicon.svg",
 		UpdateArtistSplitRule:   api + "/artistSplitRules/",
@@ -113,10 +115,17 @@ func (u URLs) TrackAudioURL(id int64) string {
 	return u.TrackAudio + "?" + q.Encode()
 }
 
-func (u URLs) SyncLogsURL(before int64) string {
-	q := url.Values{"logs": {"1"}}
+func (u URLs) JobLogsURL(jobID, before int64) string {
+	q := url.Values{"job_id": {strconv.FormatInt(jobID, 10)}}
 	if before > 0 {
 		q.Set("before", strconv.FormatInt(before, 10))
 	}
-	return u.Roots + "?" + q.Encode()
+	return u.JobLogs + "?" + q.Encode()
+}
+
+func (u URLs) JobsURL(before int64) string {
+	if before <= 0 {
+		return u.Jobs
+	}
+	return u.Jobs + "?" + url.Values{"before": {strconv.FormatInt(before, 10)}}.Encode()
 }

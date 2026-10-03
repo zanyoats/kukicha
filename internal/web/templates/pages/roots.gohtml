@@ -57,111 +57,14 @@
     <p>No music roots are configured. Add roots to your config.</p>
     {{end}}
 
-    <section class="root-summary sync-logs" aria-labelledby="sync-logs-heading">
-        <h2 id="sync-logs-heading">Sync logs</h2>
-        <dl class="facts">
-            <div>
-                <dt>Errors</dt>
-                <dd>{{formatNumber .LogStats.Errors}}</dd>
-            </div>
-            <div>
-                <dt>Warnings</dt>
-                <dd>{{formatNumber .LogStats.Warnings}}</dd>
-            </div>
-            <div>
-                <dt>Info</dt>
-                <dd>{{formatNumber .LogStats.Info}}</dd>
-            </div>
-            <div>
-                <dt>Debug</dt>
-                <dd>{{formatNumber .LogStats.Debug}}</dd>
-            </div>
-        </dl>
-        <div id="sync-log-view">
-            {{if .ShowLogs}}
-            <a id="sync-logs-toggle" href="{{.URLs.Roots}}"
-                up-target="#sync-log-view" up-layer="current"
-                up-history="false" up-scroll="false" up-focus="#sync-logs-toggle"
-                up-cache="false"
-                aria-expanded="true" aria-controls="sync-log-entries">Hide logs</a>
-            <ul id="sync-log-entries" aria-label="Sync log entries">
-                {{range .Logs.Entries}}
-                <li class="sync-log-entry" id="sync-log-{{.ID}}">
-                    <div class="sync-log-meta">
-                        <strong class="sync-log-level sync-log-level-{{.Level}}">{{if eq .Level "error"}}Error{{else if eq .Level "warn"}}Warning{{else if eq .Level "debug"}}Debug{{else}}Info{{end}}</strong>
-                        <time>{{formatTimestamp .Timestamp}}</time>
-                        <p class="sync-log-message">{{.Message}}</p>
-                    </div>
-                    {{if or .Data.root_path .Data.path (ne .Data.job_id nil) (ne .Data.job_type nil) (ne .Data.attempt nil) (ne .Data.state nil) (ne .Data.processed_files nil)}}
-                    <dl class="sync-log-paths">
-                        {{with .Data.root_path}}
-                        <div>
-                            <dt>Root</dt>
-                            <dd title="{{.}}">{{.}}</dd>
-                        </div>
-                        {{end}}
-                        {{with .Data.path}}
-                        <div>
-                            <dt>Path</dt>
-                            <dd title="{{.}}">{{.}}</dd>
-                        </div>
-                        {{end}}
-                        {{if ne .Data.job_id nil}}
-                        <div>
-                            <dt>Job ID</dt>
-                            <dd title="{{.Data.job_id}}">{{.Data.job_id}}</dd>
-                        </div>
-                        {{end}}
-                        {{if ne .Data.job_type nil}}
-                        <div>
-                            <dt>Job type</dt>
-                            <dd title="{{.Data.job_type}}">{{.Data.job_type}}</dd>
-                        </div>
-                        {{end}}
-                        {{if ne .Data.attempt nil}}
-                        <div>
-                            <dt>Attempt</dt>
-                            <dd title="{{.Data.attempt}}">{{.Data.attempt}}</dd>
-                        </div>
-                        {{end}}
-                        {{if ne .Data.state nil}}
-                        <div>
-                            <dt>State</dt>
-                            <dd title="{{.Data.state}}">{{.Data.state}}</dd>
-                        </div>
-                        {{end}}
-                        {{if ne .Data.processed_files nil}}
-                        <div>
-                            <dt>Processed files</dt>
-                            <dd title="{{.Data.processed_files}}">{{.Data.processed_files}}</dd>
-                        </div>
-                        {{end}}
-                    </dl>
-                    {{end}}
-                </li>
-                {{end}}
-            </ul>
-            <div id="sync-log-more" tabindex="-1">
-                {{if .NextLogsURL}}
-                <a href="{{.NextLogsURL}}"
-                    up-target="#sync-log-entries:after, #sync-log-more"
-                    up-layer="current" up-history="false" up-scroll="false" up-focus="#sync-log-more"
-                    up-cache="false">Load more</a>
-                {{else if .Logs.Entries}}
-                <p>All sync logs loaded.</p>
-                {{else}}
-                <p>No sync logs available.</p>
-                {{end}}
-            </div>
-            {{else}}
-            <a id="sync-logs-toggle" href="{{.URLs.SyncLogsURL 0}}"
-                up-target="#sync-log-view" up-layer="current"
-                up-history="false" up-scroll="false" up-focus="#sync-logs-toggle"
-                up-cache="false"
-                aria-expanded="false" aria-controls="sync-log-entries">View sync logs</a>
-            <ul id="sync-log-entries" aria-label="Sync log entries" hidden></ul>
-            {{end}}
-        </div>
+    {{if .LatestSyncID}}
+    <section class="root-summary">
+        <a href="{{.URLs.JobLogsURL .LatestSyncID 0}}" up-layer="new modal"
+            up-target="#job-logs-page" up-class="config-modal" up-history="false"
+            up-animation="false" up-close-animation="false" up-cache="false">View logs for latest successful sync</a>
     </section>
+    {{else}}
+    <p>No successful sync available.</p>
+    {{end}}
 </article>
 {{end}}

@@ -1,0 +1,111 @@
+{{define "title"}}Job logs{{end}}
+
+{{define "body"}}
+<body class="config-document">
+    <main class="config-standalone" up-main>
+        <nav aria-label="Configuration navigation">
+            <a href="{{.URLs.Home}}">Back to Home</a>
+        </nav>
+        {{template "page-content" .}}
+    </main>
+</body>
+{{end}}
+
+{{define "page-content"}}
+<article class="config-page" id="job-logs-page">
+    {{template "page-header" .}}
+    <p>Job #{{.Job.ID}} · {{.Job.Type}} · {{.Job.State}}</p>
+    <dl class="facts">
+        <div>
+            <dt>Errors</dt>
+            <dd>{{formatNumber .LogStats.Errors}}</dd>
+        </div>
+        <div>
+            <dt>Warnings</dt>
+            <dd>{{formatNumber .LogStats.Warnings}}</dd>
+        </div>
+        <div>
+            <dt>Info</dt>
+            <dd>{{formatNumber .LogStats.Info}}</dd>
+        </div>
+        <div>
+            <dt>Debug</dt>
+            <dd>{{formatNumber .LogStats.Debug}}</dd>
+        </div>
+    </dl>
+    <ul id="job-log-entries" aria-label="Job log entries">
+        {{range .Logs.Entries}}
+        <li class="job-log-entry" id="job-log-{{.ID}}">
+            <div class="job-log-meta">
+                <strong class="job-log-level job-log-level-{{.Level}}">{{if eq .Level "error"}}Error{{else if eq .Level "warn"}}Warning{{else if eq .Level "debug"}}Debug{{else}}Info{{end}}</strong>
+                <time>{{formatTimestamp .Timestamp}}</time>
+                <p class="job-log-message">{{.Message}}</p>
+            </div>
+            {{if or .Data.root_path .Data.path (ne .Data.job_id nil) (ne .Data.job_type nil) (ne .Data.attempt nil) (ne .Data.state nil) (ne .Data.processed_files nil)}}
+            <dl class="job-log-paths">
+                {{with .Data.root_path}}
+                <div>
+                    <dt>Root</dt>
+                    <dd title="{{.}}">{{.}}</dd>
+                </div>
+                {{end}}
+                {{with .Data.path}}
+                <div>
+                    <dt>Path</dt>
+                    <dd title="{{.}}">{{.}}</dd>
+                </div>
+                {{end}}
+                {{if ne .Data.job_id nil}}
+                <div>
+                    <dt>Job ID</dt>
+                    <dd title="{{.Data.job_id}}">{{.Data.job_id}}</dd>
+                </div>
+                {{end}}
+                {{if ne .Data.job_type nil}}
+                <div>
+                    <dt>Job type</dt>
+                    <dd title="{{.Data.job_type}}">{{.Data.job_type}}</dd>
+                </div>
+                {{end}}
+                {{if ne .Data.attempt nil}}
+                <div>
+                    <dt>Attempt</dt>
+                    <dd title="{{.Data.attempt}}">{{.Data.attempt}}</dd>
+                </div>
+                {{end}}
+                {{if ne .Data.state nil}}
+                <div>
+                    <dt>State</dt>
+                    <dd title="{{.Data.state}}">{{.Data.state}}</dd>
+                </div>
+                {{end}}
+                {{if ne .Data.processed_files nil}}
+                <div>
+                    <dt>Processed files</dt>
+                    <dd title="{{.Data.processed_files}}">{{.Data.processed_files}}</dd>
+                </div>
+                {{end}}
+            </dl>
+            {{end}}
+        </li>
+        {{end}}
+    </ul>
+    <div id="job-log-more" tabindex="-1">
+        {{if .NextLogsURL}}
+        <a href="{{.NextLogsURL}}"
+            up-target="#job-log-entries:after, #job-log-more"
+            up-layer="current"
+            up-history="false"
+            up-scroll="false"
+            up-focus="#job-log-more"
+            up-cache="false"
+        >Load more</a>
+        {{else if .Logs.Entries}}
+        <p>All job logs loaded.</p>
+        {{else}}
+        <p>No job logs available.</p>
+        {{end}}
+    </div>
+
+</article>
+{{end}}

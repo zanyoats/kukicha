@@ -951,29 +951,88 @@ aside.alert {
     cursor: wait;
 }
 
-/* Roots */
-.root-summary {
+/* Roots and jobs */
+.root-summary,
+.job-summary {
     padding-block: 0.75rem;
     border-block-start: 0.0625rem solid var(--border);
 }
 
-.root-summary h2 {
+.root-summary h2,
+.job-summary h2 {
     font-size: 1.1rem;
     font-weight: 500;
     line-height: 1.4;
     overflow-wrap: anywhere;
 }
 
-#sync-log-view {
-    margin-block-start: 0.5rem;
+/* Keep job rows as compact and open as the root summaries. */
+.job-summary-heading {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.35rem 1rem;
+    margin-block-end: 0.35rem;
 }
 
-#sync-log-entries {
+.job-summary-id {
+    display: inline-block;
+    margin-inline-start: 0.5rem;
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+    font-weight: 400;
+}
+
+.job-summary-logs {
+    flex-shrink: 0;
+    font-size: 0.9rem;
+}
+
+.job-summary time {
+    font-variant-numeric: tabular-nums;
+}
+
+.job-state {
+    display: inline-block;
+    padding: 0.1rem 0.4rem;
+    border: 1px solid var(--border);
+    background: var(--background);
+    font-size: 0.8rem;
+    line-height: 1.3;
+    text-transform: capitalize;
+}
+
+.job-state-running {
+    border-color: var(--info-border);
+    background: var(--info-background);
+    color: var(--info-text);
+}
+
+.job-state-failed {
+    border-color: var(--error-border);
+    background: var(--error-background);
+    color: var(--error-text);
+}
+
+.job-summary .job-error {
+    margin-block: 0.65rem 0;
+    font-size: 0.9rem;
+    overflow-wrap: anywhere;
+}
+
+#job-more {
+    padding-block-start: 0.75rem;
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+}
+
+#job-log-entries {
     list-style: none;
     padding: 0;
 }
 
-.sync-log-entry {
+.job-log-entry {
     padding-block: 0.4rem;
     border-block-end: 0.0625rem solid var(--border);
     font-size: 0.85rem;
@@ -981,48 +1040,48 @@ aside.alert {
     overflow-wrap: anywhere;
 }
 
-.sync-log-meta {
+.job-log-meta {
     display: flex;
     flex-wrap: wrap;
     gap: 0.125rem 0.65rem;
     align-items: baseline;
 }
 
-.sync-log-meta time {
+.job-log-meta time {
     color: var(--text-secondary);
     font-size: 0.8rem;
     font-variant-numeric: tabular-nums;
 }
 
-.sync-log-level-error {
+.job-log-level-error {
     color: var(--error-text);
 }
 
-.sync-log-level-warn {
+.job-log-level-warn {
     color: var(--warning-text);
 }
 
-.sync-log-level-info {
+.job-log-level-info {
     color: var(--info-text);
 }
 
-.sync-log-level-debug {
+.job-log-level-debug {
     color: var(--text-secondary);
 }
 
-.sync-log-message {
+.job-log-message {
     flex: 1 1 20rem;
     min-inline-size: 0;
     white-space: pre-wrap;
 }
 
-.sync-log-paths {
+.job-log-paths {
     margin-block-start: 0.125rem;
     color: var(--text-secondary);
     font-size: 0.8rem;
 }
 
-.sync-log-paths > div {
+.job-log-paths > div {
     display: inline-flex;
     margin-inline-end: 0.75rem;
     max-inline-size: 100%;
@@ -1030,11 +1089,11 @@ aside.alert {
     vertical-align: bottom;
 }
 
-.sync-log-paths dt {
+.job-log-paths dt {
     flex-shrink: 0;
 }
 
-.sync-log-paths dd {
+.job-log-paths dd {
     min-inline-size: 0;
     max-inline-size: 48ch;
     overflow: hidden;
@@ -1042,7 +1101,7 @@ aside.alert {
     white-space: nowrap;
 }
 
-#sync-log-more > p {
+#job-log-more > p {
     margin-block-start: 1rem;
     color: var(--text-secondary);
     font-size: 0.9rem;
