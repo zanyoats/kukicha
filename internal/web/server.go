@@ -20,11 +20,17 @@ type JobProcessor interface {
 	Cancel(context.Context, int64) (query.Job, error)
 }
 
+// NotificationSubscriber provides live job notifications and subscription cleanup.
+type NotificationSubscriber interface {
+	Subscribe() (<-chan app.Notification, func())
+}
+
 type appRoutes struct {
 	urls                      URLs
 	renderer                  Renderer
 	db                        *sql.DB
 	processor                 JobProcessor
+	notifications             NotificationSubscriber
 	perPage                   int
 	defaultAlbumSort          app.AlbumSort
 	configuredRoots           []app.Root
@@ -39,6 +45,7 @@ func NewWebRouter(
 	perPage int,
 	defaultAlbumSort app.AlbumSort,
 	jobProcessor JobProcessor,
+	notifications NotificationSubscriber,
 	configuredRoots []app.Root,
 	configFilePath string,
 	recognizedAudioExtensions map[string]bool,
@@ -49,6 +56,7 @@ func NewWebRouter(
 		renderer:                  renderer,
 		db:                        db,
 		processor:                 jobProcessor,
+		notifications:             notifications,
 		perPage:                   perPage,
 		defaultAlbumSort:          defaultAlbumSort,
 		configuredRoots:           configuredRoots,

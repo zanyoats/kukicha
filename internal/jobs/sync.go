@@ -27,9 +27,21 @@ import (
 // This connections uses temporary tables and serializes writes from
 // different goroutine workers.
 type Sync struct {
-	DB     *sql.DB
-	Conf   *app.AppConfig
-	logger *slog.Logger
+	DB            *sql.DB
+	Conf          *app.AppConfig
+	Notifications NotificationPublisher
+	logger        *slog.Logger
+}
+
+// NotificationPublisher lets jobs announce milestones without transport dependencies.
+type NotificationPublisher interface {
+	Publish(app.Notification)
+}
+
+func (j *Sync) notify(jobID int64, message string) {
+	if j.Notifications != nil {
+		j.Notifications.Publish(app.Notification{JobID: jobID, Message: message})
+	}
 }
 
 var ErrITunesArtworkLookup = errors.New("iTunes artwork lookup")
@@ -79,6 +91,7 @@ func (j *Sync) Run(ctx context.Context) error {
 		return err
 	}
 
+	j.notify(jobID, "Scanning local files.")
 	if err := j.localFileScanWithWorkers(ctx, conn); err != nil {
 		return err
 	}
@@ -94,6 +107,13 @@ func (j *Sync) Run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+
+	// BuildLibraryFromScan has committed, so the library is ready to use.
+	message := "Library scan completed, refresh to view your library."
+	if j.Conf.Settings.Scan.ITunes.Enabled {
+		message += " iTunes library artwork lookup is starting."
+	}
+	j.notify(jobID, message)
 
 	if j.Conf.Settings.Scan.ITunes.Enabled {
 		if err := j.lookupITunesArtwork(ctx, conn); err != nil {

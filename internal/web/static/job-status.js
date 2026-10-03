@@ -47,6 +47,12 @@ export default function registerJobStatus(up) {
             }
             render();
         });
+        source.addEventListener("job-notification", (event) => {
+            const notification = JSON.parse(event.data);
+            showToast(notification.message, {
+                role: "status",
+            });
+        });
         source.addEventListener("error", () => {
             connected = false;
             render();

@@ -226,6 +226,10 @@ a:focus-visible {
     min-inline-size: 0;
     overflow-wrap: anywhere;
 }
+.snackbar [data-job-description] {
+    flex: 1;
+    font-weight: 500;
+}
 .notification-action {
     flex-shrink: 0;
     color: var(--accent);

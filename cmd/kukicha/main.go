@@ -90,9 +90,10 @@ func run() error {
 		)
 	}
 
+	notifications := new(app.JobNotifications)
 	processor, err := proc.New(
 		db,
-		registry(db, conf),
+		registry(db, conf, notifications),
 		command.NewJobLogger(db, slog.Default()),
 		conf.Settings.Jobs.PollInterval.Duration,
 		conf.Settings.Jobs.FinalizeTimeout.Duration,
@@ -118,6 +119,7 @@ func run() error {
 			conf.Settings.UI.PerPage,
 			conf.Settings.UI.DefaultAlbumSort,
 			processor,
+			notifications,
 			conf.Roots,
 			conf.ConfigFilePath,
 			scan.RecognizedAudioExtensions,
@@ -177,9 +179,11 @@ func run() error {
 	return errors.Join(shutdownErr, processorOrHTTPErr, otherErr)
 }
 
-func registry(db *sql.DB, conf *app.AppConfig) proc.Registry {
+func registry(db *sql.DB, conf *app.AppConfig, notifications jobs.NotificationPublisher) proc.Registry {
 	return proc.Registry{
-		"sync": proc.Decode(func(struct{}) (proc.Job, error) { return &jobs.Sync{DB: db, Conf: conf}, nil }),
+		"sync": proc.Decode(func(struct{}) (proc.Job, error) {
+			return &jobs.Sync{DB: db, Conf: conf, Notifications: notifications}, nil
+		}),
 		"scan": proc.Decode(func(struct{}) (proc.Job, error) { return &jobs.Scan{DB: db, Conf: conf}, nil }),
 	}
 }
