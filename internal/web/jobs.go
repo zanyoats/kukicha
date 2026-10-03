@@ -25,6 +25,10 @@ func (c *appRoutes) submitJob(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if _, err := c.processor.Submit(r.Context(), processor.JobSubmission(submission)); err != nil {
+		if errors.Is(err, command.ErrJobAlreadyPending) {
+			apiError(w, http.StatusConflict, err.Error())
+			return
+		}
 		slog.ErrorContext(r.Context(), "unable to submit job", "error", err)
 		apiError(w, http.StatusInternalServerError, "Unable to submit the job.")
 		return

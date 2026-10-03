@@ -12,6 +12,7 @@ import (
 )
 
 var ErrEmptyJobsQueue = errors.New("empty jobs queue")
+var ErrJobAlreadyPending = errors.New("A job of this type is already queued or running.")
 var ErrJobNotCancelable = errors.New("Job can no longer be canceled because it has already ended")
 
 //go:embed sql/insert_job.sql
@@ -59,6 +60,14 @@ func InsertJob(
 	)
 	if err != nil {
 		return 0, fmt.Errorf("insert job: %w", err)
+	}
+
+	n, err := result.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("count inserted jobs: %w", err)
+	}
+	if n == 0 {
+		return 0, ErrJobAlreadyPending
 	}
 
 	return result.LastInsertId()
