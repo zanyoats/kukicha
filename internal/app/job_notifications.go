@@ -6,6 +6,7 @@ import "sync"
 type Notification struct {
 	JobID   int64  `json:"job_id"`
 	Message string `json:"message"`
+	Failed  bool   `json:"failed,omitempty"`
 }
 
 // JobNotifications broadcasts to connected subscribers without retaining history.

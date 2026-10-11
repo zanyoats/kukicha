@@ -22,6 +22,7 @@ type Processor struct {
 	db              *sql.DB
 	registry        Registry
 	logger          *slog.Logger
+	notifications   NotificationPublisher
 	pollInterval    time.Duration
 	finalizeTimeout time.Duration
 	started         atomic.Bool
@@ -40,6 +41,11 @@ type Job interface {
 type Factory func(json.RawMessage) (Job, error)
 
 type Registry map[string]Factory
+
+// NotificationPublisher announces job failures to connected clients.
+type NotificationPublisher interface {
+	Publish(app.Notification)
+}
 
 type JobSubmission struct {
 	Type    string
@@ -92,6 +98,7 @@ func New(
 	db *sql.DB,
 	registry Registry,
 	logger *slog.Logger,
+	notifications NotificationPublisher,
 	pollInterval time.Duration,
 	finalizeTimeout time.Duration,
 ) (*Processor, error) {
@@ -123,6 +130,7 @@ func New(
 		db:              db,
 		registry:        factories,
 		logger:          logger,
+		notifications:   notifications,
 		pollInterval:    pollInterval,
 		finalizeTimeout: finalizeTimeout,
 	}, nil
@@ -349,6 +357,14 @@ func (p *Processor) end(
 	)
 	if err != nil {
 		return fmt.Errorf("end job id=%d: %w", record.ID, err)
+	}
+	if finalState == "failed" && p.notifications != nil {
+		p.notifications.Publish(app.Notification{
+			JobID: record.ID,
+			Message: fmt.Sprintf("%s job #%d failed. Open Jobs to view the error and logs.",
+				record.Type, record.ID),
+			Failed: true,
+		})
 	}
 	p.logger.InfoContext(app.WithJobID(ctx, record.ID),
 		"job processor: completed",

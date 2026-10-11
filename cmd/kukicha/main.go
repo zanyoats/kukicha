@@ -95,6 +95,7 @@ func run() error {
 		db,
 		registry(db, conf, notifications),
 		command.NewJobLogger(db, slog.Default()),
+		notifications,
 		conf.Settings.Jobs.PollInterval.Duration,
 		conf.Settings.Jobs.FinalizeTimeout.Duration,
 	)

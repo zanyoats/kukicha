@@ -49,6 +49,10 @@ export default function registerJobStatus(up) {
         });
         source.addEventListener("job-notification", (event) => {
             const notification = JSON.parse(event.data);
+            if (notification.failed) {
+                showToast(notification.message, { role: "alert" });
+                return;
+            }
             showToast(notification.message, {
                 role: "status",
             });

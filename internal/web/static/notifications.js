@@ -26,6 +26,8 @@ export function showToast(message, { role = "status", trigger } = {}) {
         toast.remove();
     };
     const updateTimer = () => {
+        // Errors stay visible until the user explicitly dismisses them.
+        if (role === "alert") return;
         if (timer !== undefined) {
             clearTimeout(timer);
             remaining -= performance.now() - startedAt;
