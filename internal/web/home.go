@@ -3,7 +3,6 @@ package web
 import (
 	"net/http"
 
-	"github.com/zanyoats/kukicha/internal/app"
 	"github.com/zanyoats/kukicha/internal/usecase/query"
 )
 
@@ -11,7 +10,8 @@ type homeViewModel struct {
 	LibraryGenerated          bool
 	HasIndexedRoots           bool
 	HasConfiguredRoots        bool
-	ConfiguredRoots           []app.Root
+	InitialSyncState          string
+	ConfiguredRoots           []configuredRootView
 	ConfigFilePath            string
 	RecognizedAudioExtensions []string
 	EyeBrow                   string
@@ -27,7 +27,7 @@ type homeLink struct {
 	URL  string
 }
 
-func (c *appRoutes) showHome(w http.ResponseWriter, r *http.Request) {
+func (c *webRouter) showHome(w http.ResponseWriter, r *http.Request) {
 	home, err := query.Home(r.Context(), c.db)
 	if err != nil {
 		internalServerError(w, "unable to load home page library data", "error", err)
@@ -38,7 +38,8 @@ func (c *appRoutes) showHome(w http.ResponseWriter, r *http.Request) {
 		LibraryGenerated:          home.LibraryGenerated,
 		HasIndexedRoots:           home.HasIndexedRoots,
 		HasConfiguredRoots:        len(c.configuredRoots) > 0,
-		ConfiguredRoots:           c.configuredRoots,
+		InitialSyncState:          home.InitialSyncState,
+		ConfiguredRoots:           configuredRootViews(c.configuredRoots),
 		ConfigFilePath:            c.configFilePath,
 		RecognizedAudioExtensions: c.recognizedAudioExtensions,
 		EyeBrow:                   "Kukicha",

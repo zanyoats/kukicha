@@ -3,7 +3,7 @@ import { showToast } from "./notifications.js";
 
 export default function registerJobStatus(up) {
     up.compiler("[data-job-events]", (container) => {
-        const snackbar = container.querySelector("[data-job-snackbar]");
+        const snackbar = container;
         const description = container.querySelector("[data-job-description]");
         const cancel = container.querySelector("[data-job-cancel]");
         const labels = new Map(
@@ -16,12 +16,14 @@ export default function registerJobStatus(up) {
         let connected = false;
         let destroyed = false;
         const cancelling = new Set();
+        const messages = new Map();
         const render = () => {
             // move keyboard focus when a job disappears if it was in the snackbar
             if (!job && snackbar.contains(document.activeElement)) {
                 document.querySelector(".top-nav nav a")?.focus();
             }
-            snackbar.hidden = !job;
+            snackbar.toggleAttribute("data-collapsed", !job);
+            snackbar.inert = !job;
             if (!job) return;
             const label = labels.get(job.type) ?? job.type;
             const pending = job.cancel_requested || cancelling.has(job.id);
@@ -30,7 +32,8 @@ export default function registerJobStatus(up) {
                 : pending
                   ? "Cancelling…"
                   : "Running";
-            const message = `${label} · ${status}`;
+            const detail = messages.get(job.id);
+            const message = `${label} · ${status}${detail ? ` · ${detail}` : ""}`;
             if (description.textContent !== message)
                 description.textContent = message;
             cancel.setAttribute("aria-disabled", String(!connected || pending));
@@ -45,6 +48,10 @@ export default function registerJobStatus(up) {
                 if (!jobs.some((candidate) => candidate.id === id))
                     cancelling.delete(id);
             }
+            for (const id of messages.keys()) {
+                if (!jobs.some((candidate) => candidate.id === id))
+                    messages.delete(id);
+            }
             render();
         });
         source.addEventListener("job-notification", (event) => {
@@ -53,9 +60,11 @@ export default function registerJobStatus(up) {
                 showToast(notification.message, { role: "alert" });
                 return;
             }
-            showToast(notification.message, {
-                role: "status",
-            });
+            // Notifications can arrive before the next status update names the job.
+            // When the next status update identifies the running job, the snackbar
+            // can display the saved message instead of losing it.
+            messages.set(notification.job_id, notification.message);
+            render();
         });
         source.addEventListener("error", () => {
             connected = false;

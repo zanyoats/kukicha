@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"runtime/debug"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -277,7 +278,7 @@ func (p *Processor) execute(
 	parent context.Context,
 	record query.Job,
 	job Job,
-) error {
+) (err error) {
 	runCtx, cancel := context.WithCancel(parent)
 	runCtx = app.WithJobLogger(
 		app.WithJobID(runCtx, record.ID),
@@ -321,6 +322,11 @@ func (p *Processor) execute(
 		"attempt", record.Attempts,
 	)
 
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("job panic: %v\n%s", r, debug.Stack())
+		}
+	}()
 	return job.Run(runCtx)
 }
 

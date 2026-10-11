@@ -10,7 +10,6 @@ import (
 	"io"
 	"log/slog"
 	"os"
-	"path/filepath"
 	"slices"
 	"strconv"
 
@@ -29,6 +28,9 @@ var insertScannedPlaylistSQL string
 
 //go:embed sql/insert_scanned_file.sql
 var insertScannedFileSQL string
+
+//go:embed sql/insert_scan_root.sql
+var insertScanRootSQL string
 
 //go:embed sql/insert_scanned_artwork.sql
 var insertScannedArtworkSQL string
@@ -231,6 +233,7 @@ func InsertScannedFile(
 	conn *sql.Conn,
 	r *app.ScannedFile,
 	localArtworkMaxBytes int64,
+	physicalPath string,
 ) error {
 	switch r.FileType {
 	case app.FileTypeAudio:
@@ -242,6 +245,7 @@ func InsertScannedFile(
 			conn,
 			r,
 			localArtworkMaxBytes,
+			physicalPath,
 		)
 
 	case app.FileTypeSidecarOther:
@@ -282,9 +286,9 @@ func insertScannedTrack(
 		ctx,
 		insertScannedFileSQL,
 		sql.Named("root_pos", r.RootPos),
-		sql.Named("root_path", r.RootPath),
+		sql.Named("config_id", r.Root.ConfigID()),
 		sql.Named("album_key", r.NormalizedMetadata.AlbumKey),
-		sql.Named("path_dir", filepath.Dir(r.Path)),
+		sql.Named("path_dir", r.FileIdentity.Directory()),
 		sql.Named("stem", r.Stem),
 		sql.Named("ext", r.Ext),
 		sql.Named("path", r.Path),
@@ -319,7 +323,7 @@ func insertScannedTrack(
 			thumbnailCacheName, err = CacheArtworkThumbnails(
 				ctx, conn, artwork.ArtworkBytes,
 				fmt.Sprintf("embedded artwork %q position %d", r.Path, artworkPos),
-				r.RootPath, r.Path,
+				r.Root.ConfigID(), r.Path,
 			)
 			if err != nil {
 				return err
@@ -346,26 +350,36 @@ func insertScannedTrack(
 	return nil
 }
 
+// InsertScanRoot records a config reference independently of the files it contains.
+func InsertScanRoot(ctx context.Context, conn *sql.Conn, pos int, root app.Root) error {
+	_, err := conn.ExecContext(ctx, insertScanRootSQL,
+		sql.Named("root_pos", pos),
+		sql.Named("config_id", root.ConfigID()),
+	)
+	return err
+}
+
 func insertScannedSidecarCover(
 	ctx context.Context,
 	conn *sql.Conn,
 	r *app.ScannedFile,
 	localArtworkMaxBytes int64,
+	physicalPath string,
 ) error {
 	thumbnailCacheName := ""
 	artworkBytes, err := readLocalArtworkFile(
-		filepath.Join(r.RootPath, r.Path), localArtworkMaxBytes,
+		physicalPath, localArtworkMaxBytes,
 	)
 	if err != nil {
 		if ctx.Err() != nil {
 			return ctx.Err()
 		}
-		app.JobLogger(ctx).WarnContext(ctx, fmt.Sprintf("cannot read sidecar artwork: %v", err), "root_path", r.RootPath, "path", r.Path)
+		app.JobLogger(ctx).WarnContext(ctx, fmt.Sprintf("cannot read sidecar artwork: %v", err), "root", r.Root.ConfigID(), "path", r.Path)
 	} else {
 		thumbnailCacheName, err = CacheArtworkThumbnails(
 			ctx, conn, artworkBytes,
 			fmt.Sprintf("sidecar artwork %q", r.Path),
-			r.RootPath, r.Path,
+			r.Root.ConfigID(), r.Path,
 		)
 		if err != nil {
 			return err
@@ -376,7 +390,7 @@ func insertScannedSidecarCover(
 		ctx,
 		insertScannedSidecarCoverSQL,
 		sql.Named("root_pos", r.RootPos),
-		sql.Named("path_dir", filepath.Dir(r.Path)),
+		sql.Named("path_dir", r.FileIdentity.Directory()),
 		sql.Named("stem", r.Stem),
 		sql.Named("ext", r.Ext),
 		sql.Named("path", r.Path),
@@ -434,7 +448,7 @@ func insertScannedSidecarOther(
 		ctx,
 		insertScannedSidecarOtherSQL,
 		sql.Named("root_pos", r.RootPos),
-		sql.Named("path_dir", filepath.Dir(r.Path)),
+		sql.Named("path_dir", r.FileIdentity.Directory()),
 		sql.Named("stem", r.Stem),
 		sql.Named("ext", r.Ext),
 		sql.Named("path", r.Path),

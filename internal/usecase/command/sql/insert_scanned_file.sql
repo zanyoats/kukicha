@@ -1,6 +1,6 @@
 INSERT INTO scan_tracks (
     root_pos,
-    root_path,
+    config_id,
     album_key,
     path_dir,
     stem,
@@ -14,7 +14,7 @@ INSERT INTO scan_tracks (
 )
 VALUES (
     :root_pos,
-    :root_path,
+    :config_id,
     :album_key,
     :path_dir,
     :stem,

@@ -13,11 +13,9 @@ var ErrTrackNotFound = errors.New("track not found")
 //go:embed sql/track_audio.sql
 var trackAudioSQL string
 
-// TrackAudio contains the database-owned information needed to locate a track's
-// audio file. These paths must remain internal and must never be returned to the
-// client.
+// TrackAudio locates audio using a root ID resolved against the current config.
 type TrackAudio struct {
-	RootPath     string
+	ConfigID     string
 	RelativePath string
 	Extension    string
 }
@@ -34,7 +32,7 @@ func TrackAudioByID(
 		trackAudioSQL,
 		sql.Named("track_id", trackID),
 	).Scan(
-		&audio.RootPath,
+		&audio.ConfigID,
 		&audio.RelativePath,
 		&audio.Extension,
 	)

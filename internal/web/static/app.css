@@ -69,6 +69,12 @@ h3 {
     margin: 0;
 }
 
+pre {
+    max-inline-size: 100%;
+    overflow-x: auto;
+    padding-block-end: 0.75rem;
+}
+
 button {
     padding: 0;
     border: 0;
@@ -190,8 +196,8 @@ a:focus-visible {
     }
 }
 
-/* Shared snackbar and toast stack, anchored across the header/content boundary. */
-.notification-layer {
+/* Toasts float across the navigation/content boundary. */
+.toast-layer {
     position: absolute;
     inset-block-start: 100%;
     inset-inline-start: 50%;
@@ -205,7 +211,7 @@ a:focus-visible {
     overflow-y: auto;
     pointer-events: none;
 }
-.notification {
+.toast {
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -219,27 +225,63 @@ a:focus-visible {
     font-size: 0.9rem;
     pointer-events: auto;
 }
-.notification[hidden] {
-    display: none;
-}
-.notification > span {
+.toast > span {
     min-inline-size: 0;
     overflow-wrap: anywhere;
 }
+/* Job status occupies its own row above the navigation. */
+.snackbar {
+    display: grid;
+    grid-template-rows: 1fr;
+    opacity: 1;
+    visibility: visible;
+    transition:
+        grid-template-rows 500ms ease,
+        opacity 500ms ease,
+        visibility 500ms;
+}
+.snackbar[data-collapsed] {
+    grid-template-rows: 0fr;
+    opacity: 0;
+    visibility: hidden;
+}
+.snackbar-clip {
+    min-block-size: 0;
+    overflow: hidden;
+}
+.snackbar-content {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    min-block-size: 3rem;
+    padding: 0.5rem 0.85rem;
+    border-block-end: 1px solid var(--info-border);
+    background: var(--info-background);
+    color: var(--info-text);
+    font-size: 0.9rem;
+}
+@media (prefers-reduced-motion: reduce) {
+    .snackbar {
+        transition: none;
+    }
+}
 .snackbar [data-job-description] {
     flex: 1;
+    min-inline-size: 0;
+    overflow-wrap: anywhere;
     font-weight: 500;
 }
-.notification-action {
+.snackbar-action {
     flex-shrink: 0;
-    color: var(--accent);
+    color: inherit;
     text-underline-offset: 0.15em;
 }
-.notification-action[aria-disabled="true"] {
-    color: var(--text-muted);
+.snackbar-action[aria-disabled="true"] {
+    opacity: 0.6;
     cursor: default;
 }
-.notification-dismiss {
+.toast-dismiss {
     align-self: flex-start;
     flex-shrink: 0;
     font: inherit;
@@ -248,8 +290,8 @@ a:focus-visible {
     min-block-size: 2rem;
 }
 @media (pointer: coarse) {
-    .notification-action,
-    .notification-dismiss {
+    .snackbar-action,
+    .toast-dismiss {
         min-block-size: 2.75rem;
         display: grid;
         place-items: center;
@@ -545,6 +587,25 @@ up-popup.library-sort-popup[size] {
     margin: 0;
     font-size: 0.9rem;
     font-weight: 500;
+}
+
+.facts-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 7.5rem), 1fr));
+    gap: 0.75rem 1rem;
+    margin-block-start: 0.75rem;
+    line-height: 1.5;
+}
+
+.facts-grid > div {
+    min-inline-size: 0;
+    margin-inline-end: 0;
+    overflow-wrap: anywhere;
+}
+
+.facts-grid > div > dt,
+.facts-grid > div > dd {
+    display: block;
 }
 
 /*
@@ -968,6 +1029,29 @@ aside.alert {
     font-weight: 500;
     line-height: 1.4;
     overflow-wrap: anywhere;
+}
+
+.root-location {
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+    font-weight: 400;
+    overflow-wrap: anywhere;
+}
+
+.root-summary {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.root-summary > * {
+    margin: 0;
+}
+
+.root-summary > h2,
+.root-summary > p,
+.root-summary > dl {
+    line-height: normal;
 }
 
 /* Keep job rows as compact and open as the root summaries. */

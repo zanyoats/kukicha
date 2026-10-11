@@ -1,11 +1,6 @@
-INSERT INTO library_roots (id, path)
-SELECT
-    ids.id,
-    scanned.root_path
-FROM (
-    SELECT DISTINCT root_path
-    FROM scan_tracks
-) AS scanned
+INSERT INTO library_roots (id, config_id)
+SELECT ids.id, scanned.config_id
+FROM scan_roots AS scanned
 JOIN library_root_ids AS ids
-    ON ids.root_path = scanned.root_path
-ORDER BY scanned.root_path COLLATE BINARY;
+    ON ids.config_id = scanned.config_id
+ORDER BY scanned.config_id COLLATE BINARY;

@@ -14,7 +14,7 @@ var libraryArtworkCandidatesSQL string
 
 type LibraryArtworkCandidate struct {
 	TrackID        int64
-	RootPath, Path string
+	ConfigID, Path string
 	Kind           app.ITunesLookupKind
 	LookupID       string
 }
@@ -59,7 +59,7 @@ func LibraryArtworkCandidates(
 	var candidates []LibraryArtworkCandidate
 	for rows.Next() {
 		var c LibraryArtworkCandidate
-		if err := rows.Scan(&c.TrackID, &c.RootPath, &c.Path, &c.Kind, &c.LookupID); err != nil {
+		if err := rows.Scan(&c.TrackID, &c.ConfigID, &c.Path, &c.Kind, &c.LookupID); err != nil {
 			return nil, 0, err
 		}
 		candidates = append(candidates, c)

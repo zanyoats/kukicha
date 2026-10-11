@@ -41,10 +41,10 @@ SELECT
     NULLIF(json_extract(s.track_metadata, '$.disc_number'), 0)
 FROM scan_tracks AS s
 JOIN library_track_ids AS track_ids
-    ON track_ids.root_path = s.root_path
+    ON track_ids.config_id = s.config_id
     AND track_ids.path = s.path
 JOIN library_roots AS roots
-    ON roots.path = s.root_path
+    ON roots.config_id = s.config_id
 JOIN library_album_ids AS album_ids
     ON album_ids.album_key = s.album_key
 JOIN library_albums AS albums

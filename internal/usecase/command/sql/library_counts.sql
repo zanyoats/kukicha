@@ -3,7 +3,7 @@ WITH sidecars AS (
     UNION ALL
     SELECT root_pos, path FROM scan_sidecar_others
 ), scanned_roots AS (
-    SELECT DISTINCT root_pos, root_path FROM scan_tracks
+    SELECT root_pos, config_id FROM scan_roots
 )
 SELECT
     (SELECT COUNT(*) FROM scan_tracks)
@@ -16,7 +16,7 @@ SELECT
             SELECT 1
             FROM library_album_sidecars AS associated
             JOIN library_roots AS roots ON roots.id = associated.root_id
-            JOIN scanned_roots ON scanned_roots.root_path = roots.path
+            JOIN scanned_roots ON scanned_roots.config_id = roots.config_id
             WHERE scanned_roots.root_pos = sidecar.root_pos
                 AND associated.path = sidecar.path
         )

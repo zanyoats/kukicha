@@ -53,7 +53,7 @@ SELECT
         WHEN unresolved_count > 0
             THEN 'the following audio file genres could not resolve to either a canonical style or genre: ' || unresolved_display
     END,
-    json_object('root_path', roots.path, 'path', summaries.path)
+    json_object('root', roots.config_id, 'path', summaries.path)
 FROM summaries
 JOIN library_tracks AS tracks ON tracks.id = summaries.track_id
 JOIN library_roots AS roots ON roots.id = tracks.root_id

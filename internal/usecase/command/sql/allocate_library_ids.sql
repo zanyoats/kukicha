@@ -1,16 +1,7 @@
-INSERT INTO library_root_ids (root_path)
-SELECT candidates.root_path
-FROM (
-    SELECT root_path
-    FROM scan_tracks
-    GROUP BY root_path
-) AS candidates
-WHERE NOT EXISTS (
-    SELECT 1
-    FROM library_root_ids AS existing
-    WHERE existing.root_path = candidates.root_path
-)
-ORDER BY candidates.root_path COLLATE BINARY;
+INSERT INTO library_root_ids (config_id)
+SELECT config_id FROM scan_roots WHERE true
+ORDER BY config_id COLLATE BINARY
+ON CONFLICT (config_id) DO NOTHING;
 
 INSERT INTO library_album_ids (album_key)
 SELECT candidates.album_key
@@ -46,17 +37,8 @@ ORDER BY
     candidates.artist COLLATE NOCASE,
     candidates.artist COLLATE BINARY;
 
-INSERT INTO library_track_ids (root_path, path)
-SELECT candidates.root_path, candidates.path
-FROM (
-    SELECT root_path, path
-    FROM scan_tracks
-    GROUP BY root_path, path
-) AS candidates
-WHERE NOT EXISTS (
-    SELECT 1
-    FROM library_track_ids AS existing
-    WHERE existing.root_path = candidates.root_path
-        AND existing.path = candidates.path
-)
-ORDER BY candidates.root_path COLLATE BINARY, candidates.path COLLATE BINARY;
+INSERT INTO library_track_ids (config_id, path)
+SELECT config_id, path FROM scan_tracks WHERE true
+GROUP BY config_id, path
+ORDER BY config_id COLLATE BINARY, path COLLATE BINARY
+ON CONFLICT (config_id, path) DO NOTHING;

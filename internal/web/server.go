@@ -25,7 +25,7 @@ type NotificationSubscriber interface {
 	Subscribe() (<-chan app.Notification, func())
 }
 
-type appRoutes struct {
+type webRouter struct {
 	urls                      URLs
 	renderer                  Renderer
 	db                        *sql.DB
@@ -34,6 +34,7 @@ type appRoutes struct {
 	perPage                   int
 	defaultAlbumSort          app.AlbumSort
 	configuredRoots           []app.Root
+	rootsByConfigID           map[string]app.Root
 	configFilePath            string
 	recognizedAudioExtensions []string
 }
@@ -50,8 +51,12 @@ func NewWebRouter(
 	configFilePath string,
 	recognizedAudioExtensions map[string]bool,
 ) http.Handler {
+	rootsByConfigID := make(map[string]app.Root, len(configuredRoots))
+	for _, root := range configuredRoots {
+		rootsByConfigID[root.ConfigID()] = root
+	}
 	urls := NewURLs(basePath)
-	router := appRoutes{
+	router := webRouter{
 		urls:                      urls,
 		renderer:                  renderer,
 		db:                        db,
@@ -60,6 +65,7 @@ func NewWebRouter(
 		perPage:                   perPage,
 		defaultAlbumSort:          defaultAlbumSort,
 		configuredRoots:           configuredRoots,
+		rootsByConfigID:           rootsByConfigID,
 		configFilePath:            configFilePath,
 		recognizedAudioExtensions: slices.Sorted(maps.Keys(recognizedAudioExtensions)),
 	}

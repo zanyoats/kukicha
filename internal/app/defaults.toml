@@ -3,7 +3,41 @@
 level = "info"
 
 [scan]
-# Music roots must already exist.
+# Root IDs must be non-empty and unique across local and remote roots.
+# IDs are case-sensitive and identify logical collections independently of storage.
+# Changing an ID creates a new logical root and new track IDs.
+# Entries are validated and scanned in array order, regardless of type.
+#
+# Below is a single local root:
+#
+# [[scan.roots]]
+# type = "local"
+# id = "itunes-lib"
+# path = "~/Music"
+#
+# ...and a remote, S3-compatible root:
+#
+# Credentials use the AWS credential chain; profile selects a named AWS profile.
+# Prefixes are exact object-key prefixes; use a trailing slash for a folder tree.
+# Prefixes must not overlap for the same endpoint and bucket.
+# [[scan.roots]]
+# type = "remote"                         # Required
+# id = "music-archive"                    # Required
+# endpoint_url = "https://s3.example.com" # Required
+# bucket = "music"                        # Required
+# prefix = "library/"                     # Optional
+# profile = "music"                       # Optional
+# region = "us-east-1"                    # Required, unless provided by AWS configuration.
+# addressing_style = "auto"               # Available options:
+                                          # | ---------|-------------------------------------|-------------------------------|
+                                          # | path     | Bucket goes in the URL path.        | https://s3.example.com/music/ |
+                                          # | ---------|-------------------------------------|-------------------------------|
+                                          # | virtual  | Bucket goes in the hostname.        | https://music.s3.example.com/ |
+                                          # | ---------|-------------------------------------|-------------------------------|
+                                          # | auto     | SDK chooses based on the endpoint   | Either form                   |
+                                          # |          | and bucket name, preferring virtual |                               |
+                                          # |          | hosting when suitable.              |                               |
+                                          # | ---------|-------------------------------------|-------------------------------|
 roots = []
 
 # Set to "0s" to disable periodic scan progress messages.

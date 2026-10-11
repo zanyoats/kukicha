@@ -59,7 +59,7 @@ WITH selected_tracks AS (
 )
 SELECT
     candidates.track_id,
-    roots.path,
+    roots.config_id,
     tracks.path,
     candidates.lookup_kind,
     candidates.lookup_id

@@ -1,8 +1,16 @@
+DROP TABLE IF EXISTS scan_roots;
+
+CREATE TEMP TABLE scan_roots (
+    root_pos INTEGER PRIMARY KEY,
+    config_id TEXT NOT NULL,
+    UNIQUE (config_id)
+);
+
 DROP TABLE IF EXISTS scan_tracks;
 
 CREATE TEMP TABLE scan_tracks (
     root_pos             INTEGER NOT NULL                 ,
-    root_path            TEXT    NOT NULL                 ,
+    config_id            TEXT    NOT NULL                 ,
     album_key            TEXT    NOT NULL                 ,
     path_dir             TEXT    NOT NULL                 ,
     stem                 TEXT    NOT NULL                 ,
@@ -21,7 +29,7 @@ CREATE TEMP TABLE scan_tracks (
         AND json_type(track_metadata) = 'object'
         AND json_valid(normalized_metadata)
         AND json_type(normalized_metadata) = 'object'
-        AND length(trim(root_path)) > 0
+        AND length(trim(config_id)) > 0
         AND length(trim(path)) > 0
         AND length(trim(album_key)) > 0
     )

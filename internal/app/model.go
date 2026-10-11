@@ -1,6 +1,10 @@
 package app
 
-import "time"
+import (
+	"path/filepath"
+	"strings"
+	"time"
+)
 
 type FileType int
 
@@ -43,16 +47,64 @@ const (
 	TaxonomyChecksum
 )
 
-type Root struct {
-	RootPos  int
-	RootPath string
+// Represents a root abstractly.
+// At the moment there are only 2 types: local, remote.
+type Root interface {
+	// isRoot seals roots to pointer types in this package.
+	isRoot()
+	ConfigID() string
+	Location() string
 }
 
+// Path is any folder path local to where this server is running.
+type LocalRoot struct {
+	ID   string `toml:"id" json:"id"`
+	Path string `toml:"path" json:"path"`
+}
+
+// RemoteRoot describes an S3-compatible source.
+// Credentials come from the AWS credential chain, and never from application config.
+type RemoteRoot struct {
+	ID              string `toml:"id" json:"id"`
+	EndpointURL     string `toml:"endpoint_url" json:"endpoint_url"`
+	Bucket          string `toml:"bucket" json:"bucket"`
+	Prefix          string `toml:"prefix" json:"prefix"`
+	Profile         string `toml:"profile" json:"profile"`
+	Region          string `toml:"region" json:"region"`
+	AddressingStyle string `toml:"addressing_style" json:"addressing_style"`
+}
+
+func (*LocalRoot) isRoot()  {}
+func (*RemoteRoot) isRoot() {}
+
+// ConfigID identifies a logical root independently of its storage location.
+func (r *LocalRoot) ConfigID() string  { return r.ID }
+func (r *RemoteRoot) ConfigID() string { return r.ID }
+func (r *LocalRoot) Location() string  { return r.Path }
+func (r *RemoteRoot) Location() string { return "s3://" + r.Bucket + "/" + r.Prefix }
+
+// FileIdentity is the source location, independent of any temporary download.
 type FileIdentity struct {
-	Root
+	Root Root
 	Path string
 	Ext  string
 	Stem string
+}
+
+// Remote directories are exact key prefixes; local directories follow
+// filesystem path rules.
+func (f FileIdentity) Directory() string {
+	if _, remote := f.Root.(*RemoteRoot); remote {
+		if i := strings.LastIndexByte(f.Path, '/'); i >= 0 {
+			return f.Path[:i+1]
+		}
+		return ""
+	}
+	dir := filepath.Dir(f.Path)
+	if dir == "." {
+		return ""
+	}
+	return dir + string(filepath.Separator)
 }
 
 type FileSnapshot struct {
@@ -116,6 +168,8 @@ type EmbeddedArtwork struct {
 }
 
 type ScannedFile struct {
+	// RootPos is the scan-local root index used for joins and metadata tie-breaking.
+	RootPos int
 	FileIdentity
 	FileSnapshot
 	DurationSeconds    int64

@@ -23,15 +23,19 @@
             or <button type="button" class="inline-action" data-sync-submit="{{.URLs.SubmitJob}}">Sync</button> to also re-download all files.
             Either option starts a new job that runs in the background.
             For a full factory reset, use <button type="button" class="inline-action" disabled title="Reset is not available yet">Reset</button>,
-            which runs a sync and removes all listening data.
+            which runs a sync and removes all listening/cached data.
         </p>
     </aside>
     {{end}}
     {{range $index, $root := .ConfiguredRoots}}
     <section class="root-summary" aria-labelledby="root-path-{{$index}}">
-        <h2 id="root-path-{{$index}}">{{.RootPath}}</h2>
-        {{with index $.RootsByPath .RootPath}}
-        <dl class="facts">
+        <h2 id="root-path-{{$index}}">{{.RootKey}}</h2>
+        <dl class="facts facts-grid">
+            <div>
+                <dt>Type</dt>
+                <dd>{{.Type}}</dd>
+            </div>
+            {{with index $.RootsByKey .RootKey}}
             <div>
                 <dt>Tracks</dt>
                 <dd>{{formatNumber .Tracks}}</dd>
@@ -48,8 +52,10 @@
                 <dt>Album sidecars</dt>
                 <dd>{{formatNumber .AlbumSidecars}}</dd>
             </div>
+            {{end}}
         </dl>
-        {{else}}
+        <p class="root-location">{{.Location}}</p>
+        {{if not (index $.RootsByKey .RootKey)}}
         <p class="text-secondary">No data found for this root.</p>
         {{end}}
     </section>

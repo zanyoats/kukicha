@@ -48,7 +48,7 @@ func CacheArtworkThumbnails(
 	ctx context.Context,
 	db thumbnailCacheDB,
 	sourceBytes []byte,
-	info, rootPath, path string,
+	info, rootConfigID, path string,
 ) (string, error) {
 	if err := ctx.Err(); err != nil {
 		return "", err
@@ -56,7 +56,7 @@ func CacheArtworkThumbnails(
 	if len(sourceBytes) == 0 {
 		err := fmt.Errorf("%w: image data is empty", errInvalidArtwork)
 
-		app.JobLogger(ctx).WarnContext(ctx, fmt.Sprintf("cannot cache %s: %v", info, err), "root_path", rootPath, "path", path)
+		app.JobLogger(ctx).WarnContext(ctx, fmt.Sprintf("cannot cache %s: %v", info, err), "root", rootConfigID, "path", path)
 
 		return "", nil
 	}
@@ -76,14 +76,14 @@ func CacheArtworkThumbnails(
 	if err != nil {
 		err := fmt.Errorf("%w: decode image: %v", errInvalidArtwork, err)
 
-		app.JobLogger(ctx).WarnContext(ctx, fmt.Sprintf("cannot cache %s: %v", info, err), "root_path", rootPath, "path", path)
+		app.JobLogger(ctx).WarnContext(ctx, fmt.Sprintf("cannot cache %s: %v", info, err), "root", rootConfigID, "path", path)
 
 		return "", nil
 	}
 	if decoded.Bounds().Dx() < 1 || decoded.Bounds().Dy() < 1 {
 		err := fmt.Errorf("%w: image dimensions must be positive", errInvalidArtwork)
 
-		app.JobLogger(ctx).WarnContext(ctx, fmt.Sprintf("cannot cache %s: %v", info, err), "root_path", rootPath, "path", path)
+		app.JobLogger(ctx).WarnContext(ctx, fmt.Sprintf("cannot cache %s: %v", info, err), "root", rootConfigID, "path", path)
 
 		return "", nil
 	}

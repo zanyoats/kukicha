@@ -122,7 +122,7 @@ type playerAlbumPageTrack struct {
 	DurationSeconds int64    `json:"durationSeconds"`
 }
 
-func (c *appRoutes) showLibrary(w http.ResponseWriter, r *http.Request) {
+func (c *webRouter) showLibrary(w http.ResponseWriter, r *http.Request) {
 	filters, err := parseAlbumFilters(r)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)

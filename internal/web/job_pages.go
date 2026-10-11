@@ -16,7 +16,7 @@ type jobsViewModel struct {
 	NextJobsURL string
 }
 
-func (c *appRoutes) showJobs(w http.ResponseWriter, r *http.Request) {
+func (c *webRouter) showJobs(w http.ResponseWriter, r *http.Request) {
 	before, err := parseBefore(r)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -44,7 +44,7 @@ type jobLogsViewModel struct {
 	NextLogsURL string
 }
 
-func (c *appRoutes) showJobLogs(w http.ResponseWriter, r *http.Request) {
+func (c *webRouter) showJobLogs(w http.ResponseWriter, r *http.Request) {
 	id, err := parsePositiveID(r, "job_id")
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)

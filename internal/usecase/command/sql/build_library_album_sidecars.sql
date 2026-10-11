@@ -42,11 +42,11 @@ FROM sidecars
 JOIN scan_tracks AS audio
     ON audio.root_pos = sidecars.root_pos
     AND (
-        (audio.path_dir = '.' AND sidecars.path_dir = '.')
-        OR substr(sidecars.path, 1, length(audio.path_dir) + 1) = audio.path_dir || '/'
+        (audio.path_dir = '' AND sidecars.path_dir = '')
+        OR (audio.path_dir != '' AND substr(sidecars.path, 1, length(audio.path_dir)) = audio.path_dir)
     )
 JOIN library_roots AS roots
-    ON roots.path = audio.root_path
+    ON roots.config_id = audio.config_id
 JOIN library_tracks AS tracks
     ON tracks.root_id = roots.id
     AND tracks.path = audio.path

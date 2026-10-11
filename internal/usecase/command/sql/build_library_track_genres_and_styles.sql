@@ -57,7 +57,7 @@ raw_genres AS (
         genres.value AS input_genre
     FROM scan_tracks AS s
     JOIN library_roots AS roots
-        ON roots.path = s.root_path
+        ON roots.config_id = s.config_id
     JOIN library_tracks AS tracks
         ON tracks.root_id = roots.id
         AND tracks.path = s.path

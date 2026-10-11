@@ -18,6 +18,7 @@ import (
 	proc "github.com/zanyoats/kukicha/internal/processor"
 	"github.com/zanyoats/kukicha/internal/scan"
 	"github.com/zanyoats/kukicha/internal/usecase/command"
+	"github.com/zanyoats/kukicha/internal/usecase/query"
 	"github.com/zanyoats/kukicha/internal/web"
 )
 
@@ -101,6 +102,22 @@ func run() error {
 	)
 	if err != nil {
 		return err
+	}
+
+	rootsMatch, err := query.RootsMatchConfig(ctx, db, conf.Roots)
+	if err != nil {
+		return err
+	}
+	if !rootsMatch {
+		id, err := processor.Submit(ctx, proc.JobSubmission{Type: "sync", Payload: []byte(`{}`)})
+		if err != nil && !errors.Is(err, command.ErrJobAlreadyPending) {
+			return fmt.Errorf("enqueue sync for changed roots: %w", err)
+		}
+		if err == nil {
+			slog.Info("configured roots changed; queued library sync", "job_id", id)
+		} else {
+			slog.Info("configured roots changed; using pending library sync")
+		}
 	}
 
 	ctx, stop := signal.NotifyContext(

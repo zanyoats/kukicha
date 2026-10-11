@@ -11,7 +11,7 @@ import (
 	"github.com/zanyoats/kukicha/internal/usecase/command"
 )
 
-func (c *appRoutes) submitJob(w http.ResponseWriter, r *http.Request) {
+func (c *webRouter) submitJob(w http.ResponseWriter, r *http.Request) {
 	var input struct {
 		Type    string          `json:"type"`
 		Payload json.RawMessage `json:"payload"`
@@ -36,7 +36,7 @@ func (c *appRoutes) submitJob(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (c *appRoutes) cancelJob(w http.ResponseWriter, r *http.Request) {
+func (c *webRouter) cancelJob(w http.ResponseWriter, r *http.Request) {
 	var input struct {
 		JobID int64 `json:"job_id"`
 	}

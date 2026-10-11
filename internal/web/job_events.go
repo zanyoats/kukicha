@@ -11,7 +11,7 @@ import (
 	"github.com/zanyoats/kukicha/internal/usecase/query"
 )
 
-func (c *appRoutes) jobEvents(w http.ResponseWriter, r *http.Request) {
+func (c *webRouter) jobEvents(w http.ResponseWriter, r *http.Request) {
 	notifications, unsubscribe := c.notifications.Subscribe()
 	defer unsubscribe()
 

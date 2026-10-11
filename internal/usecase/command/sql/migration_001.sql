@@ -57,11 +57,11 @@ CREATE TABLE album_artist_split_mappings (
 
 CREATE TABLE library_root_ids (
     id        INTEGER PRIMARY KEY AUTOINCREMENT      ,
-    root_path TEXT    NOT NULL                       ,
+    config_id TEXT    NOT NULL                       ,
     timestamp TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
-    UNIQUE (root_path)                               ,
-    CHECK (length(trim(root_path)) > 0)
+    UNIQUE (config_id)                               ,
+    CHECK (length(trim(config_id)) > 0)
 );
 
 CREATE TABLE library_album_ids (
@@ -74,8 +74,8 @@ CREATE TABLE library_album_ids (
 );
 
 CREATE TABLE library_artist_ids (
-    id     INTEGER PRIMARY KEY AUTOINCREMENT         ,
-    artist TEXT    NOT NULL COLLATE NOCASE           ,
+    id        INTEGER PRIMARY KEY AUTOINCREMENT      ,
+    artist    TEXT NOT NULL COLLATE NOCASE           ,
     timestamp TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
     UNIQUE (artist)                                  ,
@@ -84,23 +84,23 @@ CREATE TABLE library_artist_ids (
 
 CREATE TABLE library_track_ids (
     id        INTEGER PRIMARY KEY AUTOINCREMENT      ,
-    root_path TEXT    NOT NULL                       ,
-    path      TEXT    NOT NULL                       ,
+    config_id TEXT NOT NULL                          ,
+    path      TEXT  NOT NULL                         ,
     timestamp TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
-    UNIQUE (root_path, path)                         ,
+    UNIQUE (config_id, path)                         ,
     CHECK (
-            length(trim(root_path)) > 0
+            length(trim(config_id)) > 0
         AND length(trim(path)) > 0
     )
 );
 
 CREATE TABLE library_roots (
-    id   INTEGER PRIMARY KEY,
-    path TEXT    NOT NULL   ,
+    id        INTEGER PRIMARY KEY,
+    config_id TEXT    NOT NULL   ,
 
-    UNIQUE (path)           ,
-    CHECK (length(trim(path)) > 0)
+    UNIQUE (config_id)           ,
+    CHECK (length(trim(config_id)) > 0)
 );
 
 CREATE TABLE library_albums (

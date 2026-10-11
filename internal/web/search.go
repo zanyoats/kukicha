@@ -8,7 +8,7 @@ type searchViewModel struct {
 	URLs    URLs
 }
 
-func (c *appRoutes) showSearch(w http.ResponseWriter, r *http.Request) {
+func (c *webRouter) showSearch(w http.ResponseWriter, r *http.Request) {
 	renderPage(w, c.renderer, "search.gohtml", searchViewModel{
 		EyeBrow: "Discover",
 		Heading: "Search Results",

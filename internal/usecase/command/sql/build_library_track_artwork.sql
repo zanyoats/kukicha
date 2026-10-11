@@ -14,17 +14,17 @@ sidecar_candidates AS (
         ON covers.root_pos = scanned_tracks.root_pos
         AND (
             (
-                scanned_tracks.path_dir = '.'
-                AND covers.path_dir = '.'
+                scanned_tracks.path_dir = ''
+                AND covers.path_dir = ''
             )
-            OR substr(
+            OR (scanned_tracks.path_dir != '' AND substr(
                 covers.path,
                 1,
-                length(scanned_tracks.path_dir) + 1
-            ) = scanned_tracks.path_dir || '/'
+                length(scanned_tracks.path_dir)
+            ) = scanned_tracks.path_dir)
         )
     JOIN library_roots AS roots
-        ON roots.path = scanned_tracks.root_path
+        ON roots.config_id = scanned_tracks.config_id
     JOIN library_tracks AS tracks
         ON tracks.root_id = roots.id
         AND tracks.path = scanned_tracks.path
@@ -48,7 +48,7 @@ embedded_candidates AS (
         ON scanned_tracks.root_pos = artwork.root_pos
         AND scanned_tracks.path = artwork.path
     JOIN library_roots AS roots
-        ON roots.path = scanned_tracks.root_path
+        ON roots.config_id = scanned_tracks.config_id
     JOIN library_tracks AS tracks
         ON tracks.root_id = roots.id
         AND tracks.path = scanned_tracks.path

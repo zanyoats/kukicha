@@ -11,13 +11,13 @@ import (
 
 var ErrWalkPathNotDirectory = errors.New("path expected to be a directory/folder")
 
-// WalkFunc handles regular files and directory read errors.
+// LocalWalkFunc handles regular files and directory read errors.
 // When err is non-nil, only RelPath is populated.
 // Returning nil skips that directory and continues the walk.
 // Otherwise, file describes a regular file; FileSize and FileModTime
 // are valid only when file.StatErr is nil.
 // Returning a non-nil error stops the walk.
-type WalkFunc func(LocalWalkedFile, error) error
+type LocalWalkFunc func(LocalWalkedFile, error) error
 type LocalWalkedFile struct {
 	Name, RelPath, Ext, Stem string
 	FileSize                 int64
@@ -29,7 +29,7 @@ type LocalWalkedFile struct {
 // It skips symlinks and rejects a symlink root.
 // Root validation errors are passed to fn with an empty RelPath.
 // Returning nil from fn skips that root.
-func Dir(path string, fn WalkFunc) error {
+func Dir(path string, fn LocalWalkFunc) error {
 	info, err := os.Lstat(path)
 	if err != nil {
 		return fn(LocalWalkedFile{RelPath: ""}, err)
@@ -45,14 +45,11 @@ func Dir(path string, fn WalkFunc) error {
 	return walkDir(path, "", fn)
 }
 
-func walkDir(dirPath, childDirPath string, fn WalkFunc) error {
+func walkDir(dirPath, childDirPath string, fn LocalWalkFunc) error {
 	fullPath := filepath.Join(dirPath, childDirPath)
 	files, err := os.ReadDir(fullPath)
 	if err != nil {
-		if err := fn(LocalWalkedFile{RelPath: childDirPath}, err); err != nil {
-			return err
-		}
-		return nil
+		return fn(LocalWalkedFile{RelPath: childDirPath}, err)
 	}
 
 	for _, file := range files {

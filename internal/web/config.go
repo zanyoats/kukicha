@@ -24,7 +24,7 @@ type configViewModel struct {
 	configPage
 }
 
-func (c *appRoutes) showConfig(page configPage) http.HandlerFunc {
+func (c *webRouter) showConfig(page configPage) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		renderPage(w, c.renderer, "config.gohtml", configViewModel{
 			EyeBrow:    "Settings",

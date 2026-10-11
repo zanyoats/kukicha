@@ -9,6 +9,7 @@ import (
 	"maps"
 	"math"
 	"net"
+	"net/url"
 	"os"
 	"path"
 	"path/filepath"
@@ -137,6 +138,18 @@ func (w *WorkerCount) Resolve() int {
 	return w.count
 }
 
+type RootConfig struct {
+	ID              string  `toml:"id"`
+	Type            string  `toml:"type"`
+	Path            *string `toml:"path"`
+	EndpointURL     *string `toml:"endpoint_url"`
+	Bucket          *string `toml:"bucket"`
+	Prefix          *string `toml:"prefix"`
+	Profile         *string `toml:"profile"`
+	Region          *string `toml:"region"`
+	AddressingStyle *string `toml:"addressing_style"`
+}
+
 type AppConfig struct {
 	AppDir         string
 	ConfigFilePath string
@@ -147,9 +160,9 @@ type AppConfig struct {
 			Level LogLevel `toml:"level"`
 		} `toml:"logging"`
 		Scan struct {
-			Roots                []string `toml:"roots"`
-			ProgressLogInterval  Duration `toml:"progress_log_interval"`
-			LocalArtworkMaxBytes int64    `toml:"local_artwork_max_bytes"`
+			Roots                []RootConfig `toml:"roots"`
+			ProgressLogInterval  Duration     `toml:"progress_log_interval"`
+			LocalArtworkMaxBytes int64        `toml:"local_artwork_max_bytes"`
 			ITunes               struct {
 				Enabled        bool     `toml:"enabled"`
 				RequestTimeout Duration `toml:"request_timeout"`
@@ -226,6 +239,9 @@ func LoadAppConfig(catalog *Catalog) (*AppConfig, error) {
 	}
 
 	// Validations...
+	if result.Roots, err = normalizeRoots(result.AppDir, result.Settings.Scan.Roots); err != nil {
+		return nil, err
+	}
 	if result.Settings.Scan.ProgressLogInterval.Duration < 0 {
 		return nil, errors.New(
 			`"scan.progress_log_interval" setting cannot be negative`,
@@ -276,18 +292,6 @@ func LoadAppConfig(catalog *Catalog) (*AppConfig, error) {
 			}, "")
 			return nil, fmt.Errorf(format, genreOrStyle, "/foo/printout.txt")
 		}
-	}
-
-	// ...normalize each root to a actualy folder path
-	for pos, root := range result.Settings.Scan.Roots {
-		var norm string
-
-		if norm, err = normalizeFolderPath(result.AppDir, root); err != nil {
-			return nil, err
-		}
-
-		newRoot := Root{RootPos: pos, RootPath: norm}
-		result.Roots = append(result.Roots, newRoot)
 	}
 
 	// ...normalize database path
@@ -550,5 +554,116 @@ func validateAppBasePath(basePath string) error {
 		)
 	}
 
+	return nil
+}
+
+// normalizeRoots validates and resolves each entry in configuration order.
+// IDs are case-sensitive and remain independent of type and storage location.
+func normalizeRoots(baseDir string, configured []RootConfig) ([]Root, error) {
+	roots := make([]Root, 0, len(configured))
+	seen := make(map[string]int, len(configured))
+	value := func(field *string) string {
+		if field == nil {
+			return ""
+		}
+		return *field
+	}
+	for i := range configured {
+		entry := &configured[i]
+		entry.ID = strings.TrimSpace(entry.ID)
+		invalid := func(message string) error {
+			return fmt.Errorf("scan.roots[%d] (id %q): %s", i, entry.ID, message)
+		}
+		if entry.ID == "" {
+			return nil, invalid("id must be non-empty")
+		}
+		if previous, exists := seen[entry.ID]; exists {
+			return nil, invalid(fmt.Sprintf("duplicate id (already used by scan.roots[%d])", previous))
+		}
+		seen[entry.ID] = i
+		switch entry.Type {
+		case "local":
+			for _, field := range []struct {
+				name  string
+				value *string
+			}{
+				{"endpoint_url", entry.EndpointURL}, {"bucket", entry.Bucket},
+				{"prefix", entry.Prefix}, {"profile", entry.Profile},
+				{"region", entry.Region}, {"addressing_style", entry.AddressingStyle},
+			} {
+				if field.value != nil {
+					return nil, invalid(fmt.Sprintf("%s is only allowed for type remote", field.name))
+				}
+			}
+			if entry.Path == nil || *entry.Path == "" {
+				return nil, invalid("path is required for type local")
+			}
+			path, err := normalizeFolderPath(baseDir, *entry.Path)
+			if err != nil {
+				return nil, invalid(err.Error())
+			}
+			roots = append(roots, &LocalRoot{ID: entry.ID, Path: path})
+		case "remote":
+			if entry.Path != nil {
+				return nil, invalid("path is only allowed for type local")
+			}
+			root := &RemoteRoot{
+				ID: entry.ID, EndpointURL: value(entry.EndpointURL), Bucket: value(entry.Bucket),
+				Prefix: value(entry.Prefix), Profile: value(entry.Profile),
+				Region: value(entry.Region), AddressingStyle: value(entry.AddressingStyle),
+			}
+			if err := normalizeRemoteRoot(root); err != nil {
+				return nil, invalid(err.Error())
+			}
+			for _, previous := range roots {
+				remote, ok := previous.(*RemoteRoot)
+				if ok && root.EndpointURL == remote.EndpointURL && root.Bucket == remote.Bucket &&
+					(strings.HasPrefix(root.Prefix, remote.Prefix) || strings.HasPrefix(remote.Prefix, root.Prefix)) {
+					return nil, invalid(fmt.Sprintf("prefix overlaps remote root %q", remote.ID))
+				}
+			}
+			roots = append(roots, root)
+		default:
+			return nil, invalid("type must be local or remote")
+		}
+	}
+	return roots, nil
+}
+
+func normalizeRemoteRoot(r *RemoteRoot) error {
+	invalid := func(message string) error {
+		return fmt.Errorf("remote root %q: %s", r.ID, message)
+	}
+	r.EndpointURL = strings.TrimRight(strings.TrimSpace(r.EndpointURL), "/")
+	r.Bucket = strings.TrimSpace(r.Bucket)
+	r.Profile = strings.TrimSpace(r.Profile)
+	r.Region = strings.TrimSpace(r.Region)
+	if r.Prefix != "" && !strings.HasSuffix(r.Prefix, "/") {
+		return invalid("prefix must be empty or end with '/'")
+	}
+	r.AddressingStyle = strings.ToLower(strings.TrimSpace(r.AddressingStyle))
+	if r.AddressingStyle == "" {
+		r.AddressingStyle = "auto"
+	}
+	if r.Bucket == "" {
+		return invalid("bucket must be non-empty")
+	}
+	if strings.ContainsAny(r.Bucket, "/\\ \t\r\n") {
+		return invalid("bucket must not contain slashes or whitespace")
+	}
+	u, err := url.Parse(r.EndpointURL)
+	if err != nil {
+		return fmt.Errorf("remote root %q: parse endpoint_url: %w", r.ID, err)
+	}
+	if (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" || u.User != nil || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" {
+		return invalid("endpoint_url must be an HTTP(S) URL without credentials, query, or fragment")
+	}
+	u.Host = strings.ToLower(u.Host)
+	r.EndpointURL = u.String()
+	switch r.AddressingStyle {
+	case "auto", "path", "virtual":
+	default:
+		return invalid("addressing_style must be auto, path, or virtual")
+	}
 	return nil
 }

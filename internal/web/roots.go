@@ -13,12 +13,34 @@ type rootsViewModel struct {
 	EyeBrow         string
 	Heading         string
 	URLs            URLs
-	ConfiguredRoots []app.Root
-	RootsByPath     map[string]*query.Root
+	ConfiguredRoots []configuredRootView
+	RootsByKey      map[string]*query.Root
 	LatestSyncID    int64
 }
 
-func (c *appRoutes) showRoots(w http.ResponseWriter, r *http.Request) {
+// configuredRootView keeps source-specific fields out of templates.
+type configuredRootView struct {
+	Label    string
+	RootKey  string
+	Location string
+	Type     string
+	Remote   bool
+}
+
+func configuredRootViews(roots []app.Root) []configuredRootView {
+	views := make([]configuredRootView, 0, len(roots))
+	for _, root := range roots {
+		switch root := root.(type) {
+		case *app.LocalRoot:
+			views = append(views, configuredRootView{Label: root.Path, RootKey: root.ConfigID(), Location: root.Location(), Type: "local"})
+		case *app.RemoteRoot:
+			views = append(views, configuredRootView{Label: root.ID, RootKey: root.ConfigID(), Location: root.Location(), Type: "remote", Remote: true})
+		}
+	}
+	return views
+}
+
+func (c *webRouter) showRoots(w http.ResponseWriter, r *http.Request) {
 	roots, err := query.Roots(r.Context(), c.db)
 	if err != nil {
 		internalServerError(w, "unable to load roots", "error", err)
@@ -37,16 +59,16 @@ func (c *appRoutes) showRoots(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	rootsByPath := make(map[string]*query.Root, len(roots))
+	rootsByKey := make(map[string]*query.Root, len(roots))
 	for i := range roots {
-		rootsByPath[roots[i].Path] = &roots[i]
+		rootsByKey[roots[i].ConfigID] = &roots[i]
 	}
 	model := rootsViewModel{
 		EyeBrow:         "Settings",
 		Heading:         "Roots",
 		URLs:            c.urls,
-		ConfiguredRoots: c.configuredRoots,
-		RootsByPath:     rootsByPath,
+		ConfiguredRoots: configuredRootViews(c.configuredRoots),
+		RootsByKey:      rootsByKey,
 		LatestSyncID:    latestSyncID,
 	}
 	renderPage(w, c.renderer, "roots.gohtml", model)

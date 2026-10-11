@@ -41,9 +41,9 @@
                 <time>{{formatTimestamp .Timestamp}}</time>
                 <p class="job-log-message">{{.Message}}</p>
             </div>
-            {{if or .Data.root_path .Data.path (ne .Data.job_id nil) (ne .Data.job_type nil) (ne .Data.attempt nil) (ne .Data.state nil) (ne .Data.processed_files nil)}}
+            {{if or .Data.root .Data.path (ne .Data.job_id nil) (ne .Data.job_type nil) (ne .Data.attempt nil) (ne .Data.state nil) (ne .Data.processed_files nil) (ne .Data.processed_candidates nil)}}
             <dl class="job-log-paths">
-                {{with .Data.root_path}}
+                {{with .Data.root}}
                 <div>
                     <dt>Root</dt>
                     <dd title="{{.}}">{{.}}</dd>
@@ -83,6 +83,12 @@
                 <div>
                     <dt>Processed files</dt>
                     <dd title="{{.Data.processed_files}}">{{.Data.processed_files}}</dd>
+                </div>
+                {{end}}
+                {{if ne .Data.processed_candidates nil}}
+                <div>
+                    <dt>Processed iTunes artwork candidates</dt>
+                    <dd title="{{.Data.processed_candidates}}">{{.Data.processed_candidates}}</dd>
                 </div>
                 {{end}}
             </dl>

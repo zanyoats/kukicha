@@ -8,7 +8,7 @@ WITH track_counts AS (
     GROUP BY root_id
 )
 SELECT
-    roots.path,
+    roots.config_id,
     COALESCE(track_counts.tracks, 0),
     COALESCE(track_counts.albums, 0),
     0 AS playlists,
@@ -16,4 +16,4 @@ SELECT
 FROM library_roots AS roots
 LEFT JOIN track_counts ON track_counts.root_id = roots.id
 LEFT JOIN sidecar_counts ON sidecar_counts.root_id = roots.id
-ORDER BY roots.path COLLATE BINARY;
+ORDER BY roots.config_id COLLATE BINARY;

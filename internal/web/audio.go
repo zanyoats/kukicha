@@ -10,12 +10,13 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/zanyoats/kukicha/internal/app"
 	"github.com/zanyoats/kukicha/internal/usecase/query"
 )
 
 var errUnsafeTrackAudioPath = errors.New("unsafe track audio path")
 
-func (c *appRoutes) streamTrackAudio(w http.ResponseWriter, r *http.Request) {
+func (c *webRouter) streamTrackAudio(w http.ResponseWriter, r *http.Request) {
 	trackID, err := parseTrackID(r)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
@@ -42,8 +43,19 @@ func (c *appRoutes) streamTrackAudio(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	root := c.rootsByConfigID[audio.ConfigID]
+	if root == nil {
+		http.Error(w, "Track root is no longer configured", http.StatusNotFound)
+		return
+	}
+
+	localRoot, ok := root.(*app.LocalRoot)
+	if !ok {
+		http.Error(w, "Remote playback is not available yet", http.StatusNotImplemented)
+		return
+	}
 	audioPath, err := resolveTrackAudioPath(
-		audio.RootPath,
+		localRoot.Path,
 		audio.RelativePath,
 	)
 	switch {

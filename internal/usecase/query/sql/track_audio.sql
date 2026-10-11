@@ -1,5 +1,5 @@
 SELECT
-    roots.path,
+    roots.config_id,
     tracks.path,
     tracks.ext
 FROM library_tracks AS tracks

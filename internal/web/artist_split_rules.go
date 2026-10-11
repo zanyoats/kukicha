@@ -30,7 +30,7 @@ type artistSplitRuleEditorData struct {
 	UpdateURL     string   `json:"update_url"`
 }
 
-func (c *appRoutes) showArtistSplitRules(w http.ResponseWriter, r *http.Request) {
+func (c *webRouter) showArtistSplitRules(w http.ResponseWriter, r *http.Request) {
 	rules, err := query.ArtistSplitRules(r.Context(), c.db)
 	if err != nil {
 		internalServerError(w, "unable to load artist split rules", "error", err)
@@ -62,7 +62,7 @@ func (c *appRoutes) showArtistSplitRules(w http.ResponseWriter, r *http.Request)
 	})
 }
 
-func (c *appRoutes) updateArtistSplitRule(w http.ResponseWriter, r *http.Request) {
+func (c *webRouter) updateArtistSplitRule(w http.ResponseWriter, r *http.Request) {
 	var input struct {
 		AlbumKey      string    `json:"album_key"`
 		MappedArtists []*string `json:"mapped_artists"`

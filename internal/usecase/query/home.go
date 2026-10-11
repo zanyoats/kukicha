@@ -31,6 +31,7 @@ type HomeItem struct {
 type HomeData struct {
 	LibraryGenerated bool
 	HasIndexedRoots  bool
+	InitialSyncState string
 	Artists          []HomeItem
 	Genres           []HomeItem
 	Styles           []HomeItem
@@ -47,7 +48,7 @@ func Home(ctx context.Context, db *sql.DB) (HomeData, error) {
 	result := HomeData{}
 	if err := tx.QueryRowContext(ctx, homeLibraryStateSQL,
 		sql.Named("generated_at_key", app.LibraryGeneratedAt),
-	).Scan(&result.LibraryGenerated, &result.HasIndexedRoots); err != nil {
+	).Scan(&result.LibraryGenerated, &result.HasIndexedRoots, &result.InitialSyncState); err != nil {
 		return HomeData{}, fmt.Errorf("query home library state: %w", err)
 	}
 

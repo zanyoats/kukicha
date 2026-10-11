@@ -5,13 +5,17 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
+	"os"
 	"path/filepath"
 	"runtime/debug"
 	"strconv"
 	"sync"
 	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/zanyoats/kukicha/internal/app"
 	"github.com/zanyoats/kukicha/internal/scan"
 	scanartwork "github.com/zanyoats/kukicha/internal/scan/artwork"
@@ -80,7 +84,14 @@ func (j *Sync) Run(ctx context.Context) error {
 		return err
 	}
 	if err == nil && generatedJobID == strconv.FormatInt(jobID, 10) {
-		return nil
+		// A recovered job must rebuild if configuration changed after its commit.
+		matches, err := query.RootsMatchConfig(ctx, j.DB, j.Conf.Roots)
+		if err != nil {
+			return err
+		}
+		if matches {
+			return nil
+		}
 	}
 
 	if err := command.PrepareScanResults(
@@ -91,8 +102,7 @@ func (j *Sync) Run(ctx context.Context) error {
 		return err
 	}
 
-	j.notify(jobID, "Scanning local files.")
-	if err := j.localFileScanWithWorkers(ctx, conn); err != nil {
+	if err := j.fileScanWithWorkers(ctx, conn); err != nil {
 		return err
 	}
 
@@ -107,13 +117,6 @@ func (j *Sync) Run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-
-	// BuildLibraryFromScan has committed, so the library is ready to use.
-	message := "Library scan completed, refresh to view your library."
-	if j.Conf.Settings.Scan.ITunes.Enabled {
-		message += " iTunes library artwork lookup is starting."
-	}
-	j.notify(jobID, message)
 
 	if j.Conf.Settings.Scan.ITunes.Enabled {
 		if err := j.lookupITunesArtwork(ctx, conn); err != nil {
@@ -153,96 +156,55 @@ func (j *Sync) Run(ctx context.Context) error {
 	return nil
 }
 
-func (j *Sync) lookupITunesArtwork(ctx context.Context, conn *sql.Conn) error {
-	client := scanartwork.NewITunesClient(
-		nil,
-		scanartwork.ITunesClientConfig{
-			RequestTimeout: j.Conf.Settings.Scan.ITunes.RequestTimeout.Duration,
-			LookupInterval: j.Conf.Settings.Scan.ITunes.LookupInterval.Duration,
-			RetryAttempts:  j.Conf.Settings.Scan.ITunes.RetryAttempts,
-		},
-	)
-
-	const batchSize = 100
-	var afterID int64
-	for {
-		candidates, lastID, err := query.LibraryArtworkCandidates(ctx, conn, afterID, batchSize)
-		if err != nil {
-			return err
-		}
-		if lastID == 0 {
-			return nil
-		}
-
-		resolved := make(map[int64]bool)
-		for _, candidate := range candidates {
-			if err := ctx.Err(); err != nil {
-				return err
-			}
-			if resolved[candidate.TrackID] {
-				continue
-			}
-			result, _, err := lookupCachedArtwork(
-				ctx, conn, client, candidate.Kind, candidate.LookupID,
-			)
-			if err != nil {
-				if ctx.Err() != nil {
-					return ctx.Err()
-				}
-				if !errors.Is(err, ErrITunesArtworkLookup) {
-					return err
-				}
-				j.logger.ErrorContext(ctx, fmt.Sprintf(
-					"iTunes artwork lookup failed: kind %s, lookup ID %s: %v",
-					candidate.Kind, candidate.LookupID, err,
-				), "root_path", candidate.RootPath, "path", candidate.Path)
-				continue
-			}
-
-			if result.ResultKind != app.ITunesResultHit {
-				continue
-			}
-
-			// Cache into artwork thumbnails table, then repair itunes cache
-			// with hashed `name` value
-			name, err := command.CacheArtworkThumbnails(
-				ctx, conn, result.Bytes,
-				fmt.Sprintf("iTunes %s artwork %s", candidate.Kind, candidate.LookupID),
-				candidate.RootPath, candidate.Path,
-			)
-			if err != nil {
-				return err
-			}
-			if name == "" {
-				continue
-			}
-
-			if err := command.LinkCachedITunesArtworkThumbnail(
-				ctx, conn, result.LookupKind, result.LookupID, name,
-			); err != nil {
-				return err
-			}
-
-			if err := command.AttachLibraryArtwork(ctx, conn, candidate.TrackID, name); err != nil {
-				return err
-			}
-			resolved[candidate.TrackID] = true
-		}
-
-		afterID = lastID
-	}
-}
-
+// The unit work is a local or remote file.
 type work struct {
-	root      app.Root
-	localFile walk.LocalWalkedFile
-	fileType  app.FileType
+	source   scanSource
+	rootPos  int
+	file     logicalFile
+	fileType app.FileType
 }
 
-func (j *Sync) localFileScanWithWorkers(
+// A file has logical and physical parts. A remote file has a local file path
+// after it has been downloaded.
+type logicalFile struct {
+	Name, RelPath, Ext, Stem string
+	FileSize                 int64
+	FileModTime              time.Time
+}
+
+type physicalFile struct{ path string }
+
+// scanSource helps working on remote and local file sources.
+type scanSource interface {
+	Root() app.Root
+	Prepare(context.Context, logicalFile) (preparedFile, error)
+}
+
+type preparedFile struct {
+	Path    string
+	Release func() error
+}
+
+type libraryItem struct {
+	root    app.Root
+	rootPos int
+	logicalFile
+	physicalFile
+	fileType app.FileType
+}
+
+func (j *Sync) fileScanWithWorkers(
 	ctx context.Context,
 	conn *sql.Conn,
 ) error {
+	var remoteSources []*remoteSource
+	defer func() {
+		for _, source := range remoteSources {
+			if err := os.RemoveAll(source.tempDir); err != nil {
+				j.logger.WarnContext(ctx, "cannot remove remote temporary directory", "error", err)
+			}
+		}
+	}()
 	workCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -255,6 +217,12 @@ func (j *Sync) localFileScanWithWorkers(
 	queue := make(chan work, workers)
 
 	var pool sync.WaitGroup
+	// On a producer panic, stop and join workers before removing temporary
+	// files or letting Run release the database connection.
+	defer func() {
+		cancel()
+		pool.Wait()
+	}()
 	var failOnce sync.Once
 	var firstErr error
 	var firstWork *work
@@ -272,10 +240,16 @@ func (j *Sync) localFileScanWithWorkers(
 		})
 	}
 
+	jobID, _ := app.JobIDFromContext(ctx) // Validated by Run.
 	progress := &syncProgress{
 		logger:   j.logger,
+		message:  "library scan progress",
+		countKey: "processed_files",
 		lastLog:  time.Now(),
 		interval: j.Conf.Settings.Scan.ProgressLogInterval.Duration,
+		notify: func(processed int) {
+			j.notify(jobID, fmt.Sprintf("Processed %d files.", processed))
+		},
 	}
 
 	// Start the workers/consumers
@@ -284,6 +258,12 @@ func (j *Sync) localFileScanWithWorkers(
 
 		go func() {
 			defer pool.Done()
+			var activeWork *work
+			defer func() {
+				if r := recover(); r != nil {
+					fail(fmt.Errorf("scan worker panic: %v\n%s", r, debug.Stack()), activeWork)
+				}
+			}()
 
 			for {
 				select {
@@ -299,11 +279,12 @@ func (j *Sync) localFileScanWithWorkers(
 						return
 					}
 
+					activeWork = &item
 					if err := j.workOn(workCtx, conn, item); err != nil {
 						fail(
 							fmt.Errorf(
 								"work on %q: %w",
-								filepath.Join(item.root.RootPath, item.localFile.RelPath),
+								item.source.Root().ConfigID()+":"+item.file.RelPath,
 								err,
 							),
 							&item,
@@ -312,6 +293,7 @@ func (j *Sync) localFileScanWithWorkers(
 					}
 
 					progress.complete(workCtx)
+					activeWork = nil
 				}
 			}
 		}()
@@ -319,67 +301,122 @@ func (j *Sync) localFileScanWithWorkers(
 
 	// Produce work in this goroutine
 	if err := func() error {
-		for _, root := range j.Conf.Roots {
-			if err := workCtx.Err(); err != nil {
+		for rootPos, value := range j.Conf.Roots {
+			j.logger.InfoContext(ctx, "scanning library root: starting",
+				"root", value.ConfigID(),
+			)
+
+			if err := command.InsertScanRoot(workCtx, conn, rootPos, value); err != nil {
 				return err
 			}
 
-			j.logger.InfoContext(ctx, "scanning library root: starting",
-				"path", root.RootPath,
-			)
+			switch root := value.(type) {
+			case *app.RemoteRoot:
+				source, err := newRemoteSource(workCtx, root)
+				if err != nil {
+					return err
+				}
+				remoteSources = append(remoteSources, source)
+				if err := walk.Bucket(workCtx, source.client, root.Bucket, root.Prefix, func(
+					remoteFile walk.RemoteWalkedFile,
+					walkErr error,
+				) error {
+					if err := workCtx.Err(); err != nil {
+						return err
+					}
+					if walkErr != nil {
+						return walkErr
+					}
 
-			if err := walk.Dir(root.RootPath, func(
-				localFile walk.LocalWalkedFile,
-				walkErr error,
-			) error {
+					fileType, recognizable := scan.IsRecognizable(
+						remoteFile.Name,
+						j.Conf.Settings.Scan.RecognizedSidecarArtwork,
+					)
+					if !recognizable {
+						return nil
+					}
+
+					item := work{
+						source: source, rootPos: rootPos,
+						file: logicalFile{
+							Name: remoteFile.Name, RelPath: remoteFile.RelPath, Ext: remoteFile.Ext, Stem: remoteFile.Stem,
+							FileSize: remoteFile.FileSize, FileModTime: remoteFile.FileModTime,
+						},
+						fileType: fileType,
+					}
+					select {
+					case queue <- item:
+						return nil
+					case <-workCtx.Done():
+						return workCtx.Err()
+					}
+				}); err != nil {
+					return fmt.Errorf("list remote root %q: %w", root.ID, err)
+				}
+
+			case *app.LocalRoot:
 				if err := workCtx.Err(); err != nil {
 					return err
 				}
 
-				if walkErr != nil {
-					j.logger.ErrorContext(workCtx, fmt.Sprintf(
-						"skipped work on file: %v",
-						walkErr,
-					), "root_path", root.RootPath, "path", localFile.RelPath)
-					return nil
+				source := &localSource{root: root}
+				if err := walk.Dir(root.Path, func(
+					localFile walk.LocalWalkedFile,
+					walkErr error,
+				) error {
+					if err := workCtx.Err(); err != nil {
+						return err
+					}
+
+					if walkErr != nil {
+						j.logger.ErrorContext(workCtx, fmt.Sprintf(
+							"skipped work on file: %v",
+							walkErr,
+						), "root", root.ConfigID(), "path", localFile.RelPath)
+						return nil
+					}
+
+					if localFile.StatErr != nil {
+						j.logger.ErrorContext(workCtx, fmt.Sprintf(
+							"skipped work on file: %v",
+							localFile.StatErr,
+						), "root", root.ConfigID(), "path", localFile.RelPath)
+						return nil
+					}
+
+					fileType, recognizable := scan.IsRecognizable(
+						localFile.Name,
+						j.Conf.Settings.Scan.RecognizedSidecarArtwork,
+					)
+					if !recognizable {
+						return nil
+					}
+
+					item := work{
+						source: source, rootPos: rootPos,
+						file: logicalFile{
+							Name: localFile.Name, RelPath: localFile.RelPath, Ext: localFile.Ext, Stem: localFile.Stem,
+							FileSize: localFile.FileSize, FileModTime: localFile.FileModTime,
+						},
+						fileType: fileType,
+					}
+
+					select {
+					case queue <- item:
+						return nil
+					case <-workCtx.Done():
+						return workCtx.Err()
+					}
+				}); err != nil {
+					return fmt.Errorf(
+						"walk root %q: %w", root.Path, err,
+					)
 				}
 
-				if localFile.StatErr != nil {
-					j.logger.ErrorContext(workCtx, fmt.Sprintf(
-						"skipped work on file: %v",
-						localFile.StatErr,
-					), "root_path", root.RootPath, "path", localFile.RelPath)
-					return nil
-				}
-
-				fileType, recognizable := scan.IsRecognizable(
-					localFile.Name,
-					j.Conf.Settings.Scan.RecognizedSidecarArtwork,
-				)
-				if !recognizable {
-					return nil
-				}
-
-				item := work{
-					root:      root,
-					localFile: localFile,
-					fileType:  fileType,
-				}
-
-				select {
-				case queue <- item:
-					return nil
-				case <-workCtx.Done():
-					return workCtx.Err()
-				}
-			}); err != nil {
-				return fmt.Errorf(
-					"walk root %q: %w", root.RootPath, err,
-				)
 			}
 
 			j.logger.InfoContext(ctx, "library root queued",
-				"path", root.RootPath,
+				"root", value.ConfigID(),
 			)
 		}
 
@@ -400,7 +437,7 @@ func (j *Sync) localFileScanWithWorkers(
 		// workCtx was canceled by fail().
 		if firstWork != nil && ctx.Err() == nil {
 			j.logger.ErrorContext(ctx, fmt.Sprintf("cannot process file: %v", firstErr),
-				"root_path", firstWork.root.RootPath, "path", firstWork.localFile.RelPath)
+				"root", firstWork.source.Root().ConfigID(), "path", firstWork.file.RelPath)
 		}
 
 		return firstErr
@@ -420,33 +457,109 @@ func (j *Sync) localFileScanWithWorkers(
 	return nil
 }
 
+func (j *Sync) workOn(ctx context.Context, conn *sql.Conn, input work) (err error) {
+	prepared, err := input.source.Prepare(ctx, input.file)
+	if err != nil {
+		return err
+	}
+	defer func() { err = errors.Join(err, prepared.Release()) }()
+	item := libraryItem{
+		root: input.source.Root(), rootPos: input.rootPos,
+		logicalFile: input.file, physicalFile: physicalFile{path: prepared.Path},
+		fileType: input.fileType,
+	}
+	return j.processLibraryItem(ctx, conn, item)
+}
+
+// `localSource` implements `scanSource`
+type localSource struct {
+	root *app.LocalRoot
+}
+
+func (s *localSource) Root() app.Root { return s.root }
+
+func (s *localSource) Prepare(ctx context.Context, file logicalFile) (preparedFile, error) {
+	if err := ctx.Err(); err != nil {
+		return preparedFile{}, err
+	}
+	return preparedFile{
+		Path:    filepath.Join(s.root.Path, file.RelPath),
+		Release: func() error { return nil },
+	}, nil
+}
+
+// `remoteSource` implements `scanSource`
+type remoteSource struct {
+	root    *app.RemoteRoot
+	client  *s3.Client
+	tempDir string
+}
+
+func newRemoteSource(ctx context.Context, root *app.RemoteRoot) (*remoteSource, error) {
+	client, err := walk.NewS3Client(ctx, root)
+	if err != nil {
+		return nil, fmt.Errorf("configure remote root %q: %w", root.ID, err)
+	}
+	dir, err := os.MkdirTemp("", "kukicha-remote-*")
+	if err != nil {
+		return nil, err
+	}
+	return &remoteSource{root: root, client: client, tempDir: dir}, nil
+}
+
+func (s *remoteSource) Root() app.Root { return s.root }
+
+func (s *remoteSource) Prepare(ctx context.Context, file logicalFile) (_ preparedFile, err error) {
+	if err := ctx.Err(); err != nil {
+		return preparedFile{}, err
+	}
+	download, err := os.CreateTemp(s.tempDir, "object-*"+file.Ext)
+	if err != nil {
+		return preparedFile{}, err
+	}
+	release := func() error { return os.Remove(download.Name()) }
+	// Failed preparation retains ownership of the partial download.
+	defer func() {
+		if err != nil {
+			err = errors.Join(err, release())
+		}
+	}()
+	response, err := s.client.GetObject(ctx, &s3.GetObjectInput{
+		Bucket: aws.String(s.root.Bucket),
+		Key:    aws.String(s.root.Prefix + file.RelPath),
+	})
+	if err != nil {
+		return preparedFile{}, errors.Join(err, download.Close())
+	}
+	_, copyErr := io.Copy(download, response.Body)
+	if err := errors.Join(copyErr, response.Body.Close(), download.Close()); err != nil {
+		return preparedFile{}, err
+	}
+	return preparedFile{Path: download.Name(), Release: release}, nil
+}
+
 // Called from a worker goroutine
 // Implements the processing of a recognizable file; essentially
 // 1. parses file metadata and normalizes its,
 // 2. appends it to a temporary table to hold scanned tracks.
-func (j *Sync) workOn(
+func (j *Sync) processLibraryItem(
 	workCtx context.Context,
 	conn *sql.Conn,
-	item work,
+	item libraryItem,
 ) (err error) {
-	defer func() {
-		if r := recover(); r != nil {
-			err = fmt.Errorf("scan worker panic: %v\n%s", r, debug.Stack())
-		}
-	}()
-
 	fileIdentity := app.FileIdentity{
 		Root: item.root,
-		Path: item.localFile.RelPath,
-		Ext:  item.localFile.Ext,
-		Stem: item.localFile.Stem,
+		Path: item.logicalFile.RelPath,
+		Ext:  item.logicalFile.Ext,
+		Stem: item.logicalFile.Stem,
 	}
 	fileSnapshot := app.FileSnapshot{
 		FileType:    item.fileType,
-		FileSize:    item.localFile.FileSize,
-		FileModTime: item.localFile.FileModTime,
+		FileSize:    item.logicalFile.FileSize,
+		FileModTime: item.logicalFile.FileModTime,
 	}
 	scannedFile := &app.ScannedFile{
+		RootPos:      item.rootPos,
 		FileIdentity: fileIdentity,
 		FileSnapshot: fileSnapshot,
 		Metadata: &app.TrackMetadata{
@@ -462,10 +575,8 @@ func (j *Sync) workOn(
 
 	switch item.fileType {
 	case app.FileTypeAudio:
-		localPath := filepath.Join(item.root.RootPath, item.localFile.RelPath)
-
-		if err := scan.ApplyTrackMetadata(localPath, j.Conf, scannedFile); err != nil {
-			j.logger.ErrorContext(workCtx, err.Error(), "root_path", item.root.RootPath, "path", item.localFile.RelPath)
+		if err := scan.ApplyTrackMetadata(item.physicalFile.path, j.Conf, scannedFile); err != nil {
+			j.logger.ErrorContext(workCtx, err.Error(), "root", item.root.ConfigID(), "path", item.logicalFile.RelPath)
 		}
 
 		// Since this call involves a db connection its error should
@@ -475,7 +586,7 @@ func (j *Sync) workOn(
 	case app.FileTypeSidecarCover, app.FileTypeSidecarOther:
 
 	default: // app.FileTypePlaylist
-		j.logger.InfoContext(workCtx, "skipping unsupported playlist item", "root_path", scannedFile.RootPath, "path", scannedFile.Path)
+		j.logger.InfoContext(workCtx, "skipping unsupported playlist item", "root", scannedFile.Root.ConfigID(), "path", scannedFile.Path)
 	}
 
 	if err == nil {
@@ -484,6 +595,7 @@ func (j *Sync) workOn(
 			conn,
 			scannedFile,
 			j.Conf.Settings.Scan.LocalArtworkMaxBytes,
+			item.physicalFile.path,
 		)
 	}
 
@@ -492,10 +604,13 @@ func (j *Sync) workOn(
 
 type syncProgress struct {
 	logger    *slog.Logger
+	message   string
+	countKey  string
 	mu        sync.Mutex
 	processed int
 	lastLog   time.Time
 	interval  time.Duration
+	notify    func(int)
 }
 
 func (p *syncProgress) complete(ctx context.Context) {
@@ -506,9 +621,12 @@ func (p *syncProgress) complete(ctx context.Context) {
 
 	now := time.Now()
 	if p.interval > 0 && now.Sub(p.lastLog) >= p.interval {
-		p.logger.InfoContext(ctx, "library scan progress",
-			"processed_files", p.processed,
+		p.logger.InfoContext(ctx, p.message,
+			p.countKey, p.processed,
 		)
+		if p.notify != nil {
+			p.notify(p.processed)
+		}
 		p.lastLog = now
 	}
 }
@@ -569,4 +687,102 @@ func lookupCachedArtwork(
 	}
 
 	return result, false, nil
+}
+
+func (j *Sync) lookupITunesArtwork(ctx context.Context, conn *sql.Conn) error {
+	jobID, _ := app.JobIDFromContext(ctx) // Validated by Run.
+	progress := &syncProgress{
+		logger:   j.logger,
+		message:  "iTunes artwork lookup progress",
+		countKey: "processed_candidates",
+		lastLog:  time.Now(),
+		interval: j.Conf.Settings.Scan.ProgressLogInterval.Duration,
+		notify: func(processed int) {
+			j.notify(jobID, fmt.Sprintf("Processed %d iTunes artwork candidates.", processed))
+		},
+	}
+	client := scanartwork.NewITunesClient(
+		nil,
+		scanartwork.ITunesClientConfig{
+			RequestTimeout: j.Conf.Settings.Scan.ITunes.RequestTimeout.Duration,
+			LookupInterval: j.Conf.Settings.Scan.ITunes.LookupInterval.Duration,
+			RetryAttempts:  j.Conf.Settings.Scan.ITunes.RetryAttempts,
+		},
+	)
+
+	const batchSize = 100
+	var afterID int64
+	for {
+		candidates, lastID, err := query.LibraryArtworkCandidates(ctx, conn, afterID, batchSize)
+		if err != nil {
+			return err
+		}
+		if lastID == 0 {
+			j.logger.InfoContext(ctx, "iTunes artwork lookup completed",
+				"processed_candidates", progress.count(),
+			)
+			return nil
+		}
+
+		resolved := make(map[int64]bool)
+		for _, candidate := range candidates {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			if resolved[candidate.TrackID] {
+				continue
+			}
+			result, _, err := lookupCachedArtwork(
+				ctx, conn, client, candidate.Kind, candidate.LookupID,
+			)
+			if err != nil {
+				if ctx.Err() != nil {
+					return ctx.Err()
+				}
+				if !errors.Is(err, ErrITunesArtworkLookup) {
+					return err
+				}
+				j.logger.ErrorContext(ctx, fmt.Sprintf(
+					"iTunes artwork lookup failed: kind %s, lookup ID %s: %v",
+					candidate.Kind, candidate.LookupID, err,
+				), "root", candidate.ConfigID, "path", candidate.Path)
+				progress.complete(ctx)
+				continue
+			}
+
+			if result.ResultKind != app.ITunesResultHit {
+				progress.complete(ctx)
+				continue
+			}
+
+			// Cache into artwork thumbnails table, then repair itunes cache
+			// with hashed `name` value
+			name, err := command.CacheArtworkThumbnails(
+				ctx, conn, result.Bytes,
+				fmt.Sprintf("iTunes %s artwork %s", candidate.Kind, candidate.LookupID),
+				candidate.ConfigID, candidate.Path,
+			)
+			if err != nil {
+				return err
+			}
+			if name == "" {
+				progress.complete(ctx)
+				continue
+			}
+
+			if err := command.LinkCachedITunesArtworkThumbnail(
+				ctx, conn, result.LookupKind, result.LookupID, name,
+			); err != nil {
+				return err
+			}
+
+			if err := command.AttachLibraryArtwork(ctx, conn, candidate.TrackID, name); err != nil {
+				return err
+			}
+			resolved[candidate.TrackID] = true
+			progress.complete(ctx)
+		}
+
+		afterID = lastID
+	}
 }

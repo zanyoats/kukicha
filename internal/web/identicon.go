@@ -8,7 +8,7 @@ import (
 	"github.com/zanyoats/kukicha/internal/usecase/query"
 )
 
-func (c *appRoutes) getIdenticon(w http.ResponseWriter, r *http.Request) {
+func (c *webRouter) getIdenticon(w http.ResponseWriter, r *http.Request) {
 	tx, err := c.db.BeginTx(
 		r.Context(),
 		&sql.TxOptions{ReadOnly: true},

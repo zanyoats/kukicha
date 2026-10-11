@@ -1,46 +1,55 @@
 {{define "header" -}}
-<header class="top-nav">
-    <nav aria-label="Primary navigation" up-nav>
-        <a href="{{.URLs.Home}}" up-follow>home</a>
-        <a href="{{.URLs.Library}}" up-alias="{{.URLs.Library}}*" up-follow
-            >library</a
-        >
-        <a href="{{.URLs.Search}}" up-follow>search</a>
-    </nav>
-
-    <a
-        class="avatar"
-        aria-label="Open avatar panel"
-        up-class="avatar-drawer"
-        up-layer="new drawer"
-        up-position="right"
-        up-content="#avatar-panel-template"
-    >
-        <img src="{{.URLs.InstanceIdenticon}}" alt="Kukicha instance identicon" />
-    </a>
-
-    <section class="notification-layer"
-        aria-label="Notifications"
-        data-notifications
-        data-toast-min-duration-ms="{{toastMinDurationMS}}"
+<div>
+    <section class="snackbar"
+        aria-label="Current job"
+        data-job-snackbar
         data-job-events="{{.URLs.JobEvents}}"
-        data-job-cancel-url="{{.URLs.CancelJob}}">
-        <div class="notification snackbar" data-job-snackbar hidden>
-            <span data-job-description role="status" aria-live="polite" aria-atomic="true"></span>
-            <a href="{{.URLs.CancelJob}}" class="notification-action" data-job-cancel up-follow="false">Cancel</a>
-        </div>
-        <template data-toast-template>
-            <div class="notification toast">
-                <span data-toast-message role="status" aria-atomic="true"></span>
-                <button type="button" class="notification-dismiss" data-toast-dismiss aria-label="Dismiss notification">×</button>
+        data-job-cancel-url="{{.URLs.CancelJob}}"
+        data-collapsed inert>
+        <div class="snackbar-clip">
+            <div class="snackbar-content">
+                <span data-job-description role="status" aria-live="polite" aria-atomic="true"></span>
+                <a href="{{.URLs.CancelJob}}" class="snackbar-action" data-job-cancel up-follow="false">Cancel</a>
             </div>
-        </template>
+        </div>
         <template data-job-labels>
             <span data-type="sync">Sync library</span>
             <span data-type="scan">Scan library</span>
         </template>
     </section>
-</header>
+    <header class="top-nav">
+        <nav aria-label="Primary navigation" up-nav>
+            <a href="{{.URLs.Home}}" up-follow>home</a>
+            <a href="{{.URLs.Library}}" up-alias="{{.URLs.Library}}*" up-follow
+                >library</a
+            >
+            <a href="{{.URLs.Search}}" up-follow>search</a>
+        </nav>
+
+        <a
+            class="avatar"
+            aria-label="Open avatar panel"
+            up-class="avatar-drawer"
+            up-layer="new drawer"
+            up-position="right"
+            up-content="#avatar-panel-template"
+        >
+            <img src="{{.URLs.InstanceIdenticon}}" alt="Kukicha instance identicon" />
+        </a>
+
+        <section class="toast-layer"
+            aria-label="Notifications"
+            data-notifications
+            data-toast-min-duration-ms="{{toastMinDurationMS}}">
+            <template data-toast-template>
+                <div class="toast">
+                    <span data-toast-message role="status" aria-atomic="true"></span>
+                    <button type="button" class="toast-dismiss" data-toast-dismiss aria-label="Dismiss notification">×</button>
+                </div>
+            </template>
+        </section>
+    </header>
+</div>
 
 <template id="avatar-panel-template">
     <aside class="avatar-panel" aria-label="Avatar panel">

@@ -13,57 +13,65 @@
                 <strong>No tracks were found in your configured roots.</strong>
                 <ul>
                     {{range .ConfiguredRoots}}
-                    <li><code>{{.RootPath}}</code></li>
+                    <li>
+                        <code>{{.Label}}</code>
+                        {{if .Remote}}(remote){{end}}
+                    </li>
                     {{end}}
                 </ul>
                 <p>
                     Recognized audio file extensions:
                     {{range $index, $extension := .RecognizedAudioExtensions}}{{if $index}}, {{end}}<code>{{$extension}}</code>{{end}}.
                 </p>
-                <p>Check your files and sync again.</p>
+                <p>Check your files and sync again, or add root with recognizable audio files.</p>
             </aside>
             {{end}}
         {{else}}
-        <aside class="alert alert-info" aria-label="Library not generated" data-sync-job>
-            <strong>Your library hasn’t been generated yet.</strong>
-            <p>Click <button type="button" class="inline-action" data-sync-submit="{{.URLs.SubmitJob}}">Sync</button> to begin syncing your library.</p>
+        <aside class="alert {{if eq .InitialSyncState "failed"}}alert-error{{else if eq .InitialSyncState "canceled"}}alert-warning{{else}}alert-info{{end}}" aria-label="Library preparation">
+            {{if eq .InitialSyncState "queued"}}
+            <strong>Your library is waiting to be prepared.</strong>
+            <p>A sync is queued and will start automatically. Refresh this page after it finishes to view your library.</p>
+            {{else if eq .InitialSyncState "running"}}
+            <strong>Your library is being prepared.</strong>
+            <p>Refresh this page after the sync finishes to view your library.</p>
+            {{else if eq .InitialSyncState "failed"}}
+            <strong>Your library couldn’t be prepared.</strong>
+            <p>The sync failed. Check the job logs for details.</p>
+            {{else if eq .InitialSyncState "canceled"}}
+            <strong>Library preparation was canceled.</strong>
+            <p>Your library hasn’t been generated yet.</p>
+            {{else}}
+            <strong>Your library hasn’t been prepared yet.</strong>
+            <p>No sync is currently queued or running.</p>
+            {{end}}
+            <p><a href="{{.URLs.Jobs}}" up-layer="new modal" up-target=".config-page" up-class="config-modal" up-history="false">View jobs</a></p>
         </aside>
         {{end}}
     {{else}}
-        {{if and .LibraryGenerated .HasIndexedRoots}}
-        <aside class="alert alert-info" aria-label="No configured roots">
-            <strong>No music roots are configured for your library.</strong>
-            <p>
-                Your library is missing its configured roots. If you sync again
-                it will delete your existing library. To prevent this add back
-                the roots to <code>{{.ConfigFilePath}}</code>.
-            </p>
-        </aside>
-        {{template "home-content" .}}
-        {{else}}
         <aside class="alert alert-info" aria-label="No configured roots">
             <strong>No music roots are configured.</strong>
             {{template "home-configure-roots" .}}
         </aside>
-        {{end}}
     {{end}}
 </article>
 {{end}}
 
 {{define "home-configure-roots"}}
 <p>
-    Configure music roots in <code>{{.ConfigFilePath}}</code>, then you will be
-    able to sync your library. You can start with a minimal config like this:
+    Configure music roots using the below config file, then restart the app.
+    Your library will sync automatically.
 </p>
-<pre><code>[scan]
-roots = [
-    "~/Music",
-]</code></pre>
+<pre><code>{{.ConfigFilePath}}</code></pre>
 <p>
-    Replace <code>~/Music</code> with the path to your music folder.
-    To include multiple folders, add each path to the list.
-    If your config already has a <code>[scan]</code> section, add/update its
-    <code>roots</code> setting instead of adding another section.
+    You can start with a minimal config like this:
+</p>
+<pre><code>[[scan.roots]]
+type = "local"   # support for local and remote roots
+id = "itunes"    # any unique id that identifies your root
+path = "~/Music" # local dir/folder path for this root</code></pre>
+<p>
+    Replace the above example with that which makes sense for your configuration.
+    To include multiple folders, add a new <code>[[scan.roots]]</code> section.
 </p>
 {{end}}
 

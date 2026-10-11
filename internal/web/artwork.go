@@ -8,7 +8,7 @@ import (
 	"github.com/zanyoats/kukicha/internal/usecase/query"
 )
 
-func (c *appRoutes) getAlbumArtwork(w http.ResponseWriter, r *http.Request) {
+func (c *webRouter) getAlbumArtwork(w http.ResponseWriter, r *http.Request) {
 	albumID, err := parseAlbumID(r)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
