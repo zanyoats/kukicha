@@ -32,6 +32,9 @@ function playerEngineCompiler(up, audio) {
     let queue = [];
     let currentIndex = -1;
     let currentTrackID = null;
+    let playbackRequested = false;
+    let retriedSource = false;
+    let recoveryPosition = null;
     let volumeBeforeMute = preferredVolume > 0 ? preferredVolume : 1;
 
     // Restart after this point; near the start, play the previous queue item.
@@ -89,6 +92,7 @@ function playerEngineCompiler(up, audio) {
     };
 
     const requestPlayback = async () => {
+        playbackRequested = true;
         try {
             await audio.play();
         } catch (error) {
@@ -97,6 +101,35 @@ function playerEngineCompiler(up, audio) {
             }
             emitPlayback();
         }
+    };
+
+    const recoverSource = () => {
+        // Media errors do not expose HTTP status codes or reliably expose the
+        // redirected URL. Reload once to recover expired remote signatures,
+        // without looping on a missing object or an unsupported format.
+        if (!hasTrack() || retriedSource || !audio.error ||
+            ![2, 4].includes(audio.error.code)) {
+            emitPlayback();
+            return;
+        }
+
+        retriedSource = true;
+        recoveryPosition = Number.isFinite(audio.currentTime) ? audio.currentTime : 0;
+        // src still points to our application endpoint, not the redirect URL.
+        audio.load();
+    };
+
+    const loadedMetadata = () => {
+        if (recoveryPosition !== null) {
+            const position = recoveryPosition;
+            recoveryPosition = null;
+            audio.currentTime = Number.isFinite(audio.duration)
+                ? Math.min(position, audio.duration) : position;
+            if (playbackRequested) {
+                requestPlayback();
+            }
+        }
+        emitTime();
     };
 
     const selectTrack = (index) => {
@@ -113,6 +146,8 @@ function playerEngineCompiler(up, audio) {
         currentTrackID = track.id;
 
         if (!sameSource) {
+            retriedSource = false;
+            recoveryPosition = null;
             audio.setAttribute("src", track.audioURL);
             audio.load();
         }
@@ -130,6 +165,7 @@ function playerEngineCompiler(up, audio) {
         if (audio.paused || audio.ended) {
             requestPlayback();
         } else {
+            playbackRequested = false;
             audio.pause();
         }
     };
@@ -231,7 +267,8 @@ function playerEngineCompiler(up, audio) {
         up.on(PLAYER_TOGGLE_MUTE, toggleMute),
         up.on(PLAYER_STATE_REQUEST, emitState),
         up.on(PLAYER_SELECT_TRACK, selectTrackInQueue),
-        up.on(audio, "loadedmetadata", emitTime),
+        up.on(audio, "loadedmetadata", loadedMetadata),
+        up.on(audio, "error", recoverSource),
         up.on(audio, "durationchange", emitTime),
         up.on(audio, "timeupdate", emitTime),
         up.on(audio, "play", emitPlayback),
@@ -241,6 +278,7 @@ function playerEngineCompiler(up, audio) {
             if (hasNext()) {
                 selectTrack(currentIndex + 1);
             } else {
+                playbackRequested = false;
                 emitPlayback();
             }
         }),

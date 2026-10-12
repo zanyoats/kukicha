@@ -9,9 +9,13 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
+	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/zanyoats/kukicha/internal/app"
 	"github.com/zanyoats/kukicha/internal/usecase/query"
+	"github.com/zanyoats/kukicha/internal/walk"
 )
 
 var errUnsafeTrackAudioPath = errors.New("unsafe track audio path")
@@ -49,9 +53,13 @@ func (c *webRouter) streamTrackAudio(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if remoteRoot, ok := root.(*app.RemoteRoot); ok {
+		c.redirectRemoteAudio(w, r, remoteRoot, audio.RelativePath, audio.Extension)
+		return
+	}
 	localRoot, ok := root.(*app.LocalRoot)
 	if !ok {
-		http.Error(w, "Remote playback is not available yet", http.StatusNotImplemented)
+		http.Error(w, "Unsupported track root", http.StatusInternalServerError)
 		return
 	}
 	audioPath, err := resolveTrackAudioPath(
@@ -125,6 +133,56 @@ func (c *webRouter) streamTrackAudio(w http.ResponseWriter, r *http.Request) {
 		info.ModTime(),
 		file,
 	)
+}
+
+func (c *webRouter) redirectRemoteAudio(
+	w http.ResponseWriter,
+	r *http.Request,
+	root *app.RemoteRoot,
+	relativePath, extension string,
+) {
+	cached, ok := c.remoteAudioClients.Load(root.ConfigID())
+	if !ok {
+		client, err := walk.NewS3Client(r.Context(), root)
+		if err != nil {
+			internalServerError(w, "unable to initialize remote playback", "root", root.ConfigID(), "error", err)
+			return
+		}
+		cached, _ = c.remoteAudioClients.LoadOrStore(root.ConfigID(), s3.NewPresignClient(client))
+	}
+	client := cached.(*s3.PresignClient)
+	// Preserve exact S3 key bytes, including repeated slashes and dot segments.
+	key := root.Prefix + relativePath
+	options := func(o *s3.PresignOptions) { o.Expires = time.Hour }
+	var location string
+	var err error
+	if r.Method == http.MethodHead {
+		// GET routes also accept HEAD; signatures are specific to the HTTP method.
+		signed, signErr := client.PresignHeadObject(r.Context(), &s3.HeadObjectInput{
+			Bucket: aws.String(root.Bucket), Key: aws.String(key),
+		}, options)
+		err = signErr
+		if err == nil {
+			location = signed.URL
+		}
+	} else {
+		signed, signErr := client.PresignGetObject(r.Context(), &s3.GetObjectInput{
+			Bucket: aws.String(root.Bucket), Key: aws.String(key),
+			ResponseContentType: aws.String(trackAudioContentType(extension)),
+			// Leave Range unsigned so the browser can seek using the same URL.
+		}, options)
+		err = signErr
+		if err == nil {
+			location = signed.URL
+		}
+	}
+	if err != nil {
+		internalServerError(w, "unable to sign remote playback URL", "root", root.ConfigID(), "error", err)
+		return
+	}
+	// Each reload must obtain a fresh signature rather than a cached redirect.
+	w.Header().Set("Cache-Control", "no-store")
+	http.Redirect(w, r, location, http.StatusTemporaryRedirect)
 }
 
 func resolveTrackAudioPath(

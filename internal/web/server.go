@@ -8,6 +8,7 @@ import (
 	"maps"
 	"net/http"
 	"slices"
+	"sync"
 
 	"github.com/zanyoats/kukicha/internal/app"
 	"github.com/zanyoats/kukicha/internal/processor"
@@ -35,6 +36,7 @@ type webRouter struct {
 	defaultAlbumSort          app.AlbumSort
 	configuredRoots           []app.Root
 	rootsByConfigID           map[string]app.Root
+	remoteAudioClients        sync.Map // root config ID -> *s3.PresignClient
 	configFilePath            string
 	recognizedAudioExtensions []string
 }
