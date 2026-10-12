@@ -968,8 +968,9 @@ up-popup.library-sort-popup[size] {
 }
 aside.alert {
     > ul {
-        list-style: none;
-        padding: 0;
+        list-style: square;
+        padding-inline-start: 2rem;
+        padding-block: 0.5rem;
     }
     > strong {
         display: block;

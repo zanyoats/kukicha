@@ -6,11 +6,11 @@
 
     {{if .HasConfiguredRoots}}
         {{if .LibraryGenerated}}
-            {{if .HasIndexedRoots}}
+            {{if .LibraryHasTracks}}
             {{template "home-content" .}}
             {{else}}
             <aside class="alert alert-info" aria-label="Empty library">
-                <strong>No tracks were found in your configured roots.</strong>
+                <strong>No tracks were found in any of the below root(s):</strong>
                 <ul>
                     {{range .ConfiguredRoots}}
                     <li>
@@ -20,7 +20,7 @@
                     {{end}}
                 </ul>
                 <p>
-                    Recognized audio file extensions:
+                    The recognized audio file extensions are:
                     {{range $index, $extension := .RecognizedAudioExtensions}}{{if $index}}, {{end}}<code>{{$extension}}</code>{{end}}.
                 </p>
                 <p>Check your files and sync again, or add root with recognizable audio files.</p>

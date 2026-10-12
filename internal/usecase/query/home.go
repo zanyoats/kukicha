@@ -30,7 +30,7 @@ type HomeItem struct {
 // HomeData contains the library categories displayed on the home page.
 type HomeData struct {
 	LibraryGenerated bool
-	HasIndexedRoots  bool
+	LibraryHasTracks bool
 	InitialSyncState string
 	Artists          []HomeItem
 	Genres           []HomeItem
@@ -48,7 +48,7 @@ func Home(ctx context.Context, db *sql.DB) (HomeData, error) {
 	result := HomeData{}
 	if err := tx.QueryRowContext(ctx, homeLibraryStateSQL,
 		sql.Named("generated_at_key", app.LibraryGeneratedAt),
-	).Scan(&result.LibraryGenerated, &result.HasIndexedRoots, &result.InitialSyncState); err != nil {
+	).Scan(&result.LibraryGenerated, &result.LibraryHasTracks, &result.InitialSyncState); err != nil {
 		return HomeData{}, fmt.Errorf("query home library state: %w", err)
 	}
 

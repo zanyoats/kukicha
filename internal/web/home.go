@@ -8,7 +8,7 @@ import (
 
 type homeViewModel struct {
 	LibraryGenerated          bool
-	HasIndexedRoots           bool
+	LibraryHasTracks          bool
 	HasConfiguredRoots        bool
 	InitialSyncState          string
 	ConfiguredRoots           []configuredRootView
@@ -36,7 +36,7 @@ func (c *webRouter) showHome(w http.ResponseWriter, r *http.Request) {
 
 	renderPage(w, c.renderer, "home.gohtml", homeViewModel{
 		LibraryGenerated:          home.LibraryGenerated,
-		HasIndexedRoots:           home.HasIndexedRoots,
+		LibraryHasTracks:          home.LibraryHasTracks,
 		HasConfiguredRoots:        len(c.configuredRoots) > 0,
 		InitialSyncState:          home.InitialSyncState,
 		ConfiguredRoots:           configuredRootViews(c.configuredRoots),
