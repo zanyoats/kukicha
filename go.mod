@@ -9,7 +9,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/s3 v1.114.0
 	github.com/mattn/go-sqlite3 v1.14.47
 	golang.org/x/image v0.42.0
-	golang.org/x/text v0.38.0
+	golang.org/x/text v0.43.0
 )
 
 require (
