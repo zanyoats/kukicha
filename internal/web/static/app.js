@@ -1,6 +1,7 @@
 import { up } from "./unpoly.js";
 import registerPlayerControls from "./player-controls.js";
 import registerPlayerEngine from "./player-engine.js";
+import registerAlbumCover from "./album-cover.js";
 import registerAlbumPage from "./album-page.js";
 import registerPlayerQueuePanel from "./player-queue-panel.js";
 import registerArtistSplitRules from "./artist-split-rules.js";
@@ -14,6 +15,7 @@ up.history.config.restoreTargets = ["[up-main]"];
 registerArtwork(up);
 registerPlayerEngine(up);
 registerPlayerControls(up);
+registerAlbumCover(up);
 registerAlbumPage(up);
 registerPlayerQueuePanel(up);
 registerArtistSplitRules(up);

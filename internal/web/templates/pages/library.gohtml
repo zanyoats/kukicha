@@ -36,17 +36,27 @@
     <ul class="item-grid">
         {{range .Albums}}
         <li class="album-card" style="--artwork-height: {{.SmallArtwork.Height}}px;">
-            <a class="album-card-artwork-link" href="{{.AlbumURL}}" up-follow>
-                <img
-                    class="album-card-artwork"
-                    data-artwork-fallback-url="{{$.URLs.AlbumArtwork64Fallback}}"
-                    src="{{.SmallArtwork.URL}}"
-                    alt="Artwork for {{.Title}}"
-                    width="{{.SmallArtwork.Width}}"
-                    height="{{.SmallArtwork.Height}}"
-                    loading="lazy"
-                />
-            </a>
+            <div class="album-cover" data-album-cover data-album-tracks-url="{{.AlbumTracksURL}}">
+                <a class="album-card-artwork-link" href="{{.AlbumURL}}" up-follow>
+                    <img
+                        class="album-card-artwork"
+                        data-artwork-fallback-url="{{$.URLs.AlbumArtwork64Fallback}}"
+                        src="{{.SmallArtwork.URL}}"
+                        alt="Artwork for {{.Title}}"
+                        width="{{.SmallArtwork.Width}}"
+                        height="{{.SmallArtwork.Height}}"
+                        loading="lazy"
+                    />
+                </a>
+                <div class="cover-actions">
+                    <button type="button" data-album-action="play" aria-label="Play {{.Title}}" title="Play album">
+                        <svg aria-hidden="true" focusable="false"><use href="#icon-play"></use></svg>
+                    </button>
+                    <button type="button" data-album-action="append" aria-label="Add {{.Title}} to queue" title="Add album to queue">
+                        <svg aria-hidden="true" focusable="false"><use href="#icon-add-to-queue"></use></svg>
+                    </button>
+                </div>
+            </div>
 
             <div class="album-card-details">
                 <h2 class="album-card-title text-truncate" title="{{.Title}}"><a href="{{.AlbumURL}}" up-follow>{{.Title}}</a></h2>

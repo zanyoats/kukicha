@@ -1534,3 +1534,92 @@ svg.player-queue-play-icon {
         inline-size: 100%;
     }
 }
+
+/* Cover controls share the artwork bounds, including non-square covers. */
+.album-cover {
+    position: relative;
+    flex: none;
+    inline-size: fit-content;
+    max-inline-size: 100%;
+}
+
+.album-cover::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: color-mix(in srgb, var(--text-primary) 80%, transparent);
+    pointer-events: none;
+}
+
+.cover-actions {
+    position: absolute;
+    right: 6px;
+    bottom: 6px;
+    z-index: 1;
+    display: flex;
+    gap: 4px;
+}
+
+.cover-actions button {
+    display: grid;
+    place-items: center;
+    width: 20px;
+    height: 20px;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    color: var(--text-primary);
+    background: color-mix(in srgb, var(--surface) 60%, transparent);
+    cursor: pointer;
+}
+
+.album-cover::after,
+.cover-actions {
+    opacity: 0;
+}
+
+.cover-actions {
+    pointer-events: none;
+}
+
+.album-cover:hover::after,
+.album-cover:focus-within::after,
+.album-cover:hover .cover-actions,
+.album-cover:focus-within .cover-actions {
+    opacity: 1;
+}
+
+.album-cover:hover .cover-actions,
+.album-cover:focus-within .cover-actions {
+    pointer-events: auto;
+}
+
+.cover-actions button:hover,
+.cover-actions button:focus-visible {
+    background: color-mix(in srgb, var(--surface-hover) 85%, transparent);
+}
+
+.cover-actions button:focus-visible {
+    outline: 2px solid var(--surface);
+    outline-offset: 2px;
+}
+
+.cover-actions button:disabled {
+    opacity: 0.5;
+    cursor: wait;
+}
+
+.cover-actions svg {
+    width: 14px;
+    height: 14px;
+}
+
+.album-page .cover-actions button {
+    width: 24px;
+    height: 24px;
+}
+
+.album-page .cover-actions svg {
+    width: 18px;
+    height: 18px;
+}

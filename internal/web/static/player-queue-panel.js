@@ -37,14 +37,14 @@ function playerQueuePanelCompiler(up, panel) {
     }
 
     let tracks = [];
-    let currentTrackID = null;
+    let currentIndex = -1;
     let playing = false;
 
     const updateRows = () => {
-        for (const row of listElement.querySelectorAll("[data-track-id]")) {
+        for (const row of listElement.querySelectorAll("[data-queue-index]")) {
             const active =
-                currentTrackID !== null &&
-                row.dataset.trackId === String(currentTrackID);
+                currentIndex >= 0 &&
+                Number(row.dataset.queueIndex) === currentIndex;
             const rowPlaying = active && playing;
             const playIcon = row.querySelector("[data-player-queue-play-icon]");
 
@@ -116,12 +116,12 @@ function playerQueuePanelCompiler(up, panel) {
             renderRows();
         }),
         up.on(PLAYER_TRACK_CHANGED, (event) => {
-            currentTrackID = event.trackId;
+            currentIndex = event.currentIndex;
             playing = false;
             updateRows();
         }),
         up.on(PLAYER_PLAYBACK_CHANGED, (event) => {
-            currentTrackID = event.trackId;
+            currentIndex = event.currentIndex;
             playing = event.playing;
             updateRows();
         }),
@@ -135,7 +135,7 @@ function playerQueuePanelCompiler(up, panel) {
 function createPlayerQueueRow(track, index) {
     const row = document.createElement("li");
     row.className = "player-queue-row";
-    row.dataset.trackId = String(track.id);
+    row.dataset.queueIndex = String(index);
 
     const formattedDuration = formatTime(track.durationSeconds);
 

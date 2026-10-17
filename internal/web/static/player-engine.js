@@ -1,4 +1,5 @@
 import {
+    PLAYER_APPEND_QUEUE,
     PLAYER_NEXT,
     PLAYER_PLAYBACK_CHANGED,
     PLAYER_PREVIOUS,
@@ -49,6 +50,7 @@ function playerEngineCompiler(up, audio) {
         up.emit(PLAYER_TRACK_CHANGED, {
             track: currentTrack(),
             trackId: currentTrackID,
+            currentIndex,
             hasTrack: hasTrack(),
             hasPrevious: hasPrevious(),
             hasNext: hasNext(),
@@ -57,6 +59,7 @@ function playerEngineCompiler(up, audio) {
     const emitPlayback = () => {
         up.emit(PLAYER_PLAYBACK_CHANGED, {
             trackId: currentTrackID,
+            currentIndex,
             hasTrack: hasTrack(),
             hasPrevious: hasPrevious(),
             hasNext: hasNext(),
@@ -132,7 +135,7 @@ function playerEngineCompiler(up, audio) {
         emitTime();
     };
 
-    const selectTrack = (index) => {
+    const selectTrack = (index, autoplay = true) => {
         if (index < 0 || index >= queue.length) {
             return;
         }
@@ -142,6 +145,7 @@ function playerEngineCompiler(up, audio) {
             currentTrackID === track.id &&
             audio.getAttribute("src") === track.audioURL;
 
+        const differentEntry = index !== currentIndex;
         currentIndex = index;
         currentTrackID = track.id;
 
@@ -150,15 +154,20 @@ function playerEngineCompiler(up, audio) {
             recoveryPosition = null;
             audio.setAttribute("src", track.audioURL);
             audio.load();
+        } else if (differentEntry) {
+            recoveryPosition = null;
+            audio.currentTime = 0;
         }
 
         emitTrack();
         emitTime();
-        requestPlayback();
+        if (autoplay) requestPlayback();
+        emitPlayback();
     };
 
     const togglePlayback = () => {
         if (!hasTrack()) {
+            if (queue.length) selectTrack(0);
             return;
         }
 
@@ -199,14 +208,15 @@ function playerEngineCompiler(up, audio) {
         }
 
         const selectedTrack = event.tracks[event.selectedIndex];
-        if (selectedTrack.id === currentTrackID) {
+        if (!event.startAlbum && selectedTrack.id === currentTrackID) {
             togglePlayback();
             return;
         }
 
-        queue = event.tracks;
+        queue = [...event.tracks];
         emitQueue();
         selectTrack(event.selectedIndex);
+        if (event.startAlbum) audio.currentTime = 0;
     };
 
     const playPrevious = () => {
@@ -259,6 +269,13 @@ function playerEngineCompiler(up, audio) {
 
     const unbind = [
         up.on(PLAYER_SELECT_QUEUE, selectQueue),
+        up.on(PLAYER_APPEND_QUEUE, (event) => {
+            if (!Array.isArray(event.tracks) || !event.tracks.length) return;
+            queue = [...queue, ...event.tracks];
+            emitQueue();
+            if (!hasTrack()) selectTrack(0, false);
+            emitPlayback();
+        }),
         up.on(PLAYER_TOGGLE, togglePlayback),
         up.on(PLAYER_PREVIOUS, playPrevious),
         up.on(PLAYER_NEXT, playNext),

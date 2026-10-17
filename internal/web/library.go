@@ -74,11 +74,12 @@ func librarySortOptions(libraryURL string, filters query.AlbumFilters, current a
 }
 
 type albumCard struct {
-	Title        string
-	Artists      []albumCategoryLink
-	SmallArtwork artworkViewModel
-	LargeArtwork artworkViewModel
-	AlbumURL     string
+	Title          string
+	Artists        []albumCategoryLink
+	SmallArtwork   artworkViewModel
+	LargeArtwork   artworkViewModel
+	AlbumURL       string
+	AlbumTracksURL string
 }
 
 type artworkViewModel struct {
@@ -240,11 +241,12 @@ func (c *webRouter) showLibrary(w http.ResponseWriter, r *http.Request) {
 
 		for _, album := range page.Albums {
 			albumCards = append(albumCards, albumCard{
-				Title:        album.Title,
-				Artists:      albumArtistLinks(album.Artists, c.urls),
-				SmallArtwork: newArtworkViewModel(c.urls, album.ID, query.AlbumArtwork64, album.SmallArtwork),
-				LargeArtwork: newArtworkViewModel(c.urls, album.ID, query.AlbumArtwork256, album.LargeArtwork),
-				AlbumURL:     c.urls.AlbumURL(album.ID),
+				Title:          album.Title,
+				Artists:        albumArtistLinks(album.Artists, c.urls),
+				SmallArtwork:   newArtworkViewModel(c.urls, album.ID, query.AlbumArtwork64, album.SmallArtwork),
+				LargeArtwork:   newArtworkViewModel(c.urls, album.ID, query.AlbumArtwork256, album.LargeArtwork),
+				AlbumURL:       c.urls.AlbumURL(album.ID),
+				AlbumTracksURL: c.urls.AlbumTracksURL(album.ID),
 			})
 		}
 

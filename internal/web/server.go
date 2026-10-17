@@ -125,6 +125,10 @@ func NewWebRouter(
 		router.jobEvents,
 	)
 	mux.HandleFunc(
+		exactPattern(http.MethodGet, urls.AlbumTracks),
+		router.getAlbumTracks,
+	)
+	mux.HandleFunc(
 		exactPattern(http.MethodPost, urls.CancelJob),
 		router.cancelJob,
 	)

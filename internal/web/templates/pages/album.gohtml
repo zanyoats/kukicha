@@ -5,14 +5,24 @@
     {{template "page-header" .}}
 
     <div class="album-header">
-        <img
-            class="album-artwork"
-            data-artwork-fallback-url="{{.URLs.AlbumArtwork256Fallback}}"
-            src="{{.LargeArtwork.URL}}"
-            alt="Artwork for {{.Album.Title}}"
-            width="{{.LargeArtwork.Width}}"
-            height="{{.LargeArtwork.Height}}"
-        />
+        <div class="album-cover" data-album-cover>
+            <img
+                class="album-artwork"
+                data-artwork-fallback-url="{{.URLs.AlbumArtwork256Fallback}}"
+                src="{{.LargeArtwork.URL}}"
+                alt="Artwork for {{.Album.Title}}"
+                width="{{.LargeArtwork.Width}}"
+                height="{{.LargeArtwork.Height}}"
+            />
+            <div class="cover-actions">
+                <button type="button" data-album-action="play" aria-label="Play {{.Album.Title}}" title="Play album">
+                    <svg aria-hidden="true" focusable="false"><use href="#icon-play"></use></svg>
+                </button>
+                <button type="button" data-album-action="append" aria-label="Add {{.Album.Title}} to queue" title="Add album to queue">
+                    <svg aria-hidden="true" focusable="false"><use href="#icon-add-to-queue"></use></svg>
+                </button>
+            </div>
+        </div>
 
         <dl class="facts">
             {{with .Album.Artists}}

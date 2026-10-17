@@ -13,3 +13,4 @@ export const PLAYER_TIME_CHANGED = "kukicha:player:time-changed";
 export const PLAYER_VOLUME_CHANGED = "kukicha:player:volume-changed";
 export const PLAYER_QUEUE_CHANGED = "kukicha:player:queue-changed";
 export const PLAYER_SELECT_TRACK = "kukicha:player:select-track";
+export const PLAYER_APPEND_QUEUE = "kukicha:player:append-queue";

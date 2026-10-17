@@ -28,6 +28,7 @@ type URLs struct {
 	SubmitJob               string
 	CancelJob               string
 	JobEvents               string
+	AlbumTracks             string
 	Assets                  string
 	Favicon                 string
 	UnpolyStylesheet        string
@@ -60,6 +61,7 @@ func NewURLs(basePath string) URLs {
 		SubmitJob:               api + "/jobs/",
 		CancelJob:               api + "/jobs/cancel/",
 		JobEvents:               api + "/jobs/events/",
+		AlbumTracks:             api + "/albums/tracks/",
 		Assets:                  assets,
 		Favicon:                 "/favicon.ico",
 		UnpolyStylesheet:        assets + "unpoly.min.css",
@@ -81,6 +83,12 @@ func (u URLs) AlbumArtworkURL(albumID int64, size query.AlbumArtworkSize) string
 	q.Set("album_id", strconv.FormatInt(albumID, 10))
 	q.Set("size", string(size))
 	return u.AlbumArtwork + "?" + q.Encode()
+}
+
+func (u URLs) AlbumTracksURL(id int64) string {
+	q := url.Values{}
+	q.Set("album_id", strconv.FormatInt(id, 10))
+	return u.AlbumTracks + "?" + q.Encode()
 }
 
 func (u URLs) AlbumURL(id int64) string {
