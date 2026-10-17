@@ -20,7 +20,6 @@ type URLs struct {
 	Roots                   string
 	MetadataOverrides       string
 	ListeningData           string
-	Cache                   string
 	Jobs                    string
 	JobLogs                 string
 	Help                    string
@@ -53,7 +52,6 @@ func NewURLs(basePath string) URLs {
 		Roots:                   app + "/roots/",
 		MetadataOverrides:       app + "/metadataOverrides/",
 		ListeningData:           app + "/listeningData/",
-		Cache:                   app + "/cache/",
 		Jobs:                    app + "/jobs/",
 		JobLogs:                 app + "/jobs/logs/",
 		Help:                    app + "/help/",

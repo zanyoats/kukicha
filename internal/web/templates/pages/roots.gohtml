@@ -19,13 +19,16 @@
         <strong>Info</strong>
         <p>
             Configured roots are synced at startup.
-            You can run <button type="button" class="inline-action" data-library-job-submit="{{.URLs.SubmitJob}}" data-job-type="scan">Scan</button> to rebuild the library,
-            or <button type="button" class="inline-action" data-library-job-submit="{{.URLs.SubmitJob}}" data-job-type="sync">Sync</button> to also re-download all files.
+            You can run <span class="action-with-info"><button type="button" class="inline-action" data-library-job-submit="{{.URLs.SubmitJob}}" data-job-type="scan">Scan</button>{{template "job-help-trigger" "scan"}}</span> to rebuild the library,
+            or <span class="action-with-info"><button type="button" class="inline-action" data-library-job-submit="{{.URLs.SubmitJob}}" data-job-type="sync">Sync</button>{{template "job-help-trigger" "sync"}}</span> to also re-download all files.
             Either option starts a new job that runs in the background.
-            For a full factory reset, use <button type="button" class="inline-action" data-library-job-submit="{{.URLs.SubmitJob}}" data-job-type="reset">Reset</button>,
+            For a full factory reset, use <span class="action-with-info"><button type="button" class="inline-action" data-library-job-submit="{{.URLs.SubmitJob}}" data-job-type="reset">Reset</button>{{template "job-help-trigger" "reset"}}</span>,
             which removes split rules, cached resources, and other jobs before running a full sync.
         </p>
     </aside>
+    {{template "scan-job-help" .}}
+    {{template "sync-job-help" .}}
+    {{template "reset-job-help" .}}
     {{end}}
     {{range $index, $root := .ConfiguredRoots}}
     <section class="root-summary" aria-labelledby="root-path-{{$index}}">
@@ -33,19 +36,19 @@
             {{.RootKey -}}
             <button
                 type="button"
-                class="root-info-trigger"
+                class="info-trigger"
                 aria-label="Location for {{.RootKey}}"
                 aria-haspopup="dialog"
                 up-follow
                 up-layer="new popup"
                 up-content="#root-info-{{$index}}"
-                up-class="root-info-popup"
+                up-class="info-popup"
                 up-position="bottom"
                 up-align="left"
                 up-history="false"
                 up-dismissible="key outside"
             >
-                <span aria-hidden="true">[*]</span>
+                <span aria-hidden="true">[?]</span>
             </button>
         </h2>
         <template id="root-info-{{$index}}">

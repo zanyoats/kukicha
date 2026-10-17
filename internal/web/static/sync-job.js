@@ -11,6 +11,12 @@ export default function registerSyncJob(up) {
         const unbind = up.on(button, "click", async (event) => {
             event.preventDefault();
             if (submitting) return;
+            if (
+                jobType === "reset" &&
+                !window.confirm(
+                    "Reset your library?\n\nThis clears artist split rules, cached resources, and other jobs and logs, then runs a full sync. Old library bookmarks will no longer work. Your music files will not be changed.\n\nContinue with reset?",
+                )
+            ) return;
             submitting = true;
             const submittedAt = performance.now();
             button.disabled = true;
