@@ -107,7 +107,7 @@ func (j *Sync) Run(ctx context.Context) error {
 	}
 
 	result, err := command.BuildLibraryFromScan(
-		ctx, conn,
+		ctx, conn, command.BuildFromFiles,
 		scan.UnknownItem,
 		j.Conf.Settings.Scan.SecondaryGenreSplitTokens,
 		scan.RecognizedAudioExtensions,

@@ -283,6 +283,7 @@ CREATE TABLE library_tracks (
     id                   INTEGER PRIMARY KEY,
     root_id              INTEGER NOT NULL   ,
     album_id             INTEGER NOT NULL   ,
+    stem                 TEXT    NOT NULL   ,
     ext                  TEXT    NOT NULL   ,
     path                 TEXT    NOT NULL   ,
     file_size            INTEGER NOT NULL   ,

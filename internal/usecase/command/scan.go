@@ -47,6 +47,9 @@ var insertScannedSidecarOtherSQL string
 //go:embed sql/reset_library.sql
 var resetLibrarySQL string
 
+//go:embed sql/reset_library_relationships.sql
+var resetLibraryRelationshipsSQL string
+
 //go:embed sql/allocate_library_ids.sql
 var allocateLibraryIDsSQL string
 
@@ -128,10 +131,19 @@ type SyncScanStats struct {
 	LibraryAlbumArtistUnknowns int
 }
 
-// BuildLibraryFromScan atomically rebuilds the library
+type LibraryBuildMode int
+
+const (
+	BuildFromFiles LibraryBuildMode = iota
+	BuildFromSavedMetadata
+)
+
+// BuildLibraryFromScan atomically rebuilds the library. Saved-metadata builds
+// update existing albums and tracks while leaving file-derived resources intact.
 func BuildLibraryFromScan(
 	ctx context.Context,
 	conn *sql.Conn,
+	mode LibraryBuildMode,
 	unknownItem string,
 	secondaryGenreSplitTokens map[string]bool,
 	recognizedAudioExtensions map[string]bool,
@@ -139,6 +151,9 @@ func BuildLibraryFromScan(
 	recognizedSidecarExtensions map[string]bool,
 ) (BuildLibraryResult, error) {
 	var result BuildLibraryResult
+	if mode != BuildFromFiles && mode != BuildFromSavedMetadata {
+		return result, errors.New("invalid library build mode")
+	}
 	jobID, ok := app.JobIDFromContext(ctx)
 	if !ok {
 		return result, errors.New("library build requires a job ID in context")
@@ -149,16 +164,21 @@ func BuildLibraryFromScan(
 	}
 	defer tx.Rollback()
 
+	// Scan reuses root, album, and track IDs, but updated artist split rules
+	// can introduce new artists that need fresh IDs.
 	if err = allocateLibraryIDs(ctx, tx); err != nil {
 		return result, err
 	}
 
-	if err = resetLibrary(ctx, tx); err != nil {
-		return result, err
-	}
-
-	if err = buildLibraryRoots(ctx, tx); err != nil {
-		return result, err
+	if mode == BuildFromFiles {
+		if err = resetLibrary(ctx, tx); err != nil {
+			return result, err
+		}
+		if err = buildLibraryRoots(ctx, tx); err != nil {
+			return result, err
+		}
+	} else if _, err = tx.ExecContext(ctx, resetLibraryRelationshipsSQL); err != nil {
+		return result, fmt.Errorf("reset library relationships: %w", err)
 	}
 
 	if err = buildLibraryAlbums(ctx, tx, unknownItem); err != nil {
@@ -170,10 +190,6 @@ func BuildLibraryFromScan(
 	}
 
 	if err = buildLibraryTracks(ctx, tx); err != nil {
-		return result, err
-	}
-
-	if err = buildLibraryTrackEmbeddedArtwork(ctx, tx); err != nil {
 		return result, err
 	}
 
@@ -190,12 +206,16 @@ func BuildLibraryFromScan(
 		return result, err
 	}
 
-	if err = buildLibraryAlbumSidecars(ctx, tx); err != nil {
-		return result, err
-	}
-
-	if err = buildLibraryTrackArtwork(ctx, tx); err != nil {
-		return result, err
+	if mode == BuildFromFiles {
+		if err = buildLibraryTrackEmbeddedArtwork(ctx, tx); err != nil {
+			return result, err
+		}
+		if err = buildLibraryAlbumSidecars(ctx, tx); err != nil {
+			return result, err
+		}
+		if err = buildLibraryTrackArtwork(ctx, tx); err != nil {
+			return result, err
+		}
 	}
 
 	err = tx.QueryRowContext(ctx, libraryCountsSQL, sql.Named("unknown_item", unknownItem)).Scan(

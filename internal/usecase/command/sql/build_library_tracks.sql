@@ -2,6 +2,7 @@ INSERT INTO library_tracks (
     id,
     root_id,
     album_id,
+    stem,
     ext,
     path,
     file_size,
@@ -23,6 +24,7 @@ SELECT
     track_ids.id,
     roots.id,
     albums.id,
+    s.stem,
     s.ext,
     s.path,
     s.file_size,
@@ -48,4 +50,16 @@ JOIN library_roots AS roots
 JOIN library_album_ids AS album_ids
     ON album_ids.album_key = s.album_key
 JOIN library_albums AS albums
-    ON albums.id = album_ids.id;
+    ON albums.id = album_ids.id
+WHERE true
+ON CONFLICT (id) DO UPDATE SET
+    title = excluded.title,
+    artists = excluded.artists,
+    work = excluded.work,
+    grouping = excluded.grouping,
+    movement_name = excluded.movement_name,
+    movement_number = excluded.movement_number,
+    movement_count = excluded.movement_count,
+    show_movement = excluded.show_movement,
+    track_number = excluded.track_number,
+    disc_number = excluded.disc_number;

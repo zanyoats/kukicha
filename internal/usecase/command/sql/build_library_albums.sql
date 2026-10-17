@@ -97,4 +97,20 @@ LEFT JOIN album_artist_sort AS artist_sort
 LEFT JOIN ranked_album_values
     ON ranked_album_values.album_key = album_keys.album_key
     AND ranked_album_values.rank = 1
-GROUP BY ids.id, album_keys.album_key;
+GROUP BY ids.id, album_keys.album_key
+ON CONFLICT (id) DO UPDATE SET
+    first_artist = excluded.first_artist,
+    format = excluded.format,
+    album = excluded.album,
+    disc_count = excluded.disc_count,
+    release_date = excluded.release_date,
+    original_release_date = excluded.original_release_date,
+    recorded_date = excluded.recorded_date,
+    release_year = excluded.release_year,
+    original_release_year = excluded.original_release_year,
+    release_country = excluded.release_country,
+    label = excluded.label,
+    composer = excluded.composer,
+    copyright = excluded.copyright,
+    purchase_date = excluded.purchase_date,
+    is_compilation = excluded.is_compilation;
