@@ -85,6 +85,7 @@ type Album struct {
 // AlbumTrack is a track in an album read model.
 type AlbumTrack struct {
 	ID              int64
+	RootConfigID    string
 	Title           string
 	Artists         []string
 	DurationSeconds int64
@@ -419,6 +420,7 @@ func queryAlbumTracks(
 
 		if err := rows.Scan(
 			&track.ID,
+			&track.RootConfigID,
 			&track.Title,
 			&artistsJSON,
 			&track.DurationSeconds,

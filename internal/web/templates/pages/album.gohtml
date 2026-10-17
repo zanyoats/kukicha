@@ -137,14 +137,18 @@
         </dl>
     </div>
 
+    {{range .TrackGroups}}
+    {{if gt (len $.TrackGroups) 1}}
+    <h2>{{.RootConfigID}}</h2>
+    {{end}}
     <ol class="track-list">
-        {{range $index, $track := .Album.Tracks}}
+        {{range .Tracks}}
         <li class="track-row" data-track-id="{{.ID}}">
             <button
                 class="inline-play-button"
                 type="button"
                 data-player-action="play"
-                data-track-index="{{$index}}"
+                data-track-index="{{.QueueIndex}}"
                 aria-label="Play {{.Title}}"
                 aria-pressed="false"
             >
@@ -190,10 +194,13 @@
                 </svg>
             </button>
         </li>
-        {{else}}
-        <li class="track-list-empty">This album has no tracks.</li>
         {{end}}
     </ol>
+    {{else}}
+    <ol class="track-list">
+        <li class="track-list-empty">This album has no tracks.</li>
+    </ol>
+    {{end}}
 
     {{with .Album.Copyright}}
     <p class="album-copyright">{{.}}</p>

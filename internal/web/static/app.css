@@ -629,6 +629,16 @@ up-popup.root-info-popup[size] {
     }
 }
 
+.album-page > h2 {
+    font-size: 1.1rem;
+    padding-block-end: 1rem;
+    overflow-wrap: anywhere;
+}
+
+.album-page > .track-list + h2 {
+    margin-block-start: 2rem;
+}
+
 .track-list {
     padding: 0;
     list-style: none;

@@ -95,6 +95,7 @@ type albumViewModel struct {
 	SmallArtwork  artworkViewModel
 	LargeArtwork  artworkViewModel
 	AlbumPageData string
+	TrackGroups   []albumTrackGroup
 	Genres        []albumCategoryLink
 	Styles        []albumCategoryLink
 }
@@ -102,6 +103,34 @@ type albumViewModel struct {
 type albumCategoryLink struct {
 	Name string
 	URL  string
+}
+
+type albumTrackGroup struct {
+	RootConfigID string
+	Tracks       []albumTrackRow
+}
+
+type albumTrackRow struct {
+	query.AlbumTrack
+	QueueIndex int
+}
+
+func albumTrackGroups(tracks []query.AlbumTrack) []albumTrackGroup {
+	groups := make([]albumTrackGroup, 0)
+	groupIndexes := make(map[string]int)
+	for index, track := range tracks {
+		groupIndex, ok := groupIndexes[track.RootConfigID]
+		if !ok {
+			groupIndex = len(groups)
+			groupIndexes[track.RootConfigID] = groupIndex
+			groups = append(groups, albumTrackGroup{RootConfigID: track.RootConfigID})
+		}
+		groups[groupIndex].Tracks = append(groups[groupIndex].Tracks, albumTrackRow{
+			AlbumTrack: track,
+			QueueIndex: index,
+		})
+	}
+	return groups
 }
 
 type playerAlbumPageData struct {
@@ -168,6 +197,7 @@ func (c *webRouter) showLibrary(w http.ResponseWriter, r *http.Request) {
 			SmallArtwork:  smallArtwork,
 			LargeArtwork:  largeArtwork,
 			AlbumPageData: string(albumPageDataJSON),
+			TrackGroups:   albumTrackGroups(album.Tracks),
 			Genres: albumCategoryLinks(album.Genres, func(id int64) string {
 				return c.urls.GenreURL(id)
 			}),
