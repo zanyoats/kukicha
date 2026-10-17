@@ -127,6 +127,12 @@
                 >Help</a
             >
         </h2>
+        <div class="avatar-actions">
+            <button type="button" class="action-button" disabled>Add to Kukicha</button>
+            <form method="post" action="{{.URLs.Logout}}" up-submit="false">
+                <button type="submit" class="action-button">Log out</button>
+            </form>
+        </div>
     </aside>
 </template>
 {{end}}

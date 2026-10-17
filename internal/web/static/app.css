@@ -369,6 +369,7 @@ article h2 {
 .avatar-panel {
     display: flex;
     flex-direction: column;
+    min-block-size: calc(100dvh - 2 * var(--avatar-drawer-padding, 1.25rem));
     gap: 1rem;
 
     h2 {
@@ -380,6 +381,24 @@ article h2 {
             font-size: inherit;
         }
     }
+}
+
+.avatar-actions {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-block-start: auto;
+    padding-block-start: 1rem;
+}
+
+.avatar-actions form {
+    margin: 0;
+}
+
+.avatar-actions button {
+    font: inherit;
+    white-space: nowrap;
 }
 
 .home-page h2 {
@@ -1492,6 +1511,14 @@ body:has(up-drawer.avatar-drawer:not(.up-destroying))
 up-drawer.avatar-drawer up-drawer-box,
 up-drawer.player-queue-drawer up-drawer-box {
     box-shadow: none;
+}
+
+up-drawer.avatar-drawer {
+    --avatar-drawer-padding: 1.25rem;
+}
+
+up-drawer.avatar-drawer up-drawer-box {
+    padding: var(--avatar-drawer-padding);
 }
 
 up-drawer-dismiss {
