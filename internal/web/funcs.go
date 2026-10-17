@@ -16,11 +16,12 @@ func formatNumber(value int64) string {
 
 func formatTimestamp(value string) string {
 	// SQLite CURRENT_TIMESTAMP stores UTC without an explicit timezone.
-	timestamp, err := time.Parse(time.DateTime, value)
-	if err != nil {
-		return value
+	for _, layout := range []string{time.DateTime, time.RFC3339} {
+		if timestamp, err := time.Parse(layout, value); err == nil {
+			return timestamp.In(time.Local).Format("2006-01-02 15:04:05 MST")
+		}
 	}
-	return timestamp.In(time.Local).Format("2006-01-02 15:04:05 MST")
+	return value
 }
 
 func formatDate(value string) string {

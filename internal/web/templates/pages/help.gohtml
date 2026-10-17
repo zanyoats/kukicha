@@ -1,0 +1,48 @@
+{{define "title"}}Help{{end}}
+{{define "body"}}
+<body class="config-document">
+    <main class="config-standalone" up-main>
+        <nav aria-label="Configuration navigation"><a href="{{.URLs.Home}}">Back to Home</a></nav>
+        {{template "page-content" .}}
+    </main>
+</body>
+{{end}}
+{{define "page-content"}}
+<article class="config-page help-page">
+    {{template "page-header" .}}
+    <section class="help-session" aria-labelledby="session-heading">
+        <header class="help-session-header">
+            <div>
+                <h2 id="session-heading">Browser session</h2>
+                <p>Your current sign-in details.</p>
+            </div>
+            <span class="help-session-status">Authenticated</span>
+        </header>
+        <div class="help-session-remaining">
+            <p class="help-detail-label">Time remaining</p>
+            <p class="help-remaining-value">{{.Remaining}}</p>
+            <p class="help-session-note">Calculated when this page was loaded.</p>
+        </div>
+        <dl class="help-session-details">
+            <div>
+                <dt>Logged in</dt>
+                <dd><time datetime="{{.IssuedAt}}">{{formatTimestamp .IssuedAt}}</time></dd>
+            </div>
+            <div>
+                <dt>Expires</dt>
+                <dd><time datetime="{{.ExpiresAt}}">{{formatTimestamp .ExpiresAt}}</time></dd>
+            </div>
+            <div class="help-user-agent">
+                <dt>Current user agent</dt>
+                <dd>{{.UserAgent}}</dd>
+            </div>
+        </dl>
+        <footer class="help-session-footer">
+            <p>Logging out clears this browser’s cookie; copies of the token remain valid until the expiry shown above.</p>
+            <form method="post" action="{{.URLs.Logout}}" up-submit="false">
+                <button type="submit" class="action-button">Log out</button>
+            </form>
+        </footer>
+    </section>
+</article>
+{{end}}

@@ -90,6 +90,13 @@ button.icon-button {
     block-size: 1.625rem;
 }
 
+.action-button {
+    padding: 0.25rem 0.65rem;
+    border: 1px solid var(--border);
+    font: inherit;
+    line-height: 1.3;
+}
+
 svg.audio-icon {
     display: block;
     inline-size: 1.3rem;
@@ -971,6 +978,96 @@ up-popup.info-popup[size] {
 
 .config-standalone > nav {
     margin-block-end: 1.25rem;
+}
+
+.help-session {
+    max-inline-size: 48rem;
+    border: 1px solid var(--border);
+    background: var(--surface);
+}
+
+.help-session-header,
+.help-session-footer {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    padding: 1.25rem;
+}
+
+.help-session-header h2 {
+    margin-block-end: 0.35rem;
+    font-size: 1.1rem;
+    font-weight: 500;
+}
+
+.help-session-header p,
+.help-session-note,
+.help-session-footer p {
+    color: var(--text-secondary);
+    font-size: 0.875rem;
+    line-height: 1.5;
+}
+
+.help-session-status {
+    padding: 0.25rem 0.5rem;
+    background: var(--info-background);
+    color: var(--info-text);
+    font-size: 0.8rem;
+}
+
+.help-session-remaining {
+    padding: 1.25rem;
+    border-block: 1px solid var(--border);
+    background: var(--background);
+}
+
+.help-detail-label,
+.help-session-details dt {
+    margin-block-end: 0.4rem;
+    color: var(--text-secondary);
+    font-size: 0.875rem;
+}
+
+.help-remaining-value {
+    margin-block-end: 0.35rem;
+    font-size: clamp(1.1rem, 2.5vw, 1.5rem);
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+}
+
+.help-session-details {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr));
+    gap: 1.25rem;
+    padding: 1.25rem;
+    line-height: 1.5;
+    overflow-wrap: anywhere;
+}
+
+.help-session-details dd {
+    font-size: 0.9rem;
+}
+
+.help-user-agent {
+    grid-column: 1 / -1;
+}
+
+.help-user-agent dd {
+    color: var(--text-secondary);
+}
+
+.help-session-footer {
+    border-block-start: 1px solid var(--border);
+}
+
+.help-session-footer p {
+    flex: 1 1 20rem;
+}
+
+.help-session-footer form {
+    margin: 0;
 }
 
 .alert {
