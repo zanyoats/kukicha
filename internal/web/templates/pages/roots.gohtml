@@ -29,7 +29,28 @@
     {{end}}
     {{range $index, $root := .ConfiguredRoots}}
     <section class="root-summary" aria-labelledby="root-path-{{$index}}">
-        <h2 id="root-path-{{$index}}">{{.RootKey}}</h2>
+        <h2 id="root-path-{{$index}}">
+            {{.RootKey -}}
+            <button
+                type="button"
+                class="root-info-trigger"
+                aria-label="Location for {{.RootKey}}"
+                aria-haspopup="dialog"
+                up-follow
+                up-layer="new popup"
+                up-content="#root-info-{{$index}}"
+                up-class="root-info-popup"
+                up-position="bottom"
+                up-align="left"
+                up-history="false"
+                up-dismissible="key outside"
+            >
+                <span aria-hidden="true">[*]</span>
+            </button>
+        </h2>
+        <template id="root-info-{{$index}}">
+            <p class="root-location">{{.Location}}</p>
+        </template>
         <dl class="facts facts-grid">
             <div>
                 <dt>Type</dt>
@@ -54,7 +75,6 @@
             </div>
             {{end}}
         </dl>
-        <p class="root-location">{{.Location}}</p>
         {{if not (index $.RootsByKey .RootKey)}}
         <p class="text-secondary">No data found for this root.</p>
         {{end}}

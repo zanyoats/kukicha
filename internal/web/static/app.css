@@ -442,7 +442,8 @@ article h1 {
     block-size: 0.75rem;
 }
 
-up-popup.library-sort-popup[size] {
+up-popup.library-sort-popup[size],
+up-popup.root-info-popup[size] {
     width: auto;
     max-width: calc(100vw - 1rem);
     padding: 0;
@@ -1032,7 +1033,19 @@ aside.alert {
     overflow-wrap: anywhere;
 }
 
+.root-info-trigger {
+    display: inline-block;
+    vertical-align: super;
+    padding: 0 0.125rem;
+    font: inherit;
+    font-family: monospace;
+    font-size: 0.65rem;
+    line-height: 1;
+}
+
 .root-location {
+    max-inline-size: min(30rem, calc(100vw - 1rem));
+    padding: 0.5rem 0.75rem;
     color: var(--text-secondary);
     font-size: 0.85rem;
     font-weight: 400;
