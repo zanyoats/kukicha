@@ -202,7 +202,7 @@ func ValidateJobSubmission(job JobSubmission) error {
 
 func SupportedJobType(jobType string) bool {
 	switch jobType {
-	case "sync", "scan":
+	case "sync", "scan", "reset":
 		return true
 	default:
 		return false

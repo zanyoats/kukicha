@@ -2,8 +2,8 @@ import { requestJSON } from "./json-api.js";
 import { showToast } from "./notifications.js";
 
 export default function registerSyncJob(up) {
-    up.compiler("[data-sync-job]", (container) => {
-        const button = container.querySelector("[data-sync-submit]");
+    up.compiler("[data-library-job-submit]", (button) => {
+        const jobType = button.dataset.jobType;
         let submitting = false;
         let destroyed = false;
         let enableTimer;
@@ -16,13 +16,12 @@ export default function registerSyncJob(up) {
             button.disabled = true;
             button.setAttribute("aria-busy", "true");
             try {
-                await requestJSON(up, button.dataset.syncSubmit, {
+                await requestJSON(up, button.dataset.libraryJobSubmit, {
                     method: "POST",
-                    body: { type: "sync", payload: {} },
-                    errorMessage:
-                        "Unable to submit the sync job. Please try again.",
+                    body: { type: jobType, payload: {} },
+                    errorMessage: `Unable to submit the ${jobType} job. Please try again.`,
                 });
-                showToast("Sync job queued.", { trigger: button });
+                showToast(`${jobType} job queued.`, { trigger: button });
             } catch (failure) {
                 showToast(failure.message, { role: "alert", trigger: button });
             } finally {

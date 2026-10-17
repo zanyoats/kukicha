@@ -51,6 +51,12 @@ func (j *Sync) notify(jobID int64, message string) {
 var ErrITunesArtworkLookup = errors.New("iTunes artwork lookup")
 
 func (j *Sync) Run(ctx context.Context) error {
+	return j.run(ctx, false)
+}
+
+// run shares connection ownership, recovery, scanning, and completion between
+// sync and reset. Reset clears persisted resources before scanning files.
+func (j *Sync) run(ctx context.Context, reset bool) error {
 	j.logger = app.JobLogger(ctx)
 	jobID, ok := app.JobIDFromContext(ctx)
 	if !ok {
@@ -92,6 +98,13 @@ func (j *Sync) Run(ctx context.Context) error {
 		if matches {
 			return nil
 		}
+	}
+
+	if reset {
+		if err := command.ResetLibrary(ctx, conn, jobID); err != nil {
+			return err
+		}
+		j.logger.InfoContext(ctx, "library reset complete; starting full sync")
 	}
 
 	if err := command.PrepareScanResults(

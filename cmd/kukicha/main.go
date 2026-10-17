@@ -202,6 +202,9 @@ func registry(db *sql.DB, conf *app.AppConfig, notifications jobs.NotificationPu
 		"sync": proc.Decode(func(struct{}) (proc.Job, error) {
 			return &jobs.Sync{DB: db, Conf: conf, Notifications: notifications}, nil
 		}),
+		"reset": proc.Decode(func(struct{}) (proc.Job, error) {
+			return &jobs.Reset{Sync: jobs.Sync{DB: db, Conf: conf, Notifications: notifications}}, nil
+		}),
 		"scan": proc.Decode(func(struct{}) (proc.Job, error) { return &jobs.Scan{DB: db, Conf: conf}, nil }),
 	}
 }

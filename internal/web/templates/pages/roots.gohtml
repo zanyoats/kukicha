@@ -15,15 +15,15 @@
 <article class="config-page">
     {{template "page-header" .}}
     {{if .ConfiguredRoots}}
-    <aside class="alert alert-info" aria-label="Info" data-sync-job>
+    <aside class="alert alert-info" aria-label="Info">
         <strong>Info</strong>
         <p>
             Configured roots are synced at startup.
-            You can run <button type="button" class="inline-action" disabled title="Scan is not available yet">Scan</button> to rebuild the library,
-            or <button type="button" class="inline-action" data-sync-submit="{{.URLs.SubmitJob}}">Sync</button> to also re-download all files.
+            You can run <button type="button" class="inline-action" data-library-job-submit="{{.URLs.SubmitJob}}" data-job-type="scan">Scan</button> to rebuild the library,
+            or <button type="button" class="inline-action" data-library-job-submit="{{.URLs.SubmitJob}}" data-job-type="sync">Sync</button> to also re-download all files.
             Either option starts a new job that runs in the background.
-            For a full factory reset, use <button type="button" class="inline-action" disabled title="Reset is not available yet">Reset</button>,
-            which runs a sync and removes all listening/cached data.
+            For a full factory reset, use <button type="button" class="inline-action" data-library-job-submit="{{.URLs.SubmitJob}}" data-job-type="reset">Reset</button>,
+            which removes split rules, cached resources, and other jobs before running a full sync.
         </p>
     </aside>
     {{end}}
