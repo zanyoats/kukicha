@@ -1623,3 +1623,55 @@ svg.player-queue-play-icon {
     width: 18px;
     height: 18px;
 }
+
+.login-page {
+    display: grid;
+    place-items: center;
+    block-size: auto;
+    min-block-size: 100dvh;
+    padding: 1rem;
+    background: var(--background);
+}
+
+.login-panel {
+    inline-size: min(100%, 22rem);
+}
+
+.login-form {
+    display: grid;
+    gap: 0.5rem;
+    padding: 1.25rem;
+    background: var(--surface);
+}
+
+.login-form h1 {
+    margin-block-end: 0.5rem;
+    font-size: 1.25rem;
+}
+
+.login-form label {
+    font-size: 0.875rem;
+}
+
+.login-form input {
+    min-width: 0;
+    inline-size: 100%;
+    padding: 0.5rem;
+    font: inherit;
+    color: inherit;
+    background: var(--surface);
+    border: 1px solid var(--border);
+}
+
+.login-form button {
+    margin-block-start: 0.25rem;
+    padding: 0.5rem 0.75rem;
+    border: 1px solid var(--border);
+    font: inherit;
+    background: var(--background);
+}
+
+.login-error {
+    color: var(--error-text);
+    font-size: 0.875rem;
+}

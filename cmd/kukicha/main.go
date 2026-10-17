@@ -14,6 +14,7 @@ import (
 
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/zanyoats/kukicha/internal/app"
+	"github.com/zanyoats/kukicha/internal/auth"
 	"github.com/zanyoats/kukicha/internal/jobs"
 	proc "github.com/zanyoats/kukicha/internal/processor"
 	"github.com/zanyoats/kukicha/internal/scan"
@@ -30,6 +31,11 @@ func main() {
 }
 
 func run() error {
+	key, err := auth.ParseJWTSecret(os.Getenv("KUKICHA_JWT_SECRET"))
+	if err != nil {
+		return err
+	}
+
 	catalog, err := app.LoadTaxonomy()
 	if err != nil {
 		return err
@@ -39,6 +45,11 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	credentials, err := auth.New(os.Getenv("KUKICHA_PASSPHRASE"), key, conf.Settings.Server.SessionLifetime.Duration)
+	if err != nil {
+		return err
+	}
+
 	slog.SetDefault(slog.New(slog.NewTextHandler(
 		os.Stderr,
 		&slog.HandlerOptions{Level: conf.Settings.Logging.Level.Level},
@@ -141,6 +152,7 @@ func run() error {
 			conf.Roots,
 			conf.ConfigFilePath,
 			scan.RecognizedAudioExtensions,
+			credentials,
 		),
 		ReadHeaderTimeout: conf.Settings.Server.ReadHeaderTimeout.Duration,
 	}

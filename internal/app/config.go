@@ -181,6 +181,7 @@ type AppConfig struct {
 			AppBasePath       string   `toml:"app_base_path"`
 			ReadHeaderTimeout Duration `toml:"read_header_timeout"`
 			ShutdownTimeout   Duration `toml:"shutdown_timeout"`
+			SessionLifetime   Duration `toml:"session_lifetime"`
 			Database          struct {
 				BusyTimeout  Duration `toml:"busy_timeout"`
 				CacheSizeKiB int64    `toml:"cache_size_kib"`
@@ -317,6 +318,11 @@ func LoadAppConfig(catalog *Catalog) (*AppConfig, error) {
 		return nil, fmt.Errorf(
 			"%q setting is not valid: %w",
 			"server.app_base_path", err,
+		)
+	}
+	if result.Settings.Server.SessionLifetime.Duration < time.Second {
+		return nil, errors.New(
+			`"server.session_lifetime" setting must be at least one second`,
 		)
 	}
 	if result.Settings.Server.ReadHeaderTimeout.Duration <= 0 {

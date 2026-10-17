@@ -1,0 +1,14 @@
+{{define "title"}}Log in{{end}}
+{{define "body"}}
+<body class="login-page">
+    <main class="login-panel" up-main>
+        <form method="post" action="{{.URLs.Login}}" up-submit="false" class="login-form" aria-labelledby="login-heading">
+            <h1 id="login-heading">Log in to Kukicha</h1>
+            {{if .Error}}<p class="login-error" role="alert">{{.Error}}</p>{{end}}
+            <label for="passphrase">Passphrase</label>
+            <input id="passphrase" name="passphrase" type="password" autocomplete="current-password" required autofocus />
+            <button type="submit">Log in</button>
+        </form>
+    </main>
+</body>
+{{end}}

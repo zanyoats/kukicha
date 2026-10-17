@@ -1,4 +1,5 @@
 import { up } from "./unpoly.js";
+import registerAuth from "./auth.js";
 import registerPlayerControls from "./player-controls.js";
 import registerPlayerEngine from "./player-engine.js";
 import registerAlbumCover from "./album-cover.js";
@@ -12,6 +13,7 @@ import registerJobStatus from "./job-status.js";
 up.log.config.banner = false;
 up.history.config.restoreTargets = ["[up-main]"];
 
+registerAuth(up);
 registerArtwork(up);
 registerPlayerEngine(up);
 registerPlayerControls(up);

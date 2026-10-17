@@ -11,6 +11,8 @@ import (
 // URLs contains paths shared by router registration and page links.
 // Directory paths include their canonical trailing slash.
 type URLs struct {
+	Login                   string
+	Logout                  string
 	Home                    string
 	Library                 string
 	AlbumArtwork            string
@@ -44,6 +46,8 @@ func NewURLs(basePath string) URLs {
 	api := base + "/api"
 	assets := "/assets/"
 	return URLs{
+		Login:                   base + "/login/",
+		Logout:                  base + "/logout/",
 		Home:                    app + "/",
 		Library:                 app + "/library/",
 		AlbumArtwork:            app + "/library/album/artwork/",

@@ -11,6 +11,7 @@ import (
 	"sync"
 
 	"github.com/zanyoats/kukicha/internal/app"
+	"github.com/zanyoats/kukicha/internal/auth"
 	"github.com/zanyoats/kukicha/internal/processor"
 	"github.com/zanyoats/kukicha/internal/usecase/query"
 )
@@ -27,6 +28,7 @@ type NotificationSubscriber interface {
 }
 
 type webRouter struct {
+	auth                      *auth.Auth
 	urls                      URLs
 	renderer                  Renderer
 	db                        *sql.DB
@@ -52,13 +54,18 @@ func NewWebRouter(
 	configuredRoots []app.Root,
 	configFilePath string,
 	recognizedAudioExtensions map[string]bool,
+	credentials *auth.Auth,
 ) http.Handler {
 	rootsByConfigID := make(map[string]app.Root, len(configuredRoots))
 	for _, root := range configuredRoots {
 		rootsByConfigID[root.ConfigID()] = root
 	}
 	urls := NewURLs(basePath)
+	if credentials == nil {
+		panic("authentication is required")
+	}
 	router := webRouter{
+		auth:                      credentials,
 		urls:                      urls,
 		renderer:                  renderer,
 		db:                        db,
@@ -72,7 +79,18 @@ func NewWebRouter(
 		recognizedAudioExtensions: slices.Sorted(maps.Keys(recognizedAudioExtensions)),
 	}
 	mux := http.NewServeMux()
-
+	mux.HandleFunc(
+		exactPattern(http.MethodGet, urls.Login),
+		router.login,
+	)
+	mux.HandleFunc(
+		exactPattern(http.MethodPost, urls.Login),
+		router.login,
+	)
+	mux.HandleFunc(
+		exactPattern(http.MethodPost, urls.Logout),
+		router.logout,
+	)
 	mux.Handle(
 		"GET /{$}",
 		http.RedirectHandler(urls.Home, http.StatusTemporaryRedirect),
@@ -149,7 +167,7 @@ func NewWebRouter(
 		router.getIdenticon,
 	)
 
-	return mux
+	return http.NewCrossOriginProtection().Handler(router.requireAuth(mux))
 }
 
 func internalServerError(w http.ResponseWriter, message string, args ...any) {

@@ -36,6 +36,8 @@ github.com/aws/aws-sdk-go-v2/service/sts v1.51.1 h1:0HOqZXRvMytH6bFHVIc0oJX07sZj
 github.com/aws/aws-sdk-go-v2/service/sts v1.51.1/go.mod h1:26zA0GhDrLo+yiLI2yXWxqB1PdsShfLikoI7GOEgugM=
 github.com/aws/smithy-go v1.28.1 h1:R/nXH00c8qcfCzQVELtRw+eLQWtzv+VAIEFJ1/xxXlQ=
 github.com/aws/smithy-go v1.28.1/go.mod h1:YE2RhdIuDbA5E5bTdciG9KrW3+TiEONeUWCqxX9i1Fc=
+github.com/golang-jwt/jwt/v5 v5.3.1 h1:kYf81DTWFe7t+1VvL7eS+jKFVWaUnK9cB1qbwn63YCY=
+github.com/golang-jwt/jwt/v5 v5.3.1/go.mod h1:fxCRLWMO43lRc8nhHWY6LGqRcf+1gQWArsqaEUEa5bE=
 github.com/mattn/go-sqlite3 v1.14.47 h1:jOBI62gS7nKeZv+as1oGEy0+1qISgXwH/QBlR6KbfIo=
 github.com/mattn/go-sqlite3 v1.14.47/go.mod h1:6JTjA44L93a0QCyJef5YvlPoKXntQPjzWv5gtm9sB6w=
 golang.org/x/image v0.42.0 h1:1gSs6ehNWXLbkHBIPcWztk3D/6aIA/8hauiAYtlodVY=

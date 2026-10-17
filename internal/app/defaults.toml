@@ -121,6 +121,10 @@ read_header_timeout = "5s"
 # and you want to give active requests more time to finish.
 shutdown_timeout = "5s"
 
+# Lifetime of new login sessions. Uses Go durations (for example "24h").
+# 4320h is 180 days. Must be at least 1s; existing tokens keep their expiry.
+session_lifetime = "4320h"
+
 [server.database]
 busy_timeout = "5s"
 
