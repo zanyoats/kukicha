@@ -1,0 +1,25 @@
+# make dev rebuilds embedded assets as well as Go code. Refresh the browser
+# after the server restarts; no browser proxy is enabled.
+root = "."
+tmp_dir = "dist/air"
+
+[build]
+cmd = "make build"
+entrypoint = ["./dist/kukicha"]
+include_ext = ["go", "gohtml", "html", "css", "js", "svg", "json", "toml", "sql"]
+include_file = ["go.mod", "go.sum", "Makefile"]
+exclude_dir = ["dist", ".git", "node_modules", "vendor"]
+exclude_regex = ["_test\\.go$"]
+exclude_unchanged = true
+delay = 300
+stop_on_error = true
+# Allow the server's five-second graceful shutdown before forcing termination.
+send_interrupt = true
+kill_delay = "6s"
+log = "build-errors.log"
+
+[log]
+time = true
+
+[screen]
+clear_on_rebuild = false
