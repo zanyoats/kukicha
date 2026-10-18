@@ -403,3 +403,70 @@ CREATE TABLE library_job_logs (
 
 CREATE INDEX library_job_logs_job_id_id
 ON library_job_logs (job_id, id);
+
+CREATE TABLE artists_radios (
+    artist_id INTEGER NOT NULL,
+    position  INTEGER NOT NULL,
+    track_id  INTEGER NOT NULL,
+
+    PRIMARY KEY (artist_id, position),
+    UNIQUE (artist_id, track_id),
+    CHECK (position >= 0),
+    FOREIGN KEY (artist_id)
+      REFERENCES library_artist_ids (id)
+      ON DELETE CASCADE,
+    FOREIGN KEY (track_id)
+      REFERENCES library_tracks (id)
+      ON DELETE CASCADE
+) WITHOUT ROWID;
+
+CREATE TABLE genres_radios (
+    genre_id INTEGER NOT NULL,
+    position INTEGER NOT NULL,
+    track_id INTEGER NOT NULL,
+
+    PRIMARY KEY (genre_id, position),
+    UNIQUE (genre_id, track_id),
+    CHECK (position >= 0),
+    FOREIGN KEY (genre_id)
+      REFERENCES taxonomy_genres (id)
+      ON DELETE CASCADE,
+    FOREIGN KEY (track_id)
+      REFERENCES library_tracks (id)
+      ON DELETE CASCADE
+) WITHOUT ROWID;
+
+CREATE TABLE styles_radios (
+    style_id INTEGER NOT NULL,
+    position INTEGER NOT NULL,
+    track_id INTEGER NOT NULL,
+
+    PRIMARY KEY (style_id, position),
+    UNIQUE (style_id, track_id),
+    CHECK (position >= 0),
+    FOREIGN KEY (style_id)
+      REFERENCES taxonomy_styles (id)
+      ON DELETE CASCADE,
+    FOREIGN KEY (track_id)
+      REFERENCES library_tracks (id)
+      ON DELETE CASCADE
+) WITHOUT ROWID;
+
+CREATE TABLE radio_state (
+    kind             TEXT    NOT NULL,
+    entity_id        INTEGER NOT NULL,
+    track_count      INTEGER NOT NULL,
+    prime            INTEGER NOT NULL,
+    multiplier       INTEGER NOT NULL,
+    offset           INTEGER NOT NULL,
+    current_position INTEGER NOT NULL,
+
+    PRIMARY KEY (kind, entity_id),
+    CHECK (kind IN ('artist', 'genre', 'style')),
+    CHECK (entity_id > 0),
+    CHECK (track_count > 0),
+    CHECK (prime > track_count),
+    CHECK (multiplier >= 1 AND multiplier < prime),
+    CHECK (offset >= 0 AND offset < prime),
+    CHECK (current_position >= 0 AND current_position < track_count)
+) WITHOUT ROWID;
