@@ -1,3 +1,7 @@
+DELETE FROM radio_state;
+DELETE FROM artists_radios;
+DELETE FROM genres_radios;
+DELETE FROM styles_radios;
 DELETE FROM library_album_styles;
 DELETE FROM library_album_genres;
 DELETE FROM library_track_styles;

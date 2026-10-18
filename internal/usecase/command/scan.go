@@ -74,6 +74,9 @@ var buildLibraryTrackGenresAndStylesSQL string
 //go:embed sql/build_library_album_genres_and_styles.sql
 var buildLibraryAlbumGenresAndStylesSQL string
 
+//go:embed sql/build_library_radios.sql
+var buildLibraryRadiosSQL string
+
 //go:embed sql/genre_resolution_results.sql
 var genreResolutionResultsSQL string
 
@@ -204,6 +207,10 @@ func BuildLibraryFromScan(
 
 	if err = buildLibraryAlbumGenresAndStyles(ctx, tx); err != nil {
 		return result, err
+	}
+
+	if _, err = tx.ExecContext(ctx, buildLibraryRadiosSQL); err != nil {
+		return result, fmt.Errorf("build library radios: %w", err)
 	}
 
 	if mode == BuildFromFiles {
