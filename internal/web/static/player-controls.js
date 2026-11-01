@@ -22,6 +22,7 @@ export default function registerPlayerControls(up) {
 }
 
 function playerControlsCompiler(up, player) {
+    const radioElement = player.querySelector("[data-player-radio]");
     const albumElement = player.querySelector("[data-player-album]");
     const albumLinks = player.querySelectorAll("[data-player-album-link]");
     const artistsElement = player.querySelector(
@@ -67,6 +68,8 @@ function playerControlsCompiler(up, player) {
 
     const updateNowPlaying = (event) => {
         const track = event.track;
+        radioElement.textContent = event.radioName || "";
+        radioElement.hidden = !event.radioName;
         for (const link of albumLinks) {
             if (track?.albumURL) {
                 link.setAttribute("href", track.albumURL);
@@ -119,13 +122,17 @@ function playerControlsCompiler(up, player) {
     };
 
     const updateTransport = (event) => {
-        playButton.disabled = !event.hasTrack;
+        playButton.disabled = !event.hasTrack || event.pending;
         playButton.setAttribute(
             "aria-label",
             event.playing ? "Pause" : "Play",
         );
         setIcon(playIcon, event.playing ? "pause" : "play");
-        previousButton.disabled = !event.hasTrack;
+        previousButton.disabled = event.pending || (event.radioMode ? !event.hasPrevious : !event.hasTrack);
+        queueButton.disabled = event.radioMode || event.pending;
+        if (event.radioMode && isQueueLayer(up.layer.front)) {
+            up.layer.front.dismiss();
+        }
         nextButton.disabled = !event.hasNext;
     };
 

@@ -1,6 +1,6 @@
 {{define "footer" -}}
 <footer id="player" class="now-playing" style="--player-artwork-size: {{playerArtworkSize}}px;" up-keep>
-    <audio data-player-audio preload="metadata" crossorigin="anonymous"></audio>
+    <audio data-radio-url="{{.URLs.RadioTrack}}" data-player-audio preload="metadata" crossorigin="anonymous"></audio>
 
     <section
         class="album-meta"
@@ -15,6 +15,7 @@
         <div>
             <a class="album-title text-truncate" data-player-album data-player-album-link up-follow></a>
             <div class="track-artists text-truncate" data-player-artists hidden></div>
+            <div class="track-artists text-truncate" data-player-radio hidden></div>
         </div>
     </section>
 

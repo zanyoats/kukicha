@@ -111,7 +111,7 @@ a {
     font-size: 0.9rem;
 }
 
-button:hover:not(:disabled) {
+button:hover:not(:disabled):not(.radio-card-link) {
     color: var(--text-primary);
 }
 
@@ -437,7 +437,12 @@ article h2 {
 
     .radio-card-link {
         flex: 0 0 auto;
+        font-family: inherit;
         font-size: 0.75rem;
+
+        &[aria-current="true"] {
+            color: var(--accent);
+        }
     }
 }
 

@@ -23,6 +23,7 @@ type homeViewModel struct {
 }
 
 type homeLink struct {
+	ID   int64
 	Name string
 	URL  string
 }
@@ -61,6 +62,7 @@ func homeLinks(items []query.HomeItem, itemURL func(int64) string) []homeLink {
 	links := make([]homeLink, 0, len(items))
 	for _, item := range items {
 		links = append(links, homeLink{
+			ID:   item.ID,
 			Name: item.Name,
 			URL:  itemURL(item.ID),
 		})

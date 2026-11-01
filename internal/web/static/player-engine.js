@@ -20,16 +20,36 @@ import {
     savePreferredVolume,
 } from "./player-preferences.js";
 
+import { createRadioSession } from "./player-radio.js";
+import { showToast } from "./notifications.js";
+
 export default function registerPlayerEngine(up) {
     up.compiler("audio[data-player-audio]", (audio) =>
         playerEngineCompiler(up, audio),
     );
+    up.compiler(".home-page", (page) => {
+        const buttons = page.querySelectorAll("[data-radio-kind][data-radio-id]");
+        const unbind = up.on(PLAYER_TRACK_CHANGED, (event) => {
+            for (const button of buttons) {
+                const active = button.dataset.radioKind === event.radioKind &&
+                    button.dataset.radioId === event.radioEntityID;
+                if (active) {
+                    button.setAttribute("aria-current", "true");
+                } else {
+                    button.removeAttribute("aria-current");
+                }
+            }
+        });
+        up.emit(PLAYER_STATE_REQUEST);
+        return unbind;
+    });
 }
 
 function playerEngineCompiler(up, audio) {
     const preferredVolume = loadPreferredVolume();
     audio.volume = preferredVolume;
 
+    let radio = null;
     let queue = [];
     let currentIndex = -1;
     let currentTrackID = null;
@@ -43,8 +63,10 @@ function playerEngineCompiler(up, audio) {
 
     const currentTrack = () => queue[currentIndex] || null;
     const hasTrack = () => currentTrack() !== null;
-    const hasPrevious = () => hasTrack() && currentIndex > 0;
-    const hasNext = () => hasTrack() && currentIndex < queue.length - 1;
+    const hasPrevious = () => hasTrack() && !radio?.pending &&
+        (radio?.current ? BigInt(radio.current.state.current_position) > 0n : currentIndex > 0);
+    const hasNext = () => hasTrack() && !radio?.pending &&
+        (radio?.current ? true : currentIndex < queue.length - 1);
 
     const emitTrack = () => {
         up.emit(PLAYER_TRACK_CHANGED, {
@@ -54,6 +76,11 @@ function playerEngineCompiler(up, audio) {
             hasTrack: hasTrack(),
             hasPrevious: hasPrevious(),
             hasNext: hasNext(),
+            radioName: radio?.current ? `${radio.current.name} radio` : "",
+            radioKind: radio?.current?.kind ?? null,
+            radioEntityID: radio?.current?.entity_id ?? null,
+            radioMode: !!radio?.current,
+            pending: !!radio?.pending,
         });
     };
     const emitPlayback = () => {
@@ -63,6 +90,9 @@ function playerEngineCompiler(up, audio) {
             hasTrack: hasTrack(),
             hasPrevious: hasPrevious(),
             hasNext: hasNext(),
+            radioName: radio?.current ? `${radio.current.name} radio` : "",
+            radioMode: !!radio?.current,
+            pending: !!radio?.pending,
             playing: hasTrack() && !audio.paused && !audio.ended,
         });
     };
@@ -83,7 +113,7 @@ function playerEngineCompiler(up, audio) {
     };
     const emitQueue = () => {
         up.emit(PLAYER_QUEUE_CHANGED, {
-            tracks: queue,
+            tracks: radio?.current ? [] : queue,
         });
     };
     const emitState = () => {
@@ -166,6 +196,7 @@ function playerEngineCompiler(up, audio) {
     };
 
     const togglePlayback = () => {
+        if (radio?.pending) return;
         if (!hasTrack()) {
             if (queue.length) selectTrack(0);
             return;
@@ -180,6 +211,7 @@ function playerEngineCompiler(up, audio) {
     };
 
     const selectTrackInQueue = (event) => {
+        if (radio?.current || radio?.pending) return;
         const selectedIndex = Number(event.selectedIndex);
 
         if (
@@ -208,18 +240,23 @@ function playerEngineCompiler(up, audio) {
         }
 
         const selectedTrack = event.tracks[event.selectedIndex];
+        // The active album row controls the current track, including in radio mode.
         if (!event.startAlbum && selectedTrack.id === currentTrackID) {
             togglePlayback();
             return;
         }
 
+        const leavingRadio = !!radio?.current || !!radio?.pending;
+        radio?.leave();
         queue = [...event.tracks];
         emitQueue();
         selectTrack(event.selectedIndex);
-        if (event.startAlbum) audio.currentTime = 0;
+        if (event.startAlbum || leavingRadio) audio.currentTime = 0;
     };
 
     const playPrevious = () => {
+        if (radio?.pending) return;
+        if (radio?.current) { radio.move(-1); return; }
         if (audio.currentTime > restartThresholdSeconds || !hasPrevious()) {
             audio.currentTime = 0;
             emitTime();
@@ -229,7 +266,11 @@ function playerEngineCompiler(up, audio) {
         selectTrack(currentIndex - 1);
     };
 
-    const playNext = () => selectTrack(currentIndex + 1);
+    const playNext = () => {
+        if (radio?.pending) return;
+        if (radio?.current) { radio.move(1); return; }
+        selectTrack(currentIndex + 1);
+    };
 
     const seek = (event) => {
         if (!Number.isFinite(audio.duration) || audio.duration <= 0) {
@@ -267,10 +308,54 @@ function playerEngineCompiler(up, audio) {
         }
     };
 
+    let storage;
+    try { storage = window.sessionStorage; } catch { /* In-memory playback still works. */ }
+    radio = createRadioSession({
+        url: audio.dataset.radioUrl,
+        storage,
+        onStatus: emitState,
+        onUnauthorized: (url) => window.location.assign(url),
+        onSelection: (track, autoplay) => {
+            queue = [track];
+            currentIndex = -1;
+            emitQueue();
+            selectTrack(0, autoplay);
+        },
+        onError: (error, unavailable) => {
+            if (unavailable) {
+                playbackRequested = false;
+                audio.pause();
+                audio.removeAttribute("src");
+                audio.load();
+                queue = [];
+                currentIndex = -1;
+                currentTrackID = null;
+            }
+            showToast(error.message, { role: "alert" });
+        },
+    });
+    const radioClick = (event) => {
+        const button = event.target instanceof Element
+            ? event.target.closest("[data-radio-kind][data-radio-id]") : null;
+        if (!button) return;
+        event.preventDefault();
+        radio.start(button.dataset.radioKind, button.dataset.radioId);
+    };
+
     const unbind = [
+        up.on(document, "click", radioClick),
+        () => radio.dispose(),
         up.on(PLAYER_SELECT_QUEUE, selectQueue),
         up.on(PLAYER_APPEND_QUEUE, (event) => {
             if (!Array.isArray(event.tracks) || !event.tracks.length) return;
+            const leavingRadio = !!radio.current || radio.pending;
+            radio.leave();
+            if (leavingRadio) {
+                playbackRequested = false;
+                audio.pause();
+                queue = [];
+                currentIndex = -1;
+            }
             queue = [...queue, ...event.tracks];
             emitQueue();
             if (!hasTrack()) selectTrack(0, false);
@@ -293,7 +378,7 @@ function playerEngineCompiler(up, audio) {
         up.on(audio, "volumechange", emitVolume),
         up.on(audio, "ended", () => {
             if (hasNext()) {
-                selectTrack(currentIndex + 1);
+                playNext();
             } else {
                 playbackRequested = false;
                 emitPlayback();
@@ -301,5 +386,6 @@ function playerEngineCompiler(up, audio) {
         }),
     ];
 
+    radio.restore();
     return unbind;
 }
