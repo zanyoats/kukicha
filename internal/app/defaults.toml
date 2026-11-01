@@ -40,6 +40,12 @@ level = "info"
                                           # | ---------|-------------------------------------|-------------------------------|
 roots = []
 
+# Literal delimiters in priority order; empty strings are invalid.
+# Split at the earliest match, breaking ties by array order.
+# Parts are trimmed using Go's Unicode whitespace set; empty parts are discarded.
+primary_genre_split_tokens = [";", "|"]
+secondary_genre_split_tokens = [",", "/"]
+
 # Ignore local filenames or remote object keys during file scanning or syncing (new tracks).
 # For local roots, file emptiness is determined while ignoring matching prefixes or files
 # for top-level entries. Set either list to [] to disable its exclusions.
@@ -83,14 +89,6 @@ max_attempts = 2
 "album"    = true
 "artwork"  = true
 "albumart" = true
-
-[scan.primary_genre_split_tokens]
-";" = true
-"|" = true
-
-[scan.secondary_genre_split_tokens]
-"," = true
-"/" = true
 
 [scan.genre_style_aliases]
 "altrock"      = "alternative rock"

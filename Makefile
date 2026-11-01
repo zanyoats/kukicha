@@ -3,7 +3,8 @@
 APP := kukicha
 CMD := ./cmd/kukicha
 BIN := dist/$(APP)
-TAGS ?= sqlite_fts5 sqlite_json
+# ICU development headers and libraries are required (Homebrew: icu4c).
+TAGS ?= sqlite_fts5 sqlite_icu
 GO_TAGS := $(if $(strip $(TAGS)),-tags "$(TAGS)")
 AIR_VERSION := v1.67.4
 AIR_BIN := $(CURDIR)/dist/tools/$(AIR_VERSION)/air

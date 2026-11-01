@@ -31,81 +31,24 @@ func PrepareScanResultsFromLibrary(ctx context.Context, conn *sql.Conn, conf *ap
 	return stageAlbumScanOverrides(ctx, conn, conf)
 }
 
-// NormalizeScanTracks normalizes existing and new tracks in bounded batches.
-// It inserts one normalized row per track without changing the staged raw metadata.
-// Close each result set before invoking the callback, which may write artist mappings.
-func NormalizeScanTracks(ctx context.Context, conn *sql.Conn,
-	normalize func(string, *app.ScannedFile, app.MetadataOverride) error,
-) error {
-	afterRoot, afterPath := -1, ""
-	for {
-		rows, err := conn.QueryContext(ctx, `
-   SELECT tracks.root_pos, tracks.path, tracks.album_key, tracks.track_metadata,
-       COALESCE(tracks.ext, ''), tracks.stem, COALESCE(overrides.genres_json, 'null')
-   FROM scan_tracks AS tracks
-   LEFT JOIN scan_album_overrides AS overrides ON overrides.album_key = tracks.album_key
-   WHERE (tracks.root_pos, tracks.path) > (?, ?)
-   ORDER BY tracks.root_pos, tracks.path LIMIT 256`, afterRoot, afterPath)
-		if err != nil {
-			return err
-		}
-		type item struct {
-			file     app.ScannedFile
-			override app.MetadataOverride
-			albumKey string
-		}
-		var batch []item
-		for rows.Next() {
-			var entry item
-			var raw, genres string
-			file := &entry.file
-			if err := rows.Scan(&file.RootPos, &file.Path, &entry.albumKey, &raw, &file.Ext, &file.Stem, &genres); err != nil {
-				rows.Close()
-				return err
-			}
-			file.Metadata = &app.TrackMetadata{}
-			if err := json.Unmarshal([]byte(raw), file.Metadata); err != nil {
-				rows.Close()
-				return fmt.Errorf("decode staged metadata for %q: %w", file.Path, err)
-			}
-			if err := json.Unmarshal([]byte(genres), &entry.override.Genres); err != nil {
-				rows.Close()
-				return fmt.Errorf("decode staged override for %q: %w", file.Path, err)
-			}
-			file.NormalizedMetadata = &app.NormalizedTrackMetadata{}
-			batch = append(batch, entry)
-		}
-		err = rows.Err()
-		closeErr := rows.Close()
-		if err != nil {
-			return err
-		}
-		if closeErr != nil {
-			return closeErr
-		}
-		if len(batch) == 0 {
-			return nil
-		}
-		for i := range batch {
-			entry := &batch[i]
-			file := &entry.file
-			if err := ctx.Err(); err != nil {
-				return err
-			}
-			if err := normalize(entry.albumKey, file, entry.override); err != nil {
-				return fmt.Errorf("normalize staged track %q: %w", file.Path, err)
-			}
-			encoded, err := json.Marshal(file.NormalizedMetadata)
-			if err != nil {
-				return err
-			}
-			if _, err := conn.ExecContext(ctx, `INSERT INTO scan_track_normalized_metadata (root_pos, path, normalized_metadata) VALUES (?, ?, ?)`,
-				file.RootPos, file.Path, string(encoded)); err != nil {
-				return err
-			}
-			afterRoot, afterPath = file.RootPos, file.Path
-		}
+// NormalizeScanTracks inserts one normalized row per staged track using SQL.
+// Raw tags, provider values, and album identity remain unchanged.
+// Saved artist mappings are validated by UpdateArtistRule when written.
+func NormalizeScanTracks(ctx context.Context, conn *sql.Conn, conf *app.AppConfig) error {
+	delimiters, err := json.Marshal(conf.Settings.Scan.PrimaryGenreSplitTokens)
+	if err != nil {
+		return err
 	}
+	aliases, err := json.Marshal(conf.Settings.Scan.GenreStyleAliases)
+	if err != nil {
+		return err
+	}
+	_, err = conn.ExecContext(ctx, withGenreSplitter(normalizeScanTracksSQL),
+		sql.Named("split_delimiters", string(delimiters)),
+		sql.Named("aliases", string(aliases)),
+		sql.Named("unicode_whitespace", normalizationWhitespace),
+		sql.Named("unknown_item", app.UnknownItem))
+	return err
 }
 
 func prepareScanResults(

@@ -22,12 +22,12 @@
         </p>
     </aside>
     {{template "rebuild-job-help" .}}
-    <p>Select an artist below, then find the matching album on Discogs or MusicBrainz. Check the artist, album title, and cover artwork, open the album’s page, and copy its URL from your browser into the Source URL field. Use an album page, rather than an artist page, search results, or a direct image link.</p>
-    <ul>
+    <p class="metadata-help-intro">Select an artist below, then find the matching album on <a href="https://www.discogs.com/" target="_blank" rel="noopener noreferrer">Discogs</a> or <a href="https://musicbrainz.org/" target="_blank" rel="noopener noreferrer">MusicBrainz</a> sites. Check the artist, album title, and cover artwork, open the album’s page, and copy its URL from your browser into the Source URL field. Use an album page, rather than an artist page, search results, or a direct image link.</p>
+    <ul class="metadata-source-guide">
         <li><strong>Discogs:</strong> Use a release page for a specific edition or a master page that groups editions of the album. The URL should contain <code>discogs.com/release/…</code> or <code>discogs.com/master/…</code>.</li>
         <li><strong>MusicBrainz:</strong> Use a release page for a specific edition or a release-group page that groups editions of the album. The URL should contain <code>musicbrainz.org/release/…</code> or <code>musicbrainz.org/release-group/…</code>.</li>
     </ul>
-    <p>If you want artwork for a particular edition, choose that release’s page. Removing an override restores ordinary metadata and artwork on the next rebuild.</p>
+    <p class="metadata-help-note">If you want artwork for a particular edition, choose that release’s page. Removing an override restores ordinary metadata and artwork on the next rebuild.</p>
     {{if .Artists}}
     <form class="metadata-artist-form" action="{{.URLs.MetadataOverrides}}" method="get" up-submit up-autosubmit up-watch-event="change" up-watch-delay="0" up-target=".metadata-overrides-page" up-history="true">
         <div class="form-field">

@@ -71,6 +71,24 @@ func run() error {
 	db.SetMaxOpenConns(2)
 	db.SetMaxIdleConns(2)
 
+	// Check once at startup: these options are fixed when SQLite is compiled.
+	var icu, fts5, omitJSON bool
+	if err := db.QueryRowContext(ctx, `SELECT
+		sqlite_compileoption_used('ENABLE_ICU'),
+		sqlite_compileoption_used('ENABLE_FTS5'),
+		sqlite_compileoption_used('OMIT_JSON')`).Scan(&icu, &fts5, &omitJSON); err != nil {
+		return err
+	}
+	if !icu {
+		return errors.New("metadata normalization requires SQLite ICU support; build with sqlite_icu")
+	}
+	if !fts5 {
+		return errors.New("SQLite FTS5 support is required; build with sqlite_fts5")
+	}
+	if omitJSON {
+		return errors.New("SQLite JSON support is required; build without SQLITE_OMIT_JSON")
+	}
+
 	if _, err = db.ExecContext(ctx, `PRAGMA journal_mode = WAL`); err != nil {
 		return err
 	}

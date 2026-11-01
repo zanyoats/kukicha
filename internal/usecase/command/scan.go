@@ -11,7 +11,6 @@ import (
 	"io"
 	"log/slog"
 	"os"
-	"slices"
 	"strconv"
 
 	"github.com/zanyoats/kukicha/internal/app"
@@ -114,7 +113,7 @@ func BuildLibraryFromScan(
 	ctx context.Context,
 	conn *sql.Conn,
 	unknownItem string,
-	secondaryGenreSplitTokens map[string]bool,
+	secondaryGenreSplitTokens []string,
 	recognizedAudioExtensions map[string]bool,
 	recognizedPlaylistExtensions map[string]bool,
 	recognizedSidecarExtensions map[string]bool,
@@ -515,26 +514,19 @@ func buildLibraryTrackGenresAndStyles(
 	ctx context.Context,
 	tx *sql.Tx,
 	unknownItem string,
-	secondaryGenreSplitTokens map[string]bool,
+	secondaryGenreSplitTokens []string,
 	jobID int64,
 ) error {
-	splitDelimiters := make([]string, 0, len(secondaryGenreSplitTokens))
-	for delimiter, enabled := range secondaryGenreSplitTokens {
-		if enabled {
-			splitDelimiters = append(splitDelimiters, delimiter)
-		}
-	}
-	slices.Sort(splitDelimiters)
-
-	splitDelimitersJSON, err := json.Marshal(splitDelimiters)
+	splitDelimitersJSON, err := json.Marshal(secondaryGenreSplitTokens)
 	if err != nil {
 		return fmt.Errorf("JSON encoding error for secondary genre split tokens: %w", err)
 	}
 
 	if _, err = tx.ExecContext(
 		ctx,
-		buildLibraryTrackGenresAndStylesSQL,
+		withGenreSplitter(buildLibraryTrackGenresAndStylesSQL),
 		sql.Named("split_delimiters", string(splitDelimitersJSON)),
+		sql.Named("unicode_whitespace", normalizationWhitespace),
 		sql.Named("unknown_item", unknownItem),
 	); err != nil {
 		err = fmt.Errorf(

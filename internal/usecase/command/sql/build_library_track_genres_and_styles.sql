@@ -1,3 +1,9 @@
+-- Resolve normalized genre values against the taxonomy. Only values that
+-- do not match as a whole are tried again using secondary splitting.
+
+-- Build a lookup from style names and taxonomy aliases to canonical styles.
+-- If a lookup name occurs more than once, the lowest taxonomy ID wins;
+-- for the same ID, prefer its name over its alias.
 DROP TABLE IF EXISTS scan_taxonomy_style_resolution;
 
 CREATE TEMP TABLE scan_taxonomy_style_resolution AS
@@ -43,12 +49,8 @@ DROP TABLE IF EXISTS scan_track_genre_resolution;
 
 CREATE TEMP TABLE scan_track_genre_resolution AS
 WITH RECURSIVE
-split_delimiters(pos, delimiter) AS (
-    SELECT
-        CAST(tokens.key AS INTEGER) + 1,
-        tokens.value
-    FROM json_each(:split_delimiters) AS tokens
-),
+-- Read the genres produced by NormalizeScanTracks, keeping their positions.
+-- LEFT JOIN also retains tracks with no genres so they can receive unknown.
 raw_genres AS (
     SELECT
         tracks.id AS track_id,
@@ -68,8 +70,11 @@ raw_genres AS (
         '$.genres'
     ) AS genres
 ),
+-- Try the whole value first. A genre match takes precedence over a style match.
+-- input_id lets the splitter carry each result back to its original value.
 raw_resolutions AS (
     SELECT
+        ROW_NUMBER() OVER (ORDER BY raw.track_id, raw.genre_pos) AS input_id,
         raw.track_id,
         raw.path,
         raw.genre_pos,
@@ -84,128 +89,30 @@ raw_resolutions AS (
             = raw.input_genre COLLATE NOCASE
         AND tg.genre IS NULL
 ),
-normalized_genres(
-    track_id,
-    path,
-    genre_pos,
-    original_genre,
-    delimiter_pos,
-    normalized_genre
-) AS (
+-- Only unresolved values reach the secondary splitter. For example, if
+-- "Rock/Pop" itself is a taxonomy term, keep it even when '/' is a delimiter.
+split_sources AS (
+    SELECT input_id, input_genre AS input_value
+    FROM raw_resolutions
+    WHERE input_genre IS NOT NULL
+        AND resolved_genre IS NULL AND resolved_style IS NULL
+),
+-- Go inserts the same splitter used for primary genres, with secondary delimiters.
+/* split_genre_values */,
+-- Look up each nonblank part directly in the taxonomy. Do not reapply the
+-- configured genre aliases; those were applied once during primary normalization.
+split_resolutions AS (
     SELECT
         raw.track_id,
         raw.path,
         raw.genre_pos,
-        raw.input_genre,
-        0,
-        raw.input_genre
-    FROM raw_resolutions AS raw
-    WHERE raw.input_genre IS NOT NULL
-        AND raw.resolved_genre IS NULL
-        AND raw.resolved_style IS NULL
-        AND EXISTS (
-            SELECT 1
-            FROM split_delimiters AS delimiters
-            WHERE instr(
-                raw.input_genre,
-                delimiters.delimiter
-            ) > 0
-        )
-
-    UNION ALL
-
-    SELECT
-        normalized.track_id,
-        normalized.path,
-        normalized.genre_pos,
-        normalized.original_genre,
-        delimiters.pos,
-        replace(
-            normalized.normalized_genre,
-            delimiters.delimiter,
-            char(31)
-        )
-    FROM normalized_genres AS normalized
-    JOIN split_delimiters AS delimiters
-        ON delimiters.pos
-            = normalized.delimiter_pos + 1
-),
-split_sources AS (
-    SELECT
-        track_id,
-        path,
-        genre_pos,
-        original_genre,
-        normalized_genre
-    FROM normalized_genres
-    WHERE delimiter_pos = (
-        SELECT MAX(pos)
-        FROM split_delimiters
-    )
-),
-split_parts(
-    track_id,
-    path,
-    genre_pos,
-    original_genre,
-    part_pos,
-    part,
-    rest
-) AS (
-    SELECT
-        track_id,
-        path,
-        genre_pos,
-        original_genre,
-        0,
-        trim(substr(
-            normalized_genre,
-            1,
-            instr(
-                normalized_genre || char(31),
-                char(31)
-            ) - 1
-        )),
-        substr(
-            normalized_genre || char(31),
-            instr(
-                normalized_genre || char(31),
-                char(31)
-            ) + 1
-        )
-    FROM split_sources
-
-    UNION ALL
-
-    SELECT
-        track_id,
-        path,
-        genre_pos,
-        original_genre,
-        part_pos + 1,
-        trim(substr(
-            rest,
-            1,
-            instr(rest, char(31)) - 1
-        )),
-        substr(
-            rest,
-            instr(rest, char(31)) + 1
-        )
-    FROM split_parts
-    WHERE rest <> ''
-),
-split_resolutions AS (
-    SELECT
-        parts.track_id,
-        parts.path,
-        parts.genre_pos,
-        parts.original_genre,
+        raw.input_genre AS original_genre,
         parts.part_pos,
         parts.part AS input_genre,
         tg.genre AS resolved_genre,
         tsr.canonical_style AS resolved_style
     FROM split_parts AS parts
+    JOIN raw_resolutions AS raw USING (input_id)
     LEFT JOIN taxonomy_genres AS tg
         ON tg.genre = parts.part
     LEFT JOIN scan_taxonomy_style_resolution AS tsr
@@ -214,6 +121,9 @@ split_resolutions AS (
         AND tg.genre IS NULL
     WHERE parts.part <> ''
 ),
+-- Replace an original value only if at least one of its parts is recognized.
+-- "Rock/Mystery" can expand when Rock is known; "Mystery/Other" stays intact
+-- when neither part is known. Group by position so each original is decided alone.
 expandable_genres AS (
     SELECT
         track_id,
@@ -231,6 +141,7 @@ expandable_genres AS (
         END
     ) > 0
 )
+-- Keep whole-value matches and unresolved originals whose splitting did not help.
 SELECT
     raw.track_id,
     raw.path,
@@ -251,6 +162,8 @@ WHERE raw.input_genre IS NULL
 
 UNION ALL
 
+-- For originals whose splitting helped, keep all parts, including unresolved ones.
+-- The inserts below link only recognized parts to library genres and styles.
 SELECT
     split.track_id,
     split.path,
@@ -263,6 +176,7 @@ JOIN expandable_genres AS expandable
     ON expandable.track_id = split.track_id
     AND expandable.genre_pos = split.genre_pos;
 
+-- Link each track to its recognized genres without duplicate relationships.
 INSERT OR IGNORE INTO library_track_genres (
     track_id,
     genre_id
@@ -274,6 +188,8 @@ FROM scan_track_genre_resolution AS resolutions
 JOIN taxonomy_genres AS genres
     ON genres.genre = resolutions.resolved_genre;
 
+-- Assign unknown only when the track has no recognized genre or style at all.
+-- One unresolved value does not make an otherwise recognized track unknown.
 INSERT OR IGNORE INTO library_track_genres (
     track_id,
     genre_id
@@ -294,6 +210,7 @@ HAVING SUM(
     END
 ) = 0;
 
+-- Link recognized styles separately from genres.
 INSERT OR IGNORE INTO library_track_styles (
     track_id,
     style_id

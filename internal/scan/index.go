@@ -4,7 +4,6 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
-	"unicode/utf8"
 )
 
 const (
@@ -72,37 +71,6 @@ const (
 	artworkPictureTypeBandArtistLogo
 	artworkPictureTypePublisherStudioLogo
 )
-
-func splitGenreFieldList(splitTokens map[string]bool, value string) []string {
-	value = cleanTagText(strings.ReplaceAll(value, "\x00", ";"))
-	if value == "" {
-		return []string{}
-	}
-
-	parts := strings.FieldsFunc(value, func(r rune) bool {
-		return splitTokens[string(r)]
-	})
-	result := make([]string, 0, len(parts))
-	for _, part := range parts {
-		part = cleanTagText(part)
-		if part != "" && isCleanFieldListPart(part) {
-			result = append(result, part)
-		}
-	}
-	return result
-}
-
-func isCleanFieldListPart(value string) bool {
-	if !utf8.ValidString(value) {
-		return false
-	}
-	for _, r := range value {
-		if r < 0x20 {
-			return false
-		}
-	}
-	return true
-}
 
 type artwork struct {
 	PictureType artworkPictureType

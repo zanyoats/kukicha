@@ -1,19 +1,15 @@
 package scan
 
 import (
-	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 
 	"github.com/zanyoats/kukicha/internal/app"
 	"github.com/zanyoats/kukicha/internal/scan/duration"
 	"github.com/zanyoats/kukicha/internal/textkey"
-	"github.com/zanyoats/kukicha/internal/usecase/command"
 )
 
 var errMaxSizeArtwork = errors.New("oversized embedded artwork file")
@@ -83,68 +79,6 @@ func ApplyTrackMetadata(
 	); err != nil {
 		return fmt.Errorf("embedded artwork: %w", err)
 	}
-
-	return nil
-}
-
-// ApplyMetadataNormalizations preserves file metadata and album identity.
-// Provider values only replace the inputs for genre normalization.
-// The caller supplies the staged album key separately and fresh NormalizedMetadata.
-func ApplyMetadataNormalizations(
-	ctx context.Context, conf *app.AppConfig, conn *sql.Conn,
-	albumKey string, scannedFile *app.ScannedFile, override app.MetadataOverride,
-) error {
-	genres := scannedFile.Metadata.Genres
-	if len(override.Genres) > 0 {
-		genres = override.Genres
-	}
-	scannedFile.NormalizedMetadata.TrackDisplay = textkey.FirstNonZeroValue(
-		scannedFile.Metadata.Title, scannedFile.Stem, app.UnknownItem,
-	)
-	scannedFile.NormalizedMetadata.AlbumDisplay = albumDisplay(scannedFile.Metadata)
-	scannedFile.NormalizedMetadata.RawAlbumArtistDisplays = rawAlbumArtistDisplays(scannedFile.Metadata)
-
-	// apply genre normalization
-	{
-		seen := make(map[string]bool, len(genres))
-
-		for _, value := range genres {
-			for _, genre := range splitGenreFieldList(conf.Settings.Scan.PrimaryGenreSplitTokens, value) {
-				key := strings.ToLower(genre)
-
-				// preprocess
-				if replacement, ok := conf.Settings.Scan.GenreStyleAliases[key]; ok {
-					genre = replacement
-					key = replacement
-				}
-
-				if key == "" || seen[key] {
-					continue
-				}
-				seen[key] = true
-				scannedFile.NormalizedMetadata.Genres = append(scannedFile.NormalizedMetadata.Genres, genre)
-			}
-		}
-	}
-
-	mapping, err := applyAlbumArtistRules(
-		ctx, conn,
-		albumKey,
-		scannedFile.NormalizedMetadata.RawAlbumArtistDisplays,
-	)
-
-	if err != nil {
-		return err
-	}
-	for _, mapped := range mapping {
-		scannedFile.NormalizedMetadata.MappedAlbumArtistKeys =
-			append(scannedFile.NormalizedMetadata.MappedAlbumArtistKeys, textkey.Slugify(mapped))
-
-		scannedFile.NormalizedMetadata.MappedAlbumArtistDisplays =
-			append(scannedFile.NormalizedMetadata.MappedAlbumArtistDisplays, textkey.NormDisplay(mapped))
-	}
-
-	scannedFile.NormalizedMetadata.RawTrackArtistDisplays = rawTrackArtistDisplays(scannedFile.Metadata)
 
 	return nil
 }
@@ -266,36 +200,4 @@ func filterEmbeddedArtwork(
 	}
 	scannedFile.Artwork = artwork
 	return errs
-}
-
-func applyAlbumArtistRules(
-	ctx context.Context,
-	conn *sql.Conn,
-	albumKey string,
-	rawAlbumArtistDisplays []string,
-) (mapping []string, err error) {
-	var found bool
-	mapping, found, err = command.FindArtistMapping(ctx, conn, albumKey)
-	if err != nil {
-		return
-	}
-	if !found {
-		mapping = slices.Clone(rawAlbumArtistDisplays)
-	}
-
-	slices.Sort(mapping)
-	mapping = slices.Compact(mapping)
-	return
-}
-
-func rawAlbumArtistDisplays(metadata *app.TrackMetadata) []string {
-	return textkey.FirstNonEmptySlice(metadata.AlbumArtists, metadata.Artists, []string{app.UnknownItem})
-}
-
-func rawTrackArtistDisplays(metadata *app.TrackMetadata) []string {
-	return textkey.FirstNonEmptySlice(metadata.Artists, metadata.AlbumArtists, []string{app.UnknownItem})
-}
-
-func albumDisplay(metadata *app.TrackMetadata) string {
-	return textkey.FirstNonZeroValue(metadata.Album, app.UnknownItem)
 }

@@ -160,7 +160,6 @@ type NormalizedTrackMetadata struct {
 	TrackDisplay              string   `json:"track_display"`
 	AlbumDisplay              string   `json:"album_display"`
 	RawAlbumArtistDisplays    []string `json:"raw_album_artist_displays"`
-	MappedAlbumArtistKeys     []string `json:"mapped_album_artist_keys"`
 	MappedAlbumArtistDisplays []string `json:"mapped_album_artist_displays"`
 	RawTrackArtistDisplays    []string `json:"raw_track_artist_displays"`
 	Genres                    []string `json:"genres"`

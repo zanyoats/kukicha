@@ -153,9 +153,7 @@ func (j *Build) Run(ctx context.Context) error {
 			return err
 		}
 	}
-	if err := command.NormalizeScanTracks(ctx, conn, func(albumKey string, f *app.ScannedFile, override app.MetadataOverride) error {
-		return scan.ApplyMetadataNormalizations(ctx, j.Conf, conn, albumKey, f, override)
-	}); err != nil {
+	if err := command.NormalizeScanTracks(ctx, conn, j.Conf); err != nil {
 		return err
 	}
 	result, err := command.BuildLibraryFromScan(ctx, conn,

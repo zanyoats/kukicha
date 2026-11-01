@@ -17,24 +17,6 @@ var ErrArtistRuleNotFound = errors.New("Album not found.")
 //go:embed sql/update_artist_rule.sql
 var updateArtistRuleSQL string
 
-// FindArtistMapping returns the saved rule, or found=false when no rule exists.
-func FindArtistMapping(ctx context.Context, conn *sql.Conn, albumKey string) ([]string, bool, error) {
-	var raw string
-	err := conn.QueryRowContext(ctx, "SELECT mapped_artists FROM album_artist_mappings WHERE album_key = ?", albumKey).Scan(&raw)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, false, nil
-	}
-	if err != nil {
-		return nil, false, err
-	}
-	var mapping []string
-	if err := json.Unmarshal([]byte(raw), &mapping); err != nil {
-		return nil, true, err
-	}
-	mapping, err = cleanAndValidateArtistMapping(albumKey, mapping)
-	return mapping, true, err
-}
-
 func UpdateArtistRule(
 	ctx context.Context,
 	db *sql.DB,
