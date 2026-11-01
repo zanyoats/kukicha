@@ -7,7 +7,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path/filepath"
 
+	"github.com/zanyoats/kukicha/internal/app"
 	"github.com/zanyoats/kukicha/internal/usecase/query"
 )
 
@@ -197,12 +199,39 @@ func ValidateJobSubmission(job JobSubmission) error {
 		return errors.New("Job payload must contain valid JSON")
 	}
 
+	if job.Type == "add" {
+		var payload app.AddJobPayload
+		if err := json.Unmarshal(job.Payload, &payload); err != nil {
+			return fmt.Errorf("invalid add job payload: %w", err)
+		}
+		if !filepath.IsAbs(payload.TempPath) || filepath.Clean(payload.TempPath) != payload.TempPath {
+			return errors.New("add payload requires a clean absolute temp directory path")
+		}
+		if payload.RootID == "" || payload.RootLocation == "" {
+			return errors.New("add payload requires a destination root ID and original location")
+		}
+		switch payload.Mode {
+		case "files":
+			if payload.Source != nil {
+				return errors.New("files mode must not include a sync source")
+			}
+		case "sync":
+			if payload.Source == nil || (payload.Source.Folder == "") == (payload.Source.Remote == nil) {
+				return errors.New("sync mode requires exactly one folder or remote source")
+			}
+			if payload.Source.Folder != "" && (!filepath.IsAbs(payload.Source.Folder) || filepath.Clean(payload.Source.Folder) != payload.Source.Folder) {
+				return errors.New("sync folder must be a clean absolute path")
+			}
+		default:
+			return errors.New("add mode must be files or sync")
+		}
+	}
 	return nil
 }
 
 func SupportedJobType(jobType string) bool {
 	switch jobType {
-	case "sync", "scan", "reset":
+	case "sync", "scan", "reset", "add":
 		return true
 	default:
 		return false

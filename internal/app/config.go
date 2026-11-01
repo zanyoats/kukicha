@@ -139,15 +139,15 @@ func (w *WorkerCount) Resolve() int {
 }
 
 type RootConfig struct {
-	ID              string  `toml:"id"`
-	Type            string  `toml:"type"`
-	Path            *string `toml:"path"`
-	EndpointURL     *string `toml:"endpoint_url"`
-	Bucket          *string `toml:"bucket"`
-	Prefix          *string `toml:"prefix"`
-	Profile         *string `toml:"profile"`
-	Region          *string `toml:"region"`
-	AddressingStyle *string `toml:"addressing_style"`
+	ID              string  `toml:"id" json:"id"`
+	Type            string  `toml:"type" json:"type"`
+	Path            *string `toml:"path" json:"path"`
+	EndpointURL     *string `toml:"endpoint_url" json:"endpoint_url"`
+	Bucket          *string `toml:"bucket" json:"bucket"`
+	Prefix          *string `toml:"prefix" json:"prefix"`
+	Profile         *string `toml:"profile" json:"profile"`
+	Region          *string `toml:"region" json:"region"`
+	AddressingStyle *string `toml:"addressing_style" json:"addressing_style"`
 }
 
 type AppConfig struct {
@@ -243,7 +243,7 @@ func LoadAppConfig(catalog *Catalog) (*AppConfig, error) {
 	}
 
 	// Validations...
-	if result.Roots, err = normalizeRoots(result.AppDir, result.Settings.Scan.Roots); err != nil {
+	if result.Roots, err = NormalizeRoots(result.AppDir, result.Settings.Scan.Roots); err != nil {
 		return nil, err
 	}
 	if result.Settings.Scan.ProgressLogInterval.Duration < 0 {
@@ -427,78 +427,22 @@ func ensureConfigFile() (appDir string, path string, err error) {
 	return
 }
 
-func normalizeFolderPath(baseDir, path string) (string, error) {
-	var result string
-
-	switch {
-	case path == "":
-		return "", fmt.Errorf(
-			"empty folder path %q was found",
-			path,
-		)
-	case strings.HasPrefix(path, "~"):
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return "", fmt.Errorf(
-				"error resolving user's home dir in path %q: %w",
-				path, err,
-			)
-		}
-
-		result = filepath.Join(home, strings.TrimPrefix(path, "~"))
-
-	case !filepath.IsAbs(path):
-		result = filepath.Join(baseDir, path)
-
-	default:
-		result = path
+func normalizeFolderPath(baseDir, name string) (string, error) {
+	if name == "" {
+		return "", errors.New("folder path must not be empty")
 	}
-
-	result = filepath.Clean(result)
-
-	info, err := os.Lstat(result)
+	resolved, err := normalizeRootPath(baseDir, name)
 	if err != nil {
-		if errors.Is(err, fs.ErrNotExist) {
-			return "", fmt.Errorf(
-				"The path %q given does not exist",
-				path,
-			)
-		}
-
-		return "", fmt.Errorf(
-			"error processing path %q: %w",
-			result, err,
-		)
+		return "", err
 	}
-
-	mode := info.Mode()
-	if mode&os.ModeSymlink != 0 {
-		if result, err = filepath.EvalSymlinks(result); err != nil {
-			return "", fmt.Errorf(
-				"error resolving symbolic link %q: %w",
-				result, err,
-			)
-		}
-
-		info, err := os.Lstat(result)
-		if err != nil {
-			return "", fmt.Errorf(
-				"error processing resolved link %q from original path %q: %w",
-				result, path, err,
-			)
-		}
-
-		mode = info.Mode()
+	info, err := os.Stat(resolved)
+	if err != nil {
+		return "", fmt.Errorf("error accessing folder %q: %w", name, err)
 	}
-
 	if !info.IsDir() {
-		return "", fmt.Errorf(
-			"path %q is not a folder; file type found to be %v",
-			path, mode.Type(),
-		)
+		return "", fmt.Errorf("path %q is not a folder", name)
 	}
-
-	return result, nil
+	return resolved, nil
 }
 
 func validateServerAddress(address string) error {
@@ -570,9 +514,9 @@ func validateAppBasePath(basePath string) error {
 	return nil
 }
 
-// normalizeRoots validates and resolves each entry in configuration order.
+// NormalizeRoots validates and resolves each entry in configuration order.
 // IDs are case-sensitive and remain independent of type and storage location.
-func normalizeRoots(baseDir string, configured []RootConfig) ([]Root, error) {
+func NormalizeRoots(baseDir string, configured []RootConfig) ([]Root, error) {
 	roots := make([]Root, 0, len(configured))
 	seen := make(map[string]int, len(configured))
 	value := func(field *string) string {
@@ -611,7 +555,7 @@ func normalizeRoots(baseDir string, configured []RootConfig) ([]Root, error) {
 			if entry.Path == nil || *entry.Path == "" {
 				return nil, invalid("path is required for type local")
 			}
-			path, err := normalizeFolderPath(baseDir, *entry.Path)
+			path, err := normalizeRootPath(baseDir, *entry.Path)
 			if err != nil {
 				return nil, invalid(err.Error())
 			}
@@ -679,4 +623,50 @@ func normalizeRemoteRoot(r *RemoteRoot) error {
 		return invalid("addressing_style must be auto, path, or virtual")
 	}
 	return nil
+}
+
+// Resolve local destinations without requiring them to exist. Ownership and
+// permission checks occur when an upload uses the root.
+func normalizeRootPath(baseDir, name string) (string, error) {
+	if strings.HasPrefix(name, "~") {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", err
+		}
+		name = filepath.Join(home, strings.TrimPrefix(name, "~"))
+	} else if !filepath.IsAbs(name) {
+		name = filepath.Join(baseDir, name)
+	}
+	name, err := filepath.Abs(name)
+	if err != nil {
+		return "", err
+	}
+	// Resolve the existing ancestor, including symlinks, for absent destinations.
+	ancestor := name
+	var missing []string
+	for {
+		resolved, err := filepath.EvalSymlinks(ancestor)
+		if err == nil {
+			info, err := os.Stat(resolved)
+			if err != nil {
+				return "", err
+			}
+			if !info.IsDir() {
+				return "", fmt.Errorf("root ancestor %q is not a directory", ancestor)
+			}
+			for i := len(missing) - 1; i >= 0; i-- {
+				resolved = filepath.Join(resolved, missing[i])
+			}
+			return resolved, nil
+		}
+		if !errors.Is(err, os.ErrNotExist) {
+			return "", err
+		}
+		parent := filepath.Dir(ancestor)
+		if parent == ancestor {
+			return "", err
+		}
+		missing = append(missing, filepath.Base(ancestor))
+		ancestor = parent
+	}
 }

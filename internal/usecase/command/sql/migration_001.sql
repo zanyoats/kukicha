@@ -368,7 +368,7 @@ CREATE TABLE jobs (
     last_error          TEXT                                   ,
     cancel_requested_at TEXT                                   ,
 
-    CHECK (type IN ('sync', 'scan', 'reset'))                   ,
+    CHECK (type IN ('sync', 'scan', 'reset', 'add'))                   ,
     CHECK (json_valid(payload))                                ,
     CHECK (state IN (
         -- transient states

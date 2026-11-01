@@ -18,6 +18,7 @@ import (
 	"github.com/zanyoats/kukicha/internal/jobs"
 	proc "github.com/zanyoats/kukicha/internal/processor"
 	"github.com/zanyoats/kukicha/internal/scan"
+	"github.com/zanyoats/kukicha/internal/upload"
 	"github.com/zanyoats/kukicha/internal/usecase/command"
 	"github.com/zanyoats/kukicha/internal/usecase/query"
 	"github.com/zanyoats/kukicha/internal/web"
@@ -102,6 +103,7 @@ func run() error {
 		)
 	}
 
+	uploads := &upload.Service{DB: db, Roots: conf.Roots}
 	notifications := new(app.JobNotifications)
 	processor, err := proc.New(
 		db,
@@ -154,6 +156,7 @@ func run() error {
 			conf.ConfigFilePath,
 			scan.RecognizedAudioExtensions,
 			credentials,
+			uploads,
 		),
 		ReadHeaderTimeout: conf.Settings.Server.ReadHeaderTimeout.Duration,
 	}

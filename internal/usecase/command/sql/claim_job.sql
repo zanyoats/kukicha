@@ -9,7 +9,7 @@ SET state = 'running',
 WHERE id = (
     SELECT id
     FROM jobs
-    WHERE state = 'queued'
+    WHERE state = 'queued' AND type != 'add' -- Disabled until both add modes, root marker checks, and standalone sync removal exist.
     ORDER BY id
     LIMIT 1
 ) AND state = 'queued'

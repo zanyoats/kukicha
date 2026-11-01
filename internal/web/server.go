@@ -13,6 +13,7 @@ import (
 	"github.com/zanyoats/kukicha/internal/app"
 	"github.com/zanyoats/kukicha/internal/auth"
 	"github.com/zanyoats/kukicha/internal/processor"
+	"github.com/zanyoats/kukicha/internal/upload"
 	"github.com/zanyoats/kukicha/internal/usecase/query"
 )
 
@@ -28,6 +29,7 @@ type NotificationSubscriber interface {
 }
 
 type webRouter struct {
+	uploads                   *upload.Service
 	auth                      *auth.Auth
 	urls                      URLs
 	renderer                  Renderer
@@ -57,6 +59,7 @@ func NewWebRouter(
 	configFilePath string,
 	recognizedAudioExtensions map[string]bool,
 	credentials *auth.Auth,
+	uploads *upload.Service,
 ) http.Handler {
 	rootsByConfigID := make(map[string]app.Root, len(configuredRoots))
 	for _, root := range configuredRoots {
@@ -68,6 +71,7 @@ func NewWebRouter(
 	}
 	router := webRouter{
 		auth:                      credentials,
+		uploads:                   uploads,
 		urls:                      urls,
 		renderer:                  renderer,
 		db:                        db,
@@ -176,6 +180,10 @@ func NewWebRouter(
 	mux.HandleFunc(
 		exactPattern(http.MethodGet, urls.Add),
 		router.showAdd,
+	)
+	mux.HandleFunc(
+		exactPattern(http.MethodPost, urls.Add),
+		router.uploadFiles,
 	)
 	for _, page := range configPages(urls) {
 		mux.HandleFunc(

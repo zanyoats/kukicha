@@ -185,3 +185,19 @@ type LibraryTrack struct {
 	Id int64
 	ScannedFile
 }
+
+// AddJobPayload contains all request context needed by the add executor.
+// TODO: Credentials
+type AddJobPayload struct {
+	Mode         string     `json:"mode"`
+	TempPath     string     `json:"temp_path"`
+	RootID       string     `json:"root_id"`
+	RootLocation string     `json:"root_location"`
+	Source       *AddSource `json:"source,omitempty"`
+}
+
+// AddSource identifies exactly one input for sync mode.
+type AddSource struct {
+	Folder string      `json:"folder,omitempty"`
+	Remote *RemoteRoot `json:"remote,omitempty"`
+}
