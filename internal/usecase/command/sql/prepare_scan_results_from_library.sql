@@ -7,6 +7,8 @@ FROM (
     SELECT value AS config_id FROM json_each(:root_config_ids)
     UNION
     SELECT config_id FROM library_roots
+    UNION
+    SELECT config_id FROM unrecognized_tracks
 ) AS candidates
 WHERE NOT EXISTS (
     SELECT 1 FROM library_roots AS removed
@@ -44,13 +46,13 @@ INSERT OR IGNORE INTO scan_sidecar_covers
 SELECT s.root_pos, c.path_dir, c.stem, c.ext, c.path, c.file_size, c.file_mtime_unix_nano, c.thumbnail_cache_name
 FROM library_album_sidecars c
 JOIN library_roots r ON r.id = c.root_id JOIN scan_roots s ON s.config_id = r.config_id
-WHERE c.thumbnail_cache_name IS NOT NULL;
+WHERE c.kind = 'cover';
 
 INSERT OR IGNORE INTO scan_sidecar_others
 SELECT s.root_pos, c.path_dir, c.stem, c.ext, c.path, c.file_size, c.file_mtime_unix_nano
 FROM library_album_sidecars c
 JOIN library_roots r ON r.id = c.root_id JOIN scan_roots s ON s.config_id = r.config_id
-WHERE c.thumbnail_cache_name IS NULL;
+WHERE c.kind = 'other';
 
 -- Snapshot the configured sources before network work, without holding query rows open.
 INSERT INTO scan_album_override_sources

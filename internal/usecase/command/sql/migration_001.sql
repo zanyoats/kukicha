@@ -157,6 +157,7 @@ CREATE TABLE library_album_sidecars (
     id                   INTEGER PRIMARY KEY AUTOINCREMENT,
     album_id             INTEGER NOT NULL                 ,
     root_id              INTEGER NOT NULL                 ,
+    kind                 TEXT NOT NULL CHECK (kind IN ('cover', 'other')),
     stem                 TEXT    NOT NULL                 ,
     ext                  TEXT    NOT NULL                 ,
     path_dir             TEXT    NOT NULL                 ,
@@ -527,3 +528,69 @@ SELECT tracks.album_id, artwork.thumbnail_cache_id,
     tracks.track_number, tracks.path, tracks.id, artwork.id
 FROM available_library_tracks AS tracks
 JOIN library_track_artwork AS artwork ON artwork.track_id = tracks.id;
+
+-- Scan results withheld until a user supplies a complete album identity.
+-- These rows survive rebuilds; root_pos is resolved afresh for each build.
+CREATE TABLE unrecognized_tracks (
+    config_id TEXT NOT NULL CHECK (length(trim(config_id)) > 0),
+    uploaded_path TEXT NOT NULL CHECK (length(trim(uploaded_path)) > 0),
+    album TEXT CHECK (album IS NULL OR (length(trim(album)) > 0 AND trim(album) <> '__Unknown')),
+    artists TEXT CHECK (artists IS NULL OR CASE WHEN json_valid(artists) THEN
+        json_type(artists) = 'array' AND json_array_length(artists) > 0 ELSE 0 END),
+    status TEXT GENERATED ALWAYS AS (
+        CASE WHEN album IS NOT NULL AND artists IS NOT NULL THEN 'ready' ELSE 'issue' END
+    ) VIRTUAL,
+    path_dir TEXT NOT NULL,
+    stem TEXT NOT NULL,
+    ext TEXT,
+    file_size INTEGER NOT NULL,
+    file_mtime_unix_nano INTEGER NOT NULL,
+    duration_seconds INTEGER NOT NULL CHECK (duration_seconds >= 0),
+    track_metadata TEXT NOT NULL CHECK (json_valid(track_metadata) AND json_type(track_metadata) = 'object'),
+    -- App-managed upload paths include a globally unique job prefix.
+    PRIMARY KEY (uploaded_path)
+) WITHOUT ROWID;
+
+-- CHECK constraints cannot inspect individual JSON array entries.
+CREATE TRIGGER validate_unrecognized_artists_insert
+BEFORE INSERT ON unrecognized_tracks WHEN NEW.artists IS NOT NULL
+BEGIN
+    SELECT RAISE(ABORT, 'artists must contain nonblank recognized strings')
+    WHERE EXISTS (SELECT 1 FROM json_each(NEW.artists)
+        WHERE type <> 'text' OR length(trim(value)) = 0 OR trim(value) = '__Unknown');
+END;
+CREATE TRIGGER validate_unrecognized_artists_update
+BEFORE UPDATE OF artists ON unrecognized_tracks WHEN NEW.artists IS NOT NULL
+BEGIN
+    SELECT RAISE(ABORT, 'artists must contain nonblank recognized strings')
+    WHERE EXISTS (SELECT 1 FROM json_each(NEW.artists)
+        WHERE type <> 'text' OR length(trim(value)) = 0 OR trim(value) = '__Unknown');
+END;
+
+CREATE TABLE unrecognized_artwork (
+    uploaded_path TEXT NOT NULL,
+    artwork_pos INTEGER NOT NULL,
+    picture_type TEXT NOT NULL,
+    artwork_content_type TEXT,
+    artwork_content_size INTEGER NOT NULL,
+    artwork_bytes BLOB NOT NULL,
+    thumbnail_cache_name TEXT,
+    PRIMARY KEY (uploaded_path, artwork_pos),
+    FOREIGN KEY (uploaded_path)
+        REFERENCES unrecognized_tracks (uploaded_path) ON DELETE CASCADE
+) WITHOUT ROWID;
+
+-- Shared by unresolved tracks using the ordinary directory association rule.
+-- kind preserves covers even when no thumbnail could be generated.
+CREATE TABLE unrecognized_sidecars (
+    config_id TEXT NOT NULL,
+    path TEXT NOT NULL,
+    kind TEXT NOT NULL CHECK (kind IN ('cover', 'other')),
+    path_dir TEXT NOT NULL,
+    stem TEXT NOT NULL,
+    ext TEXT NOT NULL,
+    file_size INTEGER NOT NULL,
+    file_mtime_unix_nano INTEGER NOT NULL,
+    thumbnail_cache_name TEXT,
+    PRIMARY KEY (config_id, path)
+) WITHOUT ROWID;

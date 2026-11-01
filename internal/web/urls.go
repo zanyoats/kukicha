@@ -19,6 +19,8 @@ type URLs struct {
 	TrackAudio              string
 	Search                  string
 	ArtistRules             string
+	UnrecognizedTracks      string
+	UpdateUnrecognizedTrack string
 	Add                     string
 	Roots                   string
 	DropRoot                string
@@ -58,6 +60,8 @@ func NewURLs(basePath string) URLs {
 		TrackAudio:              app + "/library/album/tracks/audio/",
 		Search:                  app + "/search/",
 		ArtistRules:             app + "/artistRules/",
+		UnrecognizedTracks:      app + "/unrecognizedTracks/",
+		UpdateUnrecognizedTrack: api + "/unrecognizedTracks/",
 		Add:                     app + "/add/",
 		Roots:                   app + "/roots/",
 		DropRoot:                api + "/roots/drop/",

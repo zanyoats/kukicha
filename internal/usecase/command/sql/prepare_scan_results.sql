@@ -72,11 +72,11 @@ CREATE TEMP TABLE scan_artwork_cover (
     path                 TEXT    NOT NULL                 ,
     artwork_pos          INTEGER NOT NULL                 ,
     picture_type         TEXT    NOT NULL                 ,
-    thumbnail_cache_name TEXT                             ,
+    thumbnail_cache_name TEXT    NOT NULL                 ,
 
     PRIMARY KEY (root_pos, path, artwork_pos)             ,
     CHECK (
-            length(picture_type) > 0
+            picture_type IN ('front_cover', 'other')
         AND length(trim(path)) > 0
     )
 ) WITHOUT ROWID;
@@ -150,3 +150,22 @@ CREATE TEMP TABLE scan_album_override_sources (
 );
 CREATE INDEX scan_album_override_sources_entity_idx
 ON scan_album_override_sources (provider, entity_type, entity_id);
+
+-- Incoming scan results are published only after all file transfers succeed.
+DROP TABLE IF EXISTS scan_unrecognized_tracks;
+CREATE TEMP TABLE scan_unrecognized_tracks AS SELECT * FROM scan_tracks WHERE 0;
+CREATE UNIQUE INDEX scan_unrecognized_tracks_path ON scan_unrecognized_tracks (root_pos, path);
+
+-- Entering scan_tracks atomically removes the matching pending scan row.
+-- Recognition is checked by the inserting query, not repeated here. Inserts
+-- from the saved library or corrected tracks normally have no pending match.
+CREATE TEMP TRIGGER remove_promoted_scan_track
+AFTER INSERT ON scan_tracks
+BEGIN
+    DELETE FROM scan_unrecognized_tracks
+    WHERE root_pos = NEW.root_pos AND path = NEW.path;
+END;
+
+DROP TABLE IF EXISTS scan_ready_unrecognized_tracks;
+CREATE TEMP TABLE scan_ready_unrecognized_tracks AS
+SELECT * FROM unrecognized_tracks WHERE 0;

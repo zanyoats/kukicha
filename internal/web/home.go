@@ -8,6 +8,7 @@ import (
 )
 
 type homeViewModel struct {
+	UnrecognizedTrackCount    int
 	LibraryGenerated          bool
 	LibraryHasTracks          bool
 	HasConfiguredRoots        bool
@@ -38,7 +39,13 @@ func (c *webRouter) showHome(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	count, err := query.UnrecognizedTrackCount(r.Context(), c.db)
+	if err != nil {
+		internalServerError(w, "unable to count unrecognized tracks", "error", err)
+		return
+	}
 	renderPage(w, c.renderer, "home.gohtml", homeViewModel{
+		UnrecognizedTrackCount:    count,
 		LibraryGenerated:          home.LibraryGenerated,
 		LibraryHasTracks:          home.LibraryHasTracks,
 		HasConfiguredRoots:        len(c.configuredRoots) > 0,

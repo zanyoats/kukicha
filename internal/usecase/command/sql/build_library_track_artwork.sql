@@ -16,17 +16,7 @@ sidecar_candidates AS (
     FROM scan_tracks AS scanned_tracks
     JOIN scan_sidecar_covers AS covers
         ON covers.root_pos = scanned_tracks.root_pos
-        AND (
-            (
-                scanned_tracks.path_dir = ''
-                AND covers.path_dir = ''
-            )
-            OR (scanned_tracks.path_dir != '' AND substr(
-                covers.path,
-                1,
-                length(scanned_tracks.path_dir)
-            ) = scanned_tracks.path_dir)
-        )
+        AND substr(covers.path, 1, length(scanned_tracks.path_dir)) = scanned_tracks.path_dir
     JOIN library_roots AS roots
         ON roots.config_id = scanned_tracks.config_id
     JOIN library_tracks AS tracks
@@ -56,8 +46,6 @@ embedded_candidates AS (
     JOIN library_tracks AS tracks
         ON tracks.root_id = roots.id
         AND tracks.path = scanned_tracks.path
-    WHERE artwork.thumbnail_cache_name IS NOT NULL
-        AND artwork.picture_type IN ('front_cover', 'other')
 ),
 all_candidates AS (
     SELECT * FROM sidecar_candidates

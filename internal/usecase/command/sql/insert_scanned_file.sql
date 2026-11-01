@@ -12,7 +12,7 @@ WITH album_identity AS (
             ELSE json_array(:unknown_item)
         END AS artists
 )
-INSERT INTO scan_tracks (
+INSERT INTO scan_unrecognized_tracks (
     root_pos,
     config_id,
     album_key,

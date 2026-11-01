@@ -19,9 +19,10 @@
     <template id="job-help-rebuild">
         <section class="job-help" aria-labelledby="job-help-rebuild-title">
             <h2 id="job-help-rebuild-title">When to run Rebuild</h2>
-            <p>Refresh how your music is organized using information already saved in your library. Your music files are not read or downloaded again.</p>
+            <p>Refresh how your music is organized using saved metadata and corrections. Your music files are not read or downloaded again. Metadata Overrides may fetch external metadata or artwork that is not already cached.</p>
             <ul>
-                <li>After saving changes to Artist Rules.</li>
+                <li>After saving an album and artists for Unrecognized Tracks. Tracks marked Ready for rebuild will be added to your library; tracks still needing identification will remain on that page.</li>
+                <li>After saving or removing Artist Rules.</li>
                 <li>After saving or removing Metadata Overrides.</li>
                 <li>After changing how genres or styles are grouped or recognized through these configuration settings:
                     <ul>
@@ -32,7 +33,7 @@
                 </li>
                 <li>After a new taxonomy version has loaded successfully, as shown in the startup logs.</li>
             </ul>
-            <p class="job-help-note"><strong>Changed your music files?</strong> Rebuild uses saved metadata. Use Add to Kukicha to import new music.</p>
+            <p class="job-help-note"><strong>Adding new music?</strong> Use Add to Kukicha to import it. Rebuild does not discover or import new files.</p>
         </section>
     </template>
 {{end}}

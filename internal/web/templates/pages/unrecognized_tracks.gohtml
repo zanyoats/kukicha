@@ -1,0 +1,54 @@
+{{define "title"}}Unrecognized Tracks{{end}}
+
+{{define "body"}}
+<body class="config-document">
+    <main class="config-standalone" up-main>
+        <nav aria-label="Configuration navigation"><a href="{{.URLs.Home}}">Back to Home</a></nav>
+        {{template "page-content" .}}
+    </main>
+</body>
+{{end}}
+
+{{define "page-content"}}
+<article class="config-page unrecognized-tracks-page">
+    {{template "page-header" .}}
+    <aside class="alert alert-info" aria-label="Info">
+        <strong>Info</strong>
+        <p>Save each track’s album and artists, then <span class="action-with-info"><button type="button" class="inline-action" data-library-job-submit="{{.URLs.SubmitJob}}">Rebuild</button>{{template "job-help-trigger" "rebuild"}}</span> to add ready tracks to your library. Tracks still needing identification will remain here.</p>
+    </aside>
+    {{template "rebuild-job-help" .}}
+    <p>These files could not be identified from their album or artist tags. Enter an album and one artist per line for each track. Saved values will be used for both the album and track artists. <a href="{{.URLs.UnrecognizedTracks}}" up-follow up-target=".unrecognized-tracks-page" up-history="false">Refresh</a> this list after the rebuild finishes.</p>
+    {{range .Groups}}
+    <section class="unrecognized-track-group" aria-label="{{.ConfigID}}: {{if .Directory}}{{.Directory}}{{else}}./{{end}}">
+        {{if $.MultipleGroups}}<h2 title="{{.ConfigID}}: {{.Directory}}">{{.ConfigID}} · {{.Label}}</h2>{{end}}
+        <div class="unrecognized-tracks-grid">
+            {{range .Tracks}}
+            <form class="unrecognized-track-form" data-unrecognized-track up-data="{{.EditorData}}" aria-labelledby="unrecognized-name-{{.Index}}">
+                <fieldset>
+                    <div class="unrecognized-track-file">
+                        <h3 id="unrecognized-name-{{.Index}}">{{.Filename}}</h3>
+                        <p class="unrecognized-track-path">{{.ConfigID}}: {{.UploadedPath}}</p>
+                    </div>
+                    <div class="form-field">
+                        <label for="unrecognized-album-{{.Index}}">Album</label>
+                        <input id="unrecognized-album-{{.Index}}" name="album" value="{{.Album}}" required aria-describedby="unrecognized-error-{{.Index}}" />
+                    </div>
+                    <div class="form-field">
+                        <label for="unrecognized-artists-{{.Index}}">Artists (one per line)</label>
+                        <textarea id="unrecognized-artists-{{.Index}}" name="artists" rows="3" required aria-describedby="unrecognized-error-{{.Index}}">{{.ArtistText}}</textarea>
+                    </div>
+                    <div class="unrecognized-track-actions">
+                        <button type="submit">Save</button>
+                        <span data-track-status role="status">{{if eq .Status "ready"}}Ready for rebuild{{else}}Needs identification{{end}}</span>
+                    </div>
+                </fieldset>
+                <p class="alert alert-error" id="unrecognized-error-{{.Index}}" role="alert" hidden></p>
+            </form>
+            {{end}}
+        </div>
+    </section>
+    {{else}}
+    <p>No unrecognized tracks remain.</p>
+    {{end}}
+</article>
+{{end}}

@@ -3,6 +3,13 @@
 {{define "page-content"}}
 <article class="home-page">
     {{template "page-header" .}}
+    {{if .UnrecognizedTrackCount}}
+    <aside class="alert alert-warning" aria-label="Unrecognized tracks">
+        <strong>{{.UnrecognizedTrackCount}} {{if eq .UnrecognizedTrackCount 1}}track is{{else}}tracks are{{end}} waiting for identification or rebuild.</strong>
+        <p>These tracks are not in your library yet. Supply an album and artists, save your changes, then rebuild to add them.</p>
+        <p><a href="{{.URLs.UnrecognizedTracks}}" up-layer="new modal" up-target=".config-page" up-class="config-modal" up-history="false">Resolve unrecognized tracks</a></p>
+    </aside>
+    {{end}}
 
     {{if .HasConfiguredRoots}}
         {{if .LibraryGenerated}}
@@ -51,10 +58,11 @@
 
 {{define "home-configure-roots"}}
 <p>
-    You can start using Kukicha with a minimal config setup, using all the defaults (which are reasonable). Add to
-    your config file (path shown below) a storage location (called a <strong>root</strong>) — you’ll need at least one.
-    There are two types of roots: (1) remote, using S3-compatible service, and (2) local folder on the server.
-    Add one of the examples below to your configuration file (path shown below), changing the values to match your setup:
+    You can start using Kukicha with a minimal config setup, using all the defaults. Add to
+    your config file a storage location (called a <strong>root</strong>) — you’ll need at least one.
+    There are two types of roots: (1) remote (using a S3-compatible service), and (2) local (folder on the server).
+    Add one of the examples below to your configuration file (path shown below), changing the values to match your setup.
+    You can also mix and match different root types.
 </p>
 <p><span class="action-with-info"><strong>Config path</strong><pre><code>{{.ConfigFilePath}}</code></pre></p>
 <p><span class="action-with-info"><strong>Local folder</strong>{{template "root-config-help-trigger" "local"}}</span> — a folder on the server.</p>
@@ -73,16 +81,23 @@ prefix = "kukicha/"
 region = "us-east-1"</code></pre>
 <p>
     Use an existing bucket with no objects under the chosen prefix. Set up AWS credentials on the server so Kukicha can access it.
-    Save the configuration and restart Kukicha. Then use
-    <a href="{{.URLs.Add}}" up-layer="new modal" up-target=".config-page" up-class="config-modal" up-history="false">Add to Kukicha</a>
-    to import your music into your new root.
 </p>
 <p>
-For more storage locations, add a separate <code>[[scan.roots]]</code> section with a unique ID for each one. Keep each
-ID unchanged once the root is in use. This stable ID lets you move storage to a new local path, switch between local and
-remote storage, or change remote storage locations without changing the library’s file references. Move the root’s
-contents, including its .kukicha_root marker, and preserve the directory structure before updating the configuration.
-File paths are stored relative to the root.
+    Once you have setup your roots, save the configuration and restart Kukicha. Then use
+    <a href="{{.URLs.Add}}" up-layer="new modal" up-target=".config-page" up-class="config-modal" up-history="false">Add to Kukicha</a>
+    to start importing your music into your new root(s).
+</p>
+<p>
+    For more storage locations, add a separate <code>[[scan.roots]]</code> section with a unique ID for each one. Keep each
+    ID unchanged once the root is in use. This stable ID lets you move storage to a new local path, switch between local and
+    remote storage, or change remote storage locations without changing the library’s file references. Move the root’s
+    contents, including its .kukicha_root marker, and preserve the directory structure before updating the configuration.
+    File paths are stored relative to the root.
+</p>
+<p>
+    One last note, Kukicha is designed to own the root's file structure and contents. There is no guarantee
+    of expected behavior if you change the root from under Kukicha. Let it manage the root under normal
+    circumstances, unless you know what you are doing.
 </p>
 <template id="root-config-help-local">
     <section class="job-help" aria-labelledby="root-config-help-local-title">

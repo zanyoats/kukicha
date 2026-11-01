@@ -140,6 +140,8 @@ func NewWebRouter(
 		exactPattern(http.MethodGet, urls.Search),
 		router.showSearch,
 	)
+	mux.HandleFunc(exactPattern(http.MethodGet, urls.UnrecognizedTracks), router.showUnrecognizedTracks)
+	mux.HandleFunc(exactPattern(http.MethodPatch, urls.UpdateUnrecognizedTrack), router.updateUnrecognizedTrack)
 	mux.HandleFunc(
 		exactPattern(http.MethodGet, urls.ArtistRules),
 		router.showArtistRules,

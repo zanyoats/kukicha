@@ -26,6 +26,12 @@ var insertScannedPlaylistSQL string
 //go:embed sql/insert_scanned_file.sql
 var insertScannedFileSQL string
 
+//go:embed sql/insert_recognized_scan_track.sql
+var insertRecognizedScanTrackSQL string
+
+//go:embed sql/publish_unrecognized_scan_tracks.sql
+var publishUnrecognizedScanTracksSQL string
+
 //go:embed sql/insert_scan_root.sql
 var insertScanRootSQL string
 
@@ -128,6 +134,23 @@ func BuildLibraryFromScan(
 		return result, err
 	}
 	defer tx.Rollback()
+
+	// Do not publish stale corrections or consume edits made after staging.
+	var correctionsChanged bool
+	if err := tx.QueryRowContext(ctx, `
+        SELECT EXISTS (
+            SELECT 1 FROM scan_ready_unrecognized_tracks AS staged
+            LEFT JOIN unrecognized_tracks AS current USING (uploaded_path)
+            WHERE current.album IS NOT staged.album OR current.artists IS NOT staged.artists
+        )`).Scan(&correctionsChanged); err != nil {
+		return result, err
+	}
+	if correctionsChanged {
+		return result, errors.New("unrecognized track corrections changed during build; retry the build")
+	}
+	if _, err := tx.ExecContext(ctx, publishUnrecognizedScanTracksSQL); err != nil {
+		return result, fmt.Errorf("publish unrecognized scan results: %w", err)
+	}
 
 	// Publish the new version only when the rebuilt membership commits.
 
@@ -283,6 +306,15 @@ func insertScannedTrack(
 		return err
 	}
 
+	// remove_promoted_scan_track deletes the pending row in the same statement.
+	if _, err := conn.ExecContext(ctx, insertRecognizedScanTrackSQL,
+		sql.Named("root_pos", r.RootPos),
+		sql.Named("path", r.Path),
+		sql.Named("unknown_item", app.UnknownItem),
+	); err != nil {
+		return fmt.Errorf("route scanned track %q: %w", r.Path, err)
+	}
+
 	for artworkPos, artwork := range r.Artwork {
 		_, err = conn.ExecContext(
 			ctx,
@@ -299,16 +331,19 @@ func insertScannedTrack(
 			return err
 		}
 
-		thumbnailCacheName := ""
-		if artwork.PictureType == "front_cover" || artwork.PictureType == "other" {
-			thumbnailCacheName, err = CacheArtworkThumbnails(
-				ctx, conn, artwork.ArtworkBytes,
-				fmt.Sprintf("embedded artwork %q position %d", r.Path, artworkPos),
-				r.Root.ConfigID(), r.Path,
-			)
-			if err != nil {
-				return err
-			}
+		if artwork.PictureType != "front_cover" && artwork.PictureType != "other" {
+			continue
+		}
+		thumbnailCacheName, err := CacheArtworkThumbnails(
+			ctx, conn, artwork.ArtworkBytes,
+			fmt.Sprintf("embedded artwork %q position %d", r.Path, artworkPos),
+			r.Root.ConfigID(), r.Path,
+		)
+		if err != nil {
+			return err
+		}
+		if thumbnailCacheName == "" {
+			continue
 		}
 
 		_, err = conn.ExecContext(
@@ -318,10 +353,7 @@ func insertScannedTrack(
 			sql.Named("path", r.Path),
 			sql.Named("artwork_pos", artworkPos),
 			sql.Named("picture_type", artwork.PictureType),
-			sql.Named(
-				"thumbnail_cache_name",
-				nullableThumbnailCacheName(thumbnailCacheName),
-			),
+			sql.Named("thumbnail_cache_name", thumbnailCacheName),
 		)
 		if err != nil {
 			return err

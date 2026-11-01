@@ -202,12 +202,12 @@ a:focus-visible {
     }
 }
 
-/* Toasts float across the navigation/content boundary. */
+/* Anchor to the viewport so expanding job status cannot move the toasts. */
 .toast-layer {
-    position: absolute;
-    inset-block-start: 100%;
+    position: fixed;
+    inset-block-start: 2.25rem;
     inset-inline-start: 50%;
-    transform: translate(-50%, -1.5rem);
+    transform: translateX(-50%);
     z-index: 10000;
     display: flex;
     flex-direction: column;
@@ -1626,17 +1626,28 @@ up-modal.config-modal[size] up-modal-box,
     box-shadow: none;
 }
 
-body:has(up-modal.config-modal:not(.up-destroying))
-    up-drawer.avatar-drawer
-    up-drawer-backdrop {
+/* Only the last active backdrop-bearing layer dims the page. */
+:is(up-modal, up-drawer):has(
+    ~ :is(up-modal, up-drawer):not(.up-destroying, .player-queue-drawer)
+        > :is(up-modal-backdrop, up-drawer-backdrop)
+) > :is(up-modal-backdrop, up-drawer-backdrop) {
     background: transparent;
 }
 
-/* Hand the backdrop back to the drawer before the modal's exit animation. */
-body:has(up-drawer.avatar-drawer:not(.up-destroying))
-    up-modal.config-modal.up-destroying
-    up-modal-backdrop {
+/* Hand the backdrop back before a nested layer's exit animation. */
+:is(up-modal, up-drawer):not(.up-destroying, .player-queue-drawer):has(
+    > :is(up-modal-backdrop, up-drawer-backdrop)
+) ~ :is(up-modal, up-drawer).up-destroying
+    > :is(up-modal-backdrop, up-drawer-backdrop) {
     background: transparent;
+}
+
+/* A nested opening replaces an existing backdrop without fading it in again. */
+:is(up-modal, up-drawer):not(.up-destroying, .player-queue-drawer):has(
+    > :is(up-modal-backdrop, up-drawer-backdrop)
+) ~ :is(up-modal, up-drawer):not(.up-destroying)
+    > :is(up-modal-backdrop, up-drawer-backdrop) {
+    opacity: 1 !important;
 }
 
 up-drawer.avatar-drawer up-drawer-box,
@@ -2137,4 +2148,81 @@ up-modal.config-modal:has(.add-page) up-modal-box {
 
 .metadata-override-status:empty {
     display: none;
+}
+
+.unrecognized-track-group {
+    margin-block-start: 1.5rem;
+}
+
+.unrecognized-tracks-grid {
+    display: grid;
+}
+
+.unrecognized-track-form {
+    padding-block: 1rem;
+    border-block-start: 1px solid var(--border);
+}
+
+.unrecognized-track-form:last-child {
+    border-block-end: 1px solid var(--border);
+}
+
+.unrecognized-track-form fieldset {
+    display: grid;
+    grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr) minmax(0, 1fr) minmax(7rem, auto);
+    align-items: start;
+    gap: 1rem;
+    min-inline-size: 0;
+    margin: 0;
+    padding: 0;
+    border: 0;
+}
+
+.unrecognized-track-file h3 {
+    margin: 0;
+    font-size: 1rem;
+    font-weight: 500;
+    overflow-wrap: anywhere;
+}
+
+.unrecognized-track-path {
+    margin-block: 0.5rem 0;
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    overflow-wrap: anywhere;
+}
+
+.unrecognized-track-form textarea {
+    inline-size: 100%;
+    box-sizing: border-box;
+    padding: 0.5rem;
+    border: 1px solid var(--border);
+    border-radius: 0;
+    background: var(--surface);
+    color: var(--text-primary);
+    font: inherit;
+    resize: vertical;
+}
+
+.unrecognized-track-actions {
+    display: grid;
+    justify-items: start;
+    gap: 0.5rem;
+    font-size: 0.8rem;
+}
+
+@media (max-width: 800px) {
+    .unrecognized-track-form fieldset {
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    }
+    .unrecognized-track-file,
+    .unrecognized-track-actions {
+        grid-column: 1 / -1;
+    }
+}
+
+@media (max-width: 480px) {
+    .unrecognized-track-form fieldset {
+        grid-template-columns: minmax(0, 1fr);
+    }
 }

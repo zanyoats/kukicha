@@ -19,6 +19,9 @@ var prepareScanResultsSQL string
 //go:embed sql/prepare_scan_results_from_library.sql
 var prepareScanResultsFromLibrarySQL string
 
+//go:embed sql/stage_unrecognized_scan_tracks.sql
+var stageUnrecognizedScanTracksSQL string
+
 // PrepareScanResultsFromLibrary stages raw tracks and a snapshot of album overrides.
 // Normalization runs after any new files have also been staged.
 func PrepareScanResultsFromLibrary(ctx context.Context, conn *sql.Conn, conf *app.AppConfig) error {
@@ -27,6 +30,9 @@ func PrepareScanResultsFromLibrary(ctx context.Context, conn *sql.Conn, conf *ap
 	}
 	if err := copyLibraryToScan(ctx, conn, conf); err != nil {
 		return err
+	}
+	if _, err := conn.ExecContext(ctx, stageUnrecognizedScanTracksSQL); err != nil {
+		return fmt.Errorf("stage ready unrecognized tracks: %w", err)
 	}
 	return stageAlbumScanOverrides(ctx, conn, conf)
 }

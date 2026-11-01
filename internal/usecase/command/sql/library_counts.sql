@@ -7,6 +7,7 @@ WITH sidecars AS (
 )
 SELECT
     (SELECT COUNT(*) FROM scan_tracks)
+        + (SELECT COUNT(*) FROM scan_unrecognized_tracks)
         + (SELECT COUNT(*) FROM scan_playlists)
         + (SELECT COUNT(*) FROM sidecars) AS processed_files_count,
     (SELECT COUNT(*) FROM sidecars) AS sidecar_files_count,
