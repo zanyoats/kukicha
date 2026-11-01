@@ -1,4 +1,5 @@
 import { PLAYER_APPEND_QUEUE, PLAYER_SELECT_QUEUE, PLAYER_SELECT_TRACK } from "./player-events.js";
+import { groupByDirectory } from "./path-groups.js";
 import { showToast } from "./notifications.js";
 
 export default function registerAlbumCover(up) {
@@ -48,6 +49,7 @@ export default function registerAlbumCover(up) {
                     showToast("This album has no tracks.", { trigger: button });
                     return;
                 }
+                tracks = [...groupByDirectory(tracks, (track) => track.path).values()].flat();
                 up.emit(append ? PLAYER_APPEND_QUEUE : PLAYER_SELECT_QUEUE, {
                     tracks, selectedIndex: 0, startAlbum: true,
                 });

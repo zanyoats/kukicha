@@ -4,6 +4,7 @@ import {
     PLAYER_STATE_REQUEST,
     PLAYER_TRACK_CHANGED,
 } from "./player-events.js";
+import { groupByDirectory } from "./path-groups.js";
 import { setIcon } from "./player-utils.js";
 
 export default function registerAlbumPage(up) {
@@ -13,7 +14,39 @@ export default function registerAlbumPage(up) {
 }
 
 function albumPageCompiler(up, albumPageElement, data) {
-    const tracks = Array.isArray(data.tracks) ? data.tracks : [];
+    const groups = groupByDirectory(
+        Array.isArray(data.tracks) ? data.tracks : [],
+        (track) => track.path,
+    );
+    const tracks = [...groups.values()].flat();
+    const originalList = albumPageElement.querySelector("[data-album-tracks]");
+    if (tracks.length && originalList) {
+        const rows = new Map(
+            [...originalList.querySelectorAll("[data-track-id]")].map(
+                (row) => [row.dataset.trackId, row],
+            ),
+        );
+        const fragment = document.createDocumentFragment();
+        let index = 0;
+        for (const [directory, group] of groups) {
+            if (groups.size > 1) {
+                const heading = document.createElement("h2");
+                const folder = directory.slice(0, -1).split("/").pop();
+                heading.textContent = folder ? `.../${folder}/` : directory || "./";
+                heading.title = directory || "./";
+                fragment.append(heading);
+            }
+            const list = document.createElement("ol");
+            list.className = "track-list";
+            for (const track of group) {
+                const row = rows.get(String(track.id));
+                row.querySelector("[data-track-index]").dataset.trackIndex = index++;
+                list.append(row);
+            }
+            fragment.append(list);
+        }
+        originalList.replaceWith(fragment);
+    }
     let currentTrackID = null;
     let playing = false;
 

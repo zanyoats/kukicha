@@ -181,7 +181,7 @@ func SelectRadioTrack(ctx context.Context, db *sql.DB, request RadioRequest, min
 		sql.Named("entity_id", request.EntityID),
 		sql.Named("position", shuffle.index(position)),
 	).Scan(
-		&selection.Track.ID, &selection.Track.RootConfigID, &selection.Track.Title, &artists,
+		&selection.Track.ID, &selection.Track.Path, &selection.Track.Title, &artists,
 		&selection.Track.DurationSeconds, &selection.Track.DiscNumber, &selection.Track.TrackNumber,
 		&selection.AlbumID, &selection.AlbumTitle)
 	if err != nil {
