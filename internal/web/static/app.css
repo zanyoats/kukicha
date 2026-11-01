@@ -1721,7 +1721,7 @@ svg.player-queue-play-icon {
     content: "";
     position: absolute;
     inset: 0;
-    background: color-mix(in srgb, var(--text-primary) 80%, transparent);
+    background: color-mix(in srgb, var(--text-primary) 50%, transparent);
     pointer-events: none;
 }
 
