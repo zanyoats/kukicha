@@ -162,8 +162,8 @@ func stageAlbumScanOverrides(ctx context.Context, conn *sql.Conn, conf *app.AppC
 		"musicbrainz": conf.Settings.Scan.MusicBrainz,
 	}
 	clients := map[string]*metadata.Client{
-		"discogs":     metadata.NewClient(configs["discogs"]),
-		"musicbrainz": metadata.NewClient(configs["musicbrainz"]),
+		"discogs":     metadata.NewClient(configs["discogs"], conf.Settings.Scan.LocalArtworkMaxBytes),
+		"musicbrainz": metadata.NewClient(configs["musicbrainz"], conf.Settings.Scan.LocalArtworkMaxBytes),
 	}
 	var afterProvider, afterType, afterID string
 	for {

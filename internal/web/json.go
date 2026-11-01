@@ -5,6 +5,8 @@ import (
 	"io"
 	"mime"
 	"net/http"
+
+	"github.com/zanyoats/kukicha/internal/app"
 )
 
 func decodeJSONRequest(w http.ResponseWriter, r *http.Request, input any) bool {
@@ -13,7 +15,7 @@ func decodeJSONRequest(w http.ResponseWriter, r *http.Request, input any) bool {
 		apiError(w, http.StatusUnsupportedMediaType, "Content-Type must be application/json.")
 		return false
 	}
-	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)) // 1 MiB
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, app.JSONRequestMaxBytes))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(input); err != nil {
 		apiError(w, http.StatusBadRequest, "Invalid JSON request.")

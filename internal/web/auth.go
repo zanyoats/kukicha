@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/zanyoats/kukicha/internal/app"
 	"github.com/zanyoats/kukicha/internal/auth"
 )
 
@@ -78,7 +79,7 @@ func (c *webRouter) login(w http.ResponseWriter, r *http.Request) {
 	}
 	status, message := http.StatusOK, ""
 	if r.Method == http.MethodPost {
-		r.Body = http.MaxBytesReader(w, r.Body, 16*1024)
+		r.Body = http.MaxBytesReader(w, r.Body, app.LoginRequestMaxBytes)
 		if err := r.ParseForm(); err != nil {
 			status, message = http.StatusBadRequest, "Invalid login form"
 		} else {

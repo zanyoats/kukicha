@@ -49,7 +49,8 @@ ignore_files = ["__MACOSX", "desktop.ini", "thumbs.db", "$recycle.bin", "system 
 # Set to "0s" to disable periodic scan progress messages.
 progress_log_interval = "5s"
 
-# Oversized sidecar and embedded artwork is ignored.
+# Maximum size for sidecar, embedded, and downloaded artwork (iTunes and metadata overrides).
+# Oversized artwork is skipped.
 # Size = 25 × 1024 × 1024 = 26,214,400 bytes
 local_artwork_max_bytes = 26_214_400
 
@@ -172,7 +173,7 @@ default_album_sort = "recentlyAdded"
 
 # Minimum toast display time. Longer messages receive 60ms per character.
 # The timer pauses while hovered, focused, or the browser tab is hidden.
-toast_min_duration = "8s"
+toast_min_duration = "5s"
 
 [radio]
 # Minimum tracks required to play an artist, genre, or style radio.

@@ -23,13 +23,14 @@ import (
 )
 
 const (
-	AppName             = "com.cconroy.kukicha"
-	ConfigFileName      = "kukicha.toml"
-	DbFileName          = "kukicha.db"
-	UserAgent           = "kukicha/0.1.0 (https://cconroy.com/kukicha)"
-	LookupMaxBytes      = 2 * 1024 * 1024
-	ArtworkMaxBytes     = 25 * 1024 * 1024
-	ArtworkMinimumWidth = 256
+	AppName              = "com.cconroy.kukicha"
+	ConfigFileName       = "kukicha.toml"
+	DbFileName           = "kukicha.db"
+	UserAgent            = "kukicha/0.1.0 (https://cconroy.com/kukicha)"
+	LookupMaxBytes       = 2 * 1024 * 1024
+	ArtworkMinimumWidth  = 256
+	JSONRequestMaxBytes  = 1 << 20  // 1 MiB
+	LoginRequestMaxBytes = 16 << 10 // 16 KiB
 )
 
 type Duration struct {

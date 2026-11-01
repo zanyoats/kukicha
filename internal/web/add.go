@@ -9,6 +9,7 @@ import (
 	"mime"
 	"net/http"
 
+	"github.com/zanyoats/kukicha/internal/app"
 	"github.com/zanyoats/kukicha/internal/upload"
 )
 
@@ -57,7 +58,7 @@ func (c *webRouter) uploadFiles(w http.ResponseWriter, r *http.Request) {
 		}
 		jobID, err = c.uploads.AcceptFiles(r.Context(), r.URL.Query().Get("root_id"), parts)
 	case "application/json":
-		r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+		r.Body = http.MaxBytesReader(w, r.Body, app.JSONRequestMaxBytes)
 		decoder := json.NewDecoder(r.Body)
 		decoder.DisallowUnknownFields()
 		var request upload.SyncRequest

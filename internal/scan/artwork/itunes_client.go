@@ -65,18 +65,20 @@ func (e *artworkRateLimitError) Error() string {
 }
 
 type ITunesClient struct {
-	http           HTTPDoer
-	userAgent      string
-	lookupGate     chan struct{}
-	lookupInterval time.Duration
-	maxAttempts    int
-	nextLookup     time.Time
+	http            HTTPDoer
+	userAgent       string
+	lookupGate      chan struct{}
+	lookupInterval  time.Duration
+	maxAttempts     int
+	artworkMaxBytes int64
+	nextLookup      time.Time
 }
 
 type ITunesClientConfig struct {
-	RequestTimeout time.Duration
-	LookupInterval time.Duration
-	MaxAttempts    int
+	RequestTimeout  time.Duration
+	LookupInterval  time.Duration
+	MaxAttempts     int
+	ArtworkMaxBytes int64
 }
 
 func NewITunesClient(
@@ -99,11 +101,12 @@ func NewITunesClient(
 	lookupGate <- struct{}{}
 
 	return &ITunesClient{
-		http:           httpClient,
-		userAgent:      app.UserAgent,
-		lookupGate:     lookupGate,
-		lookupInterval: config.LookupInterval,
-		maxAttempts:    config.MaxAttempts,
+		http:            httpClient,
+		userAgent:       app.UserAgent,
+		lookupGate:      lookupGate,
+		lookupInterval:  config.LookupInterval,
+		maxAttempts:     config.MaxAttempts,
+		artworkMaxBytes: config.ArtworkMaxBytes,
 	}
 }
 
@@ -404,7 +407,7 @@ func (c *ITunesClient) fetchArtworkCandidate(
 
 		imageBytes, err := readBoundedResponse(
 			response.Body,
-			app.ArtworkMaxBytes,
+			c.artworkMaxBytes,
 		)
 		if err != nil {
 			return nil, "", "", err

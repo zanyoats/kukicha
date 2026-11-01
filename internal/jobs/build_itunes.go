@@ -82,9 +82,10 @@ func (j *fileScanner) lookupITunesArtwork(ctx context.Context, conn *sql.Conn) e
 	client := scanartwork.NewITunesClient(
 		nil,
 		scanartwork.ITunesClientConfig{
-			RequestTimeout: j.Conf.Settings.Scan.ITunes.RequestTimeout.Duration,
-			LookupInterval: j.Conf.Settings.Scan.ITunes.LookupInterval.Duration,
-			MaxAttempts:    j.Conf.Settings.Scan.ITunes.MaxAttempts,
+			RequestTimeout:  j.Conf.Settings.Scan.ITunes.RequestTimeout.Duration,
+			LookupInterval:  j.Conf.Settings.Scan.ITunes.LookupInterval.Duration,
+			MaxAttempts:     j.Conf.Settings.Scan.ITunes.MaxAttempts,
+			ArtworkMaxBytes: j.Conf.Settings.Scan.LocalArtworkMaxBytes,
 		},
 	)
 

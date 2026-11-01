@@ -22,16 +22,18 @@ import (
 
 // Client is used sequentially by a build, with separate pacing for each provider.
 type Client struct {
-	HTTP           *http.Client
-	nextRequest    time.Time
-	lookupInterval time.Duration
-	maxAttempts    int
+	HTTP            *http.Client
+	nextRequest     time.Time
+	lookupInterval  time.Duration
+	maxAttempts     int
+	artworkMaxBytes int64
 }
 
-func NewClient(config app.ProviderLookupConfig) *Client {
+func NewClient(config app.ProviderLookupConfig, artworkMaxBytes int64) *Client {
 	return &Client{
-		lookupInterval: config.LookupInterval.Duration,
-		maxAttempts:    config.MaxAttempts,
+		lookupInterval:  config.LookupInterval.Duration,
+		maxAttempts:     config.MaxAttempts,
+		artworkMaxBytes: artworkMaxBytes,
 		HTTP: &http.Client{
 			Timeout: config.RequestTimeout.Duration,
 			CheckRedirect: func(r *http.Request, via []*http.Request) error {
@@ -184,7 +186,7 @@ func (c *Client) Fetch(ctx context.Context, s app.MetadataSource) (app.MetadataO
 
 // Artwork reports missing CAA artwork separately from retryable fetch failures.
 func (c *Client) Artwork(ctx context.Context, rawURL string) (data []byte, missing bool, err error) {
-	data, status, err := c.get(ctx, rawURL, app.ArtworkMaxBytes)
+	data, status, err := c.get(ctx, rawURL, c.artworkMaxBytes)
 	u, _ := url.Parse(rawURL)
 	if status == http.StatusNotFound && u != nil && u.Hostname() == "coverartarchive.org" {
 		return nil, true, nil
