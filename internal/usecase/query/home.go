@@ -30,12 +30,12 @@ type HomeItem struct {
 
 // HomeData contains the library categories displayed on the home page.
 type HomeData struct {
-	LibraryGenerated bool
-	LibraryHasTracks bool
-	InitialSyncState string
-	Artists          []HomeItem
-	Genres           []HomeItem
-	Styles           []HomeItem
+	LibraryGenerated  bool
+	LibraryHasTracks  bool
+	InitialBuildState string
+	Artists           []HomeItem
+	Genres            []HomeItem
+	Styles            []HomeItem
 }
 
 // Home loads the artists, genres, and styles associated with library albums.
@@ -49,7 +49,7 @@ func Home(ctx context.Context, db *sql.DB) (HomeData, error) {
 	result := HomeData{}
 	if err := tx.QueryRowContext(ctx, homeLibraryStateSQL,
 		sql.Named("generated_at_key", app.LibraryGeneratedAt),
-	).Scan(&result.LibraryGenerated, &result.LibraryHasTracks, &result.InitialSyncState); err != nil {
+	).Scan(&result.LibraryGenerated, &result.LibraryHasTracks, &result.InitialBuildState); err != nil {
 		return HomeData{}, fmt.Errorf("query home library state: %w", err)
 	}
 

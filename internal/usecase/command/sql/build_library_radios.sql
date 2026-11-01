@@ -7,7 +7,7 @@ SELECT
     ) - 1,
     tracks.id
 FROM library_album_artists AS artists
-JOIN library_tracks AS tracks ON tracks.album_id = artists.album_id;
+JOIN available_library_tracks AS tracks ON tracks.album_id = artists.album_id;
 
 INSERT INTO genres_radios (genre_id, position, track_id)
 SELECT
@@ -16,7 +16,8 @@ SELECT
         PARTITION BY genre_id ORDER BY track_id
     ) - 1,
     track_id
-FROM library_track_genres;
+FROM library_track_genres
+WHERE track_id IN (SELECT id FROM available_library_tracks);
 
 INSERT INTO styles_radios (style_id, position, track_id)
 SELECT
@@ -25,4 +26,5 @@ SELECT
         PARTITION BY style_id ORDER BY track_id
     ) - 1,
     track_id
-FROM library_track_styles;
+FROM library_track_styles
+WHERE track_id IN (SELECT id FROM available_library_tracks);

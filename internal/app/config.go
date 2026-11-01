@@ -9,7 +9,6 @@ import (
 	"maps"
 	"math"
 	"net"
-	"net/url"
 	"os"
 	"path"
 	"path/filepath"
@@ -161,6 +160,8 @@ type AppConfig struct {
 		} `toml:"logging"`
 		Scan struct {
 			Roots                []RootConfig `toml:"roots"`
+			IgnorePrefixes       []string     `toml:"ignore_prefixes"`
+			IgnoreFiles          []string     `toml:"ignore_files"`
 			ProgressLogInterval  Duration     `toml:"progress_log_interval"`
 			LocalArtworkMaxBytes int64        `toml:"local_artwork_max_bytes"`
 			ITunes               struct {
@@ -243,7 +244,7 @@ func LoadAppConfig(catalog *Catalog) (*AppConfig, error) {
 	}
 
 	// Validations...
-	if result.Roots, err = NormalizeRoots(result.AppDir, result.Settings.Scan.Roots); err != nil {
+	if result.Roots, err = normalizeRoots(result.AppDir, result.Settings.Scan.Roots); err != nil {
 		return nil, err
 	}
 	if result.Settings.Scan.ProgressLogInterval.Duration < 0 {
@@ -270,6 +271,10 @@ func LoadAppConfig(catalog *Catalog) (*AppConfig, error) {
 		return nil, errors.New(
 			`"scan.itunes.retry_attempts" setting must be a positive integer`,
 		)
+	}
+
+	if slices.Contains(result.Settings.Scan.IgnorePrefixes, "") {
+		return nil, errors.New(`"scan.ignore_prefixes" cannot contain an empty prefix`)
 	}
 
 	// ...no empty tokens
@@ -376,6 +381,22 @@ func LoadAppConfig(catalog *Catalog) (*AppConfig, error) {
 	result.DataSourceName = fmt.Sprintf("%s?%s", dbPath, dbPragmas)
 
 	return result, nil
+}
+
+// IsIgnoredScanPath matches a local filename or a complete remote object key.
+// Prefixes are case-sensitive; exact matches are case-insensitive.
+func IsIgnoredScanPath(name string, prefixes, names []string) bool {
+	for _, prefix := range prefixes {
+		if strings.HasPrefix(name, prefix) {
+			return true
+		}
+	}
+	for _, ignored := range names {
+		if strings.EqualFold(name, ignored) {
+			return true
+		}
+	}
+	return false
 }
 
 func decodeSettings(data []byte, settings any) error {
@@ -514,9 +535,9 @@ func validateAppBasePath(basePath string) error {
 	return nil
 }
 
-// NormalizeRoots validates and resolves each entry in configuration order.
+// normalizeRoots validates and resolves each entry in configuration order.
 // IDs are case-sensitive and remain independent of type and storage location.
-func NormalizeRoots(baseDir string, configured []RootConfig) ([]Root, error) {
+func normalizeRoots(baseDir string, configured []RootConfig) ([]Root, error) {
 	roots := make([]Root, 0, len(configured))
 	seen := make(map[string]int, len(configured))
 	value := func(field *string) string {
@@ -588,40 +609,15 @@ func NormalizeRoots(baseDir string, configured []RootConfig) ([]Root, error) {
 }
 
 func normalizeRemoteRoot(r *RemoteRoot) error {
-	invalid := func(message string) error {
-		return fmt.Errorf("remote root %q: %s", r.ID, message)
-	}
-	r.EndpointURL = strings.TrimRight(strings.TrimSpace(r.EndpointURL), "/")
-	r.Bucket = strings.TrimSpace(r.Bucket)
-	r.Profile = strings.TrimSpace(r.Profile)
-	r.Region = strings.TrimSpace(r.Region)
-	if r.Prefix != "" && !strings.HasSuffix(r.Prefix, "/") {
-		return invalid("prefix must be empty or end with '/'")
-	}
-	r.AddressingStyle = strings.ToLower(strings.TrimSpace(r.AddressingStyle))
-	if r.AddressingStyle == "" {
-		r.AddressingStyle = "auto"
-	}
-	if r.Bucket == "" {
-		return invalid("bucket must be non-empty")
-	}
-	if strings.ContainsAny(r.Bucket, "/\\ \t\r\n") {
-		return invalid("bucket must not contain slashes or whitespace")
-	}
-	u, err := url.Parse(r.EndpointURL)
+	location, err := normalizeRemoteLocation(remoteLocation{
+		EndpointURL: r.EndpointURL, Bucket: r.Bucket, Prefix: r.Prefix,
+		Region: r.Region, AddressingStyle: r.AddressingStyle,
+	})
 	if err != nil {
-		return fmt.Errorf("remote root %q: parse endpoint_url: %w", r.ID, err)
+		return fmt.Errorf("remote root %q: %w", r.ID, err)
 	}
-	if (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" || u.User != nil || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" {
-		return invalid("endpoint_url must be an HTTP(S) URL without credentials, query, or fragment")
-	}
-	u.Host = strings.ToLower(u.Host)
-	r.EndpointURL = u.String()
-	switch r.AddressingStyle {
-	case "auto", "path", "virtual":
-	default:
-		return invalid("addressing_style must be auto, path, or virtual")
-	}
+	r.EndpointURL, r.Bucket, r.Region, r.AddressingStyle = location.EndpointURL, location.Bucket, location.Region, location.AddressingStyle
+	r.Profile = strings.TrimSpace(r.Profile)
 	return nil
 }
 

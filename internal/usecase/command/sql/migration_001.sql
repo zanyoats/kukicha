@@ -99,6 +99,8 @@ CREATE TABLE library_roots (
     id        INTEGER PRIMARY KEY,
     config_id TEXT    NOT NULL   ,
 
+    state TEXT NOT NULL DEFAULT 'available' CHECK (state IN ('available', 'lost', 'disowned', 'pending_removal')),
+
     UNIQUE (config_id)           ,
     CHECK (length(trim(config_id)) > 0)
 );
@@ -157,6 +159,7 @@ CREATE TABLE library_album_sidecars (
     root_id              INTEGER NOT NULL                 ,
     stem                 TEXT    NOT NULL                 ,
     ext                  TEXT    NOT NULL                 ,
+    path_dir             TEXT    NOT NULL                 ,
     path                 TEXT    NOT NULL                 ,
     file_size            INTEGER NOT NULL                 ,
     file_mtime_unix_nano INTEGER NOT NULL                 ,
@@ -287,6 +290,7 @@ CREATE TABLE library_tracks (
     album_id             INTEGER NOT NULL   ,
     stem                 TEXT    NOT NULL   ,
     ext                  TEXT    NOT NULL   ,
+    path_dir             TEXT    NOT NULL   ,
     path                 TEXT    NOT NULL   ,
     file_size            INTEGER NOT NULL   ,
     file_mtime_unix_nano INTEGER NOT NULL   ,
@@ -368,7 +372,7 @@ CREATE TABLE jobs (
     last_error          TEXT                                   ,
     cancel_requested_at TEXT                                   ,
 
-    CHECK (type IN ('sync', 'scan', 'reset', 'add'))                   ,
+    CHECK (type = 'build')                   ,
     CHECK (json_valid(payload))                                ,
     CHECK (state IN (
         -- transient states
@@ -453,3 +457,29 @@ CREATE TABLE styles_radios (
       REFERENCES library_tracks (id)
       ON DELETE CASCADE
 ) WITHOUT ROWID;
+
+-- Library browsing and playback share the same availability boundary.
+CREATE VIEW available_library_tracks AS
+SELECT tracks.* FROM library_tracks AS tracks
+JOIN library_roots AS roots ON roots.id = tracks.root_id
+WHERE roots.state = 'available';
+
+CREATE VIEW available_library_albums AS
+SELECT albums.* FROM library_albums AS albums
+WHERE EXISTS (SELECT 1 FROM available_library_tracks AS tracks WHERE tracks.album_id = albums.id);
+
+CREATE VIEW available_library_album_genres AS
+SELECT relation.* FROM library_album_genres AS relation
+WHERE EXISTS (
+    SELECT 1 FROM available_library_tracks AS tracks
+    JOIN library_track_genres AS track_relation ON track_relation.track_id = tracks.id
+    WHERE tracks.album_id = relation.album_id AND track_relation.genre_id = relation.genre_id
+);
+
+CREATE VIEW available_library_album_styles AS
+SELECT relation.* FROM library_album_styles AS relation
+WHERE EXISTS (
+    SELECT 1 FROM available_library_tracks AS tracks
+    JOIN library_track_styles AS track_relation ON track_relation.track_id = tracks.id
+    WHERE tracks.album_id = relation.album_id AND track_relation.style_id = relation.style_id
+);

@@ -40,6 +40,12 @@ level = "info"
                                           # | ---------|-------------------------------------|-------------------------------|
 roots = []
 
+# Ignore local filenames or remote object keys during file scanning or syncing (new tracks).
+# For local roots, file emptiness is determined while ignoring matching prefixes or files
+# for top-level entries. Set either list to [] to disable its exclusions.
+ignore_prefixes = ["."]
+ignore_files = ["__MACOSX", "desktop.ini", "thumbs.db", "$recycle.bin", "system volume information"]
+
 # Set to "0s" to disable periodic scan progress messages.
 progress_log_interval = "5s"
 

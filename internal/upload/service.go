@@ -10,7 +10,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 
 	"github.com/zanyoats/kukicha/internal/app"
 	"github.com/zanyoats/kukicha/internal/usecase/command"
@@ -23,29 +22,24 @@ const (
 
 // SyncRequest accepts exactly one input. Sources never become configured roots.
 type SyncRequest struct {
-	Mode   string          `json:"mode"`
-	Folder string          `json:"folder,omitempty"`
-	Remote *app.RootConfig `json:"remote,omitempty"`
+	Mode   string            `json:"mode"`
+	Folder string            `json:"folder,omitempty"`
+	Remote *app.RemoteSource `json:"remote,omitempty"`
 }
 
-// Enabled remains false until both add modes, root marker checks, and
-// removal of standalone sync are implemented. It is intentionally not a user setting.
-const Enabled = false
-
-var ErrEnqueue = errors.New("unable to create add job")
+var ErrEnqueue = errors.New("unable to create build job")
 
 type Service struct {
 	DB    *sql.DB
 	Roots []app.Root
-	mu    sync.Mutex // Serializes root initialization only, not upload streams.
 }
 
 // AcceptFiles streams files and extracts archives into an OS temp directory, then
-// queues one add job. Every call is independent; duplicate uploads are allowed.
+// queues one build job. Every call is independent; duplicate uploads are allowed.
 // The executor removes the directory after success. Failures leave it behind
 // for system/manual cleanup; OS temp storage is not a recovery guarantee.
 func (s *Service) AcceptFiles(ctx context.Context, rootID string, parts *multipart.Reader) (int64, error) {
-	root, err := s.destination(ctx, rootID)
+	root, err := s.destination(rootID)
 	if err != nil {
 		return 0, err
 	}
@@ -59,47 +53,41 @@ func (s *Service) AcceptFiles(ctx context.Context, rootID string, parts *multipa
 	return s.enqueue(ctx, root, tempDir, ModeFiles, nil)
 }
 
-// AcceptSync queues source acquisition using an OS temp directory. Each request
+// AcceptSync queues a source for direct scanning and later transfer. Each request
 // creates a new job; source files are never changed by request handling.
 func (s *Service) AcceptSync(ctx context.Context, rootID string, request SyncRequest) (int64, error) {
-	root, err := s.destination(ctx, rootID)
+	root, err := s.destination(rootID)
 	if err != nil {
 		return 0, err
 	}
-	tempDir, err := os.MkdirTemp("", "kukicha-add-")
+	source, err := s.normalizeSource(request)
 	if err != nil {
 		return 0, err
 	}
-	source, err := s.normalizeSource(request, tempDir)
-	if err != nil {
-		return 0, err
-	}
-	return s.enqueue(ctx, root, tempDir, ModeSync, source)
+	return s.enqueue(ctx, root, "", ModeSync, source)
 }
 
-func (s *Service) destination(ctx context.Context, rootID string) (app.Root, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+func (s *Service) destination(rootID string) (app.Root, error) {
 	for _, root := range s.Roots {
 		if root.ConfigID() == rootID {
-			return root, validateRoot(ctx, root)
+			return root, nil
 		}
 	}
 	return nil, errors.New("unknown destination root")
 }
 
-func (s *Service) enqueue(ctx context.Context, root app.Root, tempDir, mode string, source *app.AddSource) (int64, error) {
-	payload, err := json.Marshal(app.AddJobPayload{
-		Mode: mode, TempPath: tempDir, RootID: root.ConfigID(),
+func (s *Service) enqueue(ctx context.Context, root app.Root, tempDir, mode string, source *app.BuildSource) (int64, error) {
+	payload, err := json.Marshal(app.BuildJobPayload{
+		Mode: app.BuildAdd, SourceType: app.BuildSourceType(mode), TempPath: tempDir, RootID: root.ConfigID(),
 		RootLocation: Location(root), Source: source,
 	})
 	if err != nil {
 		return 0, err
 	}
-	if err := command.ValidateJobSubmission(command.JobSubmission{Type: "add", Payload: payload}); err != nil {
+	if err := command.ValidateJobSubmission(command.JobSubmission{Type: "build", Payload: payload}); err != nil {
 		return 0, err
 	}
-	result, err := s.DB.ExecContext(ctx, `INSERT INTO jobs (type,payload) VALUES ('add',?)`, string(payload))
+	result, err := s.DB.ExecContext(ctx, `INSERT INTO jobs (type,payload) VALUES ('build',?)`, string(payload))
 	if err != nil {
 		return 0, errors.Join(ErrEnqueue, err)
 	}
@@ -129,23 +117,19 @@ func resolveMissingPath(name string) (string, error) {
 	return filepath.Join(resolved, filepath.Base(name)), nil
 }
 
-func (s *Service) normalizeSource(request SyncRequest, tempDir string) (*app.AddSource, error) {
+func (s *Service) normalizeSource(request SyncRequest) (*app.BuildSource, error) {
 	if request.Mode != ModeSync {
 		return nil, errors.New("JSON add requests require mode sync")
 	}
 	if (request.Folder == "") == (request.Remote == nil) {
 		return nil, errors.New("provide exactly one server folder or one remote source")
 	}
-	var spec app.AddSource
+	var spec app.BuildSource
 	if request.Remote != nil {
-		if request.Remote.Type != "remote" {
-			return nil, errors.New("source type must be remote")
-		}
-		roots, err := app.NormalizeRoots("", []app.RootConfig{*request.Remote})
-		if err != nil {
+		remote := request.Remote
+		if err := remote.Normalize(); err != nil {
 			return nil, err
 		}
-		remote := roots[0].(*app.RemoteRoot)
 		for _, root := range s.Roots {
 			if target, ok := root.(*app.RemoteRoot); ok && target.EndpointURL == remote.EndpointURL && target.Bucket == remote.Bucket &&
 				(strings.HasPrefix(target.Prefix, remote.Prefix) || strings.HasPrefix(remote.Prefix, target.Prefix)) {
@@ -168,13 +152,6 @@ func (s *Service) normalizeSource(request SyncRequest, tempDir string) (*app.Add
 		if !info.IsDir() {
 			return nil, fmt.Errorf("source %q must be a directory", request.Folder)
 		}
-		staging, err := resolveMissingPath(tempDir)
-		if err != nil {
-			return nil, err
-		}
-		if inside(staging, resolved) || inside(resolved, staging) {
-			return nil, errors.New("source folder overlaps staging")
-		}
 		for _, root := range s.Roots {
 			if local, ok := root.(*app.LocalRoot); ok {
 				target, err := resolveMissingPath(local.Path)
@@ -186,7 +163,7 @@ func (s *Service) normalizeSource(request SyncRequest, tempDir string) (*app.Add
 				}
 			}
 		}
-		spec.Folder = resolved
+		spec.Folder = &app.LocalSource{Path: resolved}
 	}
 	return &spec, nil
 }

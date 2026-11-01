@@ -17,9 +17,9 @@
     --info-background: oklch(93.2% 0.032 255.585); /* blue-100 */
     --info-border: oklch(62.3% 0.214 259.815); /* blue-500 */
     --info-text: oklch(48.8% 0.243 264.376); /* blue-700 */
-    --warning-background: oklch(95.4% 0.038 75.164); /* orange-100 */
-    --warning-border: oklch(75% 0.183 55.934); /* orange-400 */
-    --warning-text: oklch(70.5% 0.213 47.604); /* orange-500 */
+    --warning-background: oklch(96.2% 0.059 95.617); /* amber-100 */
+    --warning-border: oklch(76.9% 0.188 70.08); /* amber-500 */
+    --warning-text: oklch(55.5% 0.163 48.998); /* amber-700 */
     --error-background: oklch(93.6% 0.032 17.717); /* red-100 */
     --error-border: oklch(63.7% 0.237 25.331); /* red-500 */
     --error-text: oklch(50.5% 0.213 27.518); /* red-700 */
@@ -72,7 +72,6 @@ h3 {
 pre {
     max-inline-size: 100%;
     overflow-x: auto;
-    padding-block-end: 0.75rem;
 }
 
 button {
@@ -111,7 +110,7 @@ a {
     font-size: 0.9rem;
 }
 
-button:hover:not(:disabled):not(.radio-card-link) {
+button:hover:not(:disabled):not(.radio-card-link):not(.inline-action) {
     color: var(--text-primary);
 }
 
@@ -1164,9 +1163,6 @@ aside.alert {
     line-height: 1.3;
     vertical-align: baseline;
 }
-.inline-action:hover:not(:disabled) {
-    color: inherit;
-}
 [data-sync-submit][aria-busy="true"] {
     cursor: wait;
 }
@@ -1210,8 +1206,9 @@ aside.alert {
 
 .job-help {
     inline-size: min(28rem, calc(100vw - 1rem));
-    max-block-size: 70vh;
+    max-block-size: min(70vh, var(--info-popup-max-height, 70vh));
     overflow-y: auto;
+    overscroll-behavior: contain;
     padding: 1rem;
     font-size: 0.875rem;
     line-height: 1.5;
@@ -1247,12 +1244,41 @@ aside.alert {
     margin-block-end: 0;
 }
 
-.root-location {
+.lost-roots {
+    margin-block-start: 2rem;
+}
+
+.lost-root-list > li {
+    display: grid;
+    grid-template-columns: minmax(0, 7rem) max-content;
+    align-items: baseline;
+    justify-content: start;
+    gap: 0.75rem;
+    padding-block: 0.35rem;
+}
+
+.lost-root-list code {
+    min-inline-size: 0;
+}
+
+.root-details {
+    display: grid;
+    grid-template-columns: max-content minmax(0, 1fr);
+    gap: 0.5rem 1rem;
     max-inline-size: min(30rem, calc(100vw - 1rem));
-    padding: 0.5rem 0.75rem;
-    color: var(--text-secondary);
+    margin: 0;
+    padding: 0.75rem 1rem;
     font-size: 0.85rem;
-    font-weight: 400;
+    line-height: 1.5;
+}
+
+.root-details dt {
+    color: var(--text-secondary);
+}
+
+.root-details dd {
+    margin: 0;
+    min-inline-size: 0;
     overflow-wrap: anywhere;
 }
 
@@ -1837,12 +1863,22 @@ up-modal.config-modal:has(.add-page) up-modal-box {
     font-size: 0.9rem;
 }
 
+.add-source-fields {
+    display: grid;
+    gap: 1rem;
+}
+
+.add-form [hidden] {
+    display: none;
+}
+
 .add-destination {
     display: grid;
     gap: 0.5rem;
 }
 
-.add-destination select {
+.add-destination select,
+.add-destination input {
     inline-size: 100%;
     min-inline-size: 0;
     padding: 0.5rem;
@@ -1853,7 +1889,8 @@ up-modal.config-modal:has(.add-page) up-modal-box {
     font: inherit;
 }
 
-.add-destination select:focus-visible {
+.add-destination select:focus-visible,
+.add-destination input:focus-visible {
     outline: 0.125rem solid var(--accent);
     outline-offset: 0.125rem;
 }
@@ -1905,7 +1942,6 @@ up-modal.config-modal:has(.add-page) up-modal-box {
 .add-files li > span:first-child {
     overflow-wrap: anywhere;
 }
-
 
 @media (max-width: 600px) {
     .add-files li {

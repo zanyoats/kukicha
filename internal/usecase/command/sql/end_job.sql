@@ -5,6 +5,10 @@ SET state = CASE
         WHEN :failure IS NOT NULL THEN 'failed'
         ELSE 'succeeded'
     END,
+    payload = CASE
+        WHEN cancel_requested_at IS NULL AND :interrupted THEN payload
+        ELSE json_remove(payload, '$.source.remote.credentials')
+    END,
     finished_at = CASE
         WHEN cancel_requested_at IS NULL AND :interrupted
             THEN NULL

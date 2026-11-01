@@ -2,7 +2,7 @@
 SELECT
     thumbnail.artwork_content_type,
     thumbnail.artwork_bytes
-FROM library_tracks AS tracks
+FROM available_library_tracks AS tracks
 JOIN library_track_artwork AS artwork
     ON artwork.track_id = tracks.id
 JOIN thumbnail_cache AS thumbnail

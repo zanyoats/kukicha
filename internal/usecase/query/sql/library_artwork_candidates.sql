@@ -20,7 +20,7 @@
 -- | 102      | album/02.mp3   | album       | 700       |
 --
 WITH selected_tracks AS (
-    SELECT * FROM library_tracks WHERE id > :after_id AND id <= :last_id
+    SELECT * FROM available_library_tracks WHERE id > :after_id AND id <= :last_id
 ), candidates AS (
     SELECT -- track itunes store album id
         id AS track_id,
@@ -40,7 +40,7 @@ WITH selected_tracks AS (
         id
     FROM selected_tracks
     UNION ALL
-    SELECT -- use siblings (library_tracks.album_id) itunes store album ids as fallback for this track
+    SELECT -- use siblings (available_library_tracks.album_id) itunes store album ids as fallback for this track
         current.id,
         'album',
         CAST(json_extract(sibling.track_metadata, '$.itunes_store_album_id') AS TEXT),
@@ -48,7 +48,7 @@ WITH selected_tracks AS (
         -COUNT(*),
         MIN(sibling.id)
     FROM selected_tracks AS current
-    JOIN library_tracks AS sibling
+    JOIN available_library_tracks AS sibling
         ON sibling.album_id = current.album_id
         AND sibling.id != current.id
     WHERE COALESCE(json_extract(current.track_metadata, '$.itunes_store_album_id'), 0)
@@ -64,7 +64,7 @@ SELECT
     candidates.lookup_kind,
     candidates.lookup_id
 FROM candidates
-JOIN library_tracks AS tracks
+JOIN available_library_tracks AS tracks
     ON tracks.id = candidates.track_id
 JOIN library_roots AS roots
     ON roots.id = tracks.root_id

@@ -18,17 +18,11 @@
     <aside class="alert alert-info" aria-label="Info">
         <strong>Info</strong>
         <p>
-            Configured roots are synced at startup.
-            You can run <span class="action-with-info"><button type="button" class="inline-action" data-library-job-submit="{{.URLs.SubmitJob}}" data-job-type="scan">Scan</button>{{template "job-help-trigger" "scan"}}</span> to rebuild the library,
-            or <span class="action-with-info"><button type="button" class="inline-action" data-library-job-submit="{{.URLs.SubmitJob}}" data-job-type="sync">Sync</button>{{template "job-help-trigger" "sync"}}</span> to also re-download all files.
-            Either option starts a new job that runs in the background.
-            For a full factory reset, use <span class="action-with-info"><button type="button" class="inline-action" data-library-job-submit="{{.URLs.SubmitJob}}" data-job-type="reset">Reset</button>{{template "job-help-trigger" "reset"}}</span>,
-            which removes split rules, cached resources, and other jobs before running a full sync.
+            Run <span class="action-with-info"><button type="button" class="inline-action" data-library-job-submit="{{.URLs.SubmitJob}}">Rebuild</button>{{template "job-help-trigger" "rebuild"}}</span> to apply your latest organization rules to saved metadata.
+            Use <a href="{{.URLs.Add}}" up-layer="new modal" up-target=".config-page" up-class="config-modal" up-history="false">Add to Kukicha</a> to import music.
         </p>
     </aside>
-    {{template "scan-job-help" .}}
-    {{template "sync-job-help" .}}
-    {{template "reset-job-help" .}}
+    {{template "rebuild-job-help" .}}
     {{end}}
     {{range $index, $root := .ConfiguredRoots}}
     <section class="root-summary" aria-labelledby="root-path-{{$index}}">
@@ -37,7 +31,7 @@
             <button
                 type="button"
                 class="info-trigger"
-                aria-label="Location for {{.RootKey}}"
+                aria-label="Details for {{.RootKey}}"
                 aria-haspopup="dialog"
                 up-follow
                 up-layer="new popup"
@@ -52,13 +46,18 @@
             </button>
         </h2>
         <template id="root-info-{{$index}}">
-            <p class="root-location">{{.Location}}</p>
-        </template>
-        <dl class="facts facts-grid">
-            <div>
+            <dl class="root-details">
+                <dt>Location</dt>
+                <dd>{{.Location}}</dd>
                 <dt>Type</dt>
                 <dd>{{.Type}}</dd>
-            </div>
+                {{with index $.RootsByKey .RootKey}}
+                <dt>State</dt>
+                <dd>{{.State}}</dd>
+                {{end}}
+            </dl>
+        </template>
+        <dl class="facts facts-grid">
             {{with index $.RootsByKey .RootKey}}
             <div>
                 <dt>Tracks</dt>
@@ -86,14 +85,45 @@
     <p>No music roots are configured. Add roots to your config.</p>
     {{end}}
 
-    {{if .LatestSyncID}}
+    {{if .LostRoots}}
+    <aside class="alert alert-warning lost-roots" aria-labelledby="lost-roots-heading">
+        <strong id="lost-roots-heading">Lost roots — no longer configured</strong>
+        <p>These roots are missing from your current configuration. Their saved music is retained but hidden from the library.</p>
+        <p>Drop a root to remove its saved library data during the next build. Files in storage are left untouched.</p>
+        <ul class="lost-root-list">
+            {{range .LostRoots}}
+            <li data-lost-root>
+                <code class="text-truncate" title="{{.ConfigID}}">{{.ConfigID}}</code>
+                <span class="action-with-info">
+                    <button type="button" class="inline-action" data-drop-root="{{$.URLs.DropRoot}}"
+                        data-root-id="{{.ConfigID}}" aria-label="Drop root {{.ConfigID}}">Drop</button>
+                    <button type="button" class="info-trigger" aria-label="What happens when you drop a root"
+                        aria-haspopup="dialog" up-follow up-layer="new popup" up-content="#drop-root-help"
+                        up-class="info-popup" up-position="bottom" up-align="left"
+                        up-history="false" up-dismissible="key outside"><span aria-hidden="true">[?]</span></button>
+                </span>
+            </li>
+            {{end}}
+        </ul>
+        <template id="drop-root-help">
+            <section class="job-help" aria-labelledby="drop-root-help-title">
+                <h2 id="drop-root-help-title">What does Drop do?</h2>
+                <p>Drop removes this root from the list now. Its saved library information is deleted during the next build.</p>
+                <p><strong>Your files are never deleted</strong>, and Drop won’t start a build.</p>
+                <p class="job-help-note">If a build is already running, wait for it to finish before dropping a root.</p>
+            </section>
+        </template>
+    </aside>
+    {{end}}
+
+    {{if .LatestBuildID}}
     <section class="root-summary">
-        <a href="{{.URLs.JobLogsURL .LatestSyncID 0}}" up-layer="new modal"
+        <a href="{{.URLs.JobLogsURL .LatestBuildID 0}}" up-layer="new modal"
             up-target="#job-logs-page" up-class="config-modal" up-history="false"
-            up-animation="false" up-close-animation="false" up-cache="false">View logs for latest successful sync</a>
+            up-animation="false" up-close-animation="false" up-cache="false">View logs for latest library build</a>
     </section>
     {{else}}
-    <p>No successful sync available.</p>
+    <p>No completed library build available.</p>
     {{end}}
 </article>
 {{end}}

@@ -19,10 +19,6 @@ func (c *webRouter) submitJob(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSONRequest(w, r, &input) {
 		return
 	}
-	if input.Type == "add" {
-		apiError(w, http.StatusServiceUnavailable, "Add jobs must be created by the upload endpoint, which is not enabled yet.")
-		return
-	}
 	submission := command.JobSubmission{Type: input.Type, Payload: input.Payload}
 	if err := command.ValidateJobSubmission(submission); err != nil {
 		apiError(w, http.StatusBadRequest, err.Error())

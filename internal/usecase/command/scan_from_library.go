@@ -25,6 +25,12 @@ func PrepareScanResultsFromLibrary(
 	if err := PrepareScanResults(ctx, conn, conf.Settings.Server.Database.CacheSizeKiB); err != nil {
 		return err
 	}
+	return CopyLibraryToScan(ctx, conn, conf, normalize)
+}
+
+// CopyLibraryToScan copies saved resources, including unavailable roots, into scan tables.
+// Roots pending removal and their resources are excluded.
+func CopyLibraryToScan(ctx context.Context, conn *sql.Conn, conf *app.AppConfig, normalize func(*app.ScannedFile) error) error {
 	rootIDs := make([]string, 0, len(conf.Roots))
 	for _, root := range conf.Roots {
 		rootIDs = append(rootIDs, root.ConfigID())
@@ -93,7 +99,7 @@ func PrepareScanResultsFromLibrary(
 				return fmt.Errorf("normalize saved track %q: %w", file.Path, err)
 			}
 			if file.NormalizedMetadata.AlbumKey != albumKeys[i] {
-				return fmt.Errorf("album key changed for %q; run sync to rebuild album identities", file.Path)
+				return fmt.Errorf("album key changed for %q; rebuilding album identities is not supported", file.Path)
 			}
 			metadata, err := json.Marshal(file.NormalizedMetadata)
 			if err != nil {

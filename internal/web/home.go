@@ -11,7 +11,7 @@ type homeViewModel struct {
 	LibraryGenerated          bool
 	LibraryHasTracks          bool
 	HasConfiguredRoots        bool
-	InitialSyncState          string
+	InitialBuildState         string
 	ConfiguredRoots           []configuredRootView
 	ConfigFilePath            string
 	RecognizedAudioExtensions []string
@@ -42,7 +42,7 @@ func (c *webRouter) showHome(w http.ResponseWriter, r *http.Request) {
 		LibraryGenerated:          home.LibraryGenerated,
 		LibraryHasTracks:          home.LibraryHasTracks,
 		HasConfiguredRoots:        len(c.configuredRoots) > 0,
-		InitialSyncState:          home.InitialSyncState,
+		InitialBuildState:         home.InitialBuildState,
 		ConfiguredRoots:           configuredRootViews(c.configuredRoots),
 		ConfigFilePath:            c.configFilePath,
 		RecognizedAudioExtensions: c.recognizedAudioExtensions,

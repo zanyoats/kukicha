@@ -6,7 +6,7 @@ SELECT
     duration_seconds,
     disc_number,
     track_number
-FROM library_tracks AS tracks
+FROM available_library_tracks AS tracks
 JOIN library_roots AS roots ON roots.id = tracks.root_id
 WHERE tracks.album_id = :album_id
 ORDER BY

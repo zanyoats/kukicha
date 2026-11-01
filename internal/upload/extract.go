@@ -23,8 +23,7 @@ import (
 const MaxRequestBytes int64 = 2 << 30
 
 // Archives are discarded after extraction. Nested archives are retained as
-// ordinary sidecars, never recursively expanded. Unsupported compressors fail.
-var ArchiveExtensions = []string{".zip", ".tar", ".tar.gz", ".tgz", ".tar.bz2", ".tbz", ".tbz2"}
+// ordinary files, never recursively expanded. Other archive formats are retained as files.
 
 type extractor struct {
 	ctx      context.Context
@@ -32,7 +31,10 @@ type extractor struct {
 	hasFiles bool
 }
 
-func safePath(name string) error {
+func safePath(name string) error { return ValidateRelativePath(name) }
+
+// ValidateRelativePath checks paths shared by extraction and build transfer.
+func ValidateRelativePath(name string) error {
 	if !fs.ValidPath(name) || name == "." ||
 		strings.ContainsAny(name, `\:`) {
 		return fmt.Errorf("invalid relative path %q", name)
@@ -172,8 +174,6 @@ func (e *extractor) part(name string, reader io.Reader) (resultErr error) {
 		return e.tar(bzip2.NewReader(contextReader{e.ctx, reader}))
 	case strings.HasSuffix(lower, ".tar"):
 		return e.tar(reader)
-	case strings.HasSuffix(lower, ".tar.xz"), strings.HasSuffix(lower, ".txz"), strings.HasSuffix(lower, ".tar.zst"), strings.HasSuffix(lower, ".tzst"):
-		return errors.New("unsupported archive compression; use ZIP, TAR, gzip or bzip2")
 	default:
 		return e.file(name, reader)
 	}

@@ -48,9 +48,6 @@ var insertScannedSidecarOtherSQL string
 //go:embed sql/reset_library.sql
 var resetLibrarySQL string
 
-//go:embed sql/reset_library_relationships.sql
-var resetLibraryRelationshipsSQL string
-
 //go:embed sql/allocate_library_ids.sql
 var allocateLibraryIDsSQL string
 
@@ -135,19 +132,11 @@ type SyncScanStats struct {
 	LibraryAlbumArtistUnknowns int
 }
 
-type LibraryBuildMode int
-
-const (
-	BuildFromFiles LibraryBuildMode = iota
-	BuildFromSavedMetadata
-)
-
-// BuildLibraryFromScan atomically rebuilds the library. Saved-metadata builds
-// update existing albums and tracks while leaving file-derived resources intact.
+// BuildLibraryFromScan atomically rebuilds the library from staged resources and
+// commits the generation marker so recovered jobs can skip completed rebuilds.
 func BuildLibraryFromScan(
 	ctx context.Context,
 	conn *sql.Conn,
-	mode LibraryBuildMode,
 	unknownItem string,
 	secondaryGenreSplitTokens map[string]bool,
 	recognizedAudioExtensions map[string]bool,
@@ -155,9 +144,6 @@ func BuildLibraryFromScan(
 	recognizedSidecarExtensions map[string]bool,
 ) (BuildLibraryResult, error) {
 	var result BuildLibraryResult
-	if mode != BuildFromFiles && mode != BuildFromSavedMetadata {
-		return result, errors.New("invalid library build mode")
-	}
 	jobID, ok := app.JobIDFromContext(ctx)
 	if !ok {
 		return result, errors.New("library build requires a job ID in context")
@@ -169,9 +155,6 @@ func BuildLibraryFromScan(
 	defer tx.Rollback()
 
 	// Publish the new version only when the rebuilt membership commits.
-	if err = SetAppMetadata(ctx, tx, app.RadioMembershipVersion, rand.Text()); err != nil {
-		return result, err
-	}
 
 	// Scan reuses root, album, and track IDs, but updated artist split rules
 	// can introduce new artists that need fresh IDs.
@@ -179,15 +162,11 @@ func BuildLibraryFromScan(
 		return result, err
 	}
 
-	if mode == BuildFromFiles {
-		if err = resetLibrary(ctx, tx); err != nil {
-			return result, err
-		}
-		if err = buildLibraryRoots(ctx, tx); err != nil {
-			return result, err
-		}
-	} else if _, err = tx.ExecContext(ctx, resetLibraryRelationshipsSQL); err != nil {
-		return result, fmt.Errorf("reset library relationships: %w", err)
+	if err = resetLibrary(ctx, tx); err != nil {
+		return result, err
+	}
+	if err = buildLibraryRoots(ctx, tx); err != nil {
+		return result, err
 	}
 
 	if err = buildLibraryAlbums(ctx, tx, unknownItem); err != nil {
@@ -218,16 +197,14 @@ func BuildLibraryFromScan(
 	if _, err = tx.ExecContext(ctx, buildLibraryRadiosSQL); err != nil {
 		return result, fmt.Errorf("build library radios: %w", err)
 	}
-	if mode == BuildFromFiles {
-		if err = buildLibraryTrackEmbeddedArtwork(ctx, tx); err != nil {
-			return result, err
-		}
-		if err = buildLibraryAlbumSidecars(ctx, tx); err != nil {
-			return result, err
-		}
-		if err = buildLibraryTrackArtwork(ctx, tx); err != nil {
-			return result, err
-		}
+	if err = buildLibraryTrackEmbeddedArtwork(ctx, tx); err != nil {
+		return result, err
+	}
+	if err = buildLibraryAlbumSidecars(ctx, tx); err != nil {
+		return result, err
+	}
+	if err = buildLibraryTrackArtwork(ctx, tx); err != nil {
+		return result, err
 	}
 
 	err = tx.QueryRowContext(ctx, libraryCountsSQL, sql.Named("unknown_item", unknownItem)).Scan(
@@ -251,7 +228,7 @@ func BuildLibraryFromScan(
 		return result, err
 	}
 
-	if err := setLibraryBuildMetadata(ctx, tx,
+	if err := setLibraryBuildMetadata(ctx, tx, jobID,
 		recognizedAudioExtensions, recognizedPlaylistExtensions, recognizedSidecarExtensions,
 	); err != nil {
 		return result, err
@@ -643,26 +620,22 @@ func buildLibraryTrackArtwork(ctx context.Context, tx *sql.Tx) error {
 	return nil
 }
 
-// MarkLibrarySyncComplete records the recovery marker only after artwork lookup finishes.
-func MarkLibrarySyncComplete(ctx context.Context, conn *sql.Conn, jobID int64) error {
-	tx, err := conn.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	if err := SetAppMetadata(ctx, tx, app.LibraryGeneratedJobId, strconv.FormatInt(jobID, 10)); err != nil {
-		return err
-	}
-	return tx.Commit()
-}
-
 func setLibraryBuildMetadata(
 	ctx context.Context,
 	tx *sql.Tx,
+	jobID int64,
 	recognizedAudioExtensions map[string]bool,
 	recognizedPlaylistExtensions map[string]bool,
 	recognizedSidecarExtensions map[string]bool,
 ) error {
+	if err := SetAppMetadata(ctx, tx, app.RadioMembershipVersion, rand.Text()); err != nil {
+		return fmt.Errorf("setting app metadata key %d: %w", int(app.RadioMembershipVersion), err)
+	}
+
+	if err := SetAppMetadata(ctx, tx, app.LibraryGeneratedJobId, strconv.FormatInt(jobID, 10)); err != nil {
+		return fmt.Errorf("setting app metadata key %d: %w", int(app.LibraryGeneratedJobId), err)
+	}
+
 	{
 		var currentTimestamp string
 		if err := tx.QueryRowContext(ctx, currentTimestampSQL).Scan(&currentTimestamp); err != nil {

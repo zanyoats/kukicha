@@ -15,10 +15,10 @@
 ><span aria-hidden="true">[?]</span></button>
 {{- end}}
 
-{{define "scan-job-help"}}
-    <template id="job-help-scan">
-        <section class="job-help" aria-labelledby="job-help-scan-title">
-            <h2 id="job-help-scan-title">When to run Scan</h2>
+{{define "rebuild-job-help"}}
+    <template id="job-help-rebuild">
+        <section class="job-help" aria-labelledby="job-help-rebuild-title">
+            <h2 id="job-help-rebuild-title">When to run Rebuild</h2>
             <p>Refresh how your music is organized using information already saved in your library. Your music files are not read or downloaded again.</p>
             <ul>
                 <li>After saving changes to Artist Split Rules.</li>
@@ -32,38 +32,7 @@
                 </li>
                 <li>After a new taxonomy version has loaded successfully, as shown in the startup logs.</li>
             </ul>
-            <p class="job-help-note"><strong>Changed your music files?</strong> Use Sync instead—for example, if you added songs or edited their tags. Sync also applies your latest organization rules, so there is no need to run both.</p>
-        </section>
-    </template>
-{{end}}
-
-{{define "sync-job-help"}}
-    <template id="job-help-sync">
-        <section class="job-help" aria-labelledby="job-help-sync-title">
-            <h2 id="job-help-sync-title">When to run Sync</h2>
-            <p>Read your files again and rebuild the library, reusing cached resources. Remote files are downloaded again.</p>
-            <ul>
-                <li>After adding, modifying, renaming, moving, or deleting audio files, including changes to their tags.</li>
-                <li>After changing roots in your configuration. Root changes also queue a sync at startup.</li>
-                <li>After adding, modifying, renaming, moving, or deleting sidecar files, such as cover images.</li>
-            </ul>
-            <p class="job-help-note"><strong>One job is enough:</strong> Sync includes the library rebuild performed by Scan. When both are needed, queue only Sync.</p>
-        </section>
-    </template>
-{{end}}
-
-{{define "reset-job-help"}}
-    <template id="job-help-reset">
-        <section class="job-help" aria-labelledby="job-help-reset-title">
-            <h2 id="job-help-reset-title">When to run Reset</h2>
-            <p>Start over when you want to discard saved artist split decisions and cached resources, then build a fresh library from your files.</p>
-            <ul>
-                <li>Clears library records, artist split rules, artwork caches, and other jobs and logs.</li>
-                <li>Runs a full Sync, recreating split mappings and fetching resources as needed.</li>
-                <li>Keeps the taxonomy, instance identity, and the running reset job. Your source music files are unchanged.</li>
-            </ul>
-            <p>For ordinary file or configuration changes, use Scan or Sync.</p>
-            <p class="job-help-note"><strong>Bookmarks will break:</strong> Rebuilt library records receive new IDs. Bookmarks to old records will return “not found” (404), as intended after a reset.</p>
+            <p class="job-help-note"><strong>Changed your music files?</strong> Rebuild uses saved metadata. Use Add to Kukicha to import new music.</p>
         </section>
     </template>
 {{end}}

@@ -11,7 +11,11 @@ DELETE FROM library_album_sidecars;
 DELETE FROM library_tracks;
 DELETE FROM library_album_artists;
 DELETE FROM library_albums;
-DELETE FROM library_roots;
+
+-- Child rows are gone; finish removals requested before this build started.
+DELETE FROM library_root_ids
+WHERE config_id IN (SELECT config_id FROM library_roots WHERE state = 'pending_removal');
+DELETE FROM library_roots WHERE state = 'pending_removal';
 
 DELETE FROM sqlite_sequence
 WHERE name IN (

@@ -4,7 +4,7 @@ SELECT DISTINCT
     (SELECT COALESCE(MAX(position) + 1, 0)
      FROM genres_radios
      WHERE genre_id = genres.id) AS track_count
-FROM library_album_genres AS album_genres
+FROM available_library_album_genres AS album_genres
 JOIN taxonomy_genres AS genres
     ON genres.id = album_genres.genre_id
 ORDER BY

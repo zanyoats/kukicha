@@ -7,37 +7,31 @@ import (
 	"log/slog"
 	"mime"
 	"net/http"
-	"sort"
-	"strings"
 
-	"github.com/zanyoats/kukicha/internal/scan"
 	"github.com/zanyoats/kukicha/internal/upload"
 )
 
+type addModeView struct {
+	Value, Label string
+}
+
 func (c *webRouter) showAdd(w http.ResponseWriter, r *http.Request) {
-	extensions := make([]string, 0, len(scan.RecognizedAudioExtensions))
-	for extension := range scan.RecognizedAudioExtensions {
-		extensions = append(extensions, extension)
-	}
-	sort.Strings(extensions)
-	extensions = append(extensions, upload.ArchiveExtensions...)
 	renderPage(w, c.renderer, "add.gohtml", struct {
-		URLs                     URLs
-		EyeBrow, Heading, Accept string
-		ConfiguredRoots          []configuredRootView
+		URLs             URLs
+		EyeBrow, Heading string
+		ConfiguredRoots  []configuredRootView
+		Modes            []addModeView
 	}{
 		URLs: c.urls, EyeBrow: "Library", Heading: "Add to Kukicha",
-		Accept:          strings.Join(extensions, ","),
+		Modes: []addModeView{
+			{Value: upload.ModeFiles, Label: "Upload files"},
+			{Value: upload.ModeSync, Label: "Server folder or bucket"},
+		},
 		ConfiguredRoots: configuredRootViews(c.configuredRoots),
 	})
 }
 
-// uploadFiles is deliberately gated before parsing or writing request content.
 func (c *webRouter) uploadFiles(w http.ResponseWriter, r *http.Request) {
-	if !upload.Enabled || c.uploads == nil {
-		apiError(w, http.StatusServiceUnavailable, "Add is not enabled until both modes, root marker checks, and standalone sync removal are ready.")
-		return
-	}
 	mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
 	if err != nil {
 		apiError(w, http.StatusBadRequest, "Invalid Content-Type.")

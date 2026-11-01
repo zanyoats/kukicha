@@ -10,39 +10,32 @@
             {{template "home-content" .}}
             {{else}}
             <aside class="alert alert-info" aria-label="Empty library">
-                <strong>No tracks were found in any of the below root(s):</strong>
-                <ul>
-                    {{range .ConfiguredRoots}}
-                    <li>
-                        <code>{{.Label}}</code>
-                        {{if .Remote}}(remote){{end}}
-                    </li>
-                    {{end}}
-                </ul>
+                <strong>No tracks are currently available in your library.</strong>
+                <p>You may not have added music yet, or your uploads may not have contained supported audio files. Previously added music may also be hidden if its storage location is no longer configured or could not be verified — <a href="{{.URLs.Roots}}" up-layer="new modal" up-target=".config-page" up-class="config-modal" up-history="false">check your roots</a> for details.</p>
                 <p>
                     The recognized audio file extensions are:
                     {{range $index, $extension := .RecognizedAudioExtensions}}{{if $index}}, {{end}}<code>{{$extension}}</code>{{end}}.
                 </p>
-                <p>Check your files and sync again, or add root with recognizable audio files.</p>
+                <p>Use <a href="{{.URLs.Add}}" up-layer="new modal" up-target=".config-page" up-class="config-modal" up-history="false">Add to Kukicha</a> to import audio files.</p>
             </aside>
             {{end}}
         {{else}}
-        <aside class="alert {{if eq .InitialSyncState "failed"}}alert-error{{else if eq .InitialSyncState "canceled"}}alert-warning{{else}}alert-info{{end}}" aria-label="Library preparation">
-            {{if eq .InitialSyncState "queued"}}
+        <aside class="alert {{if eq .InitialBuildState "failed"}}alert-error{{else if eq .InitialBuildState "canceled"}}alert-warning{{else}}alert-info{{end}}" aria-label="Library preparation">
+            {{if eq .InitialBuildState "queued"}}
             <strong>Your library is waiting to be prepared.</strong>
-            <p>A sync is queued and will start automatically. Refresh this page after it finishes to view your library.</p>
-            {{else if eq .InitialSyncState "running"}}
+            <p>A build is queued and will start automatically. Refresh this page after it finishes to view your library.</p>
+            {{else if eq .InitialBuildState "running"}}
             <strong>Your library is being prepared.</strong>
-            <p>Refresh this page after the sync finishes to view your library.</p>
-            {{else if eq .InitialSyncState "failed"}}
+            <p>Refresh this page after the build finishes to view your library.</p>
+            {{else if eq .InitialBuildState "failed"}}
             <strong>Your library couldn’t be prepared.</strong>
-            <p>The sync failed. Check the job logs for details.</p>
-            {{else if eq .InitialSyncState "canceled"}}
+            <p>The build failed. Check the job logs for details.</p>
+            {{else if eq .InitialBuildState "canceled"}}
             <strong>Library preparation was canceled.</strong>
             <p>Your library hasn’t been generated yet.</p>
             {{else}}
             <strong>Your library hasn’t been prepared yet.</strong>
-            <p>No sync is currently queued or running.</p>
+            <p>Use <a href="{{.URLs.Add}}" up-layer="new modal" up-target=".config-page" up-class="config-modal" up-history="false">Add to Kukicha</a> to import your music.</p>
             {{end}}
             <p><a href="{{.URLs.Jobs}}" up-layer="new modal" up-target=".config-page" up-class="config-modal" up-history="false">View jobs</a></p>
         </aside>
@@ -58,22 +51,98 @@
 
 {{define "home-configure-roots"}}
 <p>
-    Configure music roots using the below config file, then restart the app.
-    Your library will sync automatically.
+    You can start using Kukicha with a minimal config setup, using all the defaults (which are reasonable). Add to
+    your config file (path shown below) a storage location (called a <strong>root</strong>) — you’ll need at least one.
+    There are two types of roots: (1) remote, using S3-compatible service, and (2) local folder on the server.
+    Add one of the examples below to your configuration file (path shown below), changing the values to match your setup:
 </p>
-<pre><code>{{.ConfigFilePath}}</code></pre>
-<p>
-    You can start with a minimal config like this:
-</p>
+<p><span class="action-with-info"><strong>Config path</strong><pre><code>{{.ConfigFilePath}}</code></pre></p>
+<p><span class="action-with-info"><strong>Local folder</strong>{{template "root-config-help-trigger" "local"}}</span> — a folder on the server.</p>
 <pre><code>[[scan.roots]]
-type = "local"   # support for local and remote roots
-id = "itunes"    # any unique id that identifies your root
-path = "~/Music" # local dir/folder path for this root</code></pre>
+type = "local"
+id = "music"
+path = "~/music"</code></pre>
+<p>Choose a new or empty folder for Kukicha to manage. Kukicha will create it if it doesn’t exist.</p>
+<p><span class="action-with-info"><strong>Remote storage</strong>{{template "root-config-help-trigger" "remote"}}</span> — a bucket and prefix on an S3-compatible service.</p>
+<pre><code>[[scan.roots]]
+type = "remote"
+id = "music-remote"
+endpoint_url = "https://s3.wasabisys.com"
+bucket = "your-music-bucket"
+prefix = "kukicha/"
+region = "us-east-1"</code></pre>
 <p>
-    Replace the above example with that which makes sense for your configuration.
-    To include multiple folders, add a new <code>[[scan.roots]]</code> section.
+    Use an existing bucket with no objects under the chosen prefix. Set up AWS credentials on the server so Kukicha can access it.
+    Save the configuration and restart Kukicha. Then use
+    <a href="{{.URLs.Add}}" up-layer="new modal" up-target=".config-page" up-class="config-modal" up-history="false">Add to Kukicha</a>
+    to import your music into your new root.
 </p>
+<p>
+For more storage locations, add a separate <code>[[scan.roots]]</code> section with a unique ID for each one. Keep each
+ID unchanged once the root is in use. This stable ID lets you move storage to a new local path, switch between local and
+remote storage, or change remote storage locations without changing the library’s file references. Move the root’s
+contents, including its .kukicha_root marker, and preserve the directory structure before updating the configuration.
+File paths are stored relative to the root.
+</p>
+<template id="root-config-help-local">
+    <section class="job-help" aria-labelledby="root-config-help-local-title">
+        <h2 id="root-config-help-local-title">Local folder options</h2>
+        <ul>
+            <li><code>type</code> — required. Set to <code>"local"</code>.</li>
+            <li><code>id</code> — required. A unique, nonempty name for this root. IDs are case-sensitive and must be unique across local and remote roots. Keep it unchanged once in use.</li>
+            <li><code>path</code> — required. The folder where Kukicha will store your music. Use an absolute path, <code>~/</code> for the server account’s home folder, or a path relative to the configuration directory.</li>
+        </ul>
+        <p class="job-help-note">Use a new or empty folder, not the folder containing music you want to import. Files matching your scan ignore settings are allowed though.</p>
+    </section>
+</template>
+<template id="root-config-help-remote">
+    <section class="job-help" aria-labelledby="root-config-help-remote-title">
+        <h2 id="root-config-help-remote-title">Remote storage options</h2>
+        <ul>
+            <li><code>type</code> — required. Set to <code>"remote"</code>.</li>
+            <li><code>id</code> — required. A unique, nonempty name across all roots. IDs are case-sensitive. Keep it unchanged once in use.</li>
+            <li><code>endpoint_url</code> — required. Your provider’s HTTP or HTTPS S3 endpoint. Do not include credentials, query parameters, or a fragment.</li>
+            <li><code>bucket</code> — required. The name of an existing bucket, without slashes or spaces.</li>
+            <li><code>prefix</code> — optional. A key prefix such as <code>"kukicha/"</code>; it must end with <code>/</code>. Omit it or use <code>""</code> to use the whole bucket. Prefixes must not overlap for roots using the same endpoint and bucket.</li>
+            <li><code>region</code> — your provider’s region, such as <code>"us-east-1"</code>. Optional only when provided by the server’s AWS configuration.</li>
+            <li><code>profile</code> — optional. A named AWS profile on the server. Without it, Kukicha uses the default AWS credential lookup.</li>
+            <li><code>addressing_style</code> — optional; defaults to <code>"auto"</code>. Use <code>"path"</code> to put the bucket in the URL path, or <code>"virtual"</code> to put it in the hostname. Leave it as <code>"auto"</code> unless your provider requires a specific style.</li>
+        </ul>
+        <p class="job-help-note">A new remote root must have no objects under its prefix. The <code>path</code> option is only for local roots.</p>
+        <h2>How authentication works</h2>
+        <p>Kukicha uses the AWS SDK to find credentials on the server. Choose one of the methods below. Access keys do not belong in your <code>[[scan.roots]]</code> settings.</p>
+        <h3>Environment variables</h3>
+        <p>Set these for the process that starts Kukicha, and leave <code>profile</code> out of the root configuration:</p>
+        <pre><code>export AWS_ACCESS_KEY_ID="YOUR_ACCESS_KEY"
+export AWS_SECRET_ACCESS_KEY="YOUR_SECRET_KEY"
+export AWS_REGION="us-east-1"</code></pre>
+        <p>For temporary credentials, also set <code>AWS_SESSION_TOKEN</code>. If Kukicha runs as a service or in a container, set the variables there; setting them in a separate terminal won’t affect the running server.</p>
+        <h3>Named AWS profile</h3>
+        <p>For the account running Kukicha, add credentials to <code>~/.aws/credentials</code>:</p>
+        <pre><code>[music]
+aws_access_key_id = YOUR_ACCESS_KEY
+aws_secret_access_key = YOUR_SECRET_KEY</code></pre>
+        <p>Add the matching region to <code>~/.aws/config</code>:</p>
+        <pre><code>[profile music]
+region = us-east-1</code></pre>
+        <p>Then add <code>profile = "music"</code> to the remote root. Temporary profile credentials also need <code>aws_session_token</code> in the credentials file. You can use a different profile for each root.</p>
+        <h3>Credential helper</h3>
+        <p>If a tool supplies your credentials, configure it in <code>~/.aws/config</code> and select its profile in the root:</p>
+        <pre><code>[profile music]
+credential_process = /absolute/path/to/credential-helper
+region = us-east-1</code></pre>
+        <p>The helper must be runnable by the server account and return AWS credential-process JSON. It can provide temporary credentials with an expiration time so the SDK can refresh them.</p>
+        <p class="job-help-note">Without an explicit root profile, the SDK uses its normal credential lookup, including environment variables, shared AWS configuration, and supported container or instance credentials. A <code>region</code> set on the root overrides the region from AWS configuration.</p>
+    </section>
+</template>
 {{end}}
+
+{{define "root-config-help-trigger" -}}
+<button type="button" class="info-trigger" aria-label="Configuration options for {{.}} roots"
+    aria-haspopup="dialog" up-follow up-layer="new popup" up-content="#root-config-help-{{.}}"
+    up-class="info-popup" up-position="bottom" up-align="left" up-history="false"
+    up-dismissible="key outside"><span aria-hidden="true">[?]</span></button>
+{{- end}}
 
 {{define "home-content"}}
 <section>

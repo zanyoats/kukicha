@@ -10,7 +10,7 @@
 {{define "page-content"}}
 <article class="config-page add-page">
     {{template "page-header" .}}
-    <form class="add-form" data-add-form up-submit="false">
+    <form class="add-form" action="{{.URLs.Add}}" method="post" data-add-form up-submit="false">
         <div class="add-destination">
             <label for="add-root">Destination root</label>
             <select id="add-root" name="root_config_id" required {{if not .ConfiguredRoots}}disabled{{end}}>
@@ -19,22 +19,104 @@
             </select>
             {{if not .ConfiguredRoots}}<p class="text-secondary">No roots configured. Add a root to your config first.</p>{{end}}
         </div>
-        <div class="add-dropzone" data-add-dropzone>
-            <p>Drop files here</p>
-            <div class="add-actions">
-                <button type="button" class="action-button" data-add-pick-files>Choose files</button>
-            </div>
-            <p class="text-secondary">Audio files, ZIP, TAR, and compressed TAR archives. To add a folder, archive it first.</p>
-            <input type="file" data-add-files accept="{{.Accept}}" multiple hidden>
+        <div class="add-destination">
+            <label for="add-mode">Add from</label>
+            <select id="add-mode" name="mode">
+                {{range .Modes}}<option value="{{.Value}}">{{.Label}}</option>{{end}}
+            </select>
         </div>
-        <p class="text-secondary" data-add-status role="status" aria-live="polite">No files selected.</p>
+        <div class="add-source-fields" data-add-panel="files">
+            <div class="add-dropzone" data-add-dropzone>
+                <p>Drop files or folders here</p>
+                <div class="add-actions">
+                    <button type="button" class="action-button" data-add-pick-files>Choose files</button>
+                </div>
+                <p class="text-secondary">All file types are accepted. Dropped folders include files from all subfolders. ZIP, TAR, gzip-compressed TAR, and bzip2-compressed TAR archives are extracted.</p>
+                <input type="file" data-add-files multiple hidden>
+            </div>
+            <p class="text-secondary" data-add-status role="status" aria-live="polite">No files selected.</p>
+            <ul class="add-files" data-add-list aria-label="Selected files" hidden></ul>
+        </div>
+        <div class="add-source-fields" data-add-panel="sync" hidden>
+            <div class="add-destination">
+                <label for="add-source-type">Source</label>
+                <select id="add-source-type" name="source_type" disabled>
+                    <option value="folder">Server folder</option>
+                    <option value="remote">S3-compatible bucket</option>
+                </select>
+            </div>
+            <div class="add-source-fields" data-add-source="folder">
+                <div class="add-destination">
+                    <label for="add-folder">Server folder path</label>
+                    <input id="add-folder" name="folder" type="text" placeholder="/path/to/music" required disabled>
+                </div>
+                <p class="text-secondary">An absolute folder path on the server running Kukicha.</p>
+            </div>
+            <div class="add-source-fields" data-add-source="remote" hidden>
+                <div class="add-destination">
+                    <label for="add-endpoint">Bucket endpoint</label>
+                    <input id="add-endpoint" name="endpoint_url" type="url" placeholder="https://s3.example.com" required disabled>
+                </div>
+                <div class="add-destination">
+                    <label for="add-bucket">Bucket</label>
+                    <input id="add-bucket" name="bucket" type="text" required disabled>
+                </div>
+                <div class="add-destination">
+                    <label for="add-prefix">Prefix (optional)</label>
+                    <input id="add-prefix" name="prefix" type="text" placeholder="music/" disabled>
+                    <p class="text-secondary">Use a trailing slash for a folder tree. Leave empty to scan the whole bucket.</p>
+                </div>
+                <div class="add-destination">
+                    <label for="add-region">Region</label>
+                    <input id="add-region" name="region" type="text" placeholder="us-east-1" required disabled>
+                </div>
+                <div class="add-destination">
+                    <label for="add-addressing">Addressing style</label>
+                    <select id="add-addressing" name="addressing_style" disabled>
+                        <option value="auto">Auto</option>
+                        <option value="path">Path</option>
+                        <option value="virtual">Virtual host</option>
+                    </select>
+                </div>
+                <p class="action-with-info"><strong>Temporary access credentials</strong><button type="button" class="info-trigger"
+                    aria-label="How to get temporary access credentials" aria-haspopup="dialog" up-follow
+                    up-layer="new popup" up-content="#source-credentials-help" up-class="info-popup"
+                    up-position="bottom" up-align="left" up-history="false" up-dismissible="key outside"
+                    disabled><span aria-hidden="true">[?]</span></button></p>
+                <div class="add-destination">
+                    <label for="add-access-key">AccessKeyId</label>
+                    <input id="add-access-key" name="access_key_id" type="password" autocomplete="off" spellcheck="false" required disabled>
+                </div>
+                <div class="add-destination">
+                    <label for="add-secret-key">SecretAccessKey</label>
+                    <input id="add-secret-key" name="secret_access_key" type="password" autocomplete="off" spellcheck="false" required disabled>
+                </div>
+                <div class="add-destination">
+                    <label for="add-session-token">SessionToken</label>
+                    <input id="add-session-token" name="session_token" type="password" autocomplete="off" spellcheck="false" required disabled>
+                </div>
+                <p class="text-secondary">Used only to read this source. Kukicha won’t use the server’s credentials for it. Choose credentials that will remain valid while the job waits and runs.</p>
+            </div>
+            <p class="text-secondary">The build job scans and copies music into the destination root. Source files remain unchanged.</p>
+        </div>
         <p class="text-secondary" data-add-notice role="status" hidden></p>
-        <ul class="add-files" data-add-list aria-label="Selected files" hidden></ul>
         <div class="add-actions">
             <button type="button" class="action-button" data-add-clear disabled>Clear files</button>
-            <button type="button" class="action-button" disabled aria-describedby="add-unavailable">Upload</button>
+            <button type="submit" class="action-button" data-add-upload disabled>Upload</button>
         </div>
-        <p id="add-unavailable" class="text-secondary">Uploads are not available yet. You can select files and a destination.</p>
     </form>
+    <template id="source-credentials-help">
+        <section class="job-help" aria-labelledby="source-credentials-help-title">
+            <h2 id="source-credentials-help-title">Get temporary credentials</h2>
+            <p>Run this on your computer using your provider’s documented <strong>STS endpoint</strong> and your AWS CLI profile:</p>
+            <pre><code>aws sts get-session-token \
+  --duration-seconds 3600 \
+  --endpoint-url https://sts.wasabisys.com \
+  --profile your-profile</code></pre>
+            <p>This example uses Wasabi’s STS endpoint. Replace it for your provider. For AWS, omit <code>--endpoint-url</code>.</p>
+            <p>Paste <code>AccessKeyId</code>, <code>SecretAccessKey</code>, and <code>SessionToken</code> from the response into the form. Your profile needs permission to list the source bucket and read its files. Add MFA parameters if your account requires them.</p>
+            <p class="job-help-note"><strong>Bucket endpoint is different:</strong> enter your provider’s S3 storage endpoint in the form, not its STS endpoint. Make sure the credentials remain valid long enough for the import to finish.</p>
+        </section>
+    </template>
 </article>
 {{end}}

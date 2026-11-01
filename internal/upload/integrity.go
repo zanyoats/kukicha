@@ -10,17 +10,15 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
-	"github.com/aws/smithy-go"
 	"github.com/zanyoats/kukicha/internal/app"
 	"github.com/zanyoats/kukicha/internal/walk"
 )
 
 const rootMarkerName = ".kukicha_root"
 
-// validateRoot only requires a top-level marker. Its contents are deliberately
-// ignored: this does not verify library contents or detect replacement storage.
-// The caller holds the service lock during root initialization.
-func validateRoot(ctx context.Context, root app.Root) error {
+// ValidateNew initializes a new managed root only after confirming it contains
+// no data or existing root marker. Local entries may be excluded by the ignore lists.
+func ValidateNew(ctx context.Context, root app.Root, ignorePrefixes, ignoreFiles []string) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -49,27 +47,42 @@ func validateRoot(ctx context.Context, root app.Root) error {
 			return err
 		}
 		defer dir.Close()
-		if created {
-			f, err := dir.OpenFile(rootMarkerName, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+		if !created {
+			f, err := dir.Open(".")
 			if err != nil {
 				return err
 			}
-			if err := errors.Join(f.Sync(), f.Close()); err != nil {
+			entries, readErr := f.ReadDir(-1)
+			if err := errors.Join(readErr, f.Close()); err != nil {
 				return err
 			}
-			if err := syncDirectory(r.Path); err != nil {
-				return err
-			}
-			if err := syncDirectory(filepath.Dir(r.Path)); err != nil {
-				return err
+			for _, entry := range entries {
+				if err := ctx.Err(); err != nil {
+					return err
+				}
+				if entry.Name() == rootMarkerName {
+					return fmt.Errorf("cannot initialize root %q: root marker already exists", r.ConfigID())
+				}
+				if !app.IsIgnoredScanPath(entry.Name(), ignorePrefixes, ignoreFiles) {
+					return fmt.Errorf("cannot initialize root %q: directory contains data (%q)", r.ConfigID(), entry.Name())
+				}
 			}
 		}
-		info, err = dir.Lstat(rootMarkerName)
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		f, err := dir.OpenFile(rootMarkerName, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
 		if err != nil {
-			return fmt.Errorf("root unavailable: top-level %s marker required: %w", rootMarkerName, err)
+			return err
 		}
-		if !info.Mode().IsRegular() {
-			return fmt.Errorf("root unavailable: %s must be a regular file", rootMarkerName)
+		if err := errors.Join(f.Sync(), f.Close()); err != nil {
+			return err
+		}
+		if err := syncDirectory(r.Path); err != nil {
+			return err
+		}
+		if created {
+			return syncDirectory(filepath.Dir(r.Path))
 		}
 		return nil
 	case *app.RemoteRoot:
@@ -78,25 +91,19 @@ func validateRoot(ctx context.Context, root app.Root) error {
 			return err
 		}
 		key := r.Prefix + rootMarkerName
-		_, err = client.HeadObject(ctx, &s3.HeadObjectInput{Bucket: aws.String(r.Bucket), Key: aws.String(key)})
-		if err == nil {
-			return nil
+		pages := s3.NewListObjectsV2Paginator(client, &s3.ListObjectsV2Input{
+			Bucket: aws.String(r.Bucket), Prefix: aws.String(r.Prefix), MaxKeys: aws.Int32(1),
+		})
+		for pages.HasMorePages() {
+			page, err := pages.NextPage(ctx)
+			if err != nil {
+				return err
+			}
+			if len(page.Contents) > 0 {
+				return fmt.Errorf("cannot initialize root %q: prefix contains data (%q)", r.ConfigID(), aws.ToString(page.Contents[0].Key))
+			}
 		}
-		var api smithy.APIError
-		if !errors.As(err, &api) || (api.ErrorCode() != "NotFound" && api.ErrorCode() != "NoSuchKey") {
-			return fmt.Errorf("root marker unavailable: %w", err)
-		}
-		// Only a confirmed empty prefix may be initialized. Access errors are
-		// not evidence of emptiness; never add a marker to populated storage.
-		out, err := client.ListObjectsV2(ctx, &s3.ListObjectsV2Input{Bucket: aws.String(r.Bucket), Prefix: aws.String(r.Prefix), MaxKeys: aws.Int32(1)})
-		if err != nil {
-			return err
-		}
-		if len(out.Contents) != 0 || aws.ToBool(out.IsTruncated) {
-			return fmt.Errorf("cannot initialize root %q: storage already contains objects but is missing the %s marker; choose an empty bucket prefix", r.ConfigID(), rootMarkerName)
-		}
-		_, err = client.PutObject(ctx, &s3.PutObjectInput{Bucket: aws.String(r.Bucket), Key: aws.String(key), Body: bytes.NewReader(nil), IfNoneMatch: aws.String("*")})
-		if err != nil {
+		if _, err := client.PutObject(ctx, &s3.PutObjectInput{Bucket: aws.String(r.Bucket), Key: aws.String(key), Body: bytes.NewReader(nil), IfNoneMatch: aws.String("*")}); err != nil {
 			return err
 		}
 		_, err = client.HeadObject(ctx, &s3.HeadObjectInput{Bucket: aws.String(r.Bucket), Key: aws.String(key)})
@@ -112,4 +119,42 @@ func syncDirectory(p string) error {
 		return err
 	}
 	return errors.Join(f.Sync(), f.Close())
+}
+
+// CheckRootMarker validates an existing destination without initializing it.
+// Jobs must not recreate missing storage during recovery.
+func CheckRootMarker(ctx context.Context, root app.Root) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	switch r := root.(type) {
+	case *app.LocalRoot:
+		info, err := os.Lstat(r.Path)
+		if err != nil {
+			return fmt.Errorf("root unavailable: %w", err)
+		}
+		if !info.IsDir() {
+			return errors.New("root must be a real directory")
+		}
+		info, err = os.Lstat(filepath.Join(r.Path, rootMarkerName))
+		if err != nil {
+			return fmt.Errorf("root unavailable: %s marker required: %w", rootMarkerName, err)
+		}
+		if !info.Mode().IsRegular() {
+			return fmt.Errorf("root unavailable: %s must be a regular file", rootMarkerName)
+		}
+		return nil
+	case *app.RemoteRoot:
+		client, err := walk.NewS3Client(ctx, r)
+		if err != nil {
+			return err
+		}
+		_, err = client.HeadObject(ctx, &s3.HeadObjectInput{Bucket: aws.String(r.Bucket), Key: aws.String(r.Prefix + rootMarkerName)})
+		if err != nil {
+			return fmt.Errorf("root marker unavailable: %w", err)
+		}
+		return nil
+	default:
+		return fmt.Errorf("unsupported root %T", root)
+	}
 }

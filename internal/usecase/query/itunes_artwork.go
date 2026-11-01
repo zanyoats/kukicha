@@ -41,7 +41,7 @@ func LibraryArtworkCandidates(
 	var lastID sql.NullInt64
 	if err := tx.QueryRowContext(ctx, `
 		SELECT MAX(id) FROM (
-			SELECT id FROM library_tracks WHERE id > ? ORDER BY id LIMIT ?
+			SELECT id FROM available_library_tracks WHERE id > ? ORDER BY id LIMIT ?
 		)`, afterID, limit).Scan(&lastID); err != nil {
 		return nil, 0, err
 	}

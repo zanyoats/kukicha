@@ -1,6 +1,9 @@
 package app
 
 import (
+	"errors"
+	"fmt"
+	"net/url"
 	"path/filepath"
 	"strings"
 	"time"
@@ -28,10 +31,9 @@ const (
 	// extension maps used for the build, committed with the rebuilt library.
 	LibrarySupportedExtensionsJson
 
-	// LibraryGeneratedJobId records the sync job whose work, including artwork
-	// lookup, completed. If interrupted before the processor marks it succeeded,
-	// the recovered job skips repeating that work when its ID matches this marker.
-	// It is also used to get the latest successful sync logs for the roots page.
+	// LibraryGeneratedJobId records the build job that published the library.
+	// It commits with the library. A recovered job skips rebuilding when its
+	// ID matches. It is also used to find the generating job's logs for the roots page.
 	LibraryGeneratedJobId
 
 	// InstanceID is a persistent random identifier created at initialization
@@ -50,7 +52,7 @@ const (
 	RadioMembershipVersion
 )
 
-// Represents a root abstractly.
+// Root identifies managed library storage.
 // At the moment there are only 2 types: local, remote.
 type Root interface {
 	// isRoot seals roots to pointer types in this package.
@@ -65,7 +67,7 @@ type LocalRoot struct {
 	Path string `toml:"path" json:"path"`
 }
 
-// RemoteRoot describes an S3-compatible source.
+// RemoteRoot describes an S3-compatible library destination.
 // Credentials come from the AWS credential chain, and never from application config.
 type RemoteRoot struct {
 	ID              string `toml:"id" json:"id"`
@@ -86,7 +88,7 @@ func (r *RemoteRoot) ConfigID() string { return r.ID }
 func (r *LocalRoot) Location() string  { return r.Path }
 func (r *RemoteRoot) Location() string { return "s3://" + r.Bucket + "/" + r.Prefix }
 
-// FileIdentity is the source location, independent of any temporary download.
+// FileIdentity is the managed library location, independent of any temporary input.
 type FileIdentity struct {
 	Root Root
 	Path string
@@ -186,18 +188,109 @@ type LibraryTrack struct {
 	ScannedFile
 }
 
-// AddJobPayload contains all request context needed by the add executor.
-// TODO: Credentials
-type AddJobPayload struct {
-	Mode         string     `json:"mode"`
-	TempPath     string     `json:"temp_path"`
-	RootID       string     `json:"root_id"`
-	RootLocation string     `json:"root_location"`
-	Source       *AddSource `json:"source,omitempty"`
+type BuildMode string
+
+const (
+	BuildAdd    BuildMode = "add"
+	BuildRescan BuildMode = "rescan"
+)
+
+type BuildSourceType string
+
+const (
+	BuildSourceFiles BuildSourceType = "files"
+	BuildSourceSync  BuildSourceType = "sync"
+)
+
+// BuildJobPayload contains the inputs and target root for a build request.
+type BuildJobPayload struct {
+	Mode         BuildMode       `json:"mode"`
+	SourceType   BuildSourceType `json:"source_type,omitempty"`
+	TempPath     string          `json:"temp_path,omitempty"`
+	RootID       string          `json:"root_id,omitempty"`
+	RootLocation string          `json:"root_location,omitempty"`
+	Source       *BuildSource    `json:"source,omitempty"`
 }
 
-// AddSource identifies exactly one input for sync mode.
-type AddSource struct {
-	Folder string      `json:"folder,omitempty"`
-	Remote *RemoteRoot `json:"remote,omitempty"`
+// BuildSource identifies exactly one input for sync mode.
+type BuildSource struct {
+	Folder *LocalSource  `json:"folder,omitempty"`
+	Remote *RemoteSource `json:"remote,omitempty"`
+}
+
+// LocalSource identifies an input folder on the server.
+type LocalSource struct {
+	Path string `json:"path"`
+}
+
+// RemoteSource carries its own temporary credentials and never uses server profiles.
+type RemoteSource struct {
+	EndpointURL     string               `json:"endpoint_url"`
+	Bucket          string               `json:"bucket"`
+	Prefix          string               `json:"prefix,omitempty"`
+	Region          string               `json:"region"`
+	AddressingStyle string               `json:"addressing_style,omitempty"`
+	Credentials     TemporaryCredentials `json:"credentials"`
+}
+
+type TemporaryCredentials struct {
+	AccessKeyID     string `json:"access_key_id"`
+	SecretAccessKey string `json:"secret_access_key"`
+	SessionToken    string `json:"session_token"`
+}
+
+func (s *RemoteSource) Normalize() error {
+	location, err := normalizeRemoteLocation(remoteLocation{
+		EndpointURL: s.EndpointURL, Bucket: s.Bucket, Prefix: s.Prefix,
+		Region: s.Region, AddressingStyle: s.AddressingStyle,
+	})
+	if err != nil {
+		return fmt.Errorf("remote source: %w", err)
+	}
+	if location.Region == "" {
+		return errors.New("remote source region is required")
+	}
+	if strings.TrimSpace(s.Credentials.AccessKeyID) == "" || strings.TrimSpace(s.Credentials.SecretAccessKey) == "" || strings.TrimSpace(s.Credentials.SessionToken) == "" {
+		return errors.New("remote source requires temporary credentials: AccessKeyId, SecretAccessKey, and SessionToken")
+	}
+	s.EndpointURL, s.Bucket, s.Region, s.AddressingStyle = location.EndpointURL, location.Bucket, location.Region, location.AddressingStyle
+	return nil
+}
+
+type remoteLocation struct {
+	EndpointURL, Bucket, Prefix, Region, AddressingStyle string
+}
+
+func normalizeRemoteLocation(r remoteLocation) (remoteLocation, error) {
+	r.EndpointURL = strings.TrimRight(strings.TrimSpace(r.EndpointURL), "/")
+	r.Bucket = strings.TrimSpace(r.Bucket)
+	r.Region = strings.TrimSpace(r.Region)
+	if r.Prefix != "" && !strings.HasSuffix(r.Prefix, "/") {
+		return r, errors.New("prefix must be empty or end with '/'")
+	}
+	r.AddressingStyle = strings.ToLower(strings.TrimSpace(r.AddressingStyle))
+	if r.AddressingStyle == "" {
+		r.AddressingStyle = "auto"
+	}
+	if r.Bucket == "" {
+		return r, errors.New("bucket must be non-empty")
+	}
+	if strings.ContainsAny(r.Bucket, "/\\ \t\r\n") {
+		return r, errors.New("bucket must not contain slashes or whitespace")
+	}
+	u, err := url.Parse(r.EndpointURL)
+	if err != nil {
+		return r, fmt.Errorf("parse endpoint_url: %w", err)
+	}
+	if (u.Scheme != "http" && u.Scheme != "https") || u.Hostname() == "" || u.User != nil || u.RawQuery != "" || u.ForceQuery || u.Fragment != "" {
+		return r, errors.New("endpoint_url must be an HTTP(S) URL without credentials, query, or fragment")
+	}
+	u.Host = strings.ToLower(u.Host)
+	r.EndpointURL = u.String()
+	switch r.AddressingStyle {
+	case "auto", "path", "virtual":
+	default:
+		return r, errors.New("addressing_style must be auto, path, or virtual")
+	}
+	return r, nil
 }

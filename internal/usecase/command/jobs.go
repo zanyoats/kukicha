@@ -199,31 +199,46 @@ func ValidateJobSubmission(job JobSubmission) error {
 		return errors.New("Job payload must contain valid JSON")
 	}
 
-	if job.Type == "add" {
-		var payload app.AddJobPayload
+	if job.Type == "build" {
+		var payload app.BuildJobPayload
 		if err := json.Unmarshal(job.Payload, &payload); err != nil {
-			return fmt.Errorf("invalid add job payload: %w", err)
-		}
-		if !filepath.IsAbs(payload.TempPath) || filepath.Clean(payload.TempPath) != payload.TempPath {
-			return errors.New("add payload requires a clean absolute temp directory path")
-		}
-		if payload.RootID == "" || payload.RootLocation == "" {
-			return errors.New("add payload requires a destination root ID and original location")
+			return fmt.Errorf("invalid build job payload: %w", err)
 		}
 		switch payload.Mode {
-		case "files":
+		case app.BuildRescan:
+			if payload.SourceType != "" || payload.Source != nil || payload.TempPath != "" || payload.RootID != "" || payload.RootLocation != "" {
+				return errors.New("rescan must not include add source or destination fields")
+			}
+			return nil
+		case app.BuildAdd:
+		default:
+			return errors.New("build mode must be add or rescan")
+		}
+		if payload.RootID == "" || payload.RootLocation == "" {
+			return errors.New("build payload requires a destination root ID and original location")
+		}
+		switch payload.SourceType {
+		case app.BuildSourceFiles:
+			if !filepath.IsAbs(payload.TempPath) || filepath.Clean(payload.TempPath) != payload.TempPath {
+				return errors.New("build payload requires a clean absolute temp directory path")
+			}
 			if payload.Source != nil {
 				return errors.New("files mode must not include a sync source")
 			}
-		case "sync":
-			if payload.Source == nil || (payload.Source.Folder == "") == (payload.Source.Remote == nil) {
+		case app.BuildSourceSync:
+			if payload.Source == nil || (payload.Source.Folder == nil) == (payload.Source.Remote == nil) {
 				return errors.New("sync mode requires exactly one folder or remote source")
 			}
-			if payload.Source.Folder != "" && (!filepath.IsAbs(payload.Source.Folder) || filepath.Clean(payload.Source.Folder) != payload.Source.Folder) {
+			if remote := payload.Source.Remote; remote != nil {
+				if err := remote.Normalize(); err != nil {
+					return err
+				}
+			}
+			if folder := payload.Source.Folder; folder != nil && (!filepath.IsAbs(folder.Path) || filepath.Clean(folder.Path) != folder.Path) {
 				return errors.New("sync folder must be a clean absolute path")
 			}
 		default:
-			return errors.New("add mode must be files or sync")
+			return errors.New("add source type must be files or sync")
 		}
 	}
 	return nil
@@ -231,7 +246,7 @@ func ValidateJobSubmission(job JobSubmission) error {
 
 func SupportedJobType(jobType string) bool {
 	switch jobType {
-	case "sync", "scan", "reset", "add":
+	case "build":
 		return true
 	default:
 		return false

@@ -1,4 +1,6 @@
 import registerAdd from "./add.js";
+import registerRoots from "./roots.js";
+import registerInfoPopup from "./info-popup.js";
 import { up } from "./unpoly.js";
 import registerAuth from "./auth.js";
 import registerPlayerControls from "./player-controls.js";
@@ -8,7 +10,7 @@ import registerAlbumPage from "./album-page.js";
 import registerPlayerQueuePanel from "./player-queue-panel.js";
 import registerArtistSplitRules from "./artist-split-rules.js";
 import registerArtwork from "./artwork.js";
-import registerSyncJob from "./sync-job.js";
+import registerLibraryJob from "./library-job.js";
 import registerJobStatus from "./job-status.js";
 
 up.log.config.banner = false;
@@ -22,7 +24,8 @@ registerAlbumCover(up);
 registerAlbumPage(up);
 registerPlayerQueuePanel(up);
 registerArtistSplitRules(up);
-registerSyncJob(up);
+registerLibraryJob(up);
 registerJobStatus(up);
-
 registerAdd(up);
+registerRoots(up);
+registerInfoPopup(up);

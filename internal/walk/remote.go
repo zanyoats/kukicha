@@ -140,6 +140,30 @@ func NewS3Client(ctx context.Context, root *app.RemoteRoot) (*s3.Client, error) 
 	}), nil
 }
 
+// NewS3SourceClient uses only the submitted source settings. It deliberately does
+// not load shared AWS configuration, environment credentials, or instance roles.
+func NewS3SourceClient(ctx context.Context, source *app.RemoteSource) (*s3.Client, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if err := source.Normalize(); err != nil {
+		return nil, err
+	}
+	credentials := source.Credentials
+	return s3.New(s3.Options{
+		Region:       source.Region,
+		BaseEndpoint: aws.String(source.EndpointURL),
+		UsePathStyle: source.AddressingStyle == "path",
+		HTTPClient: awshttp.NewBuildableClient().WithTransportOptions(func(t *http.Transport) {
+			t.ResponseHeaderTimeout = remoteResponseHeaderTimeoutSec * time.Second
+		}),
+		Credentials: aws.NewCredentialsCache(aws.CredentialsProviderFunc(func(context.Context) (aws.Credentials, error) {
+			return aws.Credentials{AccessKeyID: credentials.AccessKeyID, SecretAccessKey: credentials.SecretAccessKey,
+				SessionToken: credentials.SessionToken, Source: "submitted temporary source credentials"}, nil
+		})),
+	}), nil
+}
+
 // Bucket lists object metadata page by page. It never retrieves object bodies.
 // Folder markers are skipped. RelPath removes prefix from the object key
 // without cleaning or otherwise changing the remaining bytes.

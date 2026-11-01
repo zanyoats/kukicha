@@ -21,6 +21,7 @@ type URLs struct {
 	ArtistSplitRules        string
 	Add                     string
 	Roots                   string
+	DropRoot                string
 	MetadataOverrides       string
 	ListeningData           string
 	Jobs                    string
@@ -58,6 +59,7 @@ func NewURLs(basePath string) URLs {
 		ArtistSplitRules:        app + "/artistSplitRules/",
 		Add:                     app + "/add/",
 		Roots:                   app + "/roots/",
+		DropRoot:                api + "/roots/drop/",
 		MetadataOverrides:       app + "/metadataOverrides/",
 		ListeningData:           app + "/listeningData/",
 		Jobs:                    app + "/jobs/",

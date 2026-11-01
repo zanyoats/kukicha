@@ -110,3 +110,13 @@ CREATE TEMP TABLE scan_playlists (
     path TEXT NOT NULL,
     PRIMARY KEY (root_pos, path)
 ) WITHOUT ROWID;
+
+-- Preserve selected artwork links, including remote lookup artwork, during rebuilds.
+DROP TABLE IF EXISTS scan_saved_track_artwork;
+
+CREATE TEMP TABLE scan_saved_track_artwork (
+    track_id INTEGER NOT NULL,
+    thumbnail_cache_id INTEGER NOT NULL,
+    source TEXT NOT NULL,
+    PRIMARY KEY (track_id, thumbnail_cache_id)
+);

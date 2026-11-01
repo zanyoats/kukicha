@@ -20,7 +20,6 @@ import (
 	"github.com/zanyoats/kukicha/internal/scan"
 	"github.com/zanyoats/kukicha/internal/upload"
 	"github.com/zanyoats/kukicha/internal/usecase/command"
-	"github.com/zanyoats/kukicha/internal/usecase/query"
 	"github.com/zanyoats/kukicha/internal/web"
 )
 
@@ -103,6 +102,13 @@ func run() error {
 		)
 	}
 
+	validateNewRoot := func(ctx context.Context, root app.Root) error {
+		return upload.ValidateNew(ctx, root, conf.Settings.Scan.IgnorePrefixes, conf.Settings.Scan.IgnoreFiles)
+	}
+	if err := command.ReconcileRoots(ctx, db, conf.Roots, validateNewRoot, upload.CheckRootMarker); err != nil {
+		return fmt.Errorf("reconcile configured roots: %w", err)
+	}
+
 	uploads := &upload.Service{DB: db, Roots: conf.Roots}
 	notifications := new(app.JobNotifications)
 	processor, err := proc.New(
@@ -115,22 +121,6 @@ func run() error {
 	)
 	if err != nil {
 		return err
-	}
-
-	rootsMatch, err := query.RootsMatchConfig(ctx, db, conf.Roots)
-	if err != nil {
-		return err
-	}
-	if !rootsMatch {
-		id, err := processor.Submit(ctx, proc.JobSubmission{Type: "sync", Payload: []byte(`{}`)})
-		if err != nil && !errors.Is(err, command.ErrJobAlreadyPending) {
-			return fmt.Errorf("enqueue sync for changed roots: %w", err)
-		}
-		if err == nil {
-			slog.Info("configured roots changed; queued library sync", "job_id", id)
-		} else {
-			slog.Info("configured roots changed; using pending library sync")
-		}
 	}
 
 	ctx, stop := signal.NotifyContext(
@@ -215,12 +205,8 @@ func run() error {
 
 func registry(db *sql.DB, conf *app.AppConfig, notifications jobs.NotificationPublisher) proc.Registry {
 	return proc.Registry{
-		"sync": proc.Decode(func(struct{}) (proc.Job, error) {
-			return &jobs.Sync{DB: db, Conf: conf, Notifications: notifications}, nil
+		"build": proc.Decode(func(app.BuildJobPayload) (proc.Job, error) {
+			return &jobs.Build{DB: db, Conf: conf, Notifications: notifications}, nil
 		}),
-		"reset": proc.Decode(func(struct{}) (proc.Job, error) {
-			return &jobs.Reset{Sync: jobs.Sync{DB: db, Conf: conf, Notifications: notifications}}, nil
-		}),
-		"scan": proc.Decode(func(struct{}) (proc.Job, error) { return &jobs.Scan{DB: db, Conf: conf}, nil }),
 	}
 }

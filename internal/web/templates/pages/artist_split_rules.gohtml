@@ -18,11 +18,11 @@
     <aside class="alert alert-info" aria-label="Info">
         <strong>Info</strong>
         <p>
-            Changes apply on the next scan.
-            You can run scan by clicking <span class="action-with-info"><button type="button" class="inline-action" data-library-job-submit="{{.URLs.SubmitJob}}" data-job-type="scan">Scan</button>{{template "job-help-trigger" "scan"}}</span>.
+            Changes apply on the next rebuild.
+            You can rebuild by clicking <span class="action-with-info"><button type="button" class="inline-action" data-library-job-submit="{{.URLs.SubmitJob}}">Rebuild</button>{{template "job-help-trigger" "rebuild"}}</span>.
         </p>
     </aside>
-    {{template "scan-job-help" .}}
+    {{template "rebuild-job-help" .}}
     {{end}}
     <div class="split-rules-grid">
         {{range $index, $rule := .Rules}}

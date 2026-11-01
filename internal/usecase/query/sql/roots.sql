@@ -9,6 +9,7 @@ WITH track_counts AS (
 )
 SELECT
     roots.config_id,
+    roots.state,
     COALESCE(track_counts.tracks, 0),
     COALESCE(track_counts.albums, 0),
     0 AS playlists,

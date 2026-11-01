@@ -1,3 +1,7 @@
+INSERT INTO library_track_artwork (track_id, thumbnail_cache_id, source)
+SELECT track_id, thumbnail_cache_id, source
+FROM scan_saved_track_artwork;
+
 WITH
 sidecar_candidates AS (
     SELECT
@@ -105,4 +109,5 @@ JOIN thumbnail_cache AS thumbnail
         :artwork_width_large
     )
 WHERE ranked.rank = 1
+AND NOT EXISTS (SELECT 1 FROM scan_saved_track_artwork saved WHERE saved.track_id = ranked.track_id)
 ORDER BY ranked.track_id, thumbnail.width_px;

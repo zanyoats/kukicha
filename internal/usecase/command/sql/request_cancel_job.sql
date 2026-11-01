@@ -5,6 +5,8 @@ UPDATE jobs
             THEN 'canceled'
             ELSE state
             END,
+        payload = CASE WHEN state = 'queued'
+            THEN json_remove(payload, '$.source.remote.credentials') ELSE payload END,
         finished_at =
             CASE
             WHEN state = 'queued'
