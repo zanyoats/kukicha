@@ -5,82 +5,75 @@ import (
 	"database/sql"
 	_ "embed"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/zanyoats/kukicha/internal/app"
+	"github.com/zanyoats/kukicha/internal/metadata"
+	"github.com/zanyoats/kukicha/internal/usecase/query"
 )
+
+//go:embed sql/prepare_scan_results.sql
+var prepareScanResultsSQL string
 
 //go:embed sql/prepare_scan_results_from_library.sql
 var prepareScanResultsFromLibrarySQL string
 
-// PrepareScanResultsFromLibrary stages the current library without reading files.
-// The callback reapplies normalization rules without introducing a dependency
-// from command back to scan. It is called with no open result set on conn.
-func PrepareScanResultsFromLibrary(
-	ctx context.Context,
-	conn *sql.Conn,
-	conf *app.AppConfig,
-	normalize func(*app.ScannedFile) error,
-) error {
-	if err := PrepareScanResults(ctx, conn, conf.Settings.Server.Database.CacheSizeKiB); err != nil {
+// PrepareScanResultsFromLibrary stages raw tracks and a snapshot of album overrides.
+// Normalization runs after any new files have also been staged.
+func PrepareScanResultsFromLibrary(ctx context.Context, conn *sql.Conn, conf *app.AppConfig) error {
+	if err := prepareScanResults(ctx, conn, conf.Settings.Server.Database.CacheSizeKiB); err != nil {
 		return err
 	}
-	return CopyLibraryToScan(ctx, conn, conf, normalize)
+	if err := copyLibraryToScan(ctx, conn, conf); err != nil {
+		return err
+	}
+	return stageAlbumScanOverrides(ctx, conn, conf)
 }
 
-// CopyLibraryToScan copies saved resources, including unavailable roots, into scan tables.
-// Roots pending removal and their resources are excluded.
-func CopyLibraryToScan(ctx context.Context, conn *sql.Conn, conf *app.AppConfig, normalize func(*app.ScannedFile) error) error {
-	rootIDs := make([]string, 0, len(conf.Roots))
-	for _, root := range conf.Roots {
-		rootIDs = append(rootIDs, root.ConfigID())
-	}
-	encodedRoots, err := json.Marshal(rootIDs)
-	if err != nil {
-		return err
-	}
-	if _, err := conn.ExecContext(ctx, prepareScanResultsFromLibrarySQL,
-		sql.Named("root_config_ids", string(encodedRoots)),
-	); err != nil {
-		return fmt.Errorf("stage current library: %w", err)
-	}
-
-	// Bound memory usage and close each batch before normalization, which may
-	// itself write artist mappings using this connection.
-	var afterID int64
+// NormalizeScanTracks normalizes existing and new tracks in bounded batches.
+// It inserts one normalized row per track without changing the staged raw metadata.
+// Close each result set before invoking the callback, which may write artist mappings.
+func NormalizeScanTracks(ctx context.Context, conn *sql.Conn,
+	normalize func(string, *app.ScannedFile, app.MetadataOverride) error,
+) error {
+	afterRoot, afterPath := -1, ""
 	for {
 		rows, err := conn.QueryContext(ctx, `
-			SELECT tracks.id, scanned.root_pos, scanned.path, scanned.album_key, scanned.track_metadata,
-			    tracks.ext, tracks.stem
-			FROM library_tracks AS tracks
-			JOIN library_roots AS roots ON roots.id = tracks.root_id
-			JOIN scan_roots AS sr ON sr.config_id = roots.config_id
-			JOIN scan_tracks AS scanned
-				ON scanned.root_pos = sr.root_pos AND scanned.path = tracks.path
-			WHERE tracks.id > ? ORDER BY tracks.id LIMIT 256`, afterID)
+   SELECT tracks.root_pos, tracks.path, tracks.album_key, tracks.track_metadata,
+       COALESCE(tracks.ext, ''), tracks.stem, COALESCE(overrides.genres_json, 'null')
+   FROM scan_tracks AS tracks
+   LEFT JOIN scan_album_overrides AS overrides ON overrides.album_key = tracks.album_key
+   WHERE (tracks.root_pos, tracks.path) > (?, ?)
+   ORDER BY tracks.root_pos, tracks.path LIMIT 256`, afterRoot, afterPath)
 		if err != nil {
 			return err
 		}
-		var batch []app.ScannedFile
-		var albumKeys []string
+		type item struct {
+			file     app.ScannedFile
+			override app.MetadataOverride
+			albumKey string
+		}
+		var batch []item
 		for rows.Next() {
-			var file app.ScannedFile
-			var metadata, albumKey string
-			if err := rows.Scan(
-				&afterID, &file.RootPos, &file.Path, &albumKey,
-				&metadata, &file.Ext, &file.Stem,
-			); err != nil {
+			var entry item
+			var raw, genres string
+			file := &entry.file
+			if err := rows.Scan(&file.RootPos, &file.Path, &entry.albumKey, &raw, &file.Ext, &file.Stem, &genres); err != nil {
 				rows.Close()
 				return err
 			}
 			file.Metadata = &app.TrackMetadata{}
-			if err := json.Unmarshal([]byte(metadata), file.Metadata); err != nil {
+			if err := json.Unmarshal([]byte(raw), file.Metadata); err != nil {
 				rows.Close()
-				return fmt.Errorf("decode saved metadata for %q: %w", file.Path, err)
+				return fmt.Errorf("decode staged metadata for %q: %w", file.Path, err)
+			}
+			if err := json.Unmarshal([]byte(genres), &entry.override.Genres); err != nil {
+				rows.Close()
+				return fmt.Errorf("decode staged override for %q: %w", file.Path, err)
 			}
 			file.NormalizedMetadata = &app.NormalizedTrackMetadata{}
-			batch = append(batch, file)
-			albumKeys = append(albumKeys, albumKey)
+			batch = append(batch, entry)
 		}
 		err = rows.Err()
 		closeErr := rows.Close()
@@ -94,25 +87,169 @@ func CopyLibraryToScan(ctx context.Context, conn *sql.Conn, conf *app.AppConfig,
 			return nil
 		}
 		for i := range batch {
-			file := &batch[i]
-			if err := normalize(file); err != nil {
-				return fmt.Errorf("normalize saved track %q: %w", file.Path, err)
+			entry := &batch[i]
+			file := &entry.file
+			if err := ctx.Err(); err != nil {
+				return err
 			}
-			if file.NormalizedMetadata.AlbumKey != albumKeys[i] {
-				return fmt.Errorf("album key changed for %q; rebuilding album identities is not supported", file.Path)
+			if err := normalize(entry.albumKey, file, entry.override); err != nil {
+				return fmt.Errorf("normalize staged track %q: %w", file.Path, err)
 			}
-			metadata, err := json.Marshal(file.NormalizedMetadata)
+			encoded, err := json.Marshal(file.NormalizedMetadata)
 			if err != nil {
 				return err
 			}
-			if _, err := conn.ExecContext(ctx, `
-				UPDATE scan_tracks SET normalized_metadata = ?
-				WHERE root_pos = ? AND path = ?`,
-				string(metadata),
-				file.RootPos, file.Path,
-			); err != nil {
+			if _, err := conn.ExecContext(ctx, `INSERT INTO scan_track_normalized_metadata (root_pos, path, normalized_metadata) VALUES (?, ?, ?)`,
+				file.RootPos, file.Path, string(encoded)); err != nil {
 				return err
 			}
+			afterRoot, afterPath = file.RootPos, file.Path
+		}
+	}
+}
+
+func prepareScanResults(
+	ctx context.Context,
+	conn *sql.Conn,
+	cacheSizeKiB int64,
+) error {
+	if cacheSizeKiB < 1 {
+		return errors.New("temporary database cache size must be positive")
+	}
+
+	if _, err := conn.ExecContext(ctx, "PRAGMA temp_store = FILE;"); err != nil {
+		return fmt.Errorf("configure temporary database storage: %w", err)
+	}
+
+	cacheSizePragma := fmt.Sprintf(
+		"PRAGMA temp.cache_size = -%d;",
+		cacheSizeKiB,
+	)
+	if _, err := conn.ExecContext(ctx, cacheSizePragma); err != nil {
+		return fmt.Errorf("configure temporary database cache: %w", err)
+	}
+
+	_, err := conn.ExecContext(ctx, prepareScanResultsSQL)
+
+	return err
+}
+
+// copyLibraryToScan copies saved resources, including unavailable roots, into scan tables.
+// Roots pending removal and their resources are excluded.
+func copyLibraryToScan(ctx context.Context, conn *sql.Conn, conf *app.AppConfig) error {
+	rootIDs := make([]string, 0, len(conf.Roots))
+	for _, root := range conf.Roots {
+		rootIDs = append(rootIDs, root.ConfigID())
+	}
+	encodedRoots, err := json.Marshal(rootIDs)
+	if err != nil {
+		return err
+	}
+	if _, err := conn.ExecContext(ctx, prepareScanResultsFromLibrarySQL,
+		sql.Named("root_config_ids", string(encodedRoots)),
+	); err != nil {
+		return fmt.Errorf("stage current library: %w", err)
+	}
+	return nil
+}
+
+// stageAlbumScanOverrides processes each distinct source once, keeping only one result
+// in memory. Sources were snapshotted before this loop; failed sources stay absent
+// from scan_album_overrides, allowing ordinary metadata and artwork to apply.
+func stageAlbumScanOverrides(ctx context.Context, conn *sql.Conn, conf *app.AppConfig) error {
+	configs := map[string]app.ProviderLookupConfig{
+		"discogs":     conf.Settings.Scan.Discogs,
+		"musicbrainz": conf.Settings.Scan.MusicBrainz,
+	}
+	clients := map[string]*metadata.Client{
+		"discogs":     metadata.NewClient(configs["discogs"]),
+		"musicbrainz": metadata.NewClient(configs["musicbrainz"]),
+	}
+	var afterProvider, afterType, afterID string
+	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		var source app.MetadataSource
+		var albumKey string
+		err := conn.QueryRowContext(ctx, `
+   SELECT provider, entity_type, entity_id, MIN(source_url), MIN(album_key)
+   FROM scan_album_override_sources
+   WHERE (provider, entity_type, entity_id) > (?, ?, ?)
+   GROUP BY provider, entity_type, entity_id
+   ORDER BY provider, entity_type, entity_id LIMIT 1`, afterProvider, afterType, afterID).
+			Scan(&source.Provider, &source.EntityType, &source.EntityID, &source.SourceURL, &albumKey)
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		afterProvider, afterType, afterID = source.Provider, source.EntityType, source.EntityID
+		client := clients[source.Provider]
+		enabled := configs[source.Provider].Enabled
+		value, cached, err := query.CachedMetadataEntity(ctx, conn, source)
+		if err != nil {
+			return err
+		}
+		if !cached {
+			if !enabled {
+				continue
+			}
+			value, err = client.Fetch(ctx, source)
+			if err != nil {
+				if ctx.Err() != nil {
+					return ctx.Err()
+				}
+				app.JobLogger(ctx).ErrorContext(ctx, "album metadata override fetch failed; using fallbacks", "album_key", albumKey, "source_url", source.SourceURL, "error", err)
+				continue
+			}
+			if err := StoreMetadataEntity(ctx, conn, value); err != nil {
+				return err
+			}
+		}
+		// Repair a missing thumbnail pair without fetching metadata again.
+		if value.ThumbnailCacheName != "" {
+			var count int
+			if err := conn.QueryRowContext(ctx, `SELECT count(*) FROM thumbnail_cache WHERE name=? AND width_px IN (64,256)`, value.ThumbnailCacheName).Scan(&count); err != nil {
+				return err
+			}
+			if count != 2 {
+				value.ThumbnailCacheName = ""
+				value.ArtworkComplete = false
+			}
+		}
+		if !value.ArtworkComplete && enabled {
+			data, missing, artworkErr := client.Artwork(ctx, value.ArtworkURL)
+			if artworkErr == nil && !missing {
+				value.ThumbnailCacheName, artworkErr = CacheArtworkThumbnails(ctx, conn, data, "external album cover", "", source.SourceURL)
+				if artworkErr == nil && value.ThumbnailCacheName == "" {
+					artworkErr = fmt.Errorf("cover could not be resized")
+				}
+			}
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			if artworkErr != nil {
+				app.JobLogger(ctx).ErrorContext(ctx, "album override artwork failed; using ordinary artwork", "album_key", albumKey, "source_url", source.SourceURL, "error", artworkErr)
+			} else {
+				value.ArtworkComplete = true
+			}
+			if err := StoreMetadataEntity(ctx, conn, value); err != nil {
+				return err
+			}
+		}
+		genres, err := json.Marshal(value.Genres)
+		if err != nil {
+			return err
+		}
+		if _, err := conn.ExecContext(ctx, `
+   INSERT INTO scan_album_overrides (album_key, provider, source_url, genres_json, thumbnail_cache_name)
+   SELECT album_key, provider, source_url, ?, NULLIF(?, '')
+   FROM scan_album_override_sources WHERE provider = ? AND entity_type = ? AND entity_id = ?`,
+			string(genres), value.ThumbnailCacheName, source.Provider, source.EntityType, source.EntityID,
+		); err != nil {
+			return err
 		}
 	}
 }

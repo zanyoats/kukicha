@@ -87,24 +87,28 @@ func ApplyTrackMetadata(
 	return nil
 }
 
+// ApplyMetadataNormalizations preserves file metadata and album identity.
+// Provider values only replace the inputs for genre normalization.
+// The caller supplies the staged album key separately and fresh NormalizedMetadata.
 func ApplyMetadataNormalizations(
-	ctx context.Context,
-	conf *app.AppConfig,
-	conn *sql.Conn,
-	scannedFile *app.ScannedFile,
+	ctx context.Context, conf *app.AppConfig, conn *sql.Conn,
+	albumKey string, scannedFile *app.ScannedFile, override app.MetadataOverride,
 ) error {
+	genres := scannedFile.Metadata.Genres
+	if len(override.Genres) > 0 {
+		genres = override.Genres
+	}
 	scannedFile.NormalizedMetadata.TrackDisplay = textkey.FirstNonZeroValue(
-		scannedFile.Metadata.Title, scannedFile.Stem, UnknownItem,
+		scannedFile.Metadata.Title, scannedFile.Stem, app.UnknownItem,
 	)
-	scannedFile.NormalizedMetadata.AlbumKey = albumKey(scannedFile.Metadata)
 	scannedFile.NormalizedMetadata.AlbumDisplay = albumDisplay(scannedFile.Metadata)
 	scannedFile.NormalizedMetadata.RawAlbumArtistDisplays = rawAlbumArtistDisplays(scannedFile.Metadata)
 
 	// apply genre normalization
 	{
-		seen := make(map[string]bool, len(scannedFile.Metadata.Genres))
+		seen := make(map[string]bool, len(genres))
 
-		for _, value := range scannedFile.Metadata.Genres {
+		for _, value := range genres {
 			for _, genre := range splitGenreFieldList(conf.Settings.Scan.PrimaryGenreSplitTokens, value) {
 				key := strings.ToLower(genre)
 
@@ -125,7 +129,7 @@ func ApplyMetadataNormalizations(
 
 	mapping, err := applyAlbumArtistSplitRules(
 		ctx, conn,
-		scannedFile.NormalizedMetadata.AlbumKey,
+		albumKey,
 		scannedFile.NormalizedMetadata.RawAlbumArtistDisplays,
 		conf.Settings.Scan.AlbumArtistSplitTokens,
 	)
@@ -314,32 +318,13 @@ func displaysContainAnyToken(displays []string, tokens map[string]bool) (bool, e
 }
 
 func rawAlbumArtistDisplays(metadata *app.TrackMetadata) []string {
-	return textkey.FirstNonEmptySlice(metadata.AlbumArtists, metadata.Artists, []string{UnknownItem})
+	return textkey.FirstNonEmptySlice(metadata.AlbumArtists, metadata.Artists, []string{app.UnknownItem})
 }
 
 func rawTrackArtistDisplays(metadata *app.TrackMetadata) []string {
-	return textkey.FirstNonEmptySlice(metadata.Artists, metadata.AlbumArtists, []string{UnknownItem})
-}
-
-func rawAlbumArtistKeys(metadata *app.TrackMetadata) []string {
-	albumArtists := rawAlbumArtistDisplays(metadata)
-	result := make([]string, 0, len(albumArtists))
-
-	for _, albumArtist := range albumArtists {
-		result = append(result, textkey.Slugify(albumArtist))
-	}
-	return result
+	return textkey.FirstNonEmptySlice(metadata.Artists, metadata.AlbumArtists, []string{app.UnknownItem})
 }
 
 func albumDisplay(metadata *app.TrackMetadata) string {
-	return textkey.FirstNonZeroValue(metadata.Album, UnknownItem)
-}
-
-func albumKey(metadata *app.TrackMetadata) string {
-	artistKeys := rawAlbumArtistKeys(metadata)
-	album := albumDisplay(metadata)
-
-	return fmt.Sprintf("%s::%s",
-		strings.Join(artistKeys, "-and-"),
-		textkey.Slugify(album))
+	return textkey.FirstNonZeroValue(metadata.Album, app.UnknownItem)
 }

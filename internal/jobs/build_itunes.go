@@ -84,7 +84,7 @@ func (j *fileScanner) lookupITunesArtwork(ctx context.Context, conn *sql.Conn) e
 		scanartwork.ITunesClientConfig{
 			RequestTimeout: j.Conf.Settings.Scan.ITunes.RequestTimeout.Duration,
 			LookupInterval: j.Conf.Settings.Scan.ITunes.LookupInterval.Duration,
-			RetryAttempts:  j.Conf.Settings.Scan.ITunes.RetryAttempts,
+			MaxAttempts:    j.Conf.Settings.Scan.ITunes.MaxAttempts,
 		},
 	)
 

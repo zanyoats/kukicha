@@ -54,17 +54,26 @@ progress_log_interval = "5s"
 local_artwork_max_bytes = 26_214_400
 
 [scan.itunes]
-# Disables new iTunes lookups, but allows existing cached artwork.
-# To also disable existing cache lookups clear the itunes cache too.
+# Disables new lookups, but allows existing cached artwork.
 enabled = true
-
+# How long to be able to read the http headers before timing out
 request_timeout = "20s"
-
-# Space itunes network lookups out to reduce bursts;
-# HTTP 429 responses can extend the delay.
+# Space network lookups out to reduce bursts
 lookup_interval = "1s"
+# Maximum attempts per request, including the first attempt.
+max_attempts = 2
 
-retry_attempts = 2
+[scan.discogs]
+enabled = true
+request_timeout = "20s"
+lookup_interval = "1s"
+max_attempts = 2
+
+[scan.musicbrainz]
+enabled = true
+request_timeout = "20s"
+lookup_interval = "1s"
+max_attempts = 2
 
 [scan.album_artist_split_tokens]
 "with" = true

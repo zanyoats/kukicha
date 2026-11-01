@@ -104,11 +104,10 @@ func (j *Build) Run(ctx context.Context) error {
 			return err
 		}
 	}
-	if err := command.PrepareScanResultsFromLibrary(ctx, conn, j.Conf, func(f *app.ScannedFile) error {
-		return scan.ApplyMetadataNormalizations(ctx, j.Conf, conn, f)
-	}); err != nil {
+	if err := command.PrepareScanResultsFromLibrary(ctx, conn, j.Conf); err != nil {
 		return err
 	}
+
 	if p.Mode == app.BuildAdd {
 		created, err := time.Parse(time.DateTime, createdAt)
 		if err != nil {
@@ -154,8 +153,13 @@ func (j *Build) Run(ctx context.Context) error {
 			return err
 		}
 	}
+	if err := command.NormalizeScanTracks(ctx, conn, func(albumKey string, f *app.ScannedFile, override app.MetadataOverride) error {
+		return scan.ApplyMetadataNormalizations(ctx, j.Conf, conn, albumKey, f, override)
+	}); err != nil {
+		return err
+	}
 	result, err := command.BuildLibraryFromScan(ctx, conn,
-		scan.UnknownItem, j.Conf.Settings.Scan.SecondaryGenreSplitTokens,
+		app.UnknownItem, j.Conf.Settings.Scan.SecondaryGenreSplitTokens,
 		scan.RecognizedAudioExtensions, scan.RecognizedPlaylistExtensions, scan.RecognizedSidecarExtensions)
 	if err != nil {
 		return err

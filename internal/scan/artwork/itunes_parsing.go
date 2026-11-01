@@ -8,10 +8,9 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-)
 
-// Matches largest artwork size from internal/usecase/command/scan.go
-const iTunesArtworkMinimumWidth = 256
+	"github.com/zanyoats/kukicha/internal/app"
+)
 
 var (
 	artworkURLKeyPattern = regexp.MustCompile(
@@ -117,7 +116,7 @@ func iTunesArtworkURLs(imageURL string, advertisedWidth int) []string {
 	urls := make([]string, 0, 4)
 	seen := make(map[string]struct{}, 4)
 
-	for _, width := range [...]int{1200, 600, iTunesArtworkMinimumWidth} {
+	for _, width := range [...]int{1200, 600, app.ArtworkMinimumWidth} {
 		enlarged := highResolutionITunesArtworkURL(imageURL, width)
 		if enlarged == imageURL {
 			continue
@@ -130,7 +129,7 @@ func iTunesArtworkURLs(imageURL string, advertisedWidth int) []string {
 		seen[enlarged] = struct{}{}
 	}
 
-	if advertisedWidth >= iTunesArtworkMinimumWidth {
+	if advertisedWidth >= app.ArtworkMinimumWidth {
 		if _, exists := seen[imageURL]; !exists {
 			urls = append(urls, imageURL)
 		}

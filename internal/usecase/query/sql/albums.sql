@@ -50,49 +50,25 @@ FROM page AS albums
 LEFT JOIN thumbnail_cache AS small_artwork
     ON small_artwork.id = (
         SELECT thumbnail.id
-        FROM available_library_tracks AS tracks
-        JOIN library_track_artwork AS artwork
-            ON artwork.track_id = tracks.id
-        JOIN thumbnail_cache AS thumbnail
-            ON thumbnail.id = artwork.thumbnail_cache_id
-        WHERE tracks.album_id = albums.id
+        FROM library_album_artwork_candidates AS artwork
+        JOIN thumbnail_cache AS thumbnail ON thumbnail.id = artwork.thumbnail_cache_id
+        WHERE artwork.album_id = albums.id
             AND thumbnail.width_px = :artwork_width_small
             AND thumbnail.artwork_content_size > 0
-        ORDER BY
-            COALESCE(tracks.disc_number, 1),
-            CASE
-                WHEN tracks.track_number IS NULL THEN 1
-                ELSE 0
-            END,
-            tracks.track_number,
-            tracks.path COLLATE BINARY,
-            tracks.id,
-            artwork.id,
-            thumbnail.id
+        ORDER BY artwork.priority, artwork.disc_number, artwork.missing_track_number,
+            artwork.track_number, artwork.path COLLATE BINARY, artwork.track_id, artwork.artwork_id, thumbnail.id
         LIMIT 1
     )
 LEFT JOIN thumbnail_cache AS large_artwork
     ON large_artwork.id = (
         SELECT thumbnail.id
-        FROM available_library_tracks AS tracks
-        JOIN library_track_artwork AS artwork
-            ON artwork.track_id = tracks.id
-        JOIN thumbnail_cache AS thumbnail
-            ON thumbnail.id = artwork.thumbnail_cache_id
-        WHERE tracks.album_id = albums.id
+        FROM library_album_artwork_candidates AS artwork
+        JOIN thumbnail_cache AS thumbnail ON thumbnail.id = artwork.thumbnail_cache_id
+        WHERE artwork.album_id = albums.id
             AND thumbnail.width_px = :artwork_width_large
             AND thumbnail.artwork_content_size > 0
-        ORDER BY
-            COALESCE(tracks.disc_number, 1),
-            CASE
-                WHEN tracks.track_number IS NULL THEN 1
-                ELSE 0
-            END,
-            tracks.track_number,
-            tracks.path COLLATE BINARY,
-            tracks.id,
-            artwork.id,
-            thumbnail.id
+        ORDER BY artwork.priority, artwork.disc_number, artwork.missing_track_number,
+            artwork.track_number, artwork.path COLLATE BINARY, artwork.track_id, artwork.artwork_id, thumbnail.id
         LIMIT 1
     )
 LEFT JOIN library_album_artists AS album_artists

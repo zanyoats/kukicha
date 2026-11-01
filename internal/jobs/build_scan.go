@@ -331,13 +331,13 @@ func (j *fileScanner) workOn(ctx context.Context, conn *sql.Conn, input work, de
 
 // Called from a worker goroutine
 // Implements the processing of a recognizable file; essentially
-// 1. parses file metadata and normalizes its,
+// 1. parses original file metadata,
 // 2. appends it to a temporary table to hold scanned tracks.
 func (j *fileScanner) processLibraryItem(
 	workCtx context.Context,
 	conn *sql.Conn,
 	item libraryItem,
-) (err error) {
+) error {
 	fileIdentity := app.FileIdentity{
 		Root: item.root,
 		Path: item.logicalFile.RelPath,
@@ -361,7 +361,6 @@ func (j *fileScanner) processLibraryItem(
 			Performers:      []string{},
 			Genres:          []string{},
 		},
-		NormalizedMetadata: &app.NormalizedTrackMetadata{},
 	}
 
 	switch item.fileType {
@@ -370,25 +369,17 @@ func (j *fileScanner) processLibraryItem(
 			j.logger.ErrorContext(workCtx, err.Error(), "root", item.root.ConfigID(), "path", item.logicalFile.RelPath)
 		}
 
-		// Since this call involves a db connection its error should
-		// fail the job.
-		err = scan.ApplyMetadataNormalizations(workCtx, j.Conf, conn, scannedFile)
-
 	case app.FileTypeSidecarCover, app.FileTypeSidecarOther:
 
 	default: // app.FileTypePlaylist
 		j.logger.InfoContext(workCtx, "skipping unsupported playlist item", "root", scannedFile.Root.ConfigID(), "path", scannedFile.Path)
 	}
 
-	if err == nil {
-		err = command.InsertScannedFile(
-			workCtx,
-			conn,
-			scannedFile,
-			j.Conf.Settings.Scan.LocalArtworkMaxBytes,
-			item.physicalFile.path,
-		)
-	}
-
-	return err
+	return command.InsertScannedFile(
+		workCtx,
+		conn,
+		scannedFile,
+		j.Conf.Settings.Scan.LocalArtworkMaxBytes,
+		item.physicalFile.path,
+	)
 }

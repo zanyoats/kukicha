@@ -29,6 +29,7 @@ type URLs struct {
 	Help                    string
 	InstanceIdenticon       string
 	UpdateArtistSplitRule   string
+	AlbumMetadataOverride   string
 	SubmitJob               string
 	CancelJob               string
 	JobEvents               string
@@ -67,6 +68,7 @@ func NewURLs(basePath string) URLs {
 		Help:                    app + "/help/",
 		InstanceIdenticon:       app + "/instance/identicon.svg",
 		UpdateArtistSplitRule:   api + "/artistSplitRules/",
+		AlbumMetadataOverride:   api + "/albums/metadata-override/",
 		SubmitJob:               api + "/jobs/",
 		CancelJob:               api + "/jobs/cancel/",
 		JobEvents:               api + "/jobs/events/",

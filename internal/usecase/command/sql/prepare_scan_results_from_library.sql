@@ -16,11 +16,11 @@ WHERE NOT EXISTS (
 INSERT INTO scan_tracks (
     root_pos, config_id, album_key, path_dir, stem, ext, path,
     file_size, file_mtime_unix_nano, duration_seconds,
-    track_metadata, normalized_metadata
+    track_metadata
 )
 SELECT scanned.root_pos, roots.config_id, albums.album_key, tracks.path_dir, tracks.stem, tracks.ext,
     tracks.path, tracks.file_size, tracks.file_mtime_unix_nano,
-    tracks.duration_seconds, tracks.track_metadata, '{}'
+    tracks.duration_seconds, tracks.track_metadata
 FROM library_tracks AS tracks
 JOIN library_roots AS roots ON roots.id = tracks.root_id
 JOIN scan_roots AS scanned ON scanned.config_id = roots.config_id
@@ -51,3 +51,8 @@ SELECT s.root_pos, c.path_dir, c.stem, c.ext, c.path, c.file_size, c.file_mtime_
 FROM library_album_sidecars c
 JOIN library_roots r ON r.id = c.root_id JOIN scan_roots s ON s.config_id = r.config_id
 WHERE c.thumbnail_cache_name IS NULL;
+
+-- Snapshot the configured sources before network work, without holding query rows open.
+INSERT INTO scan_album_override_sources
+SELECT album_key, provider, entity_type, entity_id, source_url
+FROM album_metadata_overrides;

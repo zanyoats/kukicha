@@ -21,7 +21,7 @@ INSERT INTO library_artist_ids (artist)
 SELECT candidates.artist
 FROM (
     SELECT MIN(artist_displays.value COLLATE BINARY) AS artist
-    FROM scan_tracks AS tracks
+    FROM scan_track_normalized_metadata AS tracks
     JOIN json_each(
         tracks.normalized_metadata,
         '$.mapped_album_artist_displays'

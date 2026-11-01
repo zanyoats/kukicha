@@ -56,13 +56,15 @@ raw_genres AS (
         genres.key AS genre_pos,
         genres.value AS input_genre
     FROM scan_tracks AS s
+    JOIN scan_track_normalized_metadata AS normalized
+        ON normalized.root_pos = s.root_pos AND normalized.path = s.path
     JOIN library_roots AS roots
         ON roots.config_id = s.config_id
     JOIN library_tracks AS tracks
         ON tracks.root_id = roots.id
         AND tracks.path = s.path
     LEFT JOIN json_each(
-        s.normalized_metadata,
+        normalized.normalized_metadata,
         '$.genres'
     ) AS genres
 ),

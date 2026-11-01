@@ -79,7 +79,7 @@ func run() error {
 		return err
 	}
 
-	if err = command.SeedTaxonomy(ctx, db, catalog, scan.UnknownItem); err != nil {
+	if err = command.SeedTaxonomy(ctx, db, catalog, app.UnknownItem); err != nil {
 		return err
 	}
 

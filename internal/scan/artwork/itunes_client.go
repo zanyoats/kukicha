@@ -69,14 +69,14 @@ type ITunesClient struct {
 	userAgent      string
 	lookupGate     chan struct{}
 	lookupInterval time.Duration
-	retryAttempts  int
+	maxAttempts    int
 	nextLookup     time.Time
 }
 
 type ITunesClientConfig struct {
 	RequestTimeout time.Duration
 	LookupInterval time.Duration
-	RetryAttempts  int
+	MaxAttempts    int
 }
 
 func NewITunesClient(
@@ -91,8 +91,8 @@ func NewITunesClient(
 	if config.LookupInterval < 0 {
 		config.LookupInterval = 0
 	}
-	if config.RetryAttempts < 1 {
-		config.RetryAttempts = 1
+	if config.MaxAttempts < 1 {
+		config.MaxAttempts = 1
 	}
 
 	lookupGate := make(chan struct{}, 1)
@@ -103,7 +103,7 @@ func NewITunesClient(
 		userAgent:      app.UserAgent,
 		lookupGate:     lookupGate,
 		lookupInterval: config.LookupInterval,
-		retryAttempts:  config.RetryAttempts,
+		maxAttempts:    config.MaxAttempts,
 	}
 }
 
@@ -200,7 +200,7 @@ func (c *ITunesClient) fetchLookup(
 			c.releaseLookup()
 			response.Body.Close()
 
-			if hasRetryAfter && attempt+1 < c.retryAttempts {
+			if hasRetryAfter && attempt+1 < c.maxAttempts {
 				continue
 			}
 
@@ -225,7 +225,7 @@ func (c *ITunesClient) fetchLookup(
 
 		payload, err := readBoundedResponse(
 			response.Body,
-			app.ItunesLookupMaxBytes,
+			app.LookupMaxBytes,
 		)
 		if err != nil {
 			return nil, false, fmt.Errorf(
@@ -311,7 +311,7 @@ func (c *ITunesClient) fetchArtworkImage(
 	if len(candidateURLs) == 0 {
 		return nil, "", "", fmt.Errorf(
 			"iTunes artwork is smaller than %d pixels wide and its URL cannot be enlarged",
-			iTunesArtworkMinimumWidth,
+			app.ArtworkMinimumWidth,
 		)
 	}
 
@@ -377,7 +377,7 @@ func (c *ITunesClient) fetchArtworkCandidate(
 			)
 			response.Body.Close()
 
-			if hasRetryAfter && attempt+1 < c.retryAttempts {
+			if hasRetryAfter && attempt+1 < c.maxAttempts {
 				if err := waitForRetry(ctx, retryAfter); err != nil {
 					return nil, "", "", fmt.Errorf(
 						"wait to retry iTunes artwork: %w",
@@ -404,7 +404,7 @@ func (c *ITunesClient) fetchArtworkCandidate(
 
 		imageBytes, err := readBoundedResponse(
 			response.Body,
-			app.ItunesArtworkMaxBytes,
+			app.ArtworkMaxBytes,
 		)
 		if err != nil {
 			return nil, "", "", err
@@ -428,11 +428,11 @@ func (c *ITunesClient) fetchArtworkCandidate(
 				err,
 			)
 		}
-		if config.Width < iTunesArtworkMinimumWidth {
+		if config.Width < app.ArtworkMinimumWidth {
 			return nil, "", "", fmt.Errorf(
 				"artwork is %d pixels wide; minimum is %d",
 				config.Width,
-				iTunesArtworkMinimumWidth,
+				app.ArtworkMinimumWidth,
 			)
 		}
 

@@ -7,8 +7,6 @@ import (
 	"unicode/utf8"
 )
 
-const UnknownItem = "__Unknown"
-
 const (
 	formatID3v1  = "ID3v1"
 	formatID3v22 = "ID3v2.2"

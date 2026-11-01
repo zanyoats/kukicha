@@ -1,10 +1,6 @@
 package app
 
-const (
-	ItunesLookupEndpoint  = "https://itunes.apple.com/lookup"
-	ItunesLookupMaxBytes  = 2 * 1024 * 1024
-	ItunesArtworkMaxBytes = 25 * 1024 * 1024
-)
+const ItunesLookupEndpoint = "https://itunes.apple.com/lookup"
 
 type ITunesLookupKind string
 

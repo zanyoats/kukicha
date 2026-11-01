@@ -33,8 +33,8 @@ SELECT
     s.file_mtime_unix_nano,
     s.duration_seconds,
     s.track_metadata,
-    json_extract(s.normalized_metadata, '$.track_display'),
-    json_extract(s.normalized_metadata, '$.raw_track_artist_displays'),
+    json_extract(normalized.normalized_metadata, '$.track_display'),
+    json_extract(normalized.normalized_metadata, '$.raw_track_artist_displays'),
     NULLIF(json_extract(s.track_metadata, '$.work'), ''),
     NULLIF(json_extract(s.track_metadata, '$.grouping'), ''),
     NULLIF(json_extract(s.track_metadata, '$.movement_name'), ''),
@@ -44,6 +44,8 @@ SELECT
     NULLIF(json_extract(s.track_metadata, '$.track_number'), 0),
     NULLIF(json_extract(s.track_metadata, '$.disc_number'), 0)
 FROM scan_tracks AS s
+JOIN scan_track_normalized_metadata AS normalized
+    ON normalized.root_pos = s.root_pos AND normalized.path = s.path
 JOIN library_track_ids AS track_ids
     ON track_ids.config_id = s.config_id
     AND track_ids.path = s.path

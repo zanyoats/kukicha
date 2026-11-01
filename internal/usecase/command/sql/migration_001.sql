@@ -483,3 +483,47 @@ WHERE EXISTS (
     JOIN library_track_styles AS track_relation ON track_relation.track_id = tracks.id
     WHERE tracks.album_id = relation.album_id AND track_relation.style_id = relation.style_id
 );
+
+CREATE TABLE album_metadata_overrides (
+    album_key TEXT PRIMARY KEY REFERENCES library_album_ids(album_key),
+    provider TEXT NOT NULL,
+    entity_type TEXT NOT NULL,
+    entity_id TEXT NOT NULL CHECK (length(entity_id) > 0),
+    source_url TEXT NOT NULL,
+    CHECK ((provider = 'discogs' AND entity_type IN ('release', 'master'))
+        OR (provider = 'musicbrainz' AND entity_type IN ('release', 'release-group')))
+);
+
+-- Successful metadata is cached even while artwork remains retryable.
+-- These results and their thumbnails survive library rebuilds and override removal.
+CREATE TABLE metadata_entity_cache (
+    provider TEXT NOT NULL,
+    entity_type TEXT NOT NULL,
+    entity_id TEXT NOT NULL,
+    result_json TEXT NOT NULL CHECK (json_valid(result_json)),
+    fetched_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (provider, entity_type, entity_id)
+);
+
+CREATE TABLE library_album_overrides (
+    album_key TEXT PRIMARY KEY REFERENCES library_album_ids(album_key),
+    provider TEXT NOT NULL,
+    source_url TEXT NOT NULL,
+    genres_json TEXT NOT NULL CHECK (json_valid(genres_json)),
+    thumbnail_cache_name TEXT
+);
+
+-- Ordinary selected artwork stays intact underneath an album override.
+CREATE VIEW library_album_artwork_candidates AS
+SELECT ids.id AS album_id, thumbnail.id AS thumbnail_cache_id,
+    -1 AS priority, 0 AS disc_number, 0 AS missing_track_number,
+    0 AS track_number, '' AS path, 0 AS track_id, 0 AS artwork_id
+FROM library_album_overrides AS overrides
+JOIN library_album_ids AS ids ON ids.album_key = overrides.album_key
+JOIN thumbnail_cache AS thumbnail ON thumbnail.name = overrides.thumbnail_cache_name
+UNION ALL
+SELECT tracks.album_id, artwork.thumbnail_cache_id,
+    0, COALESCE(tracks.disc_number, 1), tracks.track_number IS NULL,
+    tracks.track_number, tracks.path, tracks.id, artwork.id
+FROM available_library_tracks AS tracks
+JOIN library_track_artwork AS artwork ON artwork.track_id = tracks.id;

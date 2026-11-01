@@ -20,18 +20,28 @@ CREATE TEMP TABLE scan_tracks (
     file_mtime_unix_nano INTEGER NOT NULL                 ,
     duration_seconds     INTEGER NOT NULL                 ,
     track_metadata       TEXT    NOT NULL                 ,
-    normalized_metadata  TEXT    NOT NULL                 ,
 
     PRIMARY KEY (root_pos, path)                          ,
     CHECK (
             duration_seconds >= 0
         AND json_valid(track_metadata)
         AND json_type(track_metadata) = 'object'
-        AND json_valid(normalized_metadata)
-        AND json_type(normalized_metadata) = 'object'
         AND length(trim(config_id)) > 0
         AND length(trim(path)) > 0
         AND length(trim(album_key)) > 0
+    )
+) WITHOUT ROWID;
+
+DROP TABLE IF EXISTS scan_track_normalized_metadata;
+
+CREATE TEMP TABLE scan_track_normalized_metadata (
+    root_pos INTEGER NOT NULL,
+    path TEXT NOT NULL,
+    normalized_metadata TEXT NOT NULL,
+    PRIMARY KEY (root_pos, path),
+    CHECK (
+        json_valid(normalized_metadata)
+        AND json_type(normalized_metadata) = 'object'
     )
 ) WITHOUT ROWID;
 
@@ -104,14 +114,12 @@ CREATE TEMP TABLE scan_sidecar_others (
 
 DROP TABLE IF EXISTS scan_playlists;
 
--- Count recognized playlists without importing them into the library.
 CREATE TEMP TABLE scan_playlists (
     root_pos INTEGER NOT NULL,
     path TEXT NOT NULL,
     PRIMARY KEY (root_pos, path)
 ) WITHOUT ROWID;
 
--- Preserve selected artwork links, including remote lookup artwork, during rebuilds.
 DROP TABLE IF EXISTS scan_saved_track_artwork;
 
 CREATE TEMP TABLE scan_saved_track_artwork (
@@ -120,3 +128,25 @@ CREATE TEMP TABLE scan_saved_track_artwork (
     source TEXT NOT NULL,
     PRIMARY KEY (track_id, thumbnail_cache_id)
 );
+
+DROP TABLE IF EXISTS scan_album_overrides;
+
+CREATE TEMP TABLE scan_album_overrides (
+ album_key TEXT PRIMARY KEY,
+ provider TEXT NOT NULL,
+ source_url TEXT NOT NULL,
+ genres_json TEXT NOT NULL,
+ thumbnail_cache_name TEXT
+);
+
+DROP TABLE IF EXISTS scan_album_override_sources;
+
+CREATE TEMP TABLE scan_album_override_sources (
+    album_key TEXT PRIMARY KEY,
+    provider TEXT NOT NULL,
+    entity_type TEXT NOT NULL,
+    entity_id TEXT NOT NULL,
+    source_url TEXT NOT NULL
+);
+CREATE INDEX scan_album_override_sources_entity_idx
+ON scan_album_override_sources (provider, entity_type, entity_id);

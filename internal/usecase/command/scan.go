@@ -18,9 +18,6 @@ import (
 	"github.com/zanyoats/kukicha/internal/usecase/query"
 )
 
-//go:embed sql/prepare_scan_results.sql
-var prepareScanResultsSQL string
-
 //go:embed sql/library_counts.sql
 var libraryCountsSQL string
 
@@ -84,34 +81,11 @@ var buildLibraryAlbumSidecarsSQL string
 //go:embed sql/build_library_track_artwork.sql
 var buildLibraryTrackArtworkSQL string
 
+//go:embed sql/build_library_album_overrides.sql
+var buildLibraryAlbumOverridesSQL string
+
 //go:embed sql/current_timestamp.sql
 var currentTimestampSQL string
-
-func PrepareScanResults(
-	ctx context.Context,
-	conn *sql.Conn,
-	cacheSizeKiB int64,
-) error {
-	if cacheSizeKiB < 1 {
-		return errors.New("temporary database cache size must be positive")
-	}
-
-	if _, err := conn.ExecContext(ctx, "PRAGMA temp_store = FILE;"); err != nil {
-		return fmt.Errorf("configure temporary database storage: %w", err)
-	}
-
-	cacheSizePragma := fmt.Sprintf(
-		"PRAGMA temp.cache_size = -%d;",
-		cacheSizeKiB,
-	)
-	if _, err := conn.ExecContext(ctx, cacheSizePragma); err != nil {
-		return fmt.Errorf("configure temporary database cache: %w", err)
-	}
-
-	_, err := conn.ExecContext(ctx, prepareScanResultsSQL)
-
-	return err
-}
 
 type BuildLibraryResult struct {
 	ScanStats SyncScanStats
@@ -134,6 +108,8 @@ type SyncScanStats struct {
 
 // BuildLibraryFromScan atomically rebuilds the library from staged resources and
 // commits the generation marker so recovered jobs can skip completed rebuilds.
+// NormalizeScanTracks must complete successfully after all tracks are staged and
+// before this call. Staged tracks must not change between normalization and publishing.
 func BuildLibraryFromScan(
 	ctx context.Context,
 	conn *sql.Conn,
@@ -207,6 +183,10 @@ func BuildLibraryFromScan(
 		return result, err
 	}
 
+	if _, err = tx.ExecContext(ctx, buildLibraryAlbumOverridesSQL); err != nil {
+		return result, err
+	}
+
 	err = tx.QueryRowContext(ctx, libraryCountsSQL, sql.Named("unknown_item", unknownItem)).Scan(
 		&result.ScanStats.ProcessedFiles,
 		&result.ScanStats.SidecarFiles,
@@ -275,7 +255,7 @@ func insertScannedTrack(
 	conn *sql.Conn,
 	r *app.ScannedFile,
 ) error {
-	if r.Metadata == nil || r.NormalizedMetadata == nil {
+	if r.Metadata == nil {
 		return errors.New("scanned audio track is missing metadata")
 	}
 
@@ -285,18 +265,12 @@ func insertScannedTrack(
 	}
 	metadata := string(b)
 
-	b, err = json.Marshal(r.NormalizedMetadata)
-	if err != nil {
-		return err
-	}
-	normalizedMetadata := string(b)
-
 	_, err = conn.ExecContext(
 		ctx,
 		insertScannedFileSQL,
 		sql.Named("root_pos", r.RootPos),
 		sql.Named("config_id", r.Root.ConfigID()),
-		sql.Named("album_key", r.NormalizedMetadata.AlbumKey),
+		sql.Named("unknown_item", app.UnknownItem),
 		sql.Named("path_dir", r.FileIdentity.Directory()),
 		sql.Named("stem", r.Stem),
 		sql.Named("ext", r.Ext),
@@ -305,7 +279,6 @@ func insertScannedTrack(
 		sql.Named("file_mtime_unix_nano", r.FileModTime.UnixNano()),
 		sql.Named("duration_seconds", r.DurationSeconds),
 		sql.Named("track_metadata", metadata),
-		sql.Named("normalized_metadata", normalizedMetadata),
 	)
 	if err != nil {
 		return err

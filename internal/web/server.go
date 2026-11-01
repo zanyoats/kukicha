@@ -142,6 +142,14 @@ func NewWebRouter(
 		router.updateArtistSplitRule,
 	)
 	mux.HandleFunc(
+		exactPattern(http.MethodPut, urls.AlbumMetadataOverride),
+		router.setAlbumMetadataOverride,
+	)
+	mux.HandleFunc(
+		exactPattern(http.MethodDelete, urls.AlbumMetadataOverride),
+		router.deleteAlbumMetadataOverride,
+	)
+	mux.HandleFunc(
 		exactPattern(http.MethodPost, urls.SubmitJob),
 		router.submitJob,
 	)

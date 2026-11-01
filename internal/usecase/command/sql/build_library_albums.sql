@@ -7,6 +7,7 @@ audio_tracks AS (
         track_metadata,
         normalized_metadata
     FROM scan_tracks
+    JOIN scan_track_normalized_metadata USING (root_pos, path)
 ),
 album_values AS (
     SELECT album_key, root_pos, path, 'format' AS field, NULLIF(json_extract(track_metadata, '$.format'), '') AS value FROM audio_tracks
@@ -41,7 +42,7 @@ album_artist_sort AS (
     -- Use the same canonical artists as build_library_album_artists.sql.
     -- Scanning guarantees at least one artist, including the unknown fallback.
     SELECT tracks.album_key, MIN(artists.artist COLLATE NOCASE) AS first_artist
-    FROM scan_tracks AS tracks
+    FROM audio_tracks AS tracks
     JOIN json_each(tracks.normalized_metadata, '$.mapped_album_artist_displays') AS displays
     JOIN library_artist_ids AS artists
         ON artists.artist = displays.value

@@ -9,6 +9,8 @@ import (
 	"time"
 )
 
+const UnknownItem = "__Unknown"
+
 type FileType int
 
 const (
@@ -156,7 +158,6 @@ type TrackMetadata struct {
 
 type NormalizedTrackMetadata struct {
 	TrackDisplay              string   `json:"track_display"`
-	AlbumKey                  string   `json:"album_key"`
 	AlbumDisplay              string   `json:"album_display"`
 	RawAlbumArtistDisplays    []string `json:"raw_album_artist_displays"`
 	MappedAlbumArtistKeys     []string `json:"mapped_album_artist_keys"`

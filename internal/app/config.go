@@ -23,10 +23,13 @@ import (
 )
 
 const (
-	AppName        = "com.cconroy.kukicha"
-	ConfigFileName = "kukicha.toml"
-	DbFileName     = "kukicha.db"
-	UserAgent      = "kukicha/0.1"
+	AppName             = "com.cconroy.kukicha"
+	ConfigFileName      = "kukicha.toml"
+	DbFileName          = "kukicha.db"
+	UserAgent           = "kukicha/0.1.0 (https://cconroy.com/kukicha)"
+	LookupMaxBytes      = 2 * 1024 * 1024
+	ArtworkMaxBytes     = 25 * 1024 * 1024
+	ArtworkMinimumWidth = 256
 )
 
 type Duration struct {
@@ -149,6 +152,14 @@ type RootConfig struct {
 	AddressingStyle *string `toml:"addressing_style" json:"addressing_style"`
 }
 
+// ProviderLookupConfig controls network requests; cached results remain usable when disabled.
+type ProviderLookupConfig struct {
+	Enabled        bool     `toml:"enabled"`
+	RequestTimeout Duration `toml:"request_timeout"`
+	LookupInterval Duration `toml:"lookup_interval"`
+	MaxAttempts    int      `toml:"max_attempts"`
+}
+
 type AppConfig struct {
 	AppDir         string
 	ConfigFilePath string
@@ -159,22 +170,19 @@ type AppConfig struct {
 			Level LogLevel `toml:"level"`
 		} `toml:"logging"`
 		Scan struct {
-			Roots                []RootConfig `toml:"roots"`
-			IgnorePrefixes       []string     `toml:"ignore_prefixes"`
-			IgnoreFiles          []string     `toml:"ignore_files"`
-			ProgressLogInterval  Duration     `toml:"progress_log_interval"`
-			LocalArtworkMaxBytes int64        `toml:"local_artwork_max_bytes"`
-			ITunes               struct {
-				Enabled        bool     `toml:"enabled"`
-				RequestTimeout Duration `toml:"request_timeout"`
-				LookupInterval Duration `toml:"lookup_interval"`
-				RetryAttempts  int      `toml:"retry_attempts"`
-			} `toml:"itunes"`
-			AlbumArtistSplitTokens    map[string]bool   `toml:"album_artist_split_tokens"`
-			RecognizedSidecarArtwork  map[string]bool   `toml:"recognized_sidecar_artwork"`
-			PrimaryGenreSplitTokens   map[string]bool   `toml:"primary_genre_split_tokens"`
-			SecondaryGenreSplitTokens map[string]bool   `toml:"secondary_genre_split_tokens"`
-			GenreStyleAliases         map[string]string `toml:"genre_style_aliases"`
+			Roots                     []RootConfig         `toml:"roots"`
+			IgnorePrefixes            []string             `toml:"ignore_prefixes"`
+			IgnoreFiles               []string             `toml:"ignore_files"`
+			ProgressLogInterval       Duration             `toml:"progress_log_interval"`
+			LocalArtworkMaxBytes      int64                `toml:"local_artwork_max_bytes"`
+			ITunes                    ProviderLookupConfig `toml:"itunes"`
+			Discogs                   ProviderLookupConfig `toml:"discogs"`
+			MusicBrainz               ProviderLookupConfig `toml:"musicbrainz"`
+			AlbumArtistSplitTokens    map[string]bool      `toml:"album_artist_split_tokens"`
+			RecognizedSidecarArtwork  map[string]bool      `toml:"recognized_sidecar_artwork"`
+			PrimaryGenreSplitTokens   map[string]bool      `toml:"primary_genre_split_tokens"`
+			SecondaryGenreSplitTokens map[string]bool      `toml:"secondary_genre_split_tokens"`
+			GenreStyleAliases         map[string]string    `toml:"genre_style_aliases"`
 		} `toml:"scan"`
 		Server struct {
 			DatabasePath      string   `toml:"database_path"`
@@ -257,20 +265,23 @@ func LoadAppConfig(catalog *Catalog) (*AppConfig, error) {
 			`"scan.local_artwork_max_bytes" setting must be a positive integer`,
 		)
 	}
-	if result.Settings.Scan.ITunes.RequestTimeout.Duration <= 0 {
-		return nil, errors.New(
-			`"scan.itunes.request_timeout" setting must be greater than zero`,
-		)
-	}
-	if result.Settings.Scan.ITunes.LookupInterval.Duration < 0 {
-		return nil, errors.New(
-			`"scan.itunes.lookup_interval" setting cannot be negative`,
-		)
-	}
-	if result.Settings.Scan.ITunes.RetryAttempts < 1 {
-		return nil, errors.New(
-			`"scan.itunes.retry_attempts" setting must be a positive integer`,
-		)
+	for _, provider := range []struct {
+		name   string
+		config ProviderLookupConfig
+	}{
+		{"itunes", result.Settings.Scan.ITunes},
+		{"discogs", result.Settings.Scan.Discogs},
+		{"musicbrainz", result.Settings.Scan.MusicBrainz},
+	} {
+		if provider.config.RequestTimeout.Duration <= 0 {
+			return nil, fmt.Errorf("scan.%s.request_timeout must be greater than zero", provider.name)
+		}
+		if provider.config.LookupInterval.Duration < 0 {
+			return nil, fmt.Errorf("scan.%s.lookup_interval cannot be negative", provider.name)
+		}
+		if provider.config.MaxAttempts < 1 {
+			return nil, fmt.Errorf("scan.%s.max_attempts must be a positive integer", provider.name)
+		}
 	}
 
 	if slices.Contains(result.Settings.Scan.IgnorePrefixes, "") {
