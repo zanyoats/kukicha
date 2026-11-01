@@ -36,7 +36,7 @@ func (c *webRouter) requireAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		publicRead := r.Method == http.MethodGet || r.Method == http.MethodHead
 		if (r.URL.Path == c.urls.Login && (publicRead || r.Method == http.MethodPost)) ||
-			(publicRead && (strings.HasPrefix(r.URL.Path, c.urls.Assets) || r.URL.Path == c.urls.Favicon || r.URL.Path == c.urls.InstanceIdenticon)) {
+			(publicRead && (strings.HasPrefix(r.URL.Path, assetsRoot) || r.URL.Path == c.urls.Favicon || r.URL.Path == c.urls.InstanceIdenticon)) {
 			next.ServeHTTP(w, r)
 			return
 		}

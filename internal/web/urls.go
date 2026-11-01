@@ -48,7 +48,7 @@ func NewURLs(basePath string) URLs {
 	base := strings.TrimRight(basePath, "/")
 	app := base + "/app"
 	api := base + "/api"
-	assets := "/assets/"
+	assets := assetsPrefix
 	return URLs{
 		Login:                   base + "/login/",
 		Logout:                  base + "/logout/",

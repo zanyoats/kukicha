@@ -113,8 +113,12 @@ func NewWebRouter(
 		http.MethodGet+" "+urls.Assets,
 		http.StripPrefix(
 			urls.Assets,
-			http.FileServer(http.FS(staticFiles)),
+			http.HandlerFunc(serveAsset),
 		),
+	)
+	mux.HandleFunc(
+		http.MethodGet+" "+assetsRoot,
+		assetNotFound,
 	)
 	mux.HandleFunc(
 		exactPattern(http.MethodGet, urls.Home),
