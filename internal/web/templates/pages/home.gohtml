@@ -89,7 +89,9 @@ path = "~/Music" # local dir/folder path for this root</code></pre>
                 >{{.Name}}</a
             >
             <span class="radio-card-leader" aria-hidden="true"></span>
-            <button type="button" class="radio-card-link" data-radio-kind="artist" data-radio-id="{{.ID}}" aria-label="Play {{.Name}} radio">(radio)</button>
+            <span class="radio-card-action"{{if not .RadioViable}} title="{{.RadioUnavailableReason}}" tabindex="0" aria-label="{{.Name}} radio: {{.RadioUnavailableReason}}"{{end}}>
+                <button type="button" class="radio-card-link" data-radio-kind="artist" data-radio-id="{{.ID}}" aria-label="Play {{.Name}} radio"{{if not .RadioViable}} disabled title="{{.RadioUnavailableReason}}"{{end}}>(radio)</button>
+            </span>
         </li>
         {{else}}
         <li class="item-grid-empty">No artist found.</li>
@@ -110,7 +112,9 @@ path = "~/Music" # local dir/folder path for this root</code></pre>
                 >{{.Name}}</a
             >
             <span class="radio-card-leader" aria-hidden="true"></span>
-            <button type="button" class="radio-card-link" data-radio-kind="genre" data-radio-id="{{.ID}}" aria-label="Play {{.Name}} radio">(radio)</button>
+            <span class="radio-card-action"{{if not .RadioViable}} title="{{.RadioUnavailableReason}}" tabindex="0" aria-label="{{.Name}} radio: {{.RadioUnavailableReason}}"{{end}}>
+                <button type="button" class="radio-card-link" data-radio-kind="genre" data-radio-id="{{.ID}}" aria-label="Play {{.Name}} radio"{{if not .RadioViable}} disabled title="{{.RadioUnavailableReason}}"{{end}}>(radio)</button>
+            </span>
         </li>
         {{else}}
         <li class="item-grid-empty">No genres found.</li>
@@ -131,7 +135,9 @@ path = "~/Music" # local dir/folder path for this root</code></pre>
                 >{{.Name}}</a
             >
             <span class="radio-card-leader" aria-hidden="true"></span>
-            <button type="button" class="radio-card-link" data-radio-kind="style" data-radio-id="{{.ID}}" aria-label="Play {{.Name}} radio">(radio)</button>
+            <span class="radio-card-action"{{if not .RadioViable}} title="{{.RadioUnavailableReason}}" tabindex="0" aria-label="{{.Name}} radio: {{.RadioUnavailableReason}}"{{end}}>
+                <button type="button" class="radio-card-link" data-radio-kind="style" data-radio-id="{{.ID}}" aria-label="Play {{.Name}} radio"{{if not .RadioViable}} disabled title="{{.RadioUnavailableReason}}"{{end}}>(radio)</button>
+            </span>
         </li>
         {{else}}
         <li class="item-grid-empty">No styles found.</li>

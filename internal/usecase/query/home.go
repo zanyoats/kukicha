@@ -23,8 +23,9 @@ var homeStylesSQL string
 
 // HomeItem is an artist, genre, or style displayed on the home page.
 type HomeItem struct {
-	ID   int64
-	Name string
+	ID         int64
+	Name       string
+	TrackCount int64
 }
 
 // HomeData contains the library categories displayed on the home page.
@@ -90,7 +91,7 @@ func queryHomeItems(
 
 	for rows.Next() {
 		var item HomeItem
-		if err := rows.Scan(&item.ID, &item.Name); err != nil {
+		if err := rows.Scan(&item.ID, &item.Name, &item.TrackCount); err != nil {
 			return nil, fmt.Errorf("scan home %s: %w", kind, err)
 		}
 

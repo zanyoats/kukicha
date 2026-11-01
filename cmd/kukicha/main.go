@@ -146,6 +146,7 @@ func run() error {
 			renderer,
 			db,
 			conf.Settings.UI.PerPage,
+			conf.Settings.Radio.MinTracks,
 			conf.Settings.UI.DefaultAlbumSort,
 			processor,
 			notifications,

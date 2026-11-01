@@ -192,6 +192,9 @@ type AppConfig struct {
 			PollInterval    Duration    `toml:"poll_interval"`
 			FinalizeTimeout Duration    `toml:"finalize_timeout"`
 		} `toml:"jobs"`
+		Radio struct {
+			MinTracks int64 `toml:"min_tracks"`
+		} `toml:"radio"`
 		UI struct {
 			PerPage          int       `toml:"per_page"`
 			DefaultAlbumSort AlbumSort `toml:"default_album_sort"`
@@ -339,6 +342,10 @@ func LoadAppConfig(catalog *Catalog) (*AppConfig, error) {
 		return nil, errors.New(
 			`"server.database.cache_size_kib" setting must be a positive integer`,
 		)
+	}
+
+	if result.Settings.Radio.MinTracks < 1 {
+		return nil, errors.New(`"radio.min_tracks" setting must be a positive integer`)
 	}
 
 	// ...valid UI settings

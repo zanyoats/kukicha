@@ -18,7 +18,7 @@ func (c *webRouter) selectRadioTrack(w http.ResponseWriter, r *http.Request) {
 	if !decodeJSONRequest(w, r, &input) {
 		return
 	}
-	selection, err := command.SelectRadioTrack(r.Context(), c.db, input)
+	selection, err := command.SelectRadioTrack(r.Context(), c.db, input, c.radioMinTracks)
 	if err != nil {
 		switch {
 		case errors.Is(err, command.ErrInvalidRadioRequest):
@@ -27,6 +27,8 @@ func (c *webRouter) selectRadioTrack(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusConflict)
 			_ = json.NewEncoder(w).Encode(map[string]string{"error": "Radio membership changed.", "code": "radio_membership_changed"})
+		case errors.Is(err, command.ErrRadioBelowMinimum):
+			apiError(w, http.StatusNotFound, err.Error())
 		case errors.Is(err, command.ErrRadioEmpty):
 			apiError(w, http.StatusNotFound, "This radio has no tracks.")
 		case errors.Is(err, command.ErrRadioNotFound):

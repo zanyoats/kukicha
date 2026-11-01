@@ -435,12 +435,20 @@ article h2 {
         transform: translateY(-0.2rem);
     }
 
-    .radio-card-link {
+    .radio-card-action {
         flex: 0 0 auto;
+
+        &:focus-visible {
+            outline: 0.125rem solid var(--accent);
+            outline-offset: 0.125rem;
+        }
+    }
+
+    .radio-card-link {
         font-family: inherit;
         font-size: 0.75rem;
 
-        &[aria-current="true"] {
+        &[aria-current="true"]:not(:disabled) {
             color: var(--accent);
         }
     }

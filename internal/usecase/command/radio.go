@@ -16,6 +16,7 @@ var (
 	ErrInvalidRadioRequest    = errors.New("invalid radio request")
 	ErrRadioNotFound          = errors.New("radio not found")
 	ErrRadioEmpty             = errors.New("radio has no tracks")
+	ErrRadioBelowMinimum      = errors.New("radio has fewer tracks than the configured minimum")
 	ErrRadioMembershipChanged = errors.New("radio membership changed")
 )
 
@@ -69,7 +70,10 @@ func sourceForRadio(kind string) (radioSource, bool) {
 
 // SelectRadioTrack resolves the current radio selection based on RadioRequest.
 // It does not store any state, the client maintains the cursor, it only resolves the track.
-func SelectRadioTrack(ctx context.Context, db *sql.DB, request RadioRequest) (RadioSelection, error) {
+func SelectRadioTrack(ctx context.Context, db *sql.DB, request RadioRequest, minTracks int64) (RadioSelection, error) {
+	if minTracks < 1 {
+		return RadioSelection{}, errors.New("radio minimum track count must be positive")
+	}
 	source, valid := sourceForRadio(request.Kind)
 	if !valid || request.EntityID <= 0 {
 		return RadioSelection{}, ErrInvalidRadioRequest
@@ -128,6 +132,9 @@ func SelectRadioTrack(ctx context.Context, db *sql.DB, request RadioRequest) (Ra
 	}
 	if count == 0 {
 		return RadioSelection{}, ErrRadioEmpty
+	}
+	if count < minTracks {
+		return RadioSelection{}, fmt.Errorf("%w: %d tracks available; at least %d required", ErrRadioBelowMinimum, count, minTracks)
 	}
 	var shuffle radioShuffle
 	var position int64

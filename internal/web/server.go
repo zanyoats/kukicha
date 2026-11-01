@@ -34,6 +34,7 @@ type webRouter struct {
 	db                        *sql.DB
 	processor                 JobProcessor
 	notifications             NotificationSubscriber
+	radioMinTracks            int64
 	perPage                   int
 	defaultAlbumSort          app.AlbumSort
 	configuredRoots           []app.Root
@@ -48,6 +49,7 @@ func NewWebRouter(
 	renderer Renderer,
 	db *sql.DB,
 	perPage int,
+	radioMinTracks int64,
 	defaultAlbumSort app.AlbumSort,
 	jobProcessor JobProcessor,
 	notifications NotificationSubscriber,
@@ -72,6 +74,7 @@ func NewWebRouter(
 		processor:                 jobProcessor,
 		notifications:             notifications,
 		perPage:                   perPage,
+		radioMinTracks:            radioMinTracks,
 		defaultAlbumSort:          defaultAlbumSort,
 		configuredRoots:           configuredRoots,
 		rootsByConfigID:           rootsByConfigID,

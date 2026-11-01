@@ -337,7 +337,7 @@ function playerEngineCompiler(up, audio) {
     const radioClick = (event) => {
         const button = event.target instanceof Element
             ? event.target.closest("[data-radio-kind][data-radio-id]") : null;
-        if (!button) return;
+        if (!button || button.disabled) return;
         event.preventDefault();
         radio.start(button.dataset.radioKind, button.dataset.radioId);
     };

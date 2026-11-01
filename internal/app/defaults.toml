@@ -153,3 +153,8 @@ default_album_sort = "recentlyAdded"
 # Minimum toast display time. Longer messages receive 60ms per character.
 # The timer pauses while hovered, focused, or the browser tab is hidden.
 toast_min_duration = "8s"
+
+[radio]
+# Minimum tracks required to play an artist, genre, or style radio.
+# Must be at least 1. Applied after restart; no scan or sync is needed.
+min_tracks = 10
