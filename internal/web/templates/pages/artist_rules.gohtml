@@ -1,0 +1,109 @@
+{{define "title"}}Artist Rules{{end}}
+
+{{define "body"}}
+<body class="config-document">
+    <main class="config-standalone" up-main>
+        <nav aria-label="Configuration navigation">
+            <a href="{{.URLs.Home}}">Back to Home</a>
+        </nav>
+        {{template "page-content" .}}
+    </main>
+</body>
+{{end}}
+
+{{define "page-content"}}
+<article class="config-page artist-rules-page">
+    {{template "page-header" .}}
+    <aside class="alert alert-info" aria-label="Info">
+        <strong>Info</strong>
+        <p>
+            Changes apply on the next rebuild.
+            You can rebuild by clicking <span class="action-with-info"><button type="button" class="inline-action" data-library-job-submit="{{.URLs.SubmitJob}}">Rebuild</button>{{template "job-help-trigger" "rebuild"}}</span>.
+        </p>
+    </aside>
+    {{template "rebuild-job-help" .}}
+    <p>Artist rules have two use cases: normalize an artist’s name, such as adding a missing “The”, or split a combined name into separate artists. The examples below show both. Select an artist to add or edit rules for its albums, entering one artist per line. Rules apply to individual albums. Deleting a rule restores the album’s original artists on the next rebuild.</p>
+    <div class="artist-rule-examples" role="group" aria-label="Example artist rules">
+        <section class="artist-rule-example" aria-labelledby="normalize-example-title">
+            <h2 id="normalize-example-title">Normalize a name</h2>
+            <p>Add the missing “The” so albums share the same artist.</p>
+            <div class="artist-rule-example-flow">
+                <div>
+                    <span class="artist-rule-example-label">Original</span>
+                    <span class="artist-rule-example-name">High Llamas</span>
+                </div>
+                <span class="artist-rule-example-arrow" aria-hidden="true">→</span>
+                <div>
+                    <span class="artist-rule-example-label">Mapped artist</span>
+                    <span class="artist-rule-example-name artist-rule-example-result">The High Llamas</span>
+                </div>
+            </div>
+        </section>
+        <section class="artist-rule-example" aria-labelledby="split-example-title">
+            <h2 id="split-example-title">Split a collaboration</h2>
+            <p>Enter each artist on a separate line.</p>
+            <div class="artist-rule-example-flow">
+                <div>
+                    <span class="artist-rule-example-label">Original</span>
+                    <span class="artist-rule-example-name">Bill Evans/Jim Hall</span>
+                </div>
+                <span class="artist-rule-example-arrow" aria-hidden="true">→</span>
+                <div>
+                    <span class="artist-rule-example-label">Mapped artists</span>
+                    <span class="artist-rule-example-name artist-rule-example-result">Bill Evans</span>
+                    <span class="artist-rule-example-name artist-rule-example-result">Jim Hall</span>
+                </div>
+            </div>
+        </section>
+    </div>
+    {{if .Artists}}
+    <form class="metadata-artist-form" action="{{.URLs.ArtistRules}}" method="get" up-submit up-autosubmit up-watch-event="change" up-watch-delay="0" up-target=".artist-rules-page" up-history="true">
+        <div class="form-field">
+            <label for="rule-artist">Artist</label>
+            <select id="rule-artist" name="artist_id" required>
+                <option value="" disabled {{if not .ArtistID}}selected{{end}}>Select an artist</option>
+                {{range .Artists}}
+                <option value="{{.ID}}" {{if eq .ID $.ArtistID}}selected{{end}}>{{.Name}}</option>
+                {{end}}
+            </select>
+        </div>
+    </form>
+    {{else}}
+    <p>No artists are available. Add music to your library first.</p>
+    {{end}}
+    {{if .ArtistID}}
+    <div class="split-rules-grid">
+        {{range $index, $rule := .Rules}}
+        <section class="split-rule" data-split-rule up-data="{{.EditorData}}" aria-labelledby="split-album-{{$index}}">
+            <img class="split-rule-cover album-card-artwork" data-artwork-fallback-url="{{$.URLs.AlbumArtwork64Fallback}}" src="{{.ArtworkURL}}" alt="" width="32" loading="lazy" />
+            <h2 class="split-rule-title" id="split-album-{{$index}}" title="{{.AlbumTitle}}">{{.AlbumTitle}}</h2>
+            <div class="split-rule-mapping" data-split-artists>
+                <ul class="split-rule-artists" aria-label="Original artists">
+                    {{range .OriginalArtists}}<li class="artist-rule-example-name" title="{{.}}">{{.}}</li>{{end}}
+                </ul>
+                <span class="split-rule-mapping-arrow" data-rule-arrow aria-hidden="true" {{if not .HasRule}}hidden{{end}}>→</span>
+                <ul class="split-rule-artists" data-rule-mapped aria-label="Mapped artists" {{if not .HasRule}}hidden{{end}}>
+                    {{range .MappedArtists}}<li class="artist-rule-example-name artist-rule-example-result" title="{{.}}">{{.}}</li>{{end}}
+                </ul>
+            </div>
+            <button type="button" data-split-edit aria-controls="split-form-{{$index}}" aria-expanded="false">{{if .HasRule}}Edit{{else}}Add{{end}}</button>
+            <form class="split-rule-form" id="split-form-{{$index}}" data-split-form hidden>
+                <fieldset>
+                    <label for="split-artists-{{$index}}">Mapped artists (one per line)</label>
+                    <textarea id="split-artists-{{$index}}" rows="3" required aria-describedby="split-error-{{$index}}"></textarea>
+                    <div class="split-rule-actions">
+                        <button type="submit">Save</button>
+                        <button type="button" data-split-delete {{if not .HasRule}}hidden{{end}}>Delete rule</button>
+                        <button type="button" data-split-cancel>Cancel</button>
+                    </div>
+                </fieldset>
+                <p class="alert alert-error split-rule-error" id="split-error-{{$index}}" role="alert" hidden></p>
+            </form>
+        </section>
+        {{else}}
+        <p>No albums found for this artist.</p>
+        {{end}}
+    </div>
+    {{end}}
+</article>
+{{end}}

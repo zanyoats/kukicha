@@ -43,7 +43,7 @@ CREATE TABLE taxonomy (
     )
 );
 
-CREATE TABLE album_artist_split_mappings (
+CREATE TABLE album_artist_mappings (
     album_key      TEXT PRIMARY KEY    ,
     mapped_artists TEXT NOT NULL       ,
 

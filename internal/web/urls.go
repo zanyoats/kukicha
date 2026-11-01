@@ -18,7 +18,7 @@ type URLs struct {
 	AlbumArtwork            string
 	TrackAudio              string
 	Search                  string
-	ArtistSplitRules        string
+	ArtistRules             string
 	Add                     string
 	Roots                   string
 	DropRoot                string
@@ -28,7 +28,7 @@ type URLs struct {
 	JobLogs                 string
 	Help                    string
 	InstanceIdenticon       string
-	UpdateArtistSplitRule   string
+	UpdateArtistRule        string
 	AlbumMetadataOverride   string
 	SubmitJob               string
 	CancelJob               string
@@ -57,7 +57,7 @@ func NewURLs(basePath string) URLs {
 		AlbumArtwork:            app + "/library/album/artwork/",
 		TrackAudio:              app + "/library/album/tracks/audio/",
 		Search:                  app + "/search/",
-		ArtistSplitRules:        app + "/artistSplitRules/",
+		ArtistRules:             app + "/artistRules/",
 		Add:                     app + "/add/",
 		Roots:                   app + "/roots/",
 		DropRoot:                api + "/roots/drop/",
@@ -67,7 +67,7 @@ func NewURLs(basePath string) URLs {
 		JobLogs:                 app + "/jobs/logs/",
 		Help:                    app + "/help/",
 		InstanceIdenticon:       app + "/instance/identicon.svg",
-		UpdateArtistSplitRule:   api + "/artistSplitRules/",
+		UpdateArtistRule:        api + "/artistRules/",
 		AlbumMetadataOverride:   api + "/albums/metadata-override/",
 		SubmitJob:               api + "/jobs/",
 		CancelJob:               api + "/jobs/cancel/",

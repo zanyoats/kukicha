@@ -65,16 +65,9 @@
             </form>
         </section>
         {{else}}
-        <p>No albums found on this page.</p>
+        <p>No albums found for this artist.</p>
         {{end}}
     </div>
-    {{if or .PreviousURL .NextURL .FirstURL}}
-    <nav class="library-pagination" aria-label="Album pages">
-        {{with .PreviousURL}}<a href="{{.}}" rel="prev" up-follow up-target=".metadata-overrides-page" up-history="true">Previous</a>{{end}}
-        {{with .FirstURL}}<a href="{{.}}" up-follow up-target=".metadata-overrides-page" up-history="true">Return to first page</a>{{end}}
-        {{with .NextURL}}<a href="{{.}}" rel="next" up-follow up-target=".metadata-overrides-page" up-history="true">Next</a>{{end}}
-    </nav>
-    {{end}}
     {{end}}
 </article>
 {{end}}

@@ -179,7 +179,6 @@ type AppConfig struct {
 			ITunes                    ProviderLookupConfig `toml:"itunes"`
 			Discogs                   ProviderLookupConfig `toml:"discogs"`
 			MusicBrainz               ProviderLookupConfig `toml:"musicbrainz"`
-			AlbumArtistSplitTokens    map[string]bool      `toml:"album_artist_split_tokens"`
 			RecognizedSidecarArtwork  map[string]bool      `toml:"recognized_sidecar_artwork"`
 			PrimaryGenreSplitTokens   map[string]bool      `toml:"primary_genre_split_tokens"`
 			SecondaryGenreSplitTokens map[string]bool      `toml:"secondary_genre_split_tokens"`
@@ -294,14 +293,12 @@ func LoadAppConfig(catalog *Catalog) (*AppConfig, error) {
 
 	// ...no empty tokens
 	if slices.Contains(slices.Concat(
-		slices.Collect(maps.Keys(result.Settings.Scan.AlbumArtistSplitTokens)),
 		slices.Collect(maps.Keys(result.Settings.Scan.PrimaryGenreSplitTokens)),
 		slices.Collect(maps.Keys(result.Settings.Scan.SecondaryGenreSplitTokens)),
 	), "") {
 		return nil, fmt.Errorf(
 			"I found a empty token in one of: %s",
 			strings.Join([]string{
-				"scan.album_artist_split_tokens",
 				"scan.primary_genre_split_tokens",
 				"scan.secondary_genre_split_tokens",
 			}, ", "))

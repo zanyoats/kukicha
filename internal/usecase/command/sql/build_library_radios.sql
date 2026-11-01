@@ -1,4 +1,4 @@
--- Album artist relationships already reflect the resolved artist split rules.
+-- Album artist relationships already reflect the resolved artist rules.
 INSERT INTO artists_radios (artist_id, position, track_id)
 SELECT
     artists.artist_id,

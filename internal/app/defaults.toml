@@ -76,16 +76,6 @@ request_timeout = "20s"
 lookup_interval = "1s"
 max_attempts = 2
 
-[scan.album_artist_split_tokens]
-"with" = true
-"and"  = true
-"&"    = true
-","    = true
-";"    = true
-"/"    = true
-"-"    = true
-"="    = true
-
 [scan.recognized_sidecar_artwork]
 "cover"    = true
 "folder"   = true

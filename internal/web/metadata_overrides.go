@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/zanyoats/kukicha/internal/app"
 	"github.com/zanyoats/kukicha/internal/metadata"
 	"github.com/zanyoats/kukicha/internal/usecase/command"
 	"github.com/zanyoats/kukicha/internal/usecase/query"
@@ -58,19 +57,16 @@ func (c *webRouter) deleteAlbumMetadataOverride(w http.ResponseWriter, r *http.R
 }
 
 type metadataOverridesViewModel struct {
-	EyeBrow     string
-	Heading     string
-	URLs        URLs
-	Artists     []query.HomeItem
-	ArtistID    int64
-	Albums      []metadataOverrideAlbum
-	PreviousURL string
-	NextURL     string
-	FirstURL    string
+	EyeBrow  string
+	Heading  string
+	URLs     URLs
+	Artists  []query.HomeItem
+	ArtistID int64
+	Albums   []metadataOverrideAlbum
 }
 
 type metadataOverrideAlbum struct {
-	query.AlbumSummary
+	query.MetadataOverrideAlbum
 	ArtworkURL string
 	EditorData string
 }
@@ -84,11 +80,6 @@ func (c *webRouter) showMetadataOverrides(w http.ResponseWriter, r *http.Request
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-	}
-	offset, err := parseAlbumOffset(r)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
 	}
 	artists, err := query.LibraryArtists(r.Context(), c.db)
 	if err != nil {
@@ -111,13 +102,12 @@ func (c *webRouter) showMetadataOverrides(w http.ResponseWriter, r *http.Request
 			http.Error(w, "Artist not found", http.StatusNotFound)
 			return
 		}
-		filters := query.AlbumFilters{ArtistID: artistID}
-		page, err := query.Albums(r.Context(), c.db, filters, app.AlbumSortAlbum, c.perPage, offset)
+		albums, err := query.MetadataOverrideAlbums(r.Context(), c.db, artistID)
 		if err != nil {
 			internalServerError(w, "unable to load metadata override albums", "error", err)
 			return
 		}
-		for _, album := range page.Albums {
+		for _, album := range albums {
 			data, err := json.Marshal(struct {
 				AlbumKey  string `json:"album_key"`
 				UpdateURL string `json:"update_url"`
@@ -127,20 +117,12 @@ func (c *webRouter) showMetadataOverrides(w http.ResponseWriter, r *http.Request
 				return
 			}
 			model.Albums = append(model.Albums, metadataOverrideAlbum{
-				AlbumSummary: album,
-				ArtworkURL:   c.urls.AlbumArtworkURL(album.ID, query.AlbumArtwork64),
-				EditorData:   string(data),
+				MetadataOverrideAlbum: album,
+				ArtworkURL:            c.urls.AlbumArtworkURL(album.ID, query.AlbumArtwork64),
+				EditorData:            string(data),
 			})
 		}
-		if offset > 0 {
-			model.PreviousURL = libraryPageURL(c.urls.MetadataOverrides, filters, app.AlbumSortAlbum, max(0, offset-c.perPage))
-		}
-		if page.HasNext {
-			model.NextURL = libraryPageURL(c.urls.MetadataOverrides, filters, app.AlbumSortAlbum, offset+c.perPage)
-		}
-		if offset > 0 && len(page.Albums) == 0 {
-			model.FirstURL = libraryPageURL(c.urls.MetadataOverrides, filters, app.AlbumSortAlbum, 0)
-		}
+
 	}
 	renderPage(w, c.renderer, "metadata_overrides.gohtml", model)
 }

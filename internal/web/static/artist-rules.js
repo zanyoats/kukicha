@@ -1,11 +1,14 @@
 import { requestJSON } from "./json-api.js";
 
-export default function registerArtistSplitRules(up) {
+export default function registerArtistRules(up) {
     up.compiler("[data-split-rule]", (row, data) => {
         let destroyed = false;
         const list = row.querySelector("[data-split-artists]");
+        const mapped = row.querySelector("[data-rule-mapped]");
+        const arrow = row.querySelector("[data-rule-arrow]");
         const edit = row.querySelector("[data-split-edit]");
         const form = row.querySelector("[data-split-form]");
+        const remove = form.querySelector("[data-split-delete]");
         const textarea = form.querySelector("textarea");
         const fieldset = form.querySelector("fieldset");
         const error = form.querySelector("[role=alert]");
@@ -60,9 +63,13 @@ export default function registerArtistSplitRules(up) {
                 });
                 if (destroyed) return;
                 saved = artists;
-                list.replaceChildren(...saved.map((artist) => {
+                edit.textContent = "Edit";
+                remove.hidden = false;
+                mapped.hidden = false;
+                arrow.hidden = false;
+                mapped.replaceChildren(...saved.map((artist) => {
                     const item = document.createElement("li");
-                    item.className = "text-truncate";
+                    item.className = "artist-rule-example-name artist-rule-example-result";
                     item.title = artist;
                     item.textContent = artist;
                     return item;
@@ -77,11 +84,43 @@ export default function registerArtistSplitRules(up) {
                 form.removeAttribute("aria-busy");
             }
         });
+        const unbindDelete = up.on(remove, "click", async () => {
+            if (saving) return;
+            saving = true;
+            error.hidden = true;
+            fieldset.disabled = true;
+            form.setAttribute("aria-busy", "true");
+            try {
+                await requestJSON(up, data.update_url, {
+                    method: "DELETE",
+                    body: { album_key: data.album_key },
+                    errorMessage: "Unable to delete. Please try again.",
+                });
+                if (destroyed) return;
+                saved = [...(data.original_artists ?? [])];
+                edit.textContent = "Add";
+                remove.hidden = true;
+                mapped.replaceChildren();
+                mapped.hidden = true;
+                arrow.hidden = true;
+                close();
+            } catch (failure) {
+                if (destroyed) return;
+                showError(failure.message);
+            } finally {
+                if (!destroyed) {
+                    saving = false;
+                    fieldset.disabled = false;
+                    form.removeAttribute("aria-busy");
+                }
+            }
+        });
         return [
             () => { destroyed = true; },
             unbindEdit,
             unbindCancel,
             unbindSubmit,
+            unbindDelete,
         ];
     });
 }

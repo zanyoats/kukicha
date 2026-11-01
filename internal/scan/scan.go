@@ -127,11 +127,10 @@ func ApplyMetadataNormalizations(
 		}
 	}
 
-	mapping, err := applyAlbumArtistSplitRules(
+	mapping, err := applyAlbumArtistRules(
 		ctx, conn,
 		albumKey,
 		scannedFile.NormalizedMetadata.RawAlbumArtistDisplays,
-		conf.Settings.Scan.AlbumArtistSplitTokens,
 	)
 
 	if err != nil {
@@ -269,52 +268,24 @@ func filterEmbeddedArtwork(
 	return errs
 }
 
-func applyAlbumArtistSplitRules(
+func applyAlbumArtistRules(
 	ctx context.Context,
 	conn *sql.Conn,
 	albumKey string,
 	rawAlbumArtistDisplays []string,
-	albumArtistSplitTokens map[string]bool,
 ) (mapping []string, err error) {
-	var apply bool
-
-	if apply, err = displaysContainAnyToken(rawAlbumArtistDisplays, albumArtistSplitTokens); err != nil {
+	var found bool
+	mapping, found, err = command.FindArtistMapping(ctx, conn, albumKey)
+	if err != nil {
 		return
-	} else if apply {
-		if mapping, err = command.FindOrInsertMapping(
-			ctx, conn, albumKey, rawAlbumArtistDisplays,
-		); err != nil {
-			return
-		}
-	} else {
+	}
+	if !found {
 		mapping = slices.Clone(rawAlbumArtistDisplays)
 	}
 
 	slices.Sort(mapping)
 	mapping = slices.Compact(mapping)
 	return
-}
-
-func displaysContainAnyToken(displays []string, tokens map[string]bool) (bool, error) {
-	for _, display := range displays {
-		for token, enabled := range tokens {
-			if !enabled {
-				continue
-			}
-
-			if textkey.IsWordToken(token) {
-				if matches, err := textkey.MatchesWordBoundary(display, token); err != nil {
-					return false, err
-				} else if matches {
-					return true, nil
-				}
-			} else if strings.Contains(display, token) {
-				return true, nil
-			}
-		}
-	}
-
-	return false, nil
 }
 
 func rawAlbumArtistDisplays(metadata *app.TrackMetadata) []string {

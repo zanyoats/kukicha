@@ -132,7 +132,7 @@ func BuildLibraryFromScan(
 
 	// Publish the new version only when the rebuilt membership commits.
 
-	// Scan reuses root, album, and track IDs, but updated artist split rules
+	// Scan reuses root, album, and track IDs, but updated artist rules
 	// can introduce new artists that need fresh IDs.
 	if err = allocateLibraryIDs(ctx, tx); err != nil {
 		return result, err

@@ -137,12 +137,16 @@ func NewWebRouter(
 		router.showSearch,
 	)
 	mux.HandleFunc(
-		exactPattern(http.MethodGet, urls.ArtistSplitRules),
-		router.showArtistSplitRules,
+		exactPattern(http.MethodGet, urls.ArtistRules),
+		router.showArtistRules,
 	)
 	mux.HandleFunc(
-		exactPattern(http.MethodPatch, urls.UpdateArtistSplitRule),
-		router.updateArtistSplitRule,
+		exactPattern(http.MethodPatch, urls.UpdateArtistRule),
+		router.updateArtistRule,
+	)
+	mux.HandleFunc(
+		exactPattern(http.MethodDelete, urls.UpdateArtistRule),
+		router.deleteArtistRule,
 	)
 	mux.HandleFunc(
 		exactPattern(http.MethodGet, urls.MetadataOverrides),

@@ -1439,6 +1439,71 @@ aside.alert {
     font-size: 0.9rem;
 }
 
+.artist-rule-examples {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 24rem), 1fr));
+    gap: 0.75rem;
+    margin-block: 0.75rem 1rem;
+}
+
+.artist-rule-example {
+    padding: 0.75rem;
+    border: 1px solid var(--border);
+    background: var(--surface);
+}
+
+.artist-rule-example h2 {
+    margin: 0;
+    font-size: 1rem;
+    font-weight: 600;
+}
+
+.artist-rule-example p {
+    margin-block: 0.25rem 0.625rem;
+    color: var(--text-secondary);
+    font-size: 0.875rem;
+    line-height: 1.5;
+}
+
+.artist-rule-example-flow {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+    align-items: start;
+    gap: 0.75rem;
+}
+
+.artist-rule-example-label {
+    display: block;
+    margin-block-end: 0.25rem;
+    color: var(--text-secondary);
+    font-size: 0.75rem;
+    font-weight: 600;
+}
+
+.artist-rule-example-name {
+    display: block;
+    width: fit-content;
+    max-inline-size: 100%;
+    margin-block-end: 0.25rem;
+    padding: 0.25rem 0.4rem;
+    border: 1px solid var(--border);
+    font-size: 0.875rem;
+    line-height: 1.4;
+    overflow-wrap: anywhere;
+}
+
+.artist-rule-example-result {
+    border-color: transparent;
+    color: var(--info-text);
+    background: var(--info-background);
+}
+
+.artist-rule-example-arrow {
+    padding-block-start: 1.125rem;
+    color: var(--text-secondary);
+    font-size: 1.25rem;
+}
+
 .split-rule {
     display: grid;
     min-block-size: 4rem;
@@ -1469,6 +1534,22 @@ aside.alert {
     font-size: 1rem;
     font-weight: 500;
     overflow-wrap: anywhere;
+}
+
+.split-rule-mapping:not([hidden]) {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    min-inline-size: 0;
+}
+
+.split-rule-mapping > ul {
+    flex: 1;
+}
+
+.split-rule-mapping-arrow {
+    color: var(--text-secondary);
+    font-size: 1.25rem;
 }
 
 .split-rule-artists {
@@ -1523,7 +1604,7 @@ aside.alert {
         grid-column: 2 / -1;
     }
 
-    .split-rule-artists {
+    .split-rule-mapping {
         grid-column: 2;
     }
 
