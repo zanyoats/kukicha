@@ -77,7 +77,9 @@ func Home(ctx context.Context, db *sql.DB) (HomeData, error) {
 
 func queryHomeItems(
 	ctx context.Context,
-	tx *sql.Tx,
+	tx interface {
+		QueryContext(context.Context, string, ...any) (*sql.Rows, error)
+	},
 	query string,
 	kind string,
 ) ([]HomeItem, error) {
@@ -103,4 +105,9 @@ func queryHomeItems(
 	}
 
 	return items, nil
+}
+
+// LibraryArtists returns the same available album artists shown on the home page.
+func LibraryArtists(ctx context.Context, db *sql.DB) ([]HomeItem, error) {
+	return queryHomeItems(ctx, db, homeArtistsSQL, "artists")
 }

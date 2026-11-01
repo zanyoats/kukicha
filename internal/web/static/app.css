@@ -1872,13 +1872,16 @@ up-modal.config-modal:has(.add-page) up-modal-box {
     display: none;
 }
 
-.add-destination {
+.add-destination,
+.form-field {
     display: grid;
     gap: 0.5rem;
 }
 
 .add-destination select,
-.add-destination input {
+.add-destination input,
+.form-field select,
+.form-field input {
     inline-size: 100%;
     min-inline-size: 0;
     padding: 0.5rem;
@@ -1890,7 +1893,9 @@ up-modal.config-modal:has(.add-page) up-modal-box {
 }
 
 .add-destination select:focus-visible,
-.add-destination input:focus-visible {
+.add-destination input:focus-visible,
+.form-field select:focus-visible,
+.form-field input:focus-visible {
     outline: 0.125rem solid var(--accent);
     outline-offset: 0.125rem;
 }
@@ -1950,4 +1955,64 @@ up-modal.config-modal:has(.add-page) up-modal-box {
     .add-files li > span:first-child {
         grid-column: 1 / -1;
     }
+}
+
+/* Metadata overrides */
+.metadata-artist-form {
+    display: flex;
+    align-items: end;
+    flex-wrap: wrap;
+    gap: 0.75rem;
+    margin-block: 1.5rem;
+}
+
+.metadata-artist-form .form-field {
+    flex: 1 1 16rem;
+    max-inline-size: 32rem;
+}
+
+.metadata-overrides-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 20rem), 1fr));
+    gap: 1.5rem;
+}
+
+.metadata-override {
+    display: grid;
+    grid-template-columns: 64px minmax(0, 1fr);
+    align-content: start;
+    align-items: center;
+    gap: 0.75rem;
+    min-inline-size: 0;
+    padding-block: 1rem;
+    border-block-start: 1px solid var(--border);
+}
+
+.metadata-override-cover {
+    inline-size: 64px;
+    block-size: auto;
+}
+
+.metadata-override form {
+    grid-column: 1 / -1;
+    min-inline-size: 0;
+}
+
+.metadata-override fieldset {
+    display: grid;
+    gap: 0.75rem;
+    border: 0;
+    margin: 0;
+    padding: 0;
+    min-inline-size: 0;
+}
+
+.metadata-override-status {
+    margin-block: 0.5rem 0;
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+}
+
+.metadata-override-status:empty {
+    display: none;
 }

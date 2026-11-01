@@ -50,6 +50,8 @@ type AlbumArtist struct {
 
 // AlbumSummary is the read model used to render an album in a collection.
 type AlbumSummary struct {
+	AlbumKey     string
+	OverrideURL  string
 	ID           int64
 	Title        string
 	Artists      []AlbumArtist
@@ -190,6 +192,8 @@ func Albums(
 		if err := rows.Scan(
 			&album.ID,
 			&album.Title,
+			&album.AlbumKey,
+			&album.OverrideURL,
 			&page.HasNext,
 			&album.SmallArtwork.Width,
 			&album.SmallArtwork.Height,

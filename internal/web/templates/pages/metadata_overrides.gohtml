@@ -1,0 +1,80 @@
+{{define "title"}}Metadata Overrides{{end}}
+
+{{define "body"}}
+<body class="config-document">
+    <main class="config-standalone" up-main>
+        <nav aria-label="Configuration navigation">
+            <a href="{{.URLs.Home}}">Back to Home</a>
+        </nav>
+        {{template "page-content" .}}
+    </main>
+</body>
+{{end}}
+
+{{define "page-content"}}
+<article class="config-page metadata-overrides-page">
+    {{template "page-header" .}}
+    <aside class="alert alert-info" aria-label="Info">
+        <strong>Info</strong>
+        <p>
+            Overrides apply only to artwork, genres, and styles. Changes apply on the next rebuild.
+            You can rebuild by clicking <span class="action-with-info"><button type="button" class="inline-action" data-library-job-submit="{{.URLs.SubmitJob}}">Rebuild</button>{{template "job-help-trigger" "rebuild"}}</span>.
+        </p>
+    </aside>
+    {{template "rebuild-job-help" .}}
+    <p>Select an artist below, then find the matching album on Discogs or MusicBrainz. Check the artist, album title, and cover artwork, open the album’s page, and copy its URL from your browser into the Source URL field. Use an album page, rather than an artist page, search results, or a direct image link.</p>
+    <ul>
+        <li><strong>Discogs:</strong> Use a release page for a specific edition or a master page that groups editions of the album. The URL should contain <code>discogs.com/release/…</code> or <code>discogs.com/master/…</code>.</li>
+        <li><strong>MusicBrainz:</strong> Use a release page for a specific edition or a release-group page that groups editions of the album. The URL should contain <code>musicbrainz.org/release/…</code> or <code>musicbrainz.org/release-group/…</code>.</li>
+    </ul>
+    <p>If you want artwork for a particular edition, choose that release’s page. Removing an override restores ordinary metadata and artwork on the next rebuild.</p>
+    {{if .Artists}}
+    <form class="metadata-artist-form" action="{{.URLs.MetadataOverrides}}" method="get" up-submit up-autosubmit up-watch-event="change" up-watch-delay="0" up-target=".metadata-overrides-page" up-history="true">
+        <div class="form-field">
+            <label for="metadata-artist">Artist</label>
+            <select id="metadata-artist" name="artist_id" required>
+                <option value="" disabled {{if not .ArtistID}}selected{{end}}>Select an artist</option>
+                {{range .Artists}}
+                <option value="{{.ID}}" {{if eq .ID $.ArtistID}}selected{{end}}>{{.Name}}</option>
+                {{end}}
+            </select>
+        </div>
+    </form>
+    {{else}}
+    <p>No artists are available. Add music to your library first.</p>
+    {{end}}
+    {{if .ArtistID}}
+    <div class="metadata-overrides-grid">
+        {{range .Albums}}
+        <section class="metadata-override" aria-labelledby="metadata-album-{{.ID}}">
+            <img class="metadata-override-cover album-card-artwork" src="{{.ArtworkURL}}" data-artwork-fallback-url="{{$.URLs.AlbumArtwork64Fallback}}" alt="" width="64" loading="lazy" />
+            <h2 class="split-rule-title" id="metadata-album-{{.ID}}">{{.Title}}</h2>
+            <form data-metadata-override up-data="{{.EditorData}}">
+                <fieldset>
+                    <div class="form-field">
+                        <label for="metadata-url-{{.ID}}">Source URL</label>
+                        <input id="metadata-url-{{.ID}}" type="url" name="url" value="{{.OverrideURL}}" required aria-describedby="metadata-error-{{.ID}}" placeholder="https://www.discogs.com/release/…" />
+                    </div>
+                    <div class="split-rule-actions">
+                        <button type="submit">Save</button>
+                        <button type="button" data-override-remove {{if not .OverrideURL}}disabled{{end}}>Remove</button>
+                    </div>
+                </fieldset>
+                <p class="alert alert-error split-rule-error" id="metadata-error-{{.ID}}" role="alert" hidden></p>
+                <p class="metadata-override-status" role="status"></p>
+            </form>
+        </section>
+        {{else}}
+        <p>No albums found on this page.</p>
+        {{end}}
+    </div>
+    {{if or .PreviousURL .NextURL .FirstURL}}
+    <nav class="library-pagination" aria-label="Album pages">
+        {{with .PreviousURL}}<a href="{{.}}" rel="prev" up-follow up-target=".metadata-overrides-page" up-history="true">Previous</a>{{end}}
+        {{with .FirstURL}}<a href="{{.}}" up-follow up-target=".metadata-overrides-page" up-history="true">Return to first page</a>{{end}}
+        {{with .NextURL}}<a href="{{.}}" rel="next" up-follow up-target=".metadata-overrides-page" up-history="true">Next</a>{{end}}
+    </nav>
+    {{end}}
+    {{end}}
+</article>
+{{end}}

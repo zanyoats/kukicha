@@ -10,7 +10,6 @@ type configPage struct {
 
 func configPages(urls URLs) []configPage {
 	return []configPage{
-		{"Metadata Overrides", urls.MetadataOverrides, "Metadata overrides will appear here."},
 		{"Listening Data", urls.ListeningData, "Listening data will appear here."},
 	}
 }

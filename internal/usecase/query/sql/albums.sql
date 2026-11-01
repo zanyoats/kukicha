@@ -32,6 +32,8 @@ page AS MATERIALIZED (
 SELECT
     albums.id,
     albums.album,
+    album_ids.album_key,
+    COALESCE(overrides.source_url, ''),
     (SELECT COUNT(*) > :per_page FROM candidates),
     COALESCE(small_artwork.width_px, :artwork_width_small),
     COALESCE(small_artwork.height_px, :artwork_width_small),
@@ -46,6 +48,8 @@ SELECT
         WHERE artists.id IS NOT NULL
     )
 FROM page AS albums
+JOIN library_album_ids AS album_ids ON album_ids.id = albums.id
+LEFT JOIN album_metadata_overrides AS overrides ON overrides.album_key = album_ids.album_key
 -- Keep artwork selection aligned with album_artwork.sql.
 LEFT JOIN thumbnail_cache AS small_artwork
     ON small_artwork.id = (
