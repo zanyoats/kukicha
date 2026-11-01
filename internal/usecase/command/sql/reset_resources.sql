@@ -8,10 +8,10 @@ DELETE FROM thumbnail_cache;
 DELETE FROM library_job_logs;
 DELETE FROM jobs WHERE id != :job_id;
 
--- The old library and its successful job no longer exist. Sync restores these
--- markers when the library is rebuilt and when artwork lookup completes.
+-- The old library, radio membership, and successful job no longer exist.
+-- Sync restores these markers as membership and artwork are rebuilt.
 DELETE FROM app_metadata
-WHERE key IN (:generated_at_key, :generated_job_id_key);
+WHERE key IN (:generated_at_key, :generated_job_id_key, :radio_membership_version_key);
 
 -- Preserve library and job ID counters so old links cannot resolve to new rows.
 -- Preserve log ID counters so pagination cursors work across recovered resets.

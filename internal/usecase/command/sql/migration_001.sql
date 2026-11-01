@@ -451,22 +451,3 @@ CREATE TABLE styles_radios (
       REFERENCES library_tracks (id)
       ON DELETE CASCADE
 ) WITHOUT ROWID;
-
-CREATE TABLE radio_state (
-    kind             TEXT    NOT NULL,
-    entity_id        INTEGER NOT NULL,
-    track_count      INTEGER NOT NULL,
-    prime            INTEGER NOT NULL,
-    multiplier       INTEGER NOT NULL,
-    offset           INTEGER NOT NULL,
-    current_position INTEGER NOT NULL,
-
-    PRIMARY KEY (kind, entity_id),
-    CHECK (kind IN ('artist', 'genre', 'style')),
-    CHECK (entity_id > 0),
-    CHECK (track_count > 0),
-    CHECK (prime > track_count),
-    CHECK (multiplier >= 1 AND multiplier < prime),
-    CHECK (offset >= 0 AND offset < prime),
-    CHECK (current_position >= 0 AND current_position < track_count)
-) WITHOUT ROWID;

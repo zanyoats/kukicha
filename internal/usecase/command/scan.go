@@ -2,6 +2,7 @@ package command
 
 import (
 	"context"
+	"crypto/rand"
 	"database/sql"
 	_ "embed"
 	"encoding/json"
@@ -167,6 +168,11 @@ func BuildLibraryFromScan(
 	}
 	defer tx.Rollback()
 
+	// Publish the new version only when the rebuilt membership commits.
+	if err = SetAppMetadata(ctx, tx, app.RadioMembershipVersion, rand.Text()); err != nil {
+		return result, err
+	}
+
 	// Scan reuses root, album, and track IDs, but updated artist split rules
 	// can introduce new artists that need fresh IDs.
 	if err = allocateLibraryIDs(ctx, tx); err != nil {
@@ -212,7 +218,6 @@ func BuildLibraryFromScan(
 	if _, err = tx.ExecContext(ctx, buildLibraryRadiosSQL); err != nil {
 		return result, fmt.Errorf("build library radios: %w", err)
 	}
-
 	if mode == BuildFromFiles {
 		if err = buildLibraryTrackEmbeddedArtwork(ctx, tx); err != nil {
 			return result, err

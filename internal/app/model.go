@@ -45,6 +45,9 @@ const (
 	// TaxonomyChecksum identifies the seeded genre/style catalog so initialization
 	// can skip rebuilding taxonomy tables when the catalog has not changed.
 	TaxonomyChecksum
+
+	// RadioMembershipVersion changes atomically with radio membership rebuilds.
+	RadioMembershipVersion
 )
 
 // Represents a root abstractly.

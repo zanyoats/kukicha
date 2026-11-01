@@ -37,6 +37,7 @@ func ResetLibrary(ctx context.Context, conn *sql.Conn, jobID int64) error {
 		sql.Named("job_id", jobID),
 		sql.Named("generated_at_key", app.LibraryGeneratedAt),
 		sql.Named("generated_job_id_key", app.LibraryGeneratedJobId),
+		sql.Named("radio_membership_version_key", app.RadioMembershipVersion),
 	); err != nil {
 		return fmt.Errorf("reset library resources: %w", err)
 	}

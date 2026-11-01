@@ -1,5 +1,4 @@
 -- Scan refreshes derived relationships without deleting albums or tracks.
-DELETE FROM radio_state;
 DELETE FROM artists_radios;
 DELETE FROM genres_radios;
 DELETE FROM styles_radios;
