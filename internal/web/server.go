@@ -89,6 +89,7 @@ func NewWebRouter(
 		recognizedAudioExtensions: slices.Sorted(maps.Keys(recognizedAudioExtensions)),
 	}
 	mux := http.NewServeMux()
+	mux.HandleFunc(exactPattern(http.MethodPost, urls.Scrobble), router.scrobble)
 	mux.HandleFunc(
 		exactPattern(http.MethodGet, urls.Login),
 		router.login,

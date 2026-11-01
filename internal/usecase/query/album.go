@@ -155,6 +155,8 @@ func Albums(
 	switch sort {
 	case app.AlbumSortRecentlyAdded:
 		order = "albums.added_at DESC, albums.id DESC"
+	case app.AlbumSortRecentlyPlayed:
+		order = "albums.played_at DESC, albums.id DESC"
 	case app.AlbumSortAlbum:
 		order = "albums.album COLLATE NOCASE, albums.id"
 	case app.AlbumSortArtistAlbum:

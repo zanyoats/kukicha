@@ -74,20 +74,21 @@ func (level *LogLevel) UnmarshalText(text []byte) error {
 type AlbumSort string
 
 const (
-	AlbumSortRecentlyAdded AlbumSort = "recentlyAdded"
-	AlbumSortAlbum         AlbumSort = "album"
-	AlbumSortArtistAlbum   AlbumSort = "artistAlbum"
+	AlbumSortRecentlyAdded  AlbumSort = "recentlyAdded"
+	AlbumSortRecentlyPlayed AlbumSort = "recentlyPlayed"
+	AlbumSortAlbum          AlbumSort = "album"
+	AlbumSortArtistAlbum    AlbumSort = "artistAlbum"
 )
 
 // UnmarshalText validates the album sort while decoding configuration.
 func (sort *AlbumSort) UnmarshalText(text []byte) error {
 	value := AlbumSort(text)
 	switch value {
-	case AlbumSortRecentlyAdded, AlbumSortAlbum, AlbumSortArtistAlbum:
+	case AlbumSortRecentlyAdded, AlbumSortRecentlyPlayed, AlbumSortAlbum, AlbumSortArtistAlbum:
 		*sort = value
 		return nil
 	default:
-		return fmt.Errorf("album sort %q must be one of recentlyAdded, album, or artistAlbum", text)
+		return fmt.Errorf("album sort %q must be one of recentlyAdded, recentlyPlayed, album, or artistAlbum", text)
 	}
 }
 

@@ -1,6 +1,6 @@
 -- Only the trusted ordering clause is substituted.
 WITH candidates AS MATERIALIZED (
-    SELECT albums.id, albums.album, albums.added_at, albums.first_artist
+    SELECT albums.id, albums.album, albums.added_at, albums.played_at, albums.first_artist
     FROM available_library_albums AS albums
     WHERE (:artist_id = 0 OR EXISTS (
         SELECT 1

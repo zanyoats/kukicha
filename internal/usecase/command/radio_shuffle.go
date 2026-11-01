@@ -56,7 +56,7 @@ func newRadioShuffle(count int64) (radioShuffle, error) {
 func (s radioShuffle) index(position int64) int64 {
 	x := uint64(position)
 	p := uint64(s.prime)
-	for { /* cycle walking guarentees termination */
+	for { /* cycle walking guarantees termination */
 		hi, lo := bits.Mul64(uint64(s.multiplier), x)
 		_, remainder := bits.Div64(hi, lo, p)
 		x = (remainder + uint64(s.offset)) % p

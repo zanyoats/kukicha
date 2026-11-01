@@ -156,7 +156,7 @@ finalize_timeout = "5s"
 # Number of items per page in the album library and sync logs.
 per_page = 200
 
-# Default library order: recentlyAdded, album, or artistAlbum.
+# Default library order: recentlyAdded, recentlyPlayed, album, or artistAlbum.
 default_album_sort = "recentlyAdded"
 
 # Minimum toast display time. Longer messages receive 60ms per character.

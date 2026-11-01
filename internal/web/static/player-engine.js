@@ -20,6 +20,7 @@ import {
     savePreferredVolume,
 } from "./player-preferences.js";
 
+import { createScrobbler } from "./player-scrobble.js";
 import { createRadioSession } from "./player-radio.js";
 import { showToast } from "./notifications.js";
 
@@ -49,6 +50,10 @@ function playerEngineCompiler(up, audio) {
     const preferredVolume = loadPreferredVolume();
     audio.volume = preferredVolume;
 
+    const scrobbler = createScrobbler({
+        url: audio.dataset.scrobbleUrl,
+        onError: () => showToast("Unable to save playback activity.", { role: "alert" }),
+    });
     let radio = null;
     let queue = [];
     let currentIndex = -1;
@@ -176,6 +181,7 @@ function playerEngineCompiler(up, audio) {
             audio.getAttribute("src") === track.audioURL;
 
         const differentEntry = index !== currentIndex;
+        if (!sameSource || differentEntry) scrobbler.select();
         currentIndex = index;
         currentTrackID = track.id;
 
@@ -248,6 +254,7 @@ function playerEngineCompiler(up, audio) {
 
         const leavingRadio = !!radio?.current || !!radio?.pending;
         radio?.leave();
+        if (event.startAlbum || leavingRadio) currentIndex = -1;
         queue = [...event.tracks];
         emitQueue();
         selectTrack(event.selectedIndex);
@@ -330,6 +337,7 @@ function playerEngineCompiler(up, audio) {
                 queue = [];
                 currentIndex = -1;
                 currentTrackID = null;
+                scrobbler.select();
             }
             showToast(error.message, { role: "alert" });
         },
@@ -345,6 +353,7 @@ function playerEngineCompiler(up, audio) {
     const unbind = [
         up.on(document, "click", radioClick),
         () => radio.dispose(),
+        () => scrobbler.dispose(),
         up.on(PLAYER_SELECT_QUEUE, selectQueue),
         up.on(PLAYER_APPEND_QUEUE, (event) => {
             if (!Array.isArray(event.tracks) || !event.tracks.length) return;
@@ -374,9 +383,13 @@ function playerEngineCompiler(up, audio) {
         up.on(audio, "durationchange", emitTime),
         up.on(audio, "timeupdate", emitTime),
         up.on(audio, "play", emitPlayback),
+        up.on(audio, "playing", () => {
+            if (hasTrack() && !audio.paused && !audio.ended) scrobbler.start(currentTrackID);
+        }),
         up.on(audio, "pause", emitPlayback),
         up.on(audio, "volumechange", emitVolume),
         up.on(audio, "ended", () => {
+            scrobbler.finish();
             if (hasNext()) {
                 playNext();
             } else {

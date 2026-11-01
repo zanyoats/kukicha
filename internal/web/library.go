@@ -54,12 +54,13 @@ func libraryPageURL(libraryURL string, filters query.AlbumFilters, sort app.Albu
 
 func librarySortOptions(libraryURL string, filters query.AlbumFilters, current app.AlbumSort) []albumSortOption {
 	values := libraryFilterValues(filters)
-	options := make([]albumSortOption, 0, 3)
+	options := make([]albumSortOption, 0, 4)
 	for _, option := range []struct {
 		sort  app.AlbumSort
 		label string
 	}{
 		{app.AlbumSortRecentlyAdded, "Recently added"},
+		{app.AlbumSortRecentlyPlayed, "Recently played"},
 		{app.AlbumSortAlbum, "Album"},
 		{app.AlbumSortArtistAlbum, "Artist, album"},
 	} {

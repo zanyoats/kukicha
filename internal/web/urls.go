@@ -36,6 +36,7 @@ type URLs struct {
 	CancelJob               string
 	JobEvents               string
 	AlbumTracks             string
+	Scrobble                string
 	RadioTrack              string
 	Assets                  string
 	Favicon                 string
@@ -77,6 +78,7 @@ func NewURLs(basePath string) URLs {
 		CancelJob:               api + "/jobs/cancel/",
 		JobEvents:               api + "/jobs/events/",
 		AlbumTracks:             api + "/albums/tracks/",
+		Scrobble:                api + "/scrobble/",
 		RadioTrack:              api + "/radios/track/",
 		Assets:                  assets,
 		Favicon:                 "/favicon.ico",

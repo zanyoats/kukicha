@@ -105,6 +105,7 @@ CREATE TABLE library_albums (
     id                    INTEGER PRIMARY KEY,
     album                 TEXT    NOT NULL   ,
     added_at              TEXT    NOT NULL   ,
+    played_at             INTEGER            ,
     first_artist          TEXT    NOT NULL COLLATE NOCASE,
     format                TEXT    NOT NULL   ,
     disc_count            INTEGER            ,
@@ -126,6 +127,9 @@ CREATE TABLE library_albums (
 
 CREATE INDEX library_albums_added_at_idx
 ON library_albums (added_at DESC, id DESC);
+
+CREATE INDEX library_albums_played_at_idx
+ON library_albums (played_at DESC, id DESC);
 
 CREATE INDEX library_albums_album_idx
 ON library_albums (album COLLATE NOCASE, id);
@@ -590,3 +594,22 @@ CREATE TABLE unrecognized_sidecars (
     thumbnail_cache_name TEXT,
     PRIMARY KEY (config_id, path)
 ) WITHOUT ROWID;
+
+CREATE TABLE scrobbles (
+    track_id INTEGER NOT NULL,
+    played_at INTEGER NOT NULL,
+    PRIMARY KEY (track_id, played_at),
+    FOREIGN KEY (track_id)
+      REFERENCES library_track_ids (id)
+      ON DELETE RESTRICT
+);
+
+CREATE TABLE now_playing (
+    slot INTEGER PRIMARY KEY CHECK (slot = 1),
+    track_id INTEGER NOT NULL,
+    played_at INTEGER NOT NULL,
+    completed INTEGER NOT NULL CHECK (completed IN (0, 1)),
+    FOREIGN KEY (track_id)
+      REFERENCES library_track_ids (id)
+      ON DELETE RESTRICT
+);

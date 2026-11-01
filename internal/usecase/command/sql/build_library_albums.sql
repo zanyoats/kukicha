@@ -48,6 +48,14 @@ album_artist_sort AS (
         ON artists.artist = displays.value
     GROUP BY tracks.album_key
 ),
+album_plays AS (
+    -- Restore playback times when the library is rebuilt.
+    SELECT tracks.album_key, MAX(scrobbles.played_at) AS played_at
+    FROM audio_tracks AS tracks
+    JOIN library_track_ids AS ids ON ids.path = tracks.path
+    JOIN scrobbles ON scrobbles.track_id = ids.id
+    GROUP BY tracks.album_key
+),
 album_keys AS (
     SELECT album_key
     FROM audio_tracks
@@ -56,6 +64,7 @@ album_keys AS (
 INSERT INTO library_albums (
     id,
     added_at,
+    played_at,
     first_artist,
     format,
     album,
@@ -75,6 +84,7 @@ INSERT INTO library_albums (
 SELECT
     ids.id,
     ids.timestamp,
+    plays.played_at,
     artist_sort.first_artist,
     COALESCE(MAX(CASE WHEN field = 'format' THEN value END), :unknown_item),
     MAX(CASE WHEN field = 'album' THEN value END),
@@ -95,11 +105,14 @@ JOIN library_album_ids AS ids
     ON ids.album_key = album_keys.album_key
 LEFT JOIN album_artist_sort AS artist_sort
     ON artist_sort.album_key = album_keys.album_key
+LEFT JOIN album_plays AS plays
+    ON plays.album_key = album_keys.album_key
 LEFT JOIN ranked_album_values
     ON ranked_album_values.album_key = album_keys.album_key
     AND ranked_album_values.rank = 1
 GROUP BY ids.id, album_keys.album_key
 ON CONFLICT (id) DO UPDATE SET
+    played_at = excluded.played_at,
     first_artist = excluded.first_artist,
     format = excluded.format,
     album = excluded.album,
