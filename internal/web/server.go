@@ -29,6 +29,7 @@ type NotificationSubscriber interface {
 }
 
 type webRouter struct {
+	maxUploadRequestBytes     int64
 	uploads                   *upload.Service
 	auth                      *auth.Auth
 	urls                      URLs
@@ -60,6 +61,7 @@ func NewWebRouter(
 	recognizedAudioExtensions map[string]bool,
 	credentials *auth.Auth,
 	uploads *upload.Service,
+	maxUploadRequestBytes int64,
 ) http.Handler {
 	rootsByConfigID := make(map[string]app.Root, len(configuredRoots))
 	for _, root := range configuredRoots {
@@ -70,6 +72,7 @@ func NewWebRouter(
 		panic("authentication is required")
 	}
 	router := webRouter{
+		maxUploadRequestBytes:     maxUploadRequestBytes,
 		auth:                      credentials,
 		uploads:                   uploads,
 		urls:                      urls,

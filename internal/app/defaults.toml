@@ -112,6 +112,11 @@ max_attempts = 2
 "electronique" = "electronic"
 "électronique" = "electronic"
 
+[upload]
+# Maximum total HTTP upload request size, including multipart headers.
+# 2 GiB = 2 × 1024 × 1024 × 1024 bytes. Does not limit server folder/bucket imports.
+max_request_bytes = 2_147_483_648
+
 [server]
 # Directory where kukicha.db will be stored.
 # This directory must already exist.

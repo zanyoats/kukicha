@@ -10,7 +10,7 @@
 {{define "page-content"}}
 <article class="config-page add-page">
     {{template "page-header" .}}
-    <form class="add-form" action="{{.URLs.Add}}" method="post" data-add-form up-submit="false">
+    <form class="add-form" action="{{.URLs.Add}}" method="post" data-add-form data-max-request-bytes="{{.MaxRequestBytes}}" up-submit="false">
         <div class="add-destination">
             <label for="add-root">Destination root</label>
             <select id="add-root" name="root_config_id" required {{if not .ConfiguredRoots}}disabled{{end}}>
@@ -26,6 +26,8 @@
             </select>
         </div>
         <div class="add-source-fields" data-add-panel="files">
+            <p class="text-secondary" id="add-upload-limit">Upload limit: {{.UploadLimit}} per request, including multipart headers. Leave some room below the limit, or upload in smaller batches.</p>
+            <p class="alert alert-error" data-add-size-error role="alert" hidden></p>
             <div class="add-dropzone" data-add-dropzone>
                 <p>Drop files or folders here</p>
                 <div class="add-actions">

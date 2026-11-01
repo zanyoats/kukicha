@@ -3,6 +3,7 @@ package web
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"mime"
@@ -20,6 +21,8 @@ func (c *webRouter) showAdd(w http.ResponseWriter, r *http.Request) {
 		URLs             URLs
 		EyeBrow, Heading string
 		ConfiguredRoots  []configuredRootView
+		MaxRequestBytes  int64
+		UploadLimit      string
 		Modes            []addModeView
 	}{
 		URLs: c.urls, EyeBrow: "Library", Heading: "Add to Kukicha",
@@ -28,6 +31,8 @@ func (c *webRouter) showAdd(w http.ResponseWriter, r *http.Request) {
 			{Value: upload.ModeSync, Label: "Server folder or bucket"},
 		},
 		ConfiguredRoots: configuredRootViews(c.configuredRoots),
+		MaxRequestBytes: c.maxUploadRequestBytes,
+		UploadLimit:     uploadLimitLabel(c.maxUploadRequestBytes),
 	})
 }
 
@@ -40,7 +45,11 @@ func (c *webRouter) uploadFiles(w http.ResponseWriter, r *http.Request) {
 	var jobID int64
 	switch mediaType {
 	case "multipart/form-data":
-		r.Body = http.MaxBytesReader(w, r.Body, upload.MaxRequestBytes)
+		if r.ContentLength > c.maxUploadRequestBytes {
+			apiError(w, http.StatusRequestEntityTooLarge, uploadSizeError(c.maxUploadRequestBytes))
+			return
+		}
+		r.Body = http.MaxBytesReader(w, r.Body, c.maxUploadRequestBytes)
 		parts, parseErr := r.MultipartReader()
 		if parseErr != nil {
 			apiError(w, http.StatusBadRequest, "Expected multipart file upload.")
@@ -67,6 +76,11 @@ func (c *webRouter) uploadFiles(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != nil {
 		slog.WarnContext(r.Context(), "add request not accepted", "error", err)
+		var sizeError *http.MaxBytesError
+		if errors.As(err, &sizeError) {
+			apiError(w, http.StatusRequestEntityTooLarge, uploadSizeError(sizeError.Limit))
+			return
+		}
 		status := http.StatusBadRequest
 		if errors.Is(err, upload.ErrEnqueue) {
 			status = http.StatusInternalServerError
@@ -79,4 +93,23 @@ func (c *webRouter) uploadFiles(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(struct {
 		JobID int64 `json:"job_id"`
 	}{jobID})
+}
+
+// Include exact bytes so rounded display units never hide the actual limit.
+func uploadLimitLabel(limit int64) string {
+	value := float64(limit)
+	units := []string{"B", "KiB", "MiB", "GiB", "TiB", "PiB", "EiB"}
+	unit := 0
+	for value >= 1024 && unit < len(units)-1 {
+		value /= 1024
+		unit++
+	}
+	if unit == 0 {
+		return fmt.Sprintf("%d bytes", limit)
+	}
+	return fmt.Sprintf("%.2f %s (%d bytes)", value, units[unit], limit)
+}
+
+func uploadSizeError(limit int64) string {
+	return "Upload exceeds the " + uploadLimitLabel(limit) + " request limit, including multipart headers. Remove files or upload them in smaller batches."
 }

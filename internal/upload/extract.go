@@ -20,8 +20,6 @@ import (
 	"strings"
 )
 
-const MaxRequestBytes int64 = 2 << 30
-
 // Archives are discarded after extraction. Nested archives are retained as
 // ordinary files, never recursively expanded. Other archive formats are retained as files.
 

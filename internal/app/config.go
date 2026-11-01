@@ -184,6 +184,9 @@ type AppConfig struct {
 			SecondaryGenreSplitTokens map[string]bool      `toml:"secondary_genre_split_tokens"`
 			GenreStyleAliases         map[string]string    `toml:"genre_style_aliases"`
 		} `toml:"scan"`
+		Upload struct {
+			MaxRequestBytes int64 `toml:"max_request_bytes"`
+		} `toml:"upload"`
 		Server struct {
 			DatabasePath      string   `toml:"database_path"`
 			ServerAddress     string   `toml:"server_address"`
@@ -324,6 +327,10 @@ func LoadAppConfig(catalog *Catalog) (*AppConfig, error) {
 		}
 
 		dbPath = filepath.Join(norm, DbFileName)
+	}
+
+	if result.Settings.Upload.MaxRequestBytes <= 0 {
+		return nil, errors.New(`"upload.max_request_bytes" setting must be a positive integer`)
 	}
 
 	// ...valid server settings

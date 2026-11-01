@@ -147,6 +147,7 @@ func run() error {
 			scan.RecognizedAudioExtensions,
 			credentials,
 			uploads,
+			conf.Settings.Upload.MaxRequestBytes,
 		),
 		ReadHeaderTimeout: conf.Settings.Server.ReadHeaderTimeout.Duration,
 	}

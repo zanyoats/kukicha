@@ -1,7 +1,7 @@
 function formatSize(bytes) {
     if (bytes < 1024) return `${bytes} B`;
     const unit = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), 4);
-    return `${(bytes / 1024 ** unit).toFixed(1)} ${["B", "KB", "MB", "GB", "TB"][unit]}`;
+    return `${(bytes / 1024 ** unit).toFixed(1)} ${["B", "KiB", "MiB", "GiB", "TiB"][unit]}`;
 }
 
 // Directory readers return batches; keep reading until an empty batch arrives.
@@ -24,6 +24,10 @@ async function readDroppedEntry(entry, parent, files, signal) {
 
 export default function registerAdd(up) {
     up.compiler("[data-add-form]", (form) => {
+        const maxRequestBytes = BigInt(form.dataset.maxRequestBytes);
+        const sizeError = form.querySelector("[data-add-size-error]");
+        const limitLabel = `${formatSize(Number(maxRequestBytes))} (${maxRequestBytes} bytes)`;
+        const sizeErrorMessage = `Selected files leave no room within the ${limitLabel} upload request limit for multipart headers. Remove files or upload them in smaller batches.`;
         const filesInput = form.querySelector("[data-add-files]");
         const zone = form.querySelector("[data-add-dropzone]");
         const list = form.querySelector("[data-add-list]");
@@ -42,6 +46,11 @@ export default function registerAdd(up) {
         const controller = new AbortController();
         let dragDepth = 0;
         const on = (element, event, callback) => element.addEventListener(event, callback, { signal: controller.signal });
+        const selectedBytes = () => {
+            let bytes = 0n;
+            for (const { file } of selected.values()) bytes += BigInt(file.size);
+            return bytes;
+        };
         const render = () => {
             const busy = uploading || reading;
             const isFiles = mode.value === "files";
@@ -82,7 +91,10 @@ export default function registerAdd(up) {
             list.replaceChildren(fragment);
             list.hidden = selected.size === 0;
             clear.disabled = busy || selected.size === 0;
-            upload.disabled = busy || (isFiles && selected.size === 0) || !root.value;
+            const oversized = isFiles && selected.size > 0 && selectedBytes() >= maxRequestBytes;
+            sizeError.hidden = !oversized;
+            sizeError.textContent = oversized ? sizeErrorMessage : "";
+            upload.disabled = busy || (isFiles && selected.size === 0) || oversized || !root.value;
             upload.textContent = isFiles ? (uploading ? "Uploading…" : "Upload") : (uploading ? "Queueing…" : "Add music");
             root.disabled = busy || root.options.length <= 1;
             pick.disabled = busy || !isFiles;
@@ -110,6 +122,10 @@ export default function registerAdd(up) {
             event.preventDefault();
             const isFiles = mode.value === "files";
             if (uploading || reading || (isFiles && !selected.size) || !root.value || !form.reportValidity()) return;
+            if (isFiles && selectedBytes() >= maxRequestBytes) {
+                render();
+                return;
+            }
             let body;
             const headers = {};
             if (isFiles) {
@@ -150,6 +166,17 @@ export default function registerAdd(up) {
                 if (login) {
                     window.location.assign(login);
                     return;
+                }
+                // Proxies may return a non-JSON 413 response.
+                if (response.status === 413) {
+                    let message = `Upload is too large. The configured request limit is ${limitLabel}, including multipart headers; a proxy may impose a lower limit. Try a smaller batch.`;
+                    try {
+                        const result = await response.json();
+                        if (typeof result.error === "string" && result.error.trim()) message = result.error;
+                    } catch {
+                        // Keep the size-specific fallback if no JSON body is available.
+                    }
+                    throw new Error(message);
                 }
                 const result = await response.json();
                 if (!response.ok) throw new Error(result.error || "Unable to add music. Please try again.");
