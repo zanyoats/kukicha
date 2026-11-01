@@ -173,6 +173,10 @@ func NewWebRouter(
 		exactPattern(http.MethodGet, urls.Help),
 		router.showHelp,
 	)
+	mux.HandleFunc(
+		exactPattern(http.MethodGet, urls.Add),
+		router.showAdd,
+	)
 	for _, page := range configPages(urls) {
 		mux.HandleFunc(
 			exactPattern(http.MethodGet, page.URL),

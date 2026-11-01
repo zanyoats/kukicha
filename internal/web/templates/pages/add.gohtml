@@ -1,0 +1,40 @@
+{{define "title"}}Add to Kukicha{{end}}
+{{define "body"}}
+<body class="config-document">
+    <main class="config-standalone" up-main>
+        <nav aria-label="Configuration navigation"><a href="{{.URLs.Home}}">Back to Home</a></nav>
+        {{template "page-content" .}}
+    </main>
+</body>
+{{end}}
+{{define "page-content"}}
+<article class="config-page add-page">
+    {{template "page-header" .}}
+    <form class="add-form" data-add-form up-submit="false">
+        <div class="add-destination">
+            <label for="add-root">Destination root</label>
+            <select id="add-root" name="root_config_id" required {{if not .ConfiguredRoots}}disabled{{end}}>
+                <option value="">Choose a root</option>
+                {{range .ConfiguredRoots}}<option value="{{.RootKey}}">{{.RootKey}}</option>{{end}}
+            </select>
+            {{if not .ConfiguredRoots}}<p class="text-secondary">No roots configured. Add a root to your config first.</p>{{end}}
+        </div>
+        <div class="add-dropzone" data-add-dropzone>
+            <p>Drop files here</p>
+            <div class="add-actions">
+                <button type="button" class="action-button" data-add-pick-files>Choose files</button>
+            </div>
+            <p class="text-secondary">Audio files, ZIP, TAR, and compressed TAR archives. To add a folder, archive it first.</p>
+            <input type="file" data-add-files accept="{{.Accept}}" multiple hidden>
+        </div>
+        <p class="text-secondary" data-add-status role="status" aria-live="polite">No files selected.</p>
+        <p class="text-secondary" data-add-notice role="status" hidden></p>
+        <ul class="add-files" data-add-list aria-label="Selected files" hidden></ul>
+        <div class="add-actions">
+            <button type="button" class="action-button" data-add-clear disabled>Clear files</button>
+            <button type="button" class="action-button" disabled aria-describedby="add-unavailable">Upload</button>
+        </div>
+        <p id="add-unavailable" class="text-secondary">Uploads are not available yet. You can select files and a destination.</p>
+    </form>
+</article>
+{{end}}

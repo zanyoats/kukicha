@@ -1,3 +1,4 @@
+import registerAdd from "./add.js";
 import { up } from "./unpoly.js";
 import registerAuth from "./auth.js";
 import registerPlayerControls from "./player-controls.js";
@@ -23,3 +24,5 @@ registerPlayerQueuePanel(up);
 registerArtistSplitRules(up);
 registerSyncJob(up);
 registerJobStatus(up);
+
+registerAdd(up);

@@ -19,6 +19,7 @@ type URLs struct {
 	TrackAudio              string
 	Search                  string
 	ArtistSplitRules        string
+	Add                     string
 	Roots                   string
 	MetadataOverrides       string
 	ListeningData           string
@@ -55,6 +56,7 @@ func NewURLs(basePath string) URLs {
 		TrackAudio:              app + "/library/album/tracks/audio/",
 		Search:                  app + "/search/",
 		ArtistSplitRules:        app + "/artistSplitRules/",
+		Add:                     app + "/add/",
 		Roots:                   app + "/roots/",
 		MetadataOverrides:       app + "/metadataOverrides/",
 		ListeningData:           app + "/listeningData/",

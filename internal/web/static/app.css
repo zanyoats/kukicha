@@ -396,9 +396,20 @@ article h2 {
     margin: 0;
 }
 
-.avatar-actions button {
+.avatar-actions .action-button {
+    display: inline-block;
+    appearance: none;
+    border-radius: 0;
+    background: transparent;
+    color: inherit;
     font: inherit;
+    text-align: center;
+    text-decoration: none;
     white-space: nowrap;
+}
+
+.avatar-actions .action-button:hover:not(:disabled) {
+    color: var(--text-primary);
 }
 
 .home-page h2 {
@@ -1811,4 +1822,96 @@ svg.player-queue-play-icon {
 .login-error {
     color: var(--error-text);
     font-size: 0.875rem;
+}
+
+/* Add to Kukicha */
+up-modal.config-modal:has(.add-page) up-modal-box {
+    border-radius: 0;
+}
+
+.add-form {
+    display: grid;
+    gap: 1rem;
+    max-inline-size: 42rem;
+    margin-block-start: 1.5rem;
+    font-size: 0.9rem;
+}
+
+.add-destination {
+    display: grid;
+    gap: 0.5rem;
+}
+
+.add-destination select {
+    inline-size: 100%;
+    min-inline-size: 0;
+    padding: 0.5rem;
+    border: 1px solid var(--border);
+    border-radius: 0;
+    background: var(--surface);
+    color: var(--text-primary);
+    font: inherit;
+}
+
+.add-destination select:focus-visible {
+    outline: 0.125rem solid var(--accent);
+    outline-offset: 0.125rem;
+}
+
+.add-dropzone {
+    display: grid;
+    justify-items: center;
+    gap: 0.75rem;
+    padding: 2rem 1rem;
+    border: 1px dashed var(--border);
+    text-align: center;
+}
+
+.add-dropzone.is-dragging {
+    border-color: var(--accent);
+    background: var(--info-background);
+}
+
+.add-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+.add-form .action-button {
+    border-radius: 0;
+}
+
+.add-files {
+    list-style: none;
+    padding: 0;
+    max-block-size: 20rem;
+    overflow-y: auto;
+    border-block: 1px solid var(--border);
+}
+
+.add-files li {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    align-items: center;
+    gap: 0.75rem;
+    padding-block: 0.5rem;
+}
+
+.add-files li + li {
+    border-block-start: 1px solid var(--border);
+}
+
+.add-files li > span:first-child {
+    overflow-wrap: anywhere;
+}
+
+
+@media (max-width: 600px) {
+    .add-files li {
+        grid-template-columns: minmax(0, 1fr) auto;
+    }
+    .add-files li > span:first-child {
+        grid-column: 1 / -1;
+    }
 }
