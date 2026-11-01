@@ -29,6 +29,7 @@ export default function registerAdd(up) {
         const limitLabel = `${formatSize(Number(maxRequestBytes))} (${maxRequestBytes} bytes)`;
         const sizeErrorMessage = `Selected files leave no room within the ${limitLabel} upload request limit for multipart headers. Remove files or upload them in smaller batches.`;
         const filesInput = form.querySelector("[data-add-files]");
+        const folderInput = form.querySelector("[data-add-folder]");
         const zone = form.querySelector("[data-add-dropzone]");
         const list = form.querySelector("[data-add-list]");
         const status = form.querySelector("[data-add-status]");
@@ -97,7 +98,6 @@ export default function registerAdd(up) {
             upload.disabled = busy || (isFiles && selected.size === 0) || oversized || !root.value;
             upload.textContent = isFiles ? (uploading ? "Uploading…" : "Upload") : (uploading ? "Queueing…" : "Add music");
             root.disabled = busy || root.options.length <= 1;
-            pick.disabled = busy || !isFiles;
             status.textContent = reading ? "Reading folders…" : selected.size
                 ? `${selected.size} ${selected.size === 1 ? "file" : "files"} selected · ${formatSize(bytes)}`
                 : "No files selected.";
@@ -198,17 +198,19 @@ export default function registerAdd(up) {
                 render();
             }
         });
-        on(form.querySelector("[data-add-pick-files]"), "click", () => filesInput.click());
-        on(filesInput, "change", () => {
-            collect(Array.from(filesInput.files, (file) => ({ file, path: file.webkitRelativePath || file.name })));
-            filesInput.value = "";
-        });
+        for (const [selector, input] of [["[data-add-pick-files]", filesInput], ["[data-add-pick-folder]", folderInput]]) {
+            on(form.querySelector(selector), "click", () => input.click());
+            on(input, "change", () => {
+                collect(Array.from(input.files, (file) => ({ file, path: file.webkitRelativePath || file.name })));
+                input.value = "";
+            });
+        }
         on(list, "click", (event) => {
             const button = event.target.closest("[data-remove-key]");
             if (!button) return;
             selected.delete(button.dataset.removeKey);
             render();
-            (list.querySelector("button") || form.querySelector("[data-add-pick-files]")).focus();
+            (list.querySelector("button") || pick).focus();
         });
         on(clear, "click", () => {
             selected.clear();

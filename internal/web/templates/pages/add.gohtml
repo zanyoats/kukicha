@@ -32,9 +32,11 @@
                 <p>Drop files or folders here</p>
                 <div class="add-actions">
                     <button type="button" class="action-button" data-add-pick-files>Choose files</button>
+                    <button type="button" class="action-button" data-add-pick-folder>Choose folder</button>
                 </div>
-                <p class="text-secondary">All file types are accepted. Dropped folders include files from all subfolders. ZIP, TAR, gzip-compressed TAR, and bzip2-compressed TAR archives are extracted.</p>
+                <p class="text-secondary">All file types are accepted. Folders include files from all subfolders. ZIP, TAR, gzip-compressed TAR, and bzip2-compressed TAR archives are extracted.</p>
                 <input type="file" data-add-files multiple hidden>
+                <input type="file" data-add-folder webkitdirectory multiple hidden>
             </div>
             <p class="text-secondary" data-add-status role="status" aria-live="polite">No files selected.</p>
             <ul class="add-files" data-add-list aria-label="Selected files" hidden></ul>
