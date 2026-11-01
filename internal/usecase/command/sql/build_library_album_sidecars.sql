@@ -6,7 +6,8 @@ WITH sidecars AS (
         ext,
         path,
         file_size,
-        file_mtime_unix_nano
+        file_mtime_unix_nano,
+        thumbnail_cache_name
     FROM scan_sidecar_covers
 
     UNION ALL
@@ -18,7 +19,8 @@ WITH sidecars AS (
         ext,
         path,
         file_size,
-        file_mtime_unix_nano
+        file_mtime_unix_nano,
+        NULL AS thumbnail_cache_name
     FROM scan_sidecar_others
 )
 INSERT INTO library_album_sidecars (
@@ -28,7 +30,8 @@ INSERT INTO library_album_sidecars (
     ext,
     path,
     file_size,
-    file_mtime_unix_nano
+    file_mtime_unix_nano,
+    thumbnail_cache_name
 )
 SELECT DISTINCT
     tracks.album_id,
@@ -37,7 +40,8 @@ SELECT DISTINCT
     sidecars.ext,
     sidecars.path,
     sidecars.file_size,
-    sidecars.file_mtime_unix_nano
+    sidecars.file_mtime_unix_nano,
+    sidecars.thumbnail_cache_name
 FROM sidecars
 JOIN scan_tracks AS audio
     ON audio.root_pos = sidecars.root_pos

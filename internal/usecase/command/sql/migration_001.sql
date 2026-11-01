@@ -160,8 +160,10 @@ CREATE TABLE library_album_sidecars (
     path                 TEXT    NOT NULL                 ,
     file_size            INTEGER NOT NULL                 ,
     file_mtime_unix_nano INTEGER NOT NULL                 ,
+    thumbnail_cache_name TEXT                             ,
 
     UNIQUE (album_id, root_id, path)                      ,
+    CHECK (thumbnail_cache_name IS NULL OR length(thumbnail_cache_name) = 64),
     FOREIGN KEY (album_id)
       REFERENCES library_albums (id)
       ON DELETE CASCADE                                   ,
