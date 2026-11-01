@@ -84,15 +84,11 @@ CREATE TABLE library_artist_ids (
 
 CREATE TABLE library_track_ids (
     id        INTEGER PRIMARY KEY AUTOINCREMENT      ,
-    config_id TEXT NOT NULL                          ,
     path      TEXT  NOT NULL                         ,
     timestamp TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
 
-    UNIQUE (config_id, path)                         ,
-    CHECK (
-            length(trim(config_id)) > 0
-        AND length(trim(path)) > 0
-    )
+    UNIQUE (path)                                    ,
+    CHECK (length(trim(path)) > 0)
 );
 
 CREATE TABLE library_roots (

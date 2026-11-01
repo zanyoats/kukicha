@@ -37,8 +37,8 @@ ORDER BY
     candidates.artist COLLATE NOCASE,
     candidates.artist COLLATE BINARY;
 
-INSERT INTO library_track_ids (config_id, path)
-SELECT config_id, path FROM scan_tracks WHERE true
-GROUP BY config_id, path
-ORDER BY config_id COLLATE BINARY, path COLLATE BINARY
-ON CONFLICT (config_id, path) DO NOTHING;
+INSERT INTO library_track_ids (path)
+SELECT path FROM scan_tracks WHERE true
+GROUP BY path
+ORDER BY path COLLATE BINARY
+ON CONFLICT (path) DO NOTHING;

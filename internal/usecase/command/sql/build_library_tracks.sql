@@ -47,8 +47,7 @@ FROM scan_tracks AS s
 JOIN scan_track_normalized_metadata AS normalized
     ON normalized.root_pos = s.root_pos AND normalized.path = s.path
 JOIN library_track_ids AS track_ids
-    ON track_ids.config_id = s.config_id
-    AND track_ids.path = s.path
+    ON track_ids.path = s.path
 JOIN library_roots AS roots
     ON roots.config_id = s.config_id
 JOIN library_album_ids AS album_ids
