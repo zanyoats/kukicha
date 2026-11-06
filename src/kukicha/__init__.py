@@ -1,1 +1,0 @@
-"""kukicha package."""
