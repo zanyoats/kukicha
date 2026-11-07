@@ -13,7 +13,7 @@ export default function registerJobStatus(up) {
             ].map((label) => [label.dataset.type, label.textContent]),
         );
         let job;
-        let connected = false;
+        let connection = "connecting";
         let destroyed = false;
         const cancelling = new Set();
         const messages = new Map();
@@ -27,7 +27,7 @@ export default function registerJobStatus(up) {
             if (!job) return;
             const label = labels.get(job.type) ?? job.type;
             const pending = job.cancel_requested || cancelling.has(job.id);
-            const status = !connected
+            const status = connection !== "connected"
                 ? "Reconnecting…"
                 : pending
                   ? "Cancelling…"
@@ -36,14 +36,14 @@ export default function registerJobStatus(up) {
             const message = `${label} · ${status}${detail ? ` · ${detail}` : ""}`;
             if (description.textContent !== message)
                 description.textContent = message;
-            cancel.disabled = !connected || pending;
+            cancel.disabled = connection !== "connected" || pending;
             cancel.setAttribute("aria-label", `Cancel ${label}`);
         };
         const source = new EventSource(container.dataset.jobEvents);
         source.addEventListener("job-status", (event) => {
             const jobs = JSON.parse(event.data).jobs ?? [];
             job = jobs.find((candidate) => candidate.state === "running");
-            connected = true;
+            connection = "connected";
             for (const id of cancelling) {
                 if (!jobs.some((candidate) => candidate.id === id))
                     cancelling.delete(id);
@@ -67,7 +67,9 @@ export default function registerJobStatus(up) {
             render();
         });
         source.addEventListener("error", () => {
-            connected = false;
+            if (connection === "disconnected") return;
+            connection = "disconnected";
+            showToast("Live job updates are unavailable.", { role: "alert" });
             render();
         });
         const unbind = up.on(cancel, "click", async () => {

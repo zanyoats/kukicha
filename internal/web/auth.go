@@ -47,7 +47,7 @@ func (c *webRouter) requireAuth(next http.Handler) http.Handler {
 				return
 			}
 		}
-		// Clients making background requests can navigate to login without replaying them.
+		// In-app requests can offer sign-in without replacing the player.
 		w.Header().Set("X-Kukicha-Login", c.urls.Login)
 		// API calls
 		apiPath := strings.TrimSuffix(c.urls.SubmitJob, "jobs/")
@@ -55,8 +55,8 @@ func (c *webRouter) requireAuth(next http.Handler) http.Handler {
 			apiError(w, http.StatusUnauthorized, "Authentication required")
 			return
 		}
-		// Page navigation redirects
-		if publicRead && strings.Contains(r.Header.Get("Accept"), "text/html") &&
+		// Redirect full browser navigations. Fragment loads handle 401 in the app.
+		if publicRead && r.Header.Get("X-Up-Target") == "" && strings.Contains(r.Header.Get("Accept"), "text/html") &&
 			r.URL.Path != c.urls.TrackAudio && r.URL.Path != c.urls.AlbumArtwork {
 			http.Redirect(w, r, c.urls.Login, http.StatusSeeOther)
 			return

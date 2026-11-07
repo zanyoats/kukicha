@@ -59,6 +59,7 @@ function playerEngineCompiler(up, audio) {
     let currentIndex = -1;
     let currentTrackID = null;
     let playbackRequested = false;
+    let playRevision = 0;
     let retriedSource = false;
     let recoveryPosition = null;
     let volumeBeforeMute = preferredVolume > 0 ? preferredVolume : 1;
@@ -129,13 +130,37 @@ function playerEngineCompiler(up, audio) {
         emitVolume();
     };
 
+    const reportPlaybackFailure = (reason) => {
+        if (!playbackRequested || !hasTrack()) return;
+        playbackRequested = false;
+        recoveryPosition = null;
+        const title = currentTrack().title;
+        showToast(`Couldn’t play ${title ? `“${title}”` : "this track"}. ${reason}`, { role: "alert" });
+    };
+
+    const unsupportedSource = "The file may be protected, unavailable, or in an unsupported format.";
     const requestPlayback = async () => {
+        const revision = ++playRevision;
+        if (audio.error) {
+            // An explicit Play after a failed load needs a fresh media resource.
+            retriedSource = false;
+            recoveryPosition = null;
+            audio.load();
+        }
         playbackRequested = true;
         try {
             await audio.play();
         } catch (error) {
-            if (error.name !== "AbortError") {
-                console.warn("Unable to start playback", error);
+            if (revision !== playRevision) return;
+            // The media error event owns source failures, including their retry.
+            if (!audio.error && error.name !== "AbortError") {
+                if (error.name === "NotAllowedError") {
+                    reportPlaybackFailure("The browser blocked playback. Press Play to try again.");
+                } else if (error.name === "NotSupportedError") {
+                    reportPlaybackFailure(unsupportedSource);
+                } else {
+                    reportPlaybackFailure("Playback could not start. Please try again.");
+                }
             }
             emitPlayback();
         }
@@ -145,13 +170,19 @@ function playerEngineCompiler(up, audio) {
         // Media errors do not expose HTTP status codes or reliably expose the
         // redirected URL. Reload once to recover expired remote signatures,
         // without looping on a missing object or an unsupported format.
-        if (!hasTrack() || retriedSource || !audio.error ||
-            ![2, 4].includes(audio.error.code)) {
+        if (!hasTrack() || !audio.error) return;
+        const code = audio.error.code;
+        if (retriedSource || ![2, 4].includes(code)) {
+            if (code === 2) reportPlaybackFailure("The audio download was interrupted.");
+            else if (code === 3) reportPlaybackFailure("The browser couldn’t decode the audio. The file may be damaged or unsupported.");
+            else if (code === 4) reportPlaybackFailure(unsupportedSource);
+            else if (code !== 1) reportPlaybackFailure("The browser reported a media error.");
             emitPlayback();
             return;
         }
 
         retriedSource = true;
+        ++playRevision;
         recoveryPosition = Number.isFinite(audio.currentTime) ? audio.currentTime : 0;
         // src still points to our application endpoint, not the redirect URL.
         audio.load();
@@ -186,6 +217,8 @@ function playerEngineCompiler(up, audio) {
         currentTrackID = track.id;
 
         if (!sameSource) {
+            ++playRevision;
+            playbackRequested = false;
             retriedSource = false;
             recoveryPosition = null;
             audio.setAttribute("src", track.audioURL);
@@ -321,7 +354,6 @@ function playerEngineCompiler(up, audio) {
         url: audio.dataset.radioUrl,
         storage,
         onStatus: emitState,
-        onUnauthorized: (url) => window.location.assign(url),
         onSelection: (track, autoplay) => {
             queue = [track];
             currentIndex = -1;
@@ -351,6 +383,7 @@ function playerEngineCompiler(up, audio) {
     };
 
     const unbind = [
+        () => { ++playRevision; },
         up.on(document, "click", radioClick),
         () => radio.dispose(),
         () => scrobbler.dispose(),

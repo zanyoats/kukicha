@@ -1,3 +1,4 @@
+import { showToast } from "./notifications.js";
 function formatSize(bytes) {
     if (bytes < 1024) return `${bytes} B`;
     const unit = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), 4);
@@ -169,24 +170,19 @@ export default function registerAdd(up) {
                     headers,
                     signal: controller.signal,
                 });
-                const login = response.headers.get("X-Kukicha-Login");
-                if (login) {
-                    window.location.assign(login);
-                    return;
-                }
-                // Proxies may return a non-JSON 413 response.
-                if (response.status === 413) {
-                    let message = `Upload is too large. The configured request limit is ${limitLabel}, including multipart headers; a proxy may impose a lower limit. Try a smaller batch.`;
+                if (!response.ok) {
+                    let message = response.status === 413
+                        ? `Upload is too large. The configured request limit is ${limitLabel}, including multipart headers; a proxy may impose a lower limit. Try a smaller batch.`
+                        : "Unable to add music. Please try again.";
                     try {
                         const result = await response.json();
                         if (typeof result.error === "string" && result.error.trim()) message = result.error;
                     } catch {
-                        // Keep the size-specific fallback if no JSON body is available.
+                        // Proxies and server errors may return plain text or HTML.
                     }
                     throw new Error(message);
                 }
                 const result = await response.json();
-                if (!response.ok) throw new Error(result.error || "Unable to add music. Please try again.");
                 if (isFiles) selected.clear();
                 else if (sourceType.value === "remote") {
                     for (const name of ["access_key_id", "secret_access_key", "session_token"]) {
@@ -197,8 +193,7 @@ export default function registerAdd(up) {
                 notice.hidden = false;
             } catch (error) {
                 if (controller.signal.aborted) return;
-                notice.textContent = error.message || "Unable to add music. Please try again.";
-                notice.hidden = false;
+                showToast(error.message || "Unable to add music. Please try again.", { role: "alert" });
             } finally {
                 uploading = false;
                 form.removeAttribute("aria-busy");

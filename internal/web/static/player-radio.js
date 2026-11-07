@@ -1,6 +1,6 @@
 // Per-tab radio progress. The server resolves positions but owns no cursor.
 export function createRadioSession({ url, onSelection, onStatus, onError,
-    storage, request = fetch, onUnauthorized = () => {} }) {
+    storage, request = fetch }) {
     const storageKey = `kukicha:radio:v1:${url}`;
     let saved = { active: null, radios: {} };
     let current = null;
@@ -42,8 +42,6 @@ export function createRadioSession({ url, onSelection, onStatus, onError,
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(body), signal,
         });
-        const loginURL = response.headers?.get("X-Kukicha-Login");
-        if (response.status === 401 && loginURL) onUnauthorized(loginURL);
         let data;
         try { data = await response.json(); } catch {
             throw new Error("Unable to load this radio. Please try again.");

@@ -325,6 +325,10 @@ a:focus-visible {
  * Content
 **/
 
+.request-error-message {
+    margin-block-start: 0.75rem;
+}
+
 .content-outer-shell {
     min-block-size: 0;
     overflow-block: auto;

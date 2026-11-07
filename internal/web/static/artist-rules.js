@@ -1,3 +1,4 @@
+import { showToast } from "./notifications.js";
 import { requestJSON } from "./json-api.js";
 
 export default function registerArtistRules(up) {
@@ -77,7 +78,7 @@ export default function registerArtistRules(up) {
                 close();
             } catch (failure) {
                 if (destroyed) return;
-                showError(failure.message);
+                showToast(failure.message, { role: "alert" });
             } finally {
                 saving = false;
                 fieldset.disabled = false;
@@ -106,7 +107,7 @@ export default function registerArtistRules(up) {
                 close();
             } catch (failure) {
                 if (destroyed) return;
-                showError(failure.message);
+                showToast(failure.message, { role: "alert" });
             } finally {
                 if (!destroyed) {
                     saving = false;

@@ -2,7 +2,7 @@
 {{define "body"}}
 <body class="login-page">
     <main class="login-panel" up-main>
-        <form method="post" action="{{.URLs.Login}}" up-submit="false" class="login-form" aria-labelledby="login-heading">
+        <form method="post" action="{{.URLs.Login}}" up-submit up-target="body" up-history="true" class="login-form" aria-labelledby="login-heading">
             <h1 id="login-heading">Log in to Kukicha</h1>
             {{if .Error}}<p class="login-error" role="alert">{{.Error}}</p>{{end}}
             <label for="passphrase">Passphrase</label>

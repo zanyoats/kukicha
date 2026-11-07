@@ -236,8 +236,7 @@ func internalServerError(w http.ResponseWriter, message string, args ...any) {
 	slog.Error(message, args...)
 	http.Error(
 		w,
-		"An unexpected error occured. "+
-			"If you are a web admin see the server logs for more details.",
+		"An unexpected error occurred. See the server logs for details.",
 		http.StatusInternalServerError,
 	)
 }

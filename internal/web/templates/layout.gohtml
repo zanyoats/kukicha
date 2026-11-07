@@ -12,6 +12,19 @@
         />
         <link rel="stylesheet" href="{{.URLs.UnpolyStylesheet}}" />
         <link rel="stylesheet" href="{{.URLs.Stylesheet}}" />
+        <template id="notification-layer-template">
+            <section class="toast-layer"
+                aria-label="Notifications"
+                data-notifications
+                data-toast-min-duration-ms="{{toastMinDurationMS}}">
+                <template data-toast-template>
+                    <div class="toast">
+                        <span data-toast-message role="status" aria-atomic="true"></span>
+                        <button type="button" class="toast-dismiss" data-toast-dismiss aria-label="Dismiss notification">×</button>
+                    </div>
+                </template>
+            </section>
+        </template>
         <script type="module" src="{{.URLs.AppJavaScript}}"></script>
     </head>
 

@@ -17,11 +17,13 @@ import registerArtistRules from "./artist-rules.js";
 import registerArtwork from "./artwork.js";
 import registerLibraryJob from "./library-job.js";
 import registerJobStatus from "./job-status.js";
+import registerRequestErrors from "./request-errors.js";
 
 up.log.config.banner = false;
 up.history.config.restoreTargets = ["[up-main]"];
 
 registerAuth(up);
+registerRequestErrors(up);
 registerArtwork(up);
 registerPlayerEngine(up);
 registerPlayerControls(up);

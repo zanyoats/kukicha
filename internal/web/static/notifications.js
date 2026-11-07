@@ -1,7 +1,15 @@
 // Shared by page actions and server-driven job status; survives main-content swaps.
 export function showToast(message, { role = "status", trigger } = {}) {
-    const layer = document.querySelector("[data-notifications]");
-    if (!layer) return;
+    // Keep action errors visible and dismissible inside the active modal as well.
+    const front = window.up.layer.front;
+    const host = front.isRoot() ? document.body : front.element;
+    let layer = host.querySelector(":scope > [data-notifications]");
+    if (!layer) {
+        const template = document.querySelector("#notification-layer-template");
+        if (!template) return false;
+        layer = template.content.firstElementChild.cloneNode(true);
+        host.append(layer);
+    }
     const toast = layer
         .querySelector("[data-toast-template]")
         .content.firstElementChild.cloneNode(true);
@@ -55,7 +63,7 @@ export function showToast(message, { role = "status", trigger } = {}) {
         focused = toast.contains(event.relatedTarget);
         updateTimer();
     });
-    document.addEventListener("visibilitychange", updateTimer);
+    if (role !== "alert") document.addEventListener("visibilitychange", updateTimer);
     dismiss.addEventListener("click", () => {
         if (toast.contains(document.activeElement)) {
             const next =
@@ -72,4 +80,5 @@ export function showToast(message, { role = "status", trigger } = {}) {
         text.textContent = message;
         updateTimer();
     });
+    return true;
 }

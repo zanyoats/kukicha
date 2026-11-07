@@ -38,18 +38,6 @@
         >
             <img src="{{.URLs.InstanceIdenticon}}" alt="Kukicha instance identicon" />
         </button>
-
-        <section class="toast-layer"
-            aria-label="Notifications"
-            data-notifications
-            data-toast-min-duration-ms="{{toastMinDurationMS}}">
-            <template data-toast-template>
-                <div class="toast">
-                    <span data-toast-message role="status" aria-atomic="true"></span>
-                    <button type="button" class="toast-dismiss" data-toast-dismiss aria-label="Dismiss notification">×</button>
-                </div>
-            </template>
-        </section>
     </header>
 </div>
 
@@ -141,7 +129,7 @@
             >
         </h2>
         <div class="avatar-actions">
-            <form method="post" action="{{.URLs.Logout}}" up-submit="false">
+            <form method="post" action="{{.URLs.Logout}}" up-submit>
                 <button type="submit" class="action-button">Log out</button>
             </form>
         </div>

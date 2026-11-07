@@ -34,11 +34,6 @@ export default function registerAlbumCover(up) {
                         tracks = JSON.parse(page.getAttribute("up-data")).tracks;
                     } else {
                         const response = await fetch(cover.dataset.albumTracksUrl);
-                        const loginURL = response.headers.get("X-Kukicha-Login");
-                        if (loginURL) {
-                            window.location.assign(loginURL);
-                            return;
-                        }
                         if (!response.ok) throw new Error("Unable to load album");
                         tracks = (await response.json()).tracks;
                     }

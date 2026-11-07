@@ -3,7 +3,7 @@ export default function registerAuth(up) {
 
     function navigateToLogin(response) {
         const url = response.header("X-Kukicha-Login");
-        if (!url) return false;
+        if (!url || !response.ok) return false;
         if (!navigating) {
             navigating = true;
             window.location.assign(url);
@@ -11,7 +11,7 @@ export default function registerAuth(up) {
         return true;
     }
 
-    // Also handles unauthorized API requests made with up.request().
+    // A successful logout redirects to the login document.
     up.on("up:request:loaded", (event) => navigateToLogin(event.response));
 
     // Stop login HTML from being inserted into the app or an overlay, including

@@ -1,3 +1,4 @@
+import { showToast } from "./notifications.js";
 import { requestJSON } from "./json-api.js";
 
 export default function registerUnrecognizedTracks(up) {
@@ -45,8 +46,7 @@ export default function registerUnrecognizedTracks(up) {
                 status.textContent = "Ready for rebuild";
             } catch (failure) {
                 if (destroyed) return;
-                error.textContent = failure.message;
-                error.hidden = false;
+                showToast(failure.message, { role: "alert" });
             } finally {
                 if (!destroyed) {
                     saving = false;
