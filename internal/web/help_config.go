@@ -72,10 +72,26 @@ func runtimeConfiguration(conf *app.AppConfig) []helpConfigSection {
 			artwork[key] = "Disabled"
 		}
 	}
+	optional := func(value *string) string {
+		if value == nil {
+			return "(not set)"
+		}
+		if *value == "" {
+			return "(empty)"
+		}
+		return *value
+	}
+	configured := helpConfigSection{Title: "Configured roots"}
+	for _, root := range s.Scan.Roots {
+		configured.Fields = append(configured.Fields, helpConfigField{Label: root.ID, Kind: "map", Entries: []helpConfigEntry{
+			{"Type", root.Type}, {"Path", optional(root.Path)}, {"Endpoint URL", optional(root.EndpointURL)}, {"Bucket", optional(root.Bucket)}, {"Prefix", optional(root.Prefix)}, {"Profile", optional(root.Profile)}, {"Region", optional(root.Region)}, {"Addressing style", optional(root.AddressingStyle)},
+		}})
+	}
 	sections := []helpConfigSection{
 		{"Application", []helpConfigField{
 			field("Application directory", conf.AppDir), field("Configuration file", conf.ConfigFilePath), field("Database connection", conf.DataSourceName),
 		}},
+		configured,
 		{"Server", []helpConfigField{
 			field("Database path", s.Server.DatabasePath), field("Listen address", s.Server.ServerAddress), field("Base path", s.Server.AppBasePath),
 			field("Read header timeout", s.Server.ReadHeaderTimeout), field("Idle timeout", s.Server.IdleTimeout), field("Shutdown timeout", s.Server.ShutdownTimeout), field("Session lifetime", s.Server.SessionLifetime),
@@ -99,22 +115,7 @@ func runtimeConfiguration(conf *app.AppConfig) []helpConfigSection {
 			field("Status", enabled), field("Request timeout", provider.config.RequestTimeout), field("Lookup interval", provider.config.LookupInterval), field("Maximum attempts", provider.config.MaxAttempts),
 		}})
 	}
-	optional := func(value *string) string {
-		if value == nil {
-			return "(not set)"
-		}
-		if *value == "" {
-			return "(empty)"
-		}
-		return *value
-	}
-	configured := helpConfigSection{Title: "Configured roots"}
-	for _, root := range s.Scan.Roots {
-		configured.Fields = append(configured.Fields, helpConfigField{Label: root.ID, Kind: "map", Entries: []helpConfigEntry{
-			{"Type", root.Type}, {"Path", optional(root.Path)}, {"Endpoint URL", optional(root.EndpointURL)}, {"Bucket", optional(root.Bucket)}, {"Prefix", optional(root.Prefix)}, {"Profile", optional(root.Profile)}, {"Region", optional(root.Region)}, {"Addressing style", optional(root.AddressingStyle)},
-		}})
-	}
-	return append(sections, configured,
+	return append(sections,
 		helpConfigSection{"Jobs", []helpConfigField{field("Workers", workers), field("Poll interval", s.Jobs.PollInterval), field("Finalize timeout", s.Jobs.FinalizeTimeout)}},
 		helpConfigSection{"Uploads", []helpConfigField{field("Maximum request size", size(s.Upload.MaxRequestBytes))}},
 		helpConfigSection{"Logging", []helpConfigField{field("Level", s.Logging.Level)}},

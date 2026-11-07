@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/zanyoats/kukicha/internal/buildinfo"
 )
 
 func (c *webRouter) showHelp(w http.ResponseWriter, r *http.Request) {
@@ -17,10 +18,12 @@ func (c *webRouter) showHelp(w http.ResponseWriter, r *http.Request) {
 	}
 	now := time.Now()
 	renderPage(w, c.renderer, "help.gohtml", struct {
+		Version                                                     string
 		Configuration                                               []helpConfigSection
 		URLs                                                        URLs
 		EyeBrow, Heading, IssuedAt, ExpiresAt, UserAgent, Remaining string
 	}{
+		Version:       buildinfo.Version(),
 		Configuration: runtimeConfiguration(c.conf),
 		URLs:          c.urls, EyeBrow: "Settings", Heading: "Help",
 		IssuedAt:  claims.IssuedAt.UTC().Format(time.RFC3339),
