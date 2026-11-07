@@ -29,6 +29,7 @@ type NotificationSubscriber interface {
 }
 
 type webRouter struct {
+	conf                      *app.AppConfig
 	maxUploadRequestBytes     int64
 	uploads                   *upload.Service
 	auth                      *auth.Auth
@@ -48,6 +49,7 @@ type webRouter struct {
 }
 
 func NewWebRouter(
+	conf *app.AppConfig,
 	basePath string,
 	renderer Renderer,
 	db *sql.DB,
@@ -72,6 +74,7 @@ func NewWebRouter(
 		panic("authentication is required")
 	}
 	router := webRouter{
+		conf:                      conf,
 		maxUploadRequestBytes:     maxUploadRequestBytes,
 		auth:                      credentials,
 		uploads:                   uploads,

@@ -17,10 +17,12 @@ func (c *webRouter) showHelp(w http.ResponseWriter, r *http.Request) {
 	}
 	now := time.Now()
 	renderPage(w, c.renderer, "help.gohtml", struct {
+		Configuration                                               []helpConfigSection
 		URLs                                                        URLs
 		EyeBrow, Heading, IssuedAt, ExpiresAt, UserAgent, Remaining string
 	}{
-		URLs: c.urls, EyeBrow: "Settings", Heading: "Help",
+		Configuration: runtimeConfiguration(c.conf),
+		URLs:          c.urls, EyeBrow: "Settings", Heading: "Help",
 		IssuedAt:  claims.IssuedAt.UTC().Format(time.RFC3339),
 		ExpiresAt: claims.ExpiresAt.UTC().Format(time.RFC3339),
 		UserAgent: r.UserAgent(), Remaining: formatSessionRemaining(claims.ExpiresAt.Sub(now)),

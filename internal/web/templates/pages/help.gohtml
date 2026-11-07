@@ -44,5 +44,46 @@
             </form>
         </footer>
     </section>
+    <section class="help-config" aria-labelledby="runtime-config-heading">
+        <header class="help-session-header">
+            <div>
+                <h2 id="runtime-config-heading">Runtime configuration</h2>
+                <p>Loaded settings, including defaults and configured roots. Read-only; editing the configuration file requires a server restart to take effect.</p>
+            </div>
+        </header>
+        {{range .Configuration}}
+        <details class="help-config-section">
+            <summary>{{.Title}}</summary>
+            <dl class="help-config-fields">
+                {{range .Fields}}
+                <div>
+                    <dt>{{.Label}}</dt>
+                    <dd>
+                        {{if eq .Kind "list"}}
+                            {{if .Items}}
+                            <ul class="help-config-list">
+                                {{range .Items}}<li><code>{{.}}</code></li>{{end}}
+                            </ul>
+                            {{else}}None{{end}}
+                        {{else if eq .Kind "map"}}
+                            {{if .Entries}}
+                            <table class="help-config-table">
+                                <caption>{{.Label}}</caption>
+                                <thead><tr><th scope="col">Name</th><th scope="col">Value</th></tr></thead>
+                                <tbody>
+                                    {{range .Entries}}<tr><th scope="row">{{.Key}}</th><td>{{.Value}}</td></tr>{{end}}
+                                </tbody>
+                            </table>
+                            {{else}}None{{end}}
+                        {{else}}
+                            {{.Value}}
+                        {{end}}
+                    </dd>
+                </div>
+                {{else}}<div><dt>Roots</dt><dd>None configured</dd></div>{{end}}
+            </dl>
+        </details>
+        {{end}}
+    </section>
 </article>
 {{end}}

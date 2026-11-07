@@ -152,6 +152,7 @@ func run() error {
 		BaseContext: func(net.Listener) context.Context { return ctx },
 		Addr:        conf.Settings.Server.ServerAddress,
 		Handler: web.NewWebRouter(
+			conf,
 			conf.Settings.Server.AppBasePath,
 			renderer,
 			db,

@@ -2384,3 +2384,84 @@ up-modal.config-modal:has(.add-page) up-modal-box {
 .listening-genres-canvas {
     block-size: 24rem;
 }
+
+/* Read-only runtime configuration on Help. */
+.help-config {
+    margin-block-start: 1.5rem;
+    border: 1px solid var(--border);
+    background: var(--surface);
+}
+
+.help-config-section {
+    border-block-start: 1px solid var(--border);
+}
+
+.help-config-section > summary {
+    padding: 1rem 1.25rem;
+    cursor: pointer;
+    font-weight: 500;
+}
+
+.help-config-section > summary:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: -2px;
+}
+
+.help-config-fields {
+    padding: 0 1.25rem 1.25rem;
+    font-size: 0.9rem;
+    line-height: 1.5;
+}
+
+.help-config-fields > div {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
+    gap: 0.5rem 1rem;
+    padding-block: 0.75rem;
+    border-block-start: 1px solid var(--border);
+    overflow-wrap: anywhere;
+}
+
+.help-config-fields dt {
+    color: var(--text-secondary);
+}
+
+.help-config-fields dd {
+    min-inline-size: 0;
+    margin: 0;
+}
+
+.help-config-list {
+    padding-inline-start: 1.25rem;
+}
+
+.help-config-table {
+    inline-size: 100%;
+    table-layout: fixed;
+    border-collapse: collapse;
+    font-size: inherit;
+}
+
+.help-config-table caption {
+    text-align: start;
+    margin-block-end: 0.5rem;
+}
+
+.help-config-table th,
+.help-config-table td {
+    text-align: start;
+    vertical-align: top;
+    padding: 0.4rem;
+    border-block-end: 1px solid var(--border);
+    overflow-wrap: anywhere;
+}
+
+.help-config-table tbody th {
+    font-weight: normal;
+}
+
+@media (max-width: 34rem) {
+    .help-config-fields > div {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
