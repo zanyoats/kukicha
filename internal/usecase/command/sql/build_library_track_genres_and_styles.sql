@@ -188,8 +188,8 @@ FROM scan_track_genre_resolution AS resolutions
 JOIN taxonomy_genres AS genres
     ON genres.genre = resolutions.resolved_genre;
 
--- Assign unknown only when the track has no recognized genre or style at all.
--- One unresolved value does not make an otherwise recognized track unknown.
+-- Assign unknown when the track has no recognized genre, even if it has styles.
+-- One unresolved value does not make a track with a recognized genre unknown.
 INSERT OR IGNORE INTO library_track_genres (
     track_id,
     genre_id
@@ -204,7 +204,6 @@ GROUP BY resolutions.track_id, genres.id
 HAVING SUM(
     CASE
         WHEN resolved_genre IS NOT NULL
-            OR resolved_style IS NOT NULL
             THEN 1
         ELSE 0
     END

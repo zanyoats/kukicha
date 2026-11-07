@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-const UnknownItem = "__Unknown"
+const UnknownItem = "_Unknown"
 
 type FileType int
 

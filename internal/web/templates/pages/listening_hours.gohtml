@@ -1,0 +1,20 @@
+{{define "layout"}}
+<section id="listening-hours" aria-label="Scrobbles by hour">
+    <h2>Scrobbles by hour</h2>
+    {{if .Error}}
+    <p role="alert">{{.Error}}</p>
+    <a href="{{.HoursURL}}" up-target="#listening-hours" up-history="false">Retry</a>
+    {{else}}
+    <div class="listening-canvas" data-listening-hours up-data="{{.ChartData}}">
+        <canvas role="img" aria-label="{{.Year}} scrobbles by start hour in the server timezone. Midnight is at the top, noon at the bottom."></canvas>
+    </div>
+    <div class="listening-table visually-hidden">
+        <table>
+            <caption>{{.Year}} scrobbles by start hour (server timezone)</caption>
+            <thead><tr><th scope="col">Hour</th><th scope="col">Scrobbles</th></tr></thead>
+            <tbody>{{range .Hours}}<tr><th scope="row">{{.Label}}</th><td>{{formatNumber .Count}}</td></tr>{{end}}</tbody>
+        </table>
+    </div>
+    {{end}}
+</section>
+{{end}}

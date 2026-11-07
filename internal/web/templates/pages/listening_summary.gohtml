@@ -1,0 +1,15 @@
+{{define "layout"}}
+<section id="listening-summary" aria-label="Listening statistics">
+    {{if .Error}}
+    <p role="alert">{{.Error}}</p>
+    <a href="{{.SummaryURL}}" up-target="#listening-summary" up-history="false">Retry</a>
+    {{else}}
+    {{range .Stats}}
+    <div class="listening-stat">
+        <p class="listening-value">{{.Value}} <span>{{.Label}}</span></p>
+        <p class="listening-change">vs {{.PreviousValue}} ({{$.PreviousYear}}) <span class="listening-percentage listening-{{.Direction}}">{{.Change}}</span></p>
+    </div>
+    {{end}}
+    {{end}}
+</section>
+{{end}}

@@ -215,12 +215,12 @@ func NewWebRouter(
 		exactPattern(http.MethodPost, urls.Add),
 		router.uploadFiles,
 	)
-	for _, page := range configPages(urls) {
-		mux.HandleFunc(
-			exactPattern(http.MethodGet, page.URL),
-			router.showConfig(page),
-		)
-	}
+	mux.HandleFunc(exactPattern(http.MethodGet, urls.ListeningData), router.showListeningData)
+	mux.HandleFunc(exactPattern(http.MethodGet, urls.ListeningSummary), router.showListeningSummary)
+	mux.HandleFunc(exactPattern(http.MethodGet, urls.ListeningChart), router.showListeningChart)
+	mux.HandleFunc(exactPattern(http.MethodGet, urls.ListeningHours), router.showListeningHours)
+	mux.HandleFunc(exactPattern(http.MethodGet, urls.ListeningGenres), router.showListeningGenres)
+
 	mux.HandleFunc(
 		http.MethodGet+" "+urls.InstanceIdenticon,
 		router.getIdenticon,

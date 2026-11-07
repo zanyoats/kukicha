@@ -534,7 +534,7 @@ JOIN library_track_artwork AS artwork ON artwork.track_id = tracks.id;
 CREATE TABLE unrecognized_tracks (
     config_id TEXT NOT NULL CHECK (length(trim(config_id)) > 0),
     uploaded_path TEXT NOT NULL CHECK (length(trim(uploaded_path)) > 0),
-    album TEXT CHECK (album IS NULL OR (length(trim(album)) > 0 AND trim(album) <> '__Unknown')),
+    album TEXT CHECK (album IS NULL OR (length(trim(album)) > 0 AND trim(album) <> {{unknown_item}})),
     artists TEXT CHECK (artists IS NULL OR CASE WHEN json_valid(artists) THEN
         json_type(artists) = 'array' AND json_array_length(artists) > 0 ELSE 0 END),
     status TEXT GENERATED ALWAYS AS (
@@ -557,14 +557,14 @@ BEFORE INSERT ON unrecognized_tracks WHEN NEW.artists IS NOT NULL
 BEGIN
     SELECT RAISE(ABORT, 'artists must contain nonblank recognized strings')
     WHERE EXISTS (SELECT 1 FROM json_each(NEW.artists)
-        WHERE type <> 'text' OR length(trim(value)) = 0 OR trim(value) = '__Unknown');
+        WHERE type <> 'text' OR length(trim(value)) = 0 OR trim(value) = {{unknown_item}});
 END;
 CREATE TRIGGER validate_unrecognized_artists_update
 BEFORE UPDATE OF artists ON unrecognized_tracks WHEN NEW.artists IS NOT NULL
 BEGIN
     SELECT RAISE(ABORT, 'artists must contain nonblank recognized strings')
     WHERE EXISTS (SELECT 1 FROM json_each(NEW.artists)
-        WHERE type <> 'text' OR length(trim(value)) = 0 OR trim(value) = '__Unknown');
+        WHERE type <> 'text' OR length(trim(value)) = 0 OR trim(value) = {{unknown_item}});
 END;
 
 CREATE TABLE unrecognized_artwork (
@@ -603,6 +603,9 @@ CREATE TABLE scrobbles (
       REFERENCES library_track_ids (id)
       ON DELETE RESTRICT
 );
+
+CREATE INDEX scrobbles_played_at_idx
+ON scrobbles (played_at, track_id);
 
 CREATE TABLE now_playing (
     slot INTEGER PRIMARY KEY CHECK (slot = 1),

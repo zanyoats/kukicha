@@ -1,0 +1,20 @@
+{{define "layout"}}
+<section id="listening-chart" aria-label="Monthly scrobbles">
+    <h2>Monthly scrobbles</h2>
+    {{if .Error}}
+    <p role="alert">{{.Error}}</p>
+    <a href="{{.ChartURL}}" up-target="#listening-chart" up-history="false">Retry</a>
+    {{else}}
+    <div class="listening-canvas" data-listening-chart up-data="{{.ChartData}}">
+        <canvas role="img" aria-label="Monthly scrobbles for {{.Year}} and {{.PreviousYear}}."></canvas>
+    </div>
+    <div class="listening-table visually-hidden">
+        <table>
+            <caption>Scrobbles by month (server timezone)</caption>
+            <thead><tr><th scope="col">Month</th><th scope="col">{{.Year}}</th><th scope="col">{{.PreviousYear}}</th></tr></thead>
+            <tbody>{{range .Months}}<tr><th scope="row">{{.Name}}</th><td>{{.Current}}</td><td>{{.Previous}}</td></tr>{{end}}</tbody>
+        </table>
+    </div>
+    {{end}}
+</section>
+{{end}}

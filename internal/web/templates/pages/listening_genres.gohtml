@@ -1,0 +1,22 @@
+{{define "layout"}}
+<section id="listening-genres" aria-label="Monthly plays by genre">
+    <h2>Plays by genre</h2>
+    {{if .Error}}
+    <p role="alert">{{.Error}}</p>
+    <a href="{{.GenresURL}}" up-target="#listening-genres" up-history="false">Retry</a>
+    {{else}}
+    {{if not .Genres}}<p class="help-session-note">No plays with stored genre assignments in {{.Year}}.</p>{{end}}
+    <div class="listening-canvas listening-genres-canvas" data-listening-genres up-data="{{.ChartData}}">
+        <canvas role="img" aria-label="Monthly plays by genre in {{.Year}}, using the server timezone. Each colored band represents one genre."></canvas>
+    </div>
+    <div class="listening-table visually-hidden">
+        <table>
+            <caption>{{.Year}} monthly plays by genre</caption>
+            <thead><tr><th scope="col">Genre</th>{{range .MonthLabels}}<th scope="col">{{.}}</th>{{end}}</tr></thead>
+            <tbody>{{range .Genres}}<tr><th scope="row">{{.Name}}</th>{{range .Counts}}<td>{{if eq . nil}}—{{else}}{{formatNumber .}}{{end}}</td>{{end}}</tr>{{end}}</tbody>
+        </table>
+    </div>
+    <p class="help-session-note">Each play counts toward every assigned genre; stacked totals may exceed unique plays. Plays without a remaining genre assignment are excluded. The current month is incomplete.</p>
+    {{end}}
+</section>
+{{end}}

@@ -29,6 +29,24 @@
     --bar-progress: var(--text-secondary);
     --player-footer-block-size: 5.125rem;
 
+    /* Listening genres: Tailwind palette colors separate from the UI tokens. */
+    --genre-blues: oklch(68.5% 0.169 237.323); /* sky-500 */
+    --genre-brass-military: oklch(79.5% 0.184 86.047); /* yellow-500 */
+    --genre-childrens: oklch(71.8% 0.202 349.761); /* pink-400 */
+    --genre-classical: oklch(60.6% 0.25 292.717); /* violet-500 */
+    --genre-electronic: oklch(71.5% 0.143 215.221); /* cyan-500 */
+    --genre-folk-world-country: oklch(76.8% 0.233 130.85); /* lime-500 */
+    --genre-funk-soul: oklch(70.5% 0.213 47.604); /* orange-500 */
+    --genre-hip-hop: oklch(66.7% 0.295 322.15); /* fuchsia-500 */
+    --genre-jazz: oklch(70.4% 0.14 182.503); /* teal-500 */
+    --genre-latin: oklch(64.5% 0.246 16.439); /* rose-500 */
+    --genre-non-music: oklch(47% 0.157 37.304); /* orange-800 */
+    --genre-pop: oklch(59.2% 0.249 0.584); /* pink-600 */
+    --genre-reggae: oklch(69.6% 0.17 162.48); /* emerald-500 */
+    --genre-rock: oklch(67.3% 0.182 276.935); /* indigo-400 */
+    --genre-stage-screen: oklch(71.4% 0.203 305.504); /* purple-400 */
+    --genre-unknown: oklch(70.9% 0.01 56.259); /* stone-400 */
+
     color: var(--text-primary);
     background: var(--background);
     font-family: var(--font-family);
@@ -1023,7 +1041,6 @@ up-popup.info-popup[size] {
 }
 
 .help-session {
-    max-inline-size: 48rem;
     border: 1px solid var(--border);
     background: var(--surface);
 }
@@ -1628,24 +1645,27 @@ up-modal.config-modal[size] up-modal-box,
 
 /* Only the last active backdrop-bearing layer dims the page. */
 :is(up-modal, up-drawer):has(
-    ~ :is(up-modal, up-drawer):not(.up-destroying, .player-queue-drawer)
-        > :is(up-modal-backdrop, up-drawer-backdrop)
-) > :is(up-modal-backdrop, up-drawer-backdrop) {
+        ~ :is(up-modal, up-drawer):not(.up-destroying, .player-queue-drawer)
+            > :is(up-modal-backdrop, up-drawer-backdrop)
+    )
+    > :is(up-modal-backdrop, up-drawer-backdrop) {
     background: transparent;
 }
 
 /* Hand the backdrop back before a nested layer's exit animation. */
 :is(up-modal, up-drawer):not(.up-destroying, .player-queue-drawer):has(
-    > :is(up-modal-backdrop, up-drawer-backdrop)
-) ~ :is(up-modal, up-drawer).up-destroying
+        > :is(up-modal-backdrop, up-drawer-backdrop)
+    )
+    ~ :is(up-modal, up-drawer).up-destroying
     > :is(up-modal-backdrop, up-drawer-backdrop) {
     background: transparent;
 }
 
 /* A nested opening replaces an existing backdrop without fading it in again. */
 :is(up-modal, up-drawer):not(.up-destroying, .player-queue-drawer):has(
-    > :is(up-modal-backdrop, up-drawer-backdrop)
-) ~ :is(up-modal, up-drawer):not(.up-destroying)
+        > :is(up-modal-backdrop, up-drawer-backdrop)
+    )
+    ~ :is(up-modal, up-drawer):not(.up-destroying)
     > :is(up-modal-backdrop, up-drawer-backdrop) {
     opacity: 1 !important;
 }
@@ -2169,7 +2189,10 @@ up-modal.config-modal:has(.add-page) up-modal-box {
 
 .unrecognized-track-form fieldset {
     display: grid;
-    grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr) minmax(0, 1fr) minmax(7rem, auto);
+    grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr) minmax(
+            0,
+            1fr
+        ) minmax(7rem, auto);
     align-items: start;
     gap: 1rem;
     min-inline-size: 0;
@@ -2225,4 +2248,97 @@ up-modal.config-modal:has(.add-page) up-modal-box {
     .unrecognized-track-form fieldset {
         grid-template-columns: minmax(0, 1fr);
     }
+}
+
+/* Listening data uses the same surfaces and type scale as the other detail pages. */
+.listening-columns {
+    display: grid;
+    grid-template-columns: minmax(14rem, 1fr) minmax(0, 1fr) minmax(0, 1.5fr);
+    gap: 2rem;
+    margin-block: 1.5rem;
+}
+.listening-columns > section {
+    min-inline-size: 0;
+}
+.listening-stat {
+    padding-block: 1.25rem;
+    border-block-end: 1px solid var(--border);
+}
+.listening-stat:first-child {
+    padding-block-start: 0;
+}
+.listening-stat:last-child {
+    border-block-end: 0;
+}
+.listening-change {
+    margin-block-start: 0.35rem;
+    color: var(--text-secondary);
+    font-size: 0.75rem;
+    font-variant-numeric: tabular-nums;
+}
+.listening-percentage {
+    display: inline-block;
+    margin-inline-start: 0.75rem;
+    font-size: 0.75rem;
+    font-variant-numeric: tabular-nums;
+}
+.listening-unchanged {
+    color: var(--text-secondary);
+}
+.listening-increase {
+    color: #15803d;
+}
+.listening-decrease {
+    color: var(--error-text);
+}
+.listening-value {
+    font-size: clamp(1.1rem, 2.5vw, 1.5rem);
+    font-weight: 500;
+    font-variant-numeric: tabular-nums;
+}
+.listening-value span {
+    font-size: 0.9rem;
+    font-weight: 400;
+}
+#listening-chart h2,
+#listening-hours h2,
+#listening-genres h2 {
+    font-size: 1.1rem;
+    font-weight: 500;
+}
+.listening-canvas {
+    position: relative;
+    block-size: 19rem;
+    margin-block: 0.75rem;
+}
+@media (max-width: 900px) {
+    .listening-columns {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
+@media (max-width: 600px) {
+    up-modal.config-modal:has(.listening-page) up-modal-box,
+    .config-standalone:has(.listening-page) {
+        inline-size: 100%;
+        padding-inline: 1rem;
+    }
+}
+
+@media (min-width: 901px) and (max-width: 1200px) {
+    .listening-columns {
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    }
+    #listening-chart {
+        grid-column: 1 / -1;
+    }
+}
+
+#listening-genres {
+    margin-block: 1.5rem;
+    padding-block-start: 1.5rem;
+    border-block-start: 1px solid var(--border);
+    min-inline-size: 0;
+}
+.listening-genres-canvas {
+    block-size: 24rem;
 }

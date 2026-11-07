@@ -6,6 +6,9 @@ import (
 	_ "embed"
 	"fmt"
 	"log/slog"
+	"strings"
+
+	"github.com/zanyoats/kukicha/internal/app"
 )
 
 //go:embed sql/migration_001.sql
@@ -27,7 +30,9 @@ var migrations = []migration{
 	{
 		version: 1,
 		comment: "creating initial data model",
-		sql:     migration001SQL,
+		// SQLite schema definitions cannot bind parameters. Escape the constant
+		// as a SQL string literal before substituting it into the initial schema.
+		sql: strings.ReplaceAll(migration001SQL, "{{unknown_item}}", "'"+strings.ReplaceAll(app.UnknownItem, "'", "''")+"'"),
 	},
 }
 

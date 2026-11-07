@@ -1,0 +1,34 @@
+{{define "title"}}Listening Data{{end}}
+{{define "body"}}
+<body class="config-document">
+    <main class="config-standalone" up-main>
+        <nav aria-label="Navigation"><a href="{{.URLs.Home}}">Back to Home</a></nav>
+        {{template "page-content" .}}
+    </main>
+</body>
+{{end}}
+{{define "page-content"}}
+<article class="config-page listening-page">
+    {{template "page-header" .}}
+    <p class="help-session-note">{{.Year}} year to date · compared with the same period in {{.PreviousYear}} · Server timezone: {{.Timezone}}</p>
+    <div class="listening-columns">
+        <section id="listening-summary" up-defer up-href="{{.SummaryURL}}" aria-label="Listening statistics">
+            <p role="status">Loading listening statistics…</p>
+            <a href="{{.SummaryURL}}" up-target="#listening-summary" up-history="false">Load statistics</a>
+        </section>
+        <section id="listening-hours" up-defer up-href="{{.HoursURL}}" aria-label="Scrobbles by hour">
+            <p role="status">Loading hourly scrobbles…</p>
+            <a href="{{.HoursURL}}" up-target="#listening-hours" up-history="false">Load hourly chart</a>
+        </section>
+        <section id="listening-chart" up-defer up-href="{{.ChartURL}}" aria-label="Monthly scrobbles">
+            <p role="status">Loading monthly scrobbles…</p>
+            <a href="{{.ChartURL}}" up-target="#listening-chart" up-history="false">Load chart</a>
+        </section>
+    </div>
+    <section id="listening-genres" up-defer up-href="{{.GenresURL}}" aria-label="Monthly plays by genre">
+        <p role="status">Loading plays by genre…</p>
+        <a href="{{.GenresURL}}" up-target="#listening-genres" up-history="false">Load genre chart</a>
+    </section>
+    <p class="help-session-note">Listening time counts each scrobble as a full play using the track’s current duration; unavailable tracks contribute only to scrobble counts. Daily averages include days with no plays and today. The current month is incomplete.</p>
+</article>
+{{end}}

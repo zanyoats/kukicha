@@ -1,3 +1,6 @@
+import registerListeningGenres from "./listening-genres.js";
+import registerListeningHours from "./listening-hours.js";
+import registerListening from "./listening.js";
 import registerAdd from "./add.js";
 import registerRoots from "./roots.js";
 import registerInfoPopup from "./info-popup.js";
@@ -33,3 +36,9 @@ registerJobStatus(up);
 registerAdd(up);
 registerRoots(up);
 registerInfoPopup(up);
+
+registerListening(up);
+
+registerListeningHours(up);
+
+registerListeningGenres(up);

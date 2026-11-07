@@ -26,6 +26,10 @@ type URLs struct {
 	DropRoot                string
 	MetadataOverrides       string
 	ListeningData           string
+	ListeningSummary        string
+	ListeningChart          string
+	ListeningHours          string
+	ListeningGenres         string
 	Jobs                    string
 	JobLogs                 string
 	Help                    string
@@ -68,6 +72,10 @@ func NewURLs(basePath string) URLs {
 		DropRoot:                api + "/roots/drop/",
 		MetadataOverrides:       app + "/metadataOverrides/",
 		ListeningData:           app + "/listeningData/",
+		ListeningSummary:        app + "/listeningData/summary/",
+		ListeningChart:          app + "/listeningData/chart/",
+		ListeningHours:          app + "/listeningData/hours/",
+		ListeningGenres:         app + "/listeningData/genres/",
 		Jobs:                    app + "/jobs/",
 		JobLogs:                 app + "/jobs/logs/",
 		Help:                    app + "/help/",
