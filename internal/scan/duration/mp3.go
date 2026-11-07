@@ -76,15 +76,17 @@ func mp3AudioBounds(r io.ReadSeeker) (int64, int64, error) {
 		}
 	}
 
-	// ID3v1 is a fixed 128-byte trailer after the MPEG frames.
-	if end >= 128 {
+	// ID3v1 is a fixed 128-byte trailer after the MPEG frames. Some files
+	// contain consecutive tags; exclude each one from the audio payload.
+	for end-start >= 128 {
 		var marker [3]byte
 		if err := readMP3BytesAt(r, end-128, marker[:]); err != nil {
 			return 0, 0, err
 		}
-		if string(marker[:]) == "TAG" {
-			end -= 128
+		if string(marker[:]) != "TAG" {
+			break
 		}
+		end -= 128
 	}
 
 	// An APEv2 footer may appear immediately before ID3v1 or at file end.
