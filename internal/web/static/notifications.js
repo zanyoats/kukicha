@@ -6,7 +6,7 @@ export function showToast(message, { role = "status", trigger } = {}) {
     let layer = host.querySelector(":scope > [data-notifications]");
     if (!layer) {
         const template = document.querySelector("#notification-layer-template");
-        if (!template) return false;
+        if (!template) return;
         layer = template.content.firstElementChild.cloneNode(true);
         host.append(layer);
     }
@@ -34,7 +34,7 @@ export function showToast(message, { role = "status", trigger } = {}) {
         toast.remove();
     };
     const updateTimer = () => {
-        // Errors stay visible until the user explicitly dismisses them.
+        // Errors stay visible until dismissed by the user or their caller.
         if (role === "alert") return;
         if (timer !== undefined) {
             clearTimeout(timer);
@@ -64,7 +64,8 @@ export function showToast(message, { role = "status", trigger } = {}) {
         updateTimer();
     });
     if (role !== "alert") document.addEventListener("visibilitychange", updateTimer);
-    dismiss.addEventListener("click", () => {
+    const dismissToast = () => {
+        if (removed) return;
         if (toast.contains(document.activeElement)) {
             const next =
                 toast.nextElementSibling?.querySelector("button, a") ??
@@ -73,12 +74,14 @@ export function showToast(message, { role = "status", trigger } = {}) {
             else if (trigger?.isConnected) trigger.focus();
         }
         remove();
-    });
+    };
+    dismiss.addEventListener("click", dismissToast);
     layer.append(toast);
     // Populate the live region after attaching it so assistive technology announces it.
     requestAnimationFrame(() => {
+        if (removed) return;
         text.textContent = message;
         updateTimer();
     });
-    return true;
+    return dismissToast;
 }

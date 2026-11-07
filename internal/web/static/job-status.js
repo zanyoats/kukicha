@@ -14,6 +14,7 @@ export default function registerJobStatus(up) {
         );
         let job;
         let connection = "connecting";
+        let dismissConnectionToast;
         let destroyed = false;
         const cancelling = new Set();
         const messages = new Map();
@@ -44,6 +45,8 @@ export default function registerJobStatus(up) {
             const jobs = JSON.parse(event.data).jobs ?? [];
             job = jobs.find((candidate) => candidate.state === "running");
             connection = "connected";
+            dismissConnectionToast?.();
+            dismissConnectionToast = undefined;
             for (const id of cancelling) {
                 if (!jobs.some((candidate) => candidate.id === id))
                     cancelling.delete(id);
@@ -69,7 +72,7 @@ export default function registerJobStatus(up) {
         source.addEventListener("error", () => {
             if (connection === "disconnected") return;
             connection = "disconnected";
-            showToast("Live job updates are unavailable.", { role: "alert" });
+            dismissConnectionToast = showToast("Live job updates are unavailable.", { role: "alert" });
             render();
         });
         const unbind = up.on(cancel, "click", async () => {
@@ -99,6 +102,7 @@ export default function registerJobStatus(up) {
             () => {
                 destroyed = true;
                 source.close();
+                dismissConnectionToast?.();
             },
         ];
     });
