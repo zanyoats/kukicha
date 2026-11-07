@@ -1,26 +1,22 @@
 package jobs
 
 import (
-	"bytes"
 	"context"
-	"crypto/sha256"
 	"errors"
 	"fmt"
 	"io"
-	"net/http"
 	"os"
 	"path/filepath"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
-	awshttp "github.com/aws/aws-sdk-go-v2/aws/transport/http"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/zanyoats/kukicha/internal/app"
 	"github.com/zanyoats/kukicha/internal/upload"
 	"github.com/zanyoats/kukicha/internal/walk"
 )
 
-// buildTarget is shared by workers. Destination writes are always exclusive;
-// existing S3 objects are reusable only after their contents are verified.
+// buildTarget is shared by workers. Copies overwrite existing destinations so
+// interrupted builds can retry transfers using the same paths.
 type buildTarget struct {
 	local  *os.Root
 	remote *app.RemoteRoot
@@ -82,7 +78,7 @@ func (t *buildTarget) Copy(ctx context.Context, source, relative string) error {
 		if err := t.local.MkdirAll(filepath.Dir(name), 0700); err != nil {
 			return err
 		}
-		output, err := t.local.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+		output, err := t.local.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600)
 		if err != nil {
 			return err
 		}
@@ -91,43 +87,11 @@ func (t *buildTarget) Copy(ctx context.Context, source, relative string) error {
 	}
 	key := t.remote.Prefix + relative
 	_, err = t.client.PutObject(ctx, &s3.PutObjectInput{
-		Bucket:      aws.String(t.remote.Bucket),
-		Key:         aws.String(key),
-		Body:        input,
-		IfNoneMatch: aws.String("*"),
-	})
-	var responseErr *awshttp.ResponseError
-	if errors.As(err, &responseErr) && responseErr.HTTPStatusCode() == http.StatusPreconditionFailed {
-		return t.verifyExistingObject(ctx, key, input)
-	}
-	return err
-}
-
-func (t *buildTarget) verifyExistingObject(ctx context.Context, key string, input *os.File) error {
-	if _, err := input.Seek(0, io.SeekStart); err != nil {
-		return fmt.Errorf("rewind source to verify S3 key %q: %w", key, err)
-	}
-	object, err := t.client.GetObject(ctx, &s3.GetObjectInput{
 		Bucket: aws.String(t.remote.Bucket),
 		Key:    aws.String(key),
+		Body:   input,
 	})
-	if err != nil {
-		return fmt.Errorf("read existing S3 key %q: %w", key, err)
-	}
-	defer object.Body.Close()
-
-	storedHash := sha256.New()
-	if _, err := io.Copy(storedHash, object.Body); err != nil {
-		return fmt.Errorf("verify contents of S3 key %q: %w", key, err)
-	}
-	sourceHash := sha256.New()
-	if _, err := io.Copy(sourceHash, buildContextReader{ctx, input}); err != nil {
-		return fmt.Errorf("read source to verify S3 key %q: %w", key, err)
-	}
-	if !bytes.Equal(sourceHash.Sum(nil), storedHash.Sum(nil)) {
-		return fmt.Errorf("conflicting S3 key %q: existing object differs from source", key)
-	}
-	return nil
+	return err
 }
 
 type buildContextReader struct {
