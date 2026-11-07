@@ -2251,6 +2251,24 @@ up-modal.config-modal:has(.add-page) up-modal-box {
 }
 
 /* Listening data uses the same surfaces and type scale as the other detail pages. */
+.listening-period {
+    display: flex;
+    align-items: baseline;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+}
+.listening-period select {
+    font: inherit;
+    color: inherit;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 0;
+    padding: 0.1rem 0.25rem;
+}
+.listening-period select:focus-visible {
+    outline: 0.125rem solid var(--accent);
+    outline-offset: 0.125rem;
+}
 .listening-columns {
     display: grid;
     grid-template-columns: minmax(14rem, 1fr) minmax(0, 1fr) minmax(0, 1.5fr);

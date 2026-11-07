@@ -10,7 +10,12 @@
 {{define "page-content"}}
 <article class="config-page listening-page">
     {{template "page-header" .}}
-    <p class="help-session-note">{{.Year}} year to date · compared with the same period in {{.PreviousYear}} · Server timezone: {{.Timezone}}</p>
+    <form class="listening-period help-session-note" action="{{.URLs.ListeningData}}" method="get" up-submit up-autosubmit up-watch-event="change" up-watch-delay="0" up-target=".listening-page" up-history="true">
+        <select name="year" aria-label="Listening year">
+            {{range .Years}}<option value="{{.}}" {{if eq . $.Year}}selected{{end}}>{{.}}</option>{{end}}
+        </select>
+        <span>{{if .YearToDate}}year to date · compared with the same period in{{else}}full year · compared with{{end}} {{.PreviousYear}} · Server timezone: {{.Timezone}}</span>
+    </form>
     <div class="listening-columns">
         <section id="listening-summary" up-defer up-href="{{.SummaryURL}}" aria-label="Listening statistics">
             <p role="status">Loading listening statistics…</p>
@@ -37,8 +42,8 @@
             <p role="status">Loading plays by genre…</p>
             <a href="{{.GenresURL}}" up-target="#listening-genres" up-history="false">Load genre chart</a>
         </div>
-        <p class="help-session-note">Each play counts toward every assigned genre; stacked totals may exceed unique plays. Plays without a remaining genre assignment are excluded. The current month is incomplete.</p>
+        <p class="help-session-note">Each play counts toward every assigned genre; stacked totals may exceed unique plays. Plays without a remaining genre assignment are excluded. {{if .YearToDate}}The current month is incomplete.{{end}}</p>
     </section>
-    <p class="help-session-note">Listening time counts each scrobble as a full play using the track’s current duration; unavailable tracks contribute only to scrobble counts. Daily averages include days with no plays and today. The current month is incomplete.</p>
+    <p class="help-session-note">Listening time counts each scrobble as a full play using the track’s current duration; unavailable tracks contribute only to scrobble counts. Daily averages include days with no plays{{if .YearToDate}} and today{{end}}. {{if .YearToDate}}The current month is incomplete.{{end}}</p>
 </article>
 {{end}}

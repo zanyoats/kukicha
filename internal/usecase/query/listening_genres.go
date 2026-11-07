@@ -19,9 +19,9 @@ type ListeningGenre struct {
 // ListeningGenresAt counts each play once per stored track genre, including
 // unknown fallback. Plays without a remaining genre assignment are excluded.
 // Month boundaries use the same server timezone as the other listening charts.
-func ListeningGenresAt(ctx context.Context, db *sql.DB, at time.Time) ([]ListeningGenre, error) {
+func ListeningGenresAt(ctx context.Context, db *sql.DB, year int, at time.Time) ([]ListeningGenre, error) {
 	at = at.In(time.Local)
-	start := time.Date(at.Year(), 1, 1, 0, 0, 0, 0, at.Location())
+	start := time.Date(year, 1, 1, 0, 0, 0, 0, at.Location())
 	rows, err := db.QueryContext(ctx, listeningGenresSQL, start.UnixMilli(), at.UnixMilli())
 	if err != nil {
 		return nil, err
@@ -37,7 +37,7 @@ func ListeningGenresAt(ctx context.Context, db *sql.DB, at time.Time) ([]Listeni
 		}
 		if len(genres) == 0 || genres[len(genres)-1].ID != id {
 			genre := ListeningGenre{ID: id, Name: name}
-			for month := 0; month < int(at.Month()); month++ {
+			for month := 0; month < listeningMonthCount(year, at); month++ {
 				genre.Counts[month] = new(int64)
 			}
 			genres = append(genres, genre)

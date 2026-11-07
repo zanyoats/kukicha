@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"math"
 	"net/http"
+	"slices"
 	"strconv"
 	"time"
 
@@ -15,6 +16,8 @@ import (
 
 type listeningStat struct{ Value, PreviousValue, Label, Change, Direction string }
 type listeningView struct {
+	Years                                                    []int
+	YearToDate                                               bool
 	GenresURL                                                string
 	Genres                                                   []query.ListeningGenre
 	MonthLabels                                              []string
@@ -52,11 +55,28 @@ func listeningChange(current, previous float64) (string, string) {
 
 func (c *webRouter) showListeningData(w http.ResponseWriter, r *http.Request) {
 	at := time.Now()
-	suffix := "?at=" + strconv.FormatInt(at.UnixMilli(), 10)
 	w.Header().Set("Cache-Control", "no-store")
+	years, err := query.ListeningYears(r.Context(), c.db, at)
+	if err != nil {
+		slog.ErrorContext(r.Context(), "query listening years", "error", err)
+		http.Error(w, "Unable to load listening years.", http.StatusInternalServerError)
+		return
+	}
+	if !slices.Contains(years, at.Year()) {
+		years = append([]int{at.Year()}, years...)
+	}
+	year := at.Year()
+	if value := r.URL.Query().Get("year"); value != "" {
+		year, err = strconv.Atoi(value)
+		if err != nil || !slices.Contains(years, year) {
+			http.Error(w, "Invalid listening year.", http.StatusBadRequest)
+			return
+		}
+	}
+	suffix := "?at=" + strconv.FormatInt(at.UnixMilli(), 10) + "&year=" + strconv.Itoa(year)
 	renderPage(w, c.renderer, "listening.gohtml", listeningView{
 		URLs: c.urls, EyeBrow: "Your library", Heading: "Listening Data",
-		Year: at.Year(), PreviousYear: at.Year() - 1,
+		Year: year, PreviousYear: year - 1, Years: years, YearToDate: year == at.Year(),
 		Timezone:   at.Format("MST (UTC-07:00)"),
 		SummaryURL: c.urls.ListeningSummary + suffix, ChartURL: c.urls.ListeningChart + suffix,
 		HoursURL:  c.urls.ListeningHours + suffix,
@@ -64,24 +84,33 @@ func (c *webRouter) showListeningData(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// Both fragments use the page's cutoff so their counts agree across midnight.
-func listeningCutoff(r *http.Request) (time.Time, error) {
+// All fragments share the page's selected year and cutoff. Completed years end
+// exactly at the next January 1, so the final millisecond is included.
+func listeningCutoff(r *http.Request) (int, time.Time, error) {
 	ms, err := strconv.ParseInt(r.URL.Query().Get("at"), 10, 64)
 	if err != nil || ms <= 0 {
-		return time.Time{}, fmt.Errorf("invalid listening cutoff")
+		return 0, time.Time{}, fmt.Errorf("invalid listening cutoff")
 	}
-	return time.UnixMilli(ms).In(time.Local), nil
+	at := time.UnixMilli(ms).In(time.Local)
+	year, err := strconv.Atoi(r.URL.Query().Get("year"))
+	if err != nil || year < 1 || year > at.Year() || year > time.Now().Year() {
+		return 0, time.Time{}, fmt.Errorf("invalid listening year")
+	}
+	if year < at.Year() {
+		at = time.Date(year+1, 1, 1, 0, 0, 0, 0, time.Local)
+	}
+	return year, at, nil
 }
 
 func (c *webRouter) showListeningSummary(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
-	at, err := listeningCutoff(r)
+	year, at, err := listeningCutoff(r)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	view := listeningView{PreviousYear: at.Year() - 1, SummaryURL: r.URL.RequestURI()}
-	data, err := query.ListeningSummaryAt(r.Context(), c.db, at)
+	view := listeningView{PreviousYear: year - 1, SummaryURL: r.URL.RequestURI()}
+	data, err := query.ListeningSummaryAt(r.Context(), c.db, year, at)
 	if err != nil {
 		slog.ErrorContext(r.Context(), "query listening summary", "error", err)
 		view.Error = "Unable to load listening statistics."
@@ -105,13 +134,13 @@ func (c *webRouter) showListeningSummary(w http.ResponseWriter, r *http.Request)
 
 func (c *webRouter) showListeningChart(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
-	at, err := listeningCutoff(r)
+	year, at, err := listeningCutoff(r)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	view := listeningView{Year: at.Year(), PreviousYear: at.Year() - 1, ChartURL: r.URL.RequestURI()}
-	data, err := query.ListeningMonthsAt(r.Context(), c.db, at)
+	view := listeningView{Year: year, YearToDate: at.Year() == year, PreviousYear: year - 1, ChartURL: r.URL.RequestURI()}
+	data, err := query.ListeningMonthsAt(r.Context(), c.db, year, at)
 	if err != nil {
 		slog.ErrorContext(r.Context(), "query listening months", "error", err)
 		view.Error = "Unable to load monthly scrobbles."
@@ -136,13 +165,13 @@ type listeningHour struct {
 
 func (c *webRouter) showListeningHours(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
-	at, err := listeningCutoff(r)
+	year, at, err := listeningCutoff(r)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	view := listeningView{Year: at.Year(), HoursURL: r.URL.RequestURI()}
-	counts, err := query.ListeningHoursAt(r.Context(), c.db, at)
+	view := listeningView{Year: year, YearToDate: at.Year() == year, HoursURL: r.URL.RequestURI()}
+	counts, err := query.ListeningHoursAt(r.Context(), c.db, year, at)
 	if err != nil {
 		slog.ErrorContext(r.Context(), "query listening hours", "error", err)
 		view.Error = "Unable to load hourly scrobbles."
@@ -158,13 +187,13 @@ func (c *webRouter) showListeningHours(w http.ResponseWriter, r *http.Request) {
 
 func (c *webRouter) showListeningGenres(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
-	at, err := listeningCutoff(r)
+	year, at, err := listeningCutoff(r)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	view := listeningView{Year: at.Year(), GenresURL: r.URL.RequestURI()}
-	genres, err := query.ListeningGenresAt(r.Context(), c.db, at)
+	view := listeningView{Year: year, YearToDate: at.Year() == year, GenresURL: r.URL.RequestURI()}
+	genres, err := query.ListeningGenresAt(r.Context(), c.db, year, at)
 	if err != nil {
 		slog.ErrorContext(r.Context(), "query listening genres", "error", err)
 		view.Error = "Unable to load plays by genre."

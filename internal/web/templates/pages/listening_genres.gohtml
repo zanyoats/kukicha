@@ -20,6 +20,6 @@
         </table>
     </div>
     {{end}}
-    <p class="help-session-note">Each play counts toward every assigned genre; stacked totals may exceed unique plays. Plays without a remaining genre assignment are excluded. The current month is incomplete.</p>
+    <p class="help-session-note">Each play counts toward every assigned genre; stacked totals may exceed unique plays. Plays without a remaining genre assignment are excluded. {{if .YearToDate}}The current month is incomplete.{{end}}</p>
 </section>
 {{end}}
