@@ -6,10 +6,11 @@
         <p role="alert">{{.Error}}</p>
         <a href="{{.GenresURL}}" up-target="#listening-genres" up-history="false">Retry</a>
     </div>
+    {{else if not .Genres}}
+    <p class="help-session-note">No plays with stored genre assignments in {{.Year}}.</p>
     {{else}}
     <div class="listening-canvas listening-genres-canvas" data-listening-genres up-data="{{.ChartData}}" aria-busy="true">
         <p class="listening-chart-loading" role="status">Loading chart…</p>
-        {{if not .Genres}}<p class="listening-chart-empty help-session-note">No plays with stored genre assignments in {{.Year}}.</p>{{end}}
         <canvas role="img" aria-label="Monthly plays by genre in {{.Year}}, using the server timezone. Each colored band represents one genre."></canvas>
     </div>
     <div class="listening-table visually-hidden">
