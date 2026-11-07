@@ -2,10 +2,13 @@
 <section id="listening-hours" aria-label="Scrobbles by hour">
     <h2>Scrobbles by hour</h2>
     {{if .Error}}
-    <p role="alert">{{.Error}}</p>
-    <a href="{{.HoursURL}}" up-target="#listening-hours" up-history="false">Retry</a>
+    <div class="listening-canvas">
+        <p role="alert">{{.Error}}</p>
+        <a href="{{.HoursURL}}" up-target="#listening-hours" up-history="false">Retry</a>
+    </div>
     {{else}}
-    <div class="listening-canvas" data-listening-hours up-data="{{.ChartData}}">
+    <div class="listening-canvas" data-listening-hours up-data="{{.ChartData}}" aria-busy="true">
+        <p class="listening-chart-loading" role="status">Loading chart…</p>
         <canvas role="img" aria-label="{{.Year}} scrobbles by start hour in the server timezone. Midnight is at the top, noon at the bottom."></canvas>
     </div>
     <div class="listening-table visually-hidden">

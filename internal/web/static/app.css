@@ -2311,6 +2311,31 @@ up-modal.config-modal:has(.add-page) up-modal-box {
     block-size: 19rem;
     margin-block: 0.75rem;
 }
+/* Reserve the summary space even when its deferred fragment is still loading. */
+#listening-summary {
+    min-block-size: 19rem;
+}
+.listening-canvas > canvas {
+    opacity: 0;
+    transition: opacity 200ms ease-in;
+}
+.listening-canvas.is-ready > canvas {
+    opacity: 1;
+}
+.listening-chart-loading,
+.listening-chart-empty {
+    position: absolute;
+    inset-block-start: 0;
+    inset-inline-start: 0;
+}
+.listening-canvas[aria-busy="true"] > .listening-chart-empty {
+    visibility: hidden;
+}
+@media (prefers-reduced-motion: reduce) {
+    .listening-canvas > canvas {
+        transition: none;
+    }
+}
 @media (max-width: 900px) {
     .listening-columns {
         grid-template-columns: minmax(0, 1fr);

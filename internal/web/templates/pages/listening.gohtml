@@ -17,17 +17,27 @@
             <a href="{{.SummaryURL}}" up-target="#listening-summary" up-history="false">Load statistics</a>
         </section>
         <section id="listening-hours" up-defer up-href="{{.HoursURL}}" aria-label="Scrobbles by hour">
-            <p role="status">Loading hourly scrobbles…</p>
-            <a href="{{.HoursURL}}" up-target="#listening-hours" up-history="false">Load hourly chart</a>
+            <h2>Scrobbles by hour</h2>
+            <div class="listening-canvas">
+                <p role="status">Loading hourly scrobbles…</p>
+                <a href="{{.HoursURL}}" up-target="#listening-hours" up-history="false">Load hourly chart</a>
+            </div>
         </section>
         <section id="listening-chart" up-defer up-href="{{.ChartURL}}" aria-label="Monthly scrobbles">
-            <p role="status">Loading monthly scrobbles…</p>
-            <a href="{{.ChartURL}}" up-target="#listening-chart" up-history="false">Load chart</a>
+            <h2>Monthly scrobbles</h2>
+            <div class="listening-canvas">
+                <p role="status">Loading monthly scrobbles…</p>
+                <a href="{{.ChartURL}}" up-target="#listening-chart" up-history="false">Load chart</a>
+            </div>
         </section>
     </div>
     <section id="listening-genres" up-defer up-href="{{.GenresURL}}" aria-label="Monthly plays by genre">
-        <p role="status">Loading plays by genre…</p>
-        <a href="{{.GenresURL}}" up-target="#listening-genres" up-history="false">Load genre chart</a>
+        <h2>Plays by genre</h2>
+        <div class="listening-canvas listening-genres-canvas">
+            <p role="status">Loading plays by genre…</p>
+            <a href="{{.GenresURL}}" up-target="#listening-genres" up-history="false">Load genre chart</a>
+        </div>
+        <p class="help-session-note">Each play counts toward every assigned genre; stacked totals may exceed unique plays. Plays without a remaining genre assignment are excluded. The current month is incomplete.</p>
     </section>
     <p class="help-session-note">Listening time counts each scrobble as a full play using the track’s current duration; unavailable tracks contribute only to scrobble counts. Daily averages include days with no plays and today. The current month is incomplete.</p>
 </article>

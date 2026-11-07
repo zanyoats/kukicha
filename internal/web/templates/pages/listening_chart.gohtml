@@ -2,10 +2,13 @@
 <section id="listening-chart" aria-label="Monthly scrobbles">
     <h2>Monthly scrobbles</h2>
     {{if .Error}}
-    <p role="alert">{{.Error}}</p>
-    <a href="{{.ChartURL}}" up-target="#listening-chart" up-history="false">Retry</a>
+    <div class="listening-canvas">
+        <p role="alert">{{.Error}}</p>
+        <a href="{{.ChartURL}}" up-target="#listening-chart" up-history="false">Retry</a>
+    </div>
     {{else}}
-    <div class="listening-canvas" data-listening-chart up-data="{{.ChartData}}">
+    <div class="listening-canvas" data-listening-chart up-data="{{.ChartData}}" aria-busy="true">
+        <p class="listening-chart-loading" role="status">Loading chart…</p>
         <canvas role="img" aria-label="Monthly scrobbles for {{.Year}} and {{.PreviousYear}}."></canvas>
     </div>
     <div class="listening-table visually-hidden">

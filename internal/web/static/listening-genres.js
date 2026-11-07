@@ -77,8 +77,15 @@ export default function registerListeningGenres(up) {
                     },
                 },
             });
+            element.removeAttribute("aria-busy");
+            element.querySelector(".listening-chart-loading")?.remove();
+            // Give the initial transparent canvas a frame before fading it in.
+            requestAnimationFrame(() => requestAnimationFrame(() => {
+                if (!disposed) element.classList.add("is-ready");
+            }));
         }).catch(() => {
             if (disposed) return;
+            element.removeAttribute("aria-busy");
             element.textContent = "Unable to display the chart. Genre values are available below.";
             element.parentElement.querySelector(".listening-table").classList.remove("visually-hidden");
             element.setAttribute("role", "status");
