@@ -47,6 +47,13 @@ export default function registerAdd(up) {
         const controller = new AbortController();
         let dragDepth = 0;
         const on = (element, event, callback) => element.addEventListener(event, callback, { signal: controller.signal });
+        on(document, "up:layer:dismiss", (event) => {
+            if (uploading && event.layer.element.contains(form)) {
+                event.preventDefault();
+                notice.textContent = "Keep this dialog open until the build job is queued.";
+                notice.hidden = false;
+            }
+        });
         const selectedBytes = () => {
             let bytes = 0n;
             for (const { file } of selected.values()) bytes += BigInt(file.size);
