@@ -1,0 +1,140 @@
+name: Release Kukicha
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency: release-${{ github.ref }}
+
+jobs:
+  build:
+    if: github.ref_type == 'tag'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            target: linux-amd64
+          - runner: macos-15
+            target: macos-arm64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up x86-64 musl toolchain
+        if: runner.os == 'Linux'
+        uses: jirutka/setup-alpine@v1
+        with:
+          branch: v3.23
+          packages: build-base go icu icu-dev icu-static icu-data-full
+
+      - name: Build Kukicha with static SQLite and ICU
+        if: runner.os == 'Linux'
+        shell: alpine.sh {0}
+        run: |
+          set -eu
+          work=$(mktemp -d)
+          export GOTOOLCHAIN="go$(awk '$1 == "go" {print $2}' go.mod)"
+          export CGO_ENABLED=1 GOAMD64=v1
+
+          # Alpine ships a stub libicudata.a and loads Unicode data from disk.
+          # Convert the matching full data file into the ICU entry point instead.
+          major=$(pkg-config --modversion icu-uc | cut -d. -f1)
+          genccode -q -a gcc -e "icudt$major" -d "$work" -f icudata /usr/share/icu/*/icudt${major}l.dat
+          cc -c "$work/icudata.S" -o "$work/icudata.o"
+
+          mkdir -p dist
+          go build -mod=readonly -trimpath \
+            -tags 'sqlite_fts5 sqlite_icu sqlite_omit_load_extension netgo osusergo timetzdata' \
+            -ldflags "-X github.com/zanyoats/kukicha/internal/buildinfo.version=$GITHUB_REF_NAME -s -w -linkmode external -extldflags '-static $work/icudata.o -Wl,--start-group -licui18n -licuuc -lstdc++ -lm -Wl,--end-group'" \
+            -o dist/kukicha ./cmd/kukicha
+
+      - uses: actions/setup-go@v5
+        if: runner.os == 'macOS'
+        with:
+          go-version-file: go.mod
+
+      - name: Install ICU build libraries
+        if: runner.os == 'macOS'
+        run: brew install icu4c
+
+      - name: Build Apple Silicon executable
+        if: runner.os == 'macOS'
+        run: |
+          set -euo pipefail
+          icu=$(brew --prefix icu4c)
+          static=$(mktemp -d)
+          # Give SQLite's -licu flags a directory containing only static archives.
+          ln -s "$icu"/lib/libicu{uc,i18n,data}.a "$static/"
+          export CGO_ENABLED=1 GOARCH=arm64
+          export CGO_CFLAGS="-I$icu/include"
+          export CGO_LDFLAGS="-L$static -licudata -lc++"
+          mkdir -p dist
+          go build -mod=readonly -trimpath \
+            -tags 'sqlite_fts5 sqlite_icu sqlite_omit_load_extension timetzdata' \
+            -ldflags "-X github.com/zanyoats/kukicha/internal/buildinfo.version=$GITHUB_REF_NAME -s -w -linkmode external" -o dist/kukicha ./cmd/kukicha
+
+      - name: Check server startup
+        run: |
+          set -euo pipefail
+          app_home=$(mktemp -d)
+          export HOME="$app_home" XDG_CONFIG_HOME="$app_home/.config"
+          export KUKICHA_PASSPHRASE=build-check
+          export KUKICHA_JWT_SECRET=$(openssl rand -base64 32)
+          dist/kukicha &
+          pid=$!
+          trap 'kill "$pid" 2>/dev/null || true' EXIT
+          curl --fail --silent --show-error --retry 15 --retry-connrefused --retry-delay 1 \
+            http://127.0.0.1:4533/kukicha/login/ -o /dev/null
+          kill -TERM "$pid"
+          wait "$pid"
+          trap - EXIT
+
+      - name: Package executable
+        run: tar -czf kukicha-${{ matrix.target }}.tar.gz -C dist kukicha
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: binary-${{ matrix.target }}
+          path: kukicha-${{ matrix.target }}.tar.gz
+          compression-level: 0
+          if-no-files-found: error
+          retention-days: 1
+          overwrite: true
+
+  publish:
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: binary-*
+          merge-multiple: true
+          path: dist
+
+      - name: Publish both binaries to GitHub Releases
+        env:
+          GH_REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag=$GITHUB_REF_NAME
+          assets=(dist/kukicha-linux-amd64.tar.gz dist/kukicha-macos-arm64.tar.gz)
+          for asset in "${assets[@]}"; do test -s "$asset"; done
+          # A tag can move while the build is running.
+          ref=$(jq -rn --arg ref "$GITHUB_REF" '$ref | @uri')
+          current=$(gh api "repos/$GITHUB_REPOSITORY/commits/$ref" --jq .sha)
+          [[ "$current" == "$GITHUB_SHA" ]] || { echo "Tag moved during build" >&2; exit 1; }
+
+          if gh release view -- "$tag" >/dev/null 2>&1; then
+            gh release upload --clobber -- "$tag" "${assets[@]}"
+            gh release edit --draft=false -- "$tag"
+          else
+            gh release create --verify-tag --generate-notes --title "$tag" -- "$tag" "${assets[@]}"
+          fi
