@@ -192,6 +192,7 @@ type AppConfig struct {
 			ServerAddress     string   `toml:"server_address"`
 			AppBasePath       string   `toml:"app_base_path"`
 			ReadHeaderTimeout Duration `toml:"read_header_timeout"`
+			IdleTimeout       Duration `toml:"idle_timeout"`
 			ShutdownTimeout   Duration `toml:"shutdown_timeout"`
 			SessionLifetime   Duration `toml:"session_lifetime"`
 			Database          struct {
@@ -352,6 +353,11 @@ func LoadAppConfig(catalog *Catalog) (*AppConfig, error) {
 	if result.Settings.Server.ReadHeaderTimeout.Duration <= 0 {
 		return nil, errors.New(
 			`"server.read_header_timeout" setting must be greater than zero`,
+		)
+	}
+	if result.Settings.Server.IdleTimeout.Duration < 0 {
+		return nil, errors.New(
+			`"server.idle_timeout" setting cannot be negative`,
 		)
 	}
 	if result.Settings.Server.Database.BusyTimeout.Duration < 0 {

@@ -124,6 +124,13 @@ app_base_path = "/kukicha"
 # Note: This does not limit how long audio streaming can run.
 read_header_timeout = "5s"
 
+# Maximum time an idle HTTP keep-alive connection waits for the next request.
+# Does not limit active audio streams, uploads, or server-sent event responses.
+# When using a reverse proxy, set this higher than the proxy's upstream idle
+# keep-alive timeout (the timeout for its connections to Kukicha).
+# Set to "0s" to disable the idle timeout. Must not be negative.
+idle_timeout = "3m"
+
 # Maximum time to wait for active HTTP requests during shutdown.
 # After this timeout, remaining connections are forcibly closed.
 # Increase if HTTP shutdown logs "context deadline exceeded"

@@ -169,6 +169,7 @@ func run() error {
 			conf.Settings.Upload.MaxRequestBytes,
 		),
 		ReadHeaderTimeout: conf.Settings.Server.ReadHeaderTimeout.Duration,
+		IdleTimeout:       conf.Settings.Server.IdleTimeout.Duration,
 	}
 
 	done := make(chan error, 2)

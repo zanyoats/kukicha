@@ -78,7 +78,7 @@ func runtimeConfiguration(conf *app.AppConfig) []helpConfigSection {
 		}},
 		{"Server", []helpConfigField{
 			field("Database path", s.Server.DatabasePath), field("Listen address", s.Server.ServerAddress), field("Base path", s.Server.AppBasePath),
-			field("Read header timeout", s.Server.ReadHeaderTimeout), field("Shutdown timeout", s.Server.ShutdownTimeout), field("Session lifetime", s.Server.SessionLifetime),
+			field("Read header timeout", s.Server.ReadHeaderTimeout), field("Idle timeout", s.Server.IdleTimeout), field("Shutdown timeout", s.Server.ShutdownTimeout), field("Session lifetime", s.Server.SessionLifetime),
 			field("Database busy timeout", s.Server.Database.BusyTimeout), field("Database cache size", fmt.Sprintf("%d KiB", s.Server.Database.CacheSizeKiB)),
 		}},
 		{"Scanning", []helpConfigField{
