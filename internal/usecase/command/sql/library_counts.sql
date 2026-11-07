@@ -8,7 +8,6 @@ WITH sidecars AS (
 SELECT
     (SELECT COUNT(*) FROM scan_tracks)
         + (SELECT COUNT(*) FROM scan_unrecognized_tracks)
-        + (SELECT COUNT(*) FROM scan_playlists)
         + (SELECT COUNT(*) FROM sidecars) AS processed_files_count,
     (SELECT COUNT(*) FROM sidecars) AS sidecar_files_count,
     (
@@ -25,7 +24,6 @@ SELECT
     (SELECT COUNT(*) FROM library_roots) AS library_roots_count,
     (SELECT COUNT(*) FROM library_albums) AS library_albums_count,
     (SELECT COUNT(*) FROM library_tracks) AS library_tracks_count,
-    (SELECT COUNT(*) FROM scan_playlists) AS library_playlists_count,
     (SELECT COUNT(*) FROM library_album_sidecars) AS library_album_sidecars_count,
     (SELECT COUNT(*) FROM library_tracks WHERE title = :unknown_item) AS library_track_title_unknowns_count,
     (SELECT COUNT(*) FROM library_albums WHERE album = :unknown_item) AS library_album_unknowns_count,

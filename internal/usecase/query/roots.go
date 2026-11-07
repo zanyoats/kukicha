@@ -16,7 +16,6 @@ type Root struct {
 	State         string
 	Tracks        int64
 	Albums        int64
-	Playlists     int64
 	AlbumSidecars int64
 }
 
@@ -30,7 +29,7 @@ func Roots(ctx context.Context, db *sql.DB) ([]Root, error) {
 	roots := make([]Root, 0)
 	for rows.Next() {
 		var root Root
-		if err := rows.Scan(&root.ConfigID, &root.State, &root.Tracks, &root.Albums, &root.Playlists, &root.AlbumSidecars); err != nil {
+		if err := rows.Scan(&root.ConfigID, &root.State, &root.Tracks, &root.Albums, &root.AlbumSidecars); err != nil {
 			return nil, fmt.Errorf("scan root: %w", err)
 		}
 		roots = append(roots, root)

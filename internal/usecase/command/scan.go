@@ -20,9 +20,6 @@ import (
 //go:embed sql/library_counts.sql
 var libraryCountsSQL string
 
-//go:embed sql/insert_scanned_playlist.sql
-var insertScannedPlaylistSQL string
-
 //go:embed sql/insert_scanned_file.sql
 var insertScannedFileSQL string
 
@@ -104,7 +101,6 @@ type SyncScanStats struct {
 	LibraryRoots               int
 	LibraryAlbums              int
 	LibraryTracks              int
-	LibraryPlaylists           int
 	LibraryAlbumSidecars       int
 	LibraryTrackTitleUnknowns  int
 	LibraryAlbumUnknowns       int
@@ -121,7 +117,6 @@ func BuildLibraryFromScan(
 	unknownItem string,
 	secondaryGenreSplitTokens []string,
 	recognizedAudioExtensions map[string]bool,
-	recognizedPlaylistExtensions map[string]bool,
 	recognizedSidecarExtensions map[string]bool,
 ) (BuildLibraryResult, error) {
 	var result BuildLibraryResult
@@ -216,7 +211,6 @@ func BuildLibraryFromScan(
 		&result.ScanStats.LibraryRoots,
 		&result.ScanStats.LibraryAlbums,
 		&result.ScanStats.LibraryTracks,
-		&result.ScanStats.LibraryPlaylists,
 		&result.ScanStats.LibraryAlbumSidecars,
 		&result.ScanStats.LibraryTrackTitleUnknowns,
 		&result.ScanStats.LibraryAlbumUnknowns,
@@ -231,7 +225,7 @@ func BuildLibraryFromScan(
 	}
 
 	if err := setLibraryBuildMetadata(ctx, tx, jobID,
-		recognizedAudioExtensions, recognizedPlaylistExtensions, recognizedSidecarExtensions,
+		recognizedAudioExtensions, recognizedSidecarExtensions,
 	); err != nil {
 		return result, err
 	}
@@ -261,11 +255,6 @@ func InsertScannedFile(
 
 	case app.FileTypeSidecarOther:
 		return insertScannedSidecarOther(ctx, conn, r)
-
-	case app.FileTypePlaylist:
-		_, err := conn.ExecContext(ctx, insertScannedPlaylistSQL,
-			sql.Named("root_pos", r.RootPos), sql.Named("path", r.Path))
-		return err
 
 	default:
 		return fmt.Errorf("unsupported scanned file type %d", r.FileType)
@@ -622,7 +611,6 @@ func setLibraryBuildMetadata(
 	tx *sql.Tx,
 	jobID int64,
 	recognizedAudioExtensions map[string]bool,
-	recognizedPlaylistExtensions map[string]bool,
 	recognizedSidecarExtensions map[string]bool,
 ) error {
 	if err := SetAppMetadata(ctx, tx, app.RadioMembershipVersion, rand.Text()); err != nil {
@@ -645,13 +633,11 @@ func setLibraryBuildMetadata(
 	}
 
 	payload := struct {
-		AudioExtensions    map[string]bool `json:"audio_extensions"`
-		PlaylistExtensions map[string]bool `json:"playlist_extensions"`
-		SidecarExtensions  map[string]bool `json:"sidecar_extensions"`
+		AudioExtensions   map[string]bool `json:"audio_extensions"`
+		SidecarExtensions map[string]bool `json:"sidecar_extensions"`
 	}{
-		AudioExtensions:    recognizedAudioExtensions,
-		PlaylistExtensions: recognizedPlaylistExtensions,
-		SidecarExtensions:  recognizedSidecarExtensions,
+		AudioExtensions:   recognizedAudioExtensions,
+		SidecarExtensions: recognizedSidecarExtensions,
 	}
 	if b, err := json.MarshalIndent(payload, "", "  "); err != nil {
 		return err

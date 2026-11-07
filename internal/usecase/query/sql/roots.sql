@@ -12,7 +12,6 @@ SELECT
     roots.state,
     COALESCE(track_counts.tracks, 0),
     COALESCE(track_counts.albums, 0),
-    0 AS playlists,
     COALESCE(sidecar_counts.album_sidecars, 0)
 FROM library_roots AS roots
 LEFT JOIN track_counts ON track_counts.root_id = roots.id

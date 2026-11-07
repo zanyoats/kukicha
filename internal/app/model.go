@@ -17,7 +17,6 @@ const (
 	FileTypeAudio FileType = iota
 	FileTypeSidecarCover
 	FileTypeSidecarOther
-	FileTypePlaylist
 )
 
 type AppMetadataKey int
@@ -29,7 +28,7 @@ const (
 	// is still running; it does not indicate that the sync job has finished.
 	LibraryGeneratedAt AppMetadataKey = iota
 
-	// LibrarySupportedExtensionsJson records the audio, playlist, and sidecar
+	// LibrarySupportedExtensionsJson records the audio and sidecar
 	// extension maps used for the build, committed with the rebuilt library.
 	LibrarySupportedExtensionsJson
 

@@ -27,14 +27,6 @@ func IsRecognizable(name string, recognizedSidecarArtwork map[string]bool) (file
 		}
 	}
 
-	for ext_ := range RecognizedPlaylistExtensions {
-		if strings.EqualFold(ext, ext_) {
-			ok = true
-			filetype = app.FileTypePlaylist
-			return
-		}
-	}
-
 	sidecar := strings.TrimSuffix(base, ext)
 
 	for ext_ := range RecognizedSidecarExtensions {

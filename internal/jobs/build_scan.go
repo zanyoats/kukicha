@@ -363,16 +363,10 @@ func (j *fileScanner) processLibraryItem(
 		},
 	}
 
-	switch item.fileType {
-	case app.FileTypeAudio:
+	if item.fileType == app.FileTypeAudio {
 		if err := scan.ApplyTrackMetadata(item.physicalFile.path, j.Conf, scannedFile); err != nil {
 			j.logger.ErrorContext(workCtx, err.Error(), "root", item.root.ConfigID(), "path", item.logicalFile.RelPath)
 		}
-
-	case app.FileTypeSidecarCover, app.FileTypeSidecarOther:
-
-	default: // app.FileTypePlaylist
-		j.logger.InfoContext(workCtx, "skipping unsupported playlist item", "root", scannedFile.Root.ConfigID(), "path", scannedFile.Path)
 	}
 
 	return command.InsertScannedFile(

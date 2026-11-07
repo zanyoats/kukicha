@@ -112,14 +112,6 @@ CREATE TEMP TABLE scan_sidecar_others (
     CHECK (length(trim(path)) > 0)
 ) WITHOUT ROWID;
 
-DROP TABLE IF EXISTS scan_playlists;
-
-CREATE TEMP TABLE scan_playlists (
-    root_pos INTEGER NOT NULL,
-    path TEXT NOT NULL,
-    PRIMARY KEY (root_pos, path)
-) WITHOUT ROWID;
-
 DROP TABLE IF EXISTS scan_saved_track_artwork;
 
 CREATE TEMP TABLE scan_saved_track_artwork (

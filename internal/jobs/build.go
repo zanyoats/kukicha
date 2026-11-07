@@ -158,7 +158,7 @@ func (j *Build) Run(ctx context.Context) error {
 	}
 	result, err := command.BuildLibraryFromScan(ctx, conn,
 		app.UnknownItem, j.Conf.Settings.Scan.SecondaryGenreSplitTokens,
-		scan.RecognizedAudioExtensions, scan.RecognizedPlaylistExtensions, scan.RecognizedSidecarExtensions)
+		scan.RecognizedAudioExtensions, scan.RecognizedSidecarExtensions)
 	if err != nil {
 		return err
 	}
@@ -182,7 +182,6 @@ func (j *Build) Run(ctx context.Context) error {
 		"roots", s.LibraryRoots,
 		"albums", s.LibraryAlbums,
 		"tracks", s.LibraryTracks,
-		"playlists", s.LibraryPlaylists,
 		"sidecar_files", s.SidecarFiles,
 		"album_sidecars", s.LibraryAlbumSidecars,
 		"unassociated_sidecars", s.UnassociatedSidecars,

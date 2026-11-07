@@ -30,12 +30,6 @@ var RecognizedAudioExtensions = map[string]bool{
 	".mp3": true,
 }
 
-var RecognizedPlaylistExtensions = map[string]bool{
-	".m3u":  true,
-	".m3u8": true,
-	".pls":  true,
-}
-
 var RecognizedSidecarExtensions = map[string]bool{
 	".jpg":  true,
 	".jpeg": true,
