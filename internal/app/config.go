@@ -317,15 +317,9 @@ func LoadAppConfig(catalog *Catalog) (*AppConfig, error) {
 	}
 
 	// ...normalize database path
-	dbPath = filepath.Join(result.AppDir, DbFileName)
-	if result.Settings.Server.DatabasePath != "" {
-		var norm string
-
-		if norm, err = normalizeFolderPath(result.AppDir, result.Settings.Server.DatabasePath); err != nil {
-			return nil, err
-		}
-
-		dbPath = filepath.Join(norm, DbFileName)
+	dbPath, err = databasePath(result.AppDir, result.Settings.Server.DatabasePath)
+	if err != nil {
+		return nil, err
 	}
 
 	if result.Settings.Upload.MaxRequestBytes <= 0 {
@@ -442,6 +436,30 @@ func decodeSettings(data []byte, settings any) error {
 		"unrecognized configuration keys: %s",
 		strings.Join(keys, ", "),
 	)
+}
+
+// ConfiguredDatabasePath reads the database location without initializing the app.
+func ConfiguredDatabasePath(appDir, configPath string) (string, error) {
+	var config struct {
+		Server struct {
+			DatabasePath string `toml:"database_path"`
+		} `toml:"server"`
+	}
+	if _, err := toml.DecodeFile(configPath, &config); err != nil {
+		return "", err
+	}
+	return databasePath(appDir, config.Server.DatabasePath)
+}
+
+func databasePath(appDir, folder string) (string, error) {
+	if folder == "" {
+		return filepath.Join(appDir, DbFileName), nil
+	}
+	dir, err := normalizeFolderPath(appDir, folder)
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, DbFileName), nil
 }
 
 func ensureConfigFile() (appDir string, path string, err error) {

@@ -10,11 +10,13 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/zanyoats/kukicha/internal/app"
 	"github.com/zanyoats/kukicha/internal/auth"
+	"github.com/zanyoats/kukicha/internal/buildinfo"
 	"github.com/zanyoats/kukicha/internal/jobs"
 	proc "github.com/zanyoats/kukicha/internal/processor"
 	"github.com/zanyoats/kukicha/internal/scan"
@@ -24,16 +26,59 @@ import (
 )
 
 func main() {
+	if len(os.Args) > 1 {
+		printHelp()
+		return
+	}
 	if err := run(); err != nil {
 		slog.Error("kukicha stopped with error", "error", err)
 		os.Exit(1)
 	}
 }
 
+func printHelp() {
+	fmt.Printf("Welcome to Kukicha (%s)!\n\n", buildinfo.Version())
+	fmt.Println("To start the app, run kukicha without any flags.\nUse -h, --help, or any argument to show this message.")
+	fmt.Printf(`
+Required environment variables
+  KUKICHA_PASSPHRASE   Choose a passphrase to sign in to Kukicha (up to %d bytes).
+  KUKICHA_JWT_SECRET   A private key Kukicha uses to sign login sessions.
+                       Generate it once with: openssl rand -base64 32
+                       Keep the same key across restarts to preserve sessions.
+
+Set both variables in the environment that starts Kukicha. For example, in a shell:
+  export KUKICHA_PASSPHRASE='replace with your own passphrase'
+  export KUKICHA_JWT_SECRET='paste the generated key here'
+`, auth.MaxPassphraseBytes)
+
+	dir, err := os.UserConfigDir()
+	if err != nil {
+		fmt.Printf("Could not find your app directory: %v\n", err)
+		return
+	}
+	appDir := filepath.Join(dir, app.AppName)
+	configPath := filepath.Join(appDir, app.ConfigFileName)
+	fmt.Printf("\nYour app directory is %s\n", appDir)
+	switch _, err := os.Stat(configPath); {
+	case errors.Is(err, os.ErrNotExist):
+		fmt.Printf("You can create your config file at %s\n", configPath)
+	case err != nil:
+		fmt.Printf("Could not check your config file: %v\n", err)
+	default:
+		fmt.Printf("Your config file is at %s\n", configPath)
+		dbPath, err := app.ConfiguredDatabasePath(appDir, configPath)
+		if err != nil {
+			fmt.Printf("Could not determine the database location: %v\n", err)
+			return
+		}
+		fmt.Printf("Database location: %s\n", dbPath)
+	}
+}
+
 func run() error {
 	key, err := auth.ParseJWTSecret(os.Getenv("KUKICHA_JWT_SECRET"))
 	if err != nil {
-		return err
+		return fmt.Errorf("%w (run kukicha --help for setup instructions)", err)
 	}
 
 	catalog, err := app.LoadTaxonomy()
@@ -47,7 +92,7 @@ func run() error {
 	}
 	credentials, err := auth.New(os.Getenv("KUKICHA_PASSPHRASE"), key, conf.Settings.Server.SessionLifetime.Duration)
 	if err != nil {
-		return err
+		return fmt.Errorf("%w (run kukicha --help for setup instructions)", err)
 	}
 
 	slog.SetDefault(slog.New(slog.NewTextHandler(
@@ -187,6 +232,7 @@ func run() error {
 	go func() {
 		slog.Info(
 			"starting http",
+			"version", buildinfo.Version(),
 			"url", fmt.Sprintf(
 				"http://%s",
 				conf.Settings.Server.ServerAddress,
