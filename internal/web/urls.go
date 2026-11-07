@@ -38,6 +38,7 @@ type URLs struct {
 	AlbumMetadataOverride   string
 	SubmitJob               string
 	CancelJob               string
+	CleanupJob              string
 	JobEvents               string
 	AlbumTracks             string
 	Scrobble                string
@@ -84,6 +85,7 @@ func NewURLs(basePath string) URLs {
 		AlbumMetadataOverride:   api + "/albums/metadata-override/",
 		SubmitJob:               api + "/jobs/",
 		CancelJob:               api + "/jobs/cancel/",
+		CleanupJob:              api + "/jobs/cleanup/",
 		JobEvents:               api + "/jobs/events/",
 		AlbumTracks:             api + "/albums/tracks/",
 		Scrobble:                api + "/scrobble/",
@@ -160,4 +162,9 @@ func (u URLs) JobsURL(before int64) string {
 		return u.Jobs
 	}
 	return u.Jobs + "?" + url.Values{"before": {strconv.FormatInt(before, 10)}}.Encode()
+}
+
+// JobEntryURL keeps polling stable even as newer jobs change pagination.
+func (u URLs) JobEntryURL(id int64) string {
+	return u.Jobs + "?" + url.Values{"job_id": {strconv.FormatInt(id, 10)}}.Encode()
 }

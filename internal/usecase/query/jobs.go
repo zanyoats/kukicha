@@ -13,16 +13,19 @@ import (
 var jobSQL string
 
 type Job struct {
-	ID                int64
-	Type              string
-	Payload           json.RawMessage
-	State             string
-	Attempts          int64
-	CreatedAt         string
-	StartedAt         sql.NullString
-	FinishedAt        sql.NullString
-	LastError         sql.NullString
-	CancelRequestedAt sql.NullString
+	ID                 int64
+	Type               string
+	Payload            json.RawMessage
+	State              string
+	Attempts           int64
+	CreatedAt          string
+	StartedAt          sql.NullString
+	FinishedAt         sql.NullString
+	LastError          sql.NullString
+	CancelRequestedAt  sql.NullString
+	LibraryPublished   bool
+	ArtworkCompletedAt sql.NullString
+	CleanedAt          sql.NullString
 }
 
 type JobReader interface {
@@ -43,7 +46,8 @@ func scanJob(row interface{ Scan(...any) error }) (Job, error) {
 	var job Job
 	var payload string
 	err := row.Scan(&job.ID, &job.Type, &payload, &job.State, &job.Attempts,
-		&job.CreatedAt, &job.StartedAt, &job.FinishedAt, &job.LastError, &job.CancelRequestedAt)
+		&job.CreatedAt, &job.StartedAt, &job.FinishedAt, &job.LastError, &job.CancelRequestedAt,
+		&job.LibraryPublished, &job.ArtworkCompletedAt, &job.CleanedAt)
 	job.Payload = json.RawMessage(payload)
 	return job, err
 }
@@ -81,4 +85,16 @@ func Jobs(ctx context.Context, db *sql.DB, before int64, perPage int) (JobBatch,
 		return JobBatch{}, fmt.Errorf("iterate jobs: %w", err)
 	}
 	return batch, nil
+}
+
+func (j Job) IsBuildAdd() bool {
+	var p struct {
+		Mode string `json:"mode"`
+	}
+	return j.Type == "build" && json.Unmarshal(j.Payload, &p) == nil && p.Mode == "add"
+}
+
+func (j Job) CanCleanup() bool {
+	return j.IsBuildAdd() && (j.State == "failed" || j.State == "canceled") &&
+		!j.LibraryPublished && !j.CleanedAt.Valid
 }

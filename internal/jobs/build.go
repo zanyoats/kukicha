@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 
@@ -50,13 +49,16 @@ func (j *Build) Run(ctx context.Context) error {
 	if state != "running" {
 		return errors.New("build job is not running")
 	}
-	// Recovery preserves IDs and the processor claims jobs oldest first, so
-	// a later build cannot replace this marker before this job is retried.
-	generatedJobID, err := query.AppMetadata(ctx, conn, app.LibraryGeneratedJobId)
-	if err != nil && !errors.Is(err, query.ErrAppMetadataNotFound) {
+	var published bool
+	if err := conn.QueryRowContext(ctx, "SELECT library_published FROM jobs WHERE id = ?", id).Scan(&published); err != nil {
 		return err
 	}
-	if err == nil && generatedJobID == strconv.FormatInt(id, 10) {
+	scanner := &fileScanner{Conf: j.Conf, Notifications: j.Notifications, logger: app.JobLogger(ctx)}
+	if published {
+		if err := scanner.completePendingArtwork(ctx, conn); err != nil {
+			app.JobLogger(ctx).WarnContext(ctx, "optional artwork lookup failed", "error", err)
+			return ctx.Err()
+		}
 		return nil
 	}
 
@@ -76,7 +78,6 @@ func (j *Build) Run(ctx context.Context) error {
 		return err
 	}
 	logger := app.JobLogger(ctx)
-	scanner := &fileScanner{Conf: j.Conf, Notifications: j.Notifications, logger: logger}
 	var destination app.Root
 	if p.Mode == app.BuildAdd {
 		for _, root := range j.Conf.Roots {
@@ -109,13 +110,11 @@ func (j *Build) Run(ctx context.Context) error {
 	}
 
 	if p.Mode == app.BuildAdd {
-		created, err := time.Parse(time.DateTime, createdAt)
+		destinationPath, err := buildDestinationPath(createdAt, id)
 		if err != nil {
-			return fmt.Errorf("parse build job creation time: %w", err)
+			return err
 		}
-		// Persisted creation time keeps the path stable across retries; the job
-		// ID makes it unique even when requests have the same timestamp.
-		destinationPath := fmt.Sprintf("%s/job-%d/", created.UTC().Format("2006-01-02T150405Z"), id)
+
 		var rootPos int
 		if err := conn.QueryRowContext(
 			ctx, "SELECT root_pos FROM scan_roots WHERE config_id = ?", p.RootID,
@@ -167,11 +166,13 @@ func (j *Build) Run(ctx context.Context) error {
 			logger.WarnContext(ctx, "cannot remove completed build temporary directory", "error", err)
 		}
 	}
-	if p.Mode == app.BuildAdd && j.Conf.Settings.Scan.ITunes.Enabled {
-		if err := scanner.lookupITunesArtwork(ctx, conn); err != nil {
-			logger.WarnContext(ctx, "optional artwork lookup failed", "error", err)
+	if err := scanner.completePendingArtwork(ctx, conn); err != nil {
+		logger.WarnContext(ctx, "optional artwork lookup failed", "error", err)
+		if ctx.Err() != nil {
+			return ctx.Err()
 		}
 	}
+
 	if result.LogStats, err = query.JobLogCounts(ctx, conn, id); err != nil {
 		return err
 	}
@@ -236,4 +237,16 @@ func validateBuildSource(p app.BuildJobPayload, roots []app.Root) error {
 		}
 	}
 	return nil
+}
+
+// Persisted creation time and ID keep the output prefix stable across retries.
+func buildDestinationPath(createdAt string, id int64) (string, error) {
+	created, err := time.Parse(time.DateTime, createdAt)
+	if err != nil {
+		return "", fmt.Errorf("parse build job creation time: %w", err)
+	}
+	if id <= 0 {
+		return "", errors.New("build job ID must be positive")
+	}
+	return fmt.Sprintf("%s/job-%d/", created.UTC().Format("2006-01-02T150405Z"), id), nil
 }

@@ -5,12 +5,14 @@ export async function requestJSON(
     {
         method,
         body,
+        timeout,
         errorMessage = "Unable to complete the request. Please try again.",
     },
 ) {
     try {
         return await up.request(url, {
             method,
+            timeout,
             wrapMethod: false,
             contentType: "application/json",
             payload: JSON.stringify(body),

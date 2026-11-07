@@ -20,7 +20,7 @@
     </aside>
     <div id="job-entries">
         {{range .Jobs.Entries}}
-        <section class="job-summary" aria-labelledby="job-{{.ID}}">
+        <section id="job-entry-{{.ID}}" up-source="{{$.URLs.JobEntryURL .ID}}" class="job-summary" aria-labelledby="job-{{.ID}}">
             <div class="job-summary-heading">
                 <h2 id="job-{{.ID}}">
                     {{.Type}}
@@ -65,6 +65,17 @@
                     <dd>{{.Attempts}}</dd>
                 </div>
             </dl>
+            {{if .IsBuildAdd}}
+            {{if .LibraryPublished}}
+            <p class="alert alert-info">Files were added to the library. Cleanup is unavailable because these files are in use.</p>
+            {{if not .ArtworkCompletedAt.Valid}}<p class="alert alert-warning">Artwork lookup is pending. <button type="button" class="inline-action" data-library-job-submit="{{$.URLs.SubmitJob}}">Rebuild</button> to retry it when iTunes artwork lookup is enabled.</p>{{end}}
+            {{end}}
+            {{if .CleanedAt.Valid}}
+            <p class="alert alert-warning" role="status">Output files removed and verified — <time>{{formatTimestamp .CleanedAt.String}}</time>.</p>
+            {{else if .CanCleanup}}
+            <p class="alert alert-warning"><button type="button" class="inline-action" data-job-cleanup="{{$.URLs.CleanupJob}}" data-job-id="{{.ID}}">Clean up</button> unused files copied into the destination by this job. You may need to run this multiple times to clean up all the files.</p>
+            {{end}}
+            {{end}}
             {{if .LastError.Valid}}
             <aside class="alert alert-error job-error" aria-label="Last error">
                 <strong>Last error</strong>

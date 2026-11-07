@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/http"
 
+	"github.com/zanyoats/kukicha/internal/jobs"
 	"github.com/zanyoats/kukicha/internal/processor"
 	"github.com/zanyoats/kukicha/internal/usecase/command"
 )
@@ -56,6 +57,31 @@ func (c *webRouter) cancelJob(w http.ResponseWriter, r *http.Request) {
 		default:
 			slog.ErrorContext(r.Context(), "unable to cancel job", "error", err)
 			apiError(w, http.StatusInternalServerError, "Unable to cancel the job.")
+		}
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (c *webRouter) cleanupJob(w http.ResponseWriter, r *http.Request) {
+	var input struct {
+		JobID int64 `json:"job_id"`
+	}
+	if !decodeJSONRequest(w, r, &input) {
+		return
+	}
+	if input.JobID <= 0 {
+		apiError(w, http.StatusBadRequest, "A positive job ID is required.")
+		return
+	}
+	if err := jobs.CleanupBuild(r.Context(), c.db, c.conf, input.JobID); err != nil {
+		if errors.Is(err, jobs.ErrJobNotCleanable) {
+			apiError(w, http.StatusConflict, err.Error())
+		} else if errors.Is(err, sql.ErrNoRows) {
+			apiError(w, http.StatusNotFound, "Job not found.")
+		} else {
+			slog.ErrorContext(r.Context(), "unable to clean up job files", "error", err)
+			apiError(w, http.StatusInternalServerError, "Cleanup did not complete: "+err.Error())
 		}
 		return
 	}

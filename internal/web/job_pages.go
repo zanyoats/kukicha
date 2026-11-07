@@ -22,7 +22,23 @@ func (c *webRouter) showJobs(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	jobs, err := query.Jobs(r.Context(), c.db, before, c.perPage)
+	var jobs query.JobBatch
+	if r.URL.Query().Has("job_id") {
+		id, parseErr := parsePositiveID(r, "job_id")
+		if parseErr != nil {
+			http.Error(w, parseErr.Error(), http.StatusBadRequest)
+			return
+		}
+		job, readErr := query.JobByID(r.Context(), c.db, id)
+		if errors.Is(readErr, sql.ErrNoRows) {
+			http.NotFound(w, r)
+			return
+		}
+		err = readErr
+		jobs.Entries = []query.Job{job}
+	} else {
+		jobs, err = query.Jobs(r.Context(), c.db, before, c.perPage)
+	}
 	if err != nil {
 		internalServerError(w, "unable to load jobs", "error", err)
 		return

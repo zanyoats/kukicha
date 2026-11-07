@@ -372,6 +372,11 @@ CREATE TABLE jobs (
     finished_at         TEXT                                   ,
     last_error          TEXT                                   ,
     cancel_requested_at TEXT                                   ,
+    library_published   INTEGER NOT NULL DEFAULT 0             ,
+    artwork_completed_at TEXT                                  ,
+    cleaned_at          TEXT                                   ,
+
+    CHECK (library_published IN (0, 1))                         ,
 
     CHECK (type = 'build')                   ,
     CHECK (json_valid(payload))                                ,

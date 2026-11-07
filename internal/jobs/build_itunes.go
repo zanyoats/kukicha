@@ -91,6 +91,7 @@ func (j *fileScanner) lookupITunesArtwork(ctx context.Context, conn *sql.Conn) e
 
 	const batchSize = 100
 	var afterID int64
+	var lookupFailed bool
 	for {
 		candidates, lastID, err := query.LibraryArtworkCandidates(ctx, conn, afterID, batchSize)
 		if err != nil {
@@ -100,6 +101,9 @@ func (j *fileScanner) lookupITunesArtwork(ctx context.Context, conn *sql.Conn) e
 			j.logger.InfoContext(ctx, "iTunes artwork lookup completed",
 				"processed_candidates", progress.count(),
 			)
+			if lookupFailed {
+				return ErrITunesArtworkLookup
+			}
 			return nil
 		}
 
@@ -121,6 +125,7 @@ func (j *fileScanner) lookupITunesArtwork(ctx context.Context, conn *sql.Conn) e
 				if !errors.Is(err, ErrITunesArtworkLookup) {
 					return err
 				}
+				lookupFailed = true
 				j.logger.ErrorContext(ctx, fmt.Sprintf(
 					"iTunes artwork lookup failed: kind %s, lookup ID %s: %v",
 					candidate.Kind, candidate.LookupID, err,
@@ -164,4 +169,28 @@ func (j *fileScanner) lookupITunesArtwork(ctx context.Context, conn *sql.Conn) e
 
 		afterID = lastID
 	}
+}
+
+// Lookup covers the current library, so a successful pass completes all pending
+// published additions. Builds run serially, and cleanup cannot delete published additions.
+func (j *fileScanner) completePendingArtwork(ctx context.Context, conn *sql.Conn) error {
+	if !j.Conf.Settings.Scan.ITunes.Enabled {
+		return nil
+	}
+	var pending bool
+	if err := conn.QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM jobs
+        WHERE type = 'build' AND json_extract(payload, '$.mode') = 'add'
+        AND library_published = 1 AND artwork_completed_at IS NULL)`).Scan(&pending); err != nil {
+		return err
+	}
+	if !pending {
+		return nil
+	}
+	if err := j.lookupITunesArtwork(ctx, conn); err != nil {
+		return err
+	}
+	_, err := conn.ExecContext(ctx, `UPDATE jobs SET artwork_completed_at = CURRENT_TIMESTAMP
+        WHERE type = 'build' AND json_extract(payload, '$.mode') = 'add'
+        AND library_published = 1 AND artwork_completed_at IS NULL`)
+	return err
 }

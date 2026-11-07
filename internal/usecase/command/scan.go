@@ -230,6 +230,10 @@ func BuildLibraryFromScan(
 		return result, err
 	}
 
+	if _, err := tx.ExecContext(ctx, "UPDATE jobs SET library_published = 1 WHERE id = ?", jobID); err != nil {
+		return result, err
+	}
+
 	return result, tx.Commit()
 }
 

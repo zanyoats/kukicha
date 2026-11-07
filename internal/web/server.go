@@ -186,6 +186,7 @@ func NewWebRouter(
 		exactPattern(http.MethodPost, urls.RadioTrack),
 		router.selectRadioTrack,
 	)
+	mux.HandleFunc(exactPattern(http.MethodPost, urls.CleanupJob), router.cleanupJob)
 	mux.HandleFunc(
 		exactPattern(http.MethodPost, urls.CancelJob),
 		router.cancelJob,
