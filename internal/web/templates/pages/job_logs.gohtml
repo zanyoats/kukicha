@@ -41,7 +41,7 @@
                 <time>{{formatTimestamp .Timestamp}}</time>
                 <p class="job-log-message">{{.Message}}</p>
             </div>
-            {{if or .Data.root .Data.path (ne .Data.job_id nil) (ne .Data.job_type nil) (ne .Data.attempt nil) (ne .Data.state nil) (ne .Data.processed_files nil) (ne .Data.processed_candidates nil)}}
+            {{if or .Data.root .Data.path .Data.runErr (ne .Data.job_id nil) (ne .Data.job_type nil) (ne .Data.attempt nil) (ne .Data.state nil) (ne .Data.processed_files nil) (ne .Data.processed_candidates nil)}}
             <dl class="job-log-paths">
                 {{with .Data.root}}
                 <div>
@@ -77,6 +77,12 @@
                 <div>
                     <dt>State</dt>
                     <dd title="{{.Data.state}}">{{.Data.state}}</dd>
+                </div>
+                {{end}}
+                {{with .Data.runErr}}
+                <div>
+                    <dt>Error</dt>
+                    <dd title="{{.}}">{{.}}</dd>
                 </div>
                 {{end}}
                 {{if ne .Data.processed_files nil}}

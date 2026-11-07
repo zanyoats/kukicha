@@ -116,7 +116,8 @@
             <pre><code>aws sts get-session-token \
   --duration-seconds 3600 \
   --endpoint-url https://sts.wasabisys.com \
-  --profile your-profile</code></pre>
+  --profile your-profile \
+  --no-cli-pager</code></pre>
             <p>This example uses Wasabi’s STS endpoint. Replace it for your provider. For AWS, omit <code>--endpoint-url</code>.</p>
             <p>Paste <code>AccessKeyId</code>, <code>SecretAccessKey</code>, and <code>SessionToken</code> from the response into the form. Your profile needs permission to list the source bucket and read its files. Add MFA parameters if your account requires them.</p>
             <p class="job-help-note"><strong>Bucket endpoint is different:</strong> enter your provider’s S3 storage endpoint in the form, not its STS endpoint. Make sure the credentials remain valid long enough for the import to finish.</p>
