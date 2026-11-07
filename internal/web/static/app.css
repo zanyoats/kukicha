@@ -720,8 +720,7 @@ up-popup.info-popup[size] {
             auto /* play button    */
             1.5rem /* track position */
             minmax(0, 1fr) /* track info     */
-            auto /* track duration */
-            auto; /* track actions  */
+            auto; /* track duration */
         gap: 0.85rem;
         align-items: center;
         min-block-size: 2.75rem;
@@ -1001,7 +1000,7 @@ up-popup.info-popup[size] {
     }
 
     .track-row {
-        grid-template-columns: auto 1.5rem minmax(0, 1fr) auto;
+        grid-template-columns: auto 1.5rem minmax(0, 1fr);
         gap: 0.55rem;
     }
 
