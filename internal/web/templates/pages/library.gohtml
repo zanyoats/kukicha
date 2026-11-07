@@ -3,7 +3,17 @@
 {{define "page-content"}}
 <article class="library-page">
     <div class="library-header">
+        {{if .UnknownGenre}}
+        <header>
+            <p class="page-eyebrow">{{.EyeBrow}}</p>
+            <div class="action-with-info">
+                <h1 class="text-truncate" title="{{.Heading}}">{{.Heading}}</h1>
+                {{template "unknown-genre-help" .URLs}}
+            </div>
+        </header>
+        {{else}}
         {{template "page-header" .}}
+        {{end}}
 
         <button
             type="button"

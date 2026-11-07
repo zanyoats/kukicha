@@ -1,0 +1,13 @@
+{{define "unknown-genre-help" -}}
+<button type="button" class="info-trigger" aria-label="Why is this genre unknown?" aria-haspopup="dialog"
+    up-follow up-layer="new popup" up-content="#unknown-genre-help" up-class="info-popup"
+    up-position="bottom" up-align="left" up-history="false" up-dismissible="key outside"
+><span aria-hidden="true">[?]</span></button>
+<template id="unknown-genre-help">
+    <section class="job-help" aria-labelledby="unknown-genre-help-title">
+        <h2 id="unknown-genre-help-title">Why is this genre unknown?</h2>
+        <p>Kukicha couldn’t identify the genre. Choose a source for the album in
+            <a href="{{.MetadataOverrides}}" up-layer="new modal" up-target=".config-page" up-class="config-modal" up-history="false">Metadata Overrides</a>, then rebuild your library.</p>
+    </section>
+</template>
+{{- end}}

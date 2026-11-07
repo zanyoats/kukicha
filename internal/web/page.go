@@ -9,6 +9,8 @@ import (
 	"io/fs"
 	"path"
 	"time"
+
+	"github.com/zanyoats/kukicha/internal/app"
 )
 
 var (
@@ -29,6 +31,8 @@ func NewPageRenderer(toastMinDuration time.Duration) (Renderer, error) {
 		New("site").
 		Funcs(template.FuncMap{
 			"toastMinDurationMS": toastMinDurationMS(toastMinDuration),
+			"unknownItem":        func() string { return app.UnknownItem },
+			"genreLabel":         genreLabel,
 			"formatDate":         formatDate,
 			"formatDuration":     formatDuration,
 			"formatNumber":       formatNumber,
@@ -96,4 +100,11 @@ func (r *PageRenderer) Render(w io.Writer, p string, m any) error {
 	}
 
 	return nil
+}
+
+func genreLabel(name string) string {
+	if name == app.UnknownItem {
+		return "Unknown"
+	}
+	return name
 }

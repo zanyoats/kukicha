@@ -188,16 +188,13 @@ region = us-east-1</code></pre>
     <ul class="item-grid">
         {{range .Genres}}
         <li class="radio-card">
-            <a
-                class="radio-card-name text-truncate"
-                href="{{.URL}}"
-                title="{{.Name}}"
-                up-follow
-                >{{.Name}}</a
-            >
+            <span class="action-with-info">
+                <a class="radio-card-name text-truncate" href="{{.URL}}" title="{{genreLabel .Name}}" up-follow>{{genreLabel .Name}}</a>
+                {{if eq .Name unknownItem}}{{template "unknown-genre-help" $.URLs}}{{end}}
+            </span>
             <span class="radio-card-leader" aria-hidden="true"></span>
-            <span class="radio-card-action"{{if not .RadioViable}} title="{{.RadioUnavailableReason}}" tabindex="0" aria-label="{{.Name}} radio: {{.RadioUnavailableReason}}"{{end}}>
-                <button type="button" class="radio-card-link" data-radio-kind="genre" data-radio-id="{{.ID}}" aria-label="Play {{.Name}} radio"{{if not .RadioViable}} disabled title="{{.RadioUnavailableReason}}"{{end}}>(radio)</button>
+            <span class="radio-card-action"{{if not .RadioViable}} title="{{.RadioUnavailableReason}}" tabindex="0" aria-label="{{genreLabel .Name}} radio: {{.RadioUnavailableReason}}"{{end}}>
+                <button type="button" class="radio-card-link" data-radio-kind="genre" data-radio-id="{{.ID}}" aria-label="Play {{genreLabel .Name}} radio"{{if not .RadioViable}} disabled title="{{.RadioUnavailableReason}}"{{end}}>(radio)</button>
             </span>
         </li>
         {{else}}

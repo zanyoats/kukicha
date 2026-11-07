@@ -13,14 +13,15 @@ import (
 )
 
 type libraryViewModel struct {
-	EyeBrow     string
-	URLs        URLs
-	Heading     string
-	Albums      []albumCard
-	SortOptions []albumSortOption
-	PreviousURL string
-	NextURL     string
-	FirstURL    string
+	UnknownGenre bool
+	EyeBrow      string
+	URLs         URLs
+	Heading      string
+	Albums       []albumCard
+	SortOptions  []albumSortOption
+	PreviousURL  string
+	NextURL      string
+	FirstURL     string
 }
 
 type albumSortOption struct {
@@ -223,11 +224,12 @@ func (c *webRouter) showLibrary(w http.ResponseWriter, r *http.Request) {
 		}
 
 		model := libraryViewModel{
-			EyeBrow:     "Collection",
-			URLs:        c.urls,
-			Heading:     heading,
-			Albums:      albumCards,
-			SortOptions: librarySortOptions(c.urls.Library, filters, sort),
+			EyeBrow:      "Collection",
+			URLs:         c.urls,
+			Heading:      heading,
+			UnknownGenre: filters.GenreID != 0 && filterNames.Genre != nil && *filterNames.Genre == app.UnknownItem,
+			Albums:       albumCards,
+			SortOptions:  librarySortOptions(c.urls.Library, filters, sort),
 		}
 		if offset > 0 {
 			model.PreviousURL = libraryPageURL(c.urls.Library, filters, sort, max(0, offset-c.perPage))
@@ -243,6 +245,10 @@ func (c *webRouter) showLibrary(w http.ResponseWriter, r *http.Request) {
 }
 
 func libraryHeading(filters query.AlbumFilters, names query.AlbumFilterNames) (string, error) {
+	if names.Genre != nil {
+		label := genreLabel(*names.Genre)
+		names.Genre = &label
+	}
 	var parts []string
 	for _, filter := range []struct {
 		id       int64

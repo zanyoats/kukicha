@@ -128,7 +128,10 @@
                 <dt>Genres</dt>
                 <dd class="fact-links">
                     {{range .}}
-                    <a href="{{.URL}}" up-follow>{{.Name}}</a>
+                    <span class="action-with-info">
+                        <a href="{{.URL}}" up-follow>{{genreLabel .Name}}</a>
+                        {{if eq .Name unknownItem}}{{template "unknown-genre-help" $.URLs}}{{end}}
+                    </span>
                     {{end}}
                 </dd>
             </div>

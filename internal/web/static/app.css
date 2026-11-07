@@ -453,6 +453,7 @@ article h2 {
     gap: 0.35rem;
     min-inline-size: 0;
 
+    .action-with-info,
     .radio-card-name {
         flex: 0 1 auto;
         min-inline-size: 0;
@@ -495,6 +496,10 @@ article h2 {
 
 .library-header > header {
     min-inline-size: 0;
+}
+
+.library-header .action-with-info {
+    max-inline-size: 100%;
 }
 
 .library-sort-trigger {
@@ -645,7 +650,7 @@ up-popup.info-popup[size] {
     max-inline-size: 100%;
 }
 
-.fact-links a:not(:last-child) {
+.fact-links > :not(:last-child) {
     margin-inline-end: 0.3rem;
 }
 
