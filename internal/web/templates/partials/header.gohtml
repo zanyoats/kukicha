@@ -9,7 +9,7 @@
         <div class="snackbar-clip">
             <div class="snackbar-content">
                 <span data-job-description role="status" aria-live="polite" aria-atomic="true"></span>
-                <a href="{{.URLs.CancelJob}}" class="snackbar-action" data-job-cancel up-follow="false">Cancel</a>
+                <button type="button" class="action-button snackbar-action" data-job-cancel disabled>Cancel</button>
             </div>
         </div>
         <template data-job-labels>
@@ -25,8 +25,11 @@
             <a href="{{.URLs.Search}}" up-follow>search</a>
         </nav>
 
-        <a
+        <button
+            type="button"
             class="avatar"
+            aria-haspopup="dialog"
+            up-follow
             aria-label="Open avatar panel"
             up-class="avatar-drawer"
             up-layer="new drawer"
@@ -34,7 +37,7 @@
             up-content="#avatar-panel-template"
         >
             <img src="{{.URLs.InstanceIdenticon}}" alt="Kukicha instance identicon" />
-        </a>
+        </button>
 
         <section class="toast-layer"
             aria-label="Notifications"
@@ -52,6 +55,18 @@
 
 <template id="avatar-panel-template">
     <aside class="avatar-panel" aria-label="Avatar panel">
+        <h2 class="avatar-add-heading">
+            <a
+                href="{{.URLs.Add}}"
+                up-layer="new modal"
+                up-target=".config-page"
+                up-class="config-modal"
+                up-history="false"
+                up-cache="false"
+                up-animation="false"
+                up-close-animation="false"
+            >Add to Kukicha</a>
+        </h2>
         <h2>
             <a
                 href="{{.URLs.Roots}}"
@@ -126,18 +141,6 @@
             >
         </h2>
         <div class="avatar-actions">
-            <a
-                href="{{.URLs.Add}}"
-                class="action-button"
-                up-layer="new modal"
-                up-target=".config-page"
-                up-class="config-modal"
-                up-history="false"
-                up-cache="false"
-                up-animation="false"
-                up-close-animation="false"
-            >Add to Kukicha</a>
-
             <form method="post" action="{{.URLs.Logout}}" up-submit="false">
                 <button type="submit" class="action-button">Log out</button>
             </form>

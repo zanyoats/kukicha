@@ -299,9 +299,8 @@ a:focus-visible {
 .snackbar-action {
     flex-shrink: 0;
     color: inherit;
-    text-underline-offset: 0.15em;
 }
-.snackbar-action[aria-disabled="true"] {
+.snackbar-action:disabled {
     opacity: 0.6;
     cursor: default;
 }
@@ -391,20 +390,23 @@ article h2 {
 
     h2 {
         font-size: 1.1rem;
-        font-weight: 500;
+        font-weight: 400;
         line-height: 1.05;
 
         a {
             font-size: inherit;
         }
     }
+
+    .avatar-add-heading {
+        font-weight: 800;
+    }
 }
 
 .avatar-actions {
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    gap: 1rem;
+    justify-content: flex-end;
     margin-block-start: auto;
     padding-block-start: 1rem;
 }

@@ -36,7 +36,7 @@ export default function registerJobStatus(up) {
             const message = `${label} · ${status}${detail ? ` · ${detail}` : ""}`;
             if (description.textContent !== message)
                 description.textContent = message;
-            cancel.setAttribute("aria-disabled", String(!connected || pending));
+            cancel.disabled = !connected || pending;
             cancel.setAttribute("aria-label", `Cancel ${label}`);
         };
         const source = new EventSource(container.dataset.jobEvents);
@@ -70,9 +70,8 @@ export default function registerJobStatus(up) {
             connected = false;
             render();
         });
-        const unbind = up.on(cancel, "click", async (event) => {
-            event.preventDefault();
-            if (!job || cancel.getAttribute("aria-disabled") === "true") return;
+        const unbind = up.on(cancel, "click", async () => {
+            if (!job || cancel.disabled) return;
             const id = job.id;
             cancelling.add(id);
             render();
