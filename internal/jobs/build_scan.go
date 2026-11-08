@@ -13,6 +13,7 @@ import (
 
 	"github.com/zanyoats/kukicha/internal/app"
 	"github.com/zanyoats/kukicha/internal/scan"
+	"github.com/zanyoats/kukicha/internal/scan/duration"
 	"github.com/zanyoats/kukicha/internal/upload"
 	"github.com/zanyoats/kukicha/internal/usecase/command"
 	"github.com/zanyoats/kukicha/internal/walk"
@@ -365,7 +366,14 @@ func (j *fileScanner) processLibraryItem(
 
 	if item.fileType == app.FileTypeAudio {
 		if err := scan.ApplyTrackMetadata(item.physicalFile.path, j.Conf, scannedFile); err != nil {
-			j.logger.ErrorContext(workCtx, err.Error(), "root", item.root.ConfigID(), "path", item.logicalFile.RelPath)
+			if errors.Is(err, duration.ErrIncompleteFinalMP3Frame) {
+				j.logger.WarnContext(workCtx, fmt.Sprintf(
+					"Track import will continue. Recovered duration %d:%02d from complete audio frames; ignored an incomplete final MP3 frame. Details: %v",
+					scannedFile.DurationSeconds/60, scannedFile.DurationSeconds%60, err,
+				), "root", item.root.ConfigID(), "path", item.logicalFile.RelPath)
+			} else {
+				j.logger.ErrorContext(workCtx, err.Error(), "root", item.root.ConfigID(), "path", item.logicalFile.RelPath)
+			}
 		}
 	}
 

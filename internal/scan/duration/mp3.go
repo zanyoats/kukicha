@@ -3,11 +3,16 @@ package duration
 import (
 	"bufio"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 )
 
 const mp3FrameProbeBytes = 1024 * 1024 // Limit initial frame search to 1 MiB
+
+// ErrIncompleteFinalMP3Frame indicates that duration includes only the complete
+// frames preceding an incomplete final frame. The returned duration is usable.
+var ErrIncompleteFinalMP3Frame = errors.New("incomplete final MP3 frame ignored")
 
 type mpegAudioFrameHeader struct {
 	Version         int  // MPEG-1, MPEG-2, or MPEG-2.5
@@ -19,6 +24,7 @@ type mpegAudioFrameHeader struct {
 }
 
 // ReadMP3 returns the MPEG audio duration in whole seconds.
+// With ErrIncompleteFinalMP3Frame, it returns the duration of complete frames.
 func ReadMP3(r io.ReadSeeker) (int64, error) {
 	audioStart, audioEnd, err := mp3AudioBounds(r)
 	if err != nil {
@@ -48,10 +54,14 @@ func ReadMP3(r io.ReadSeeker) (int64, error) {
 		audioEnd,
 		firstHeader,
 	)
-	if err != nil {
+	if err != nil && !errors.Is(err, ErrIncompleteFinalMP3Frame) {
 		return 0, err
 	}
-	return truncateDurationSeconds(totalSamples, uint64(sampleRate))
+	seconds, durationErr := truncateDurationSeconds(totalSamples, uint64(sampleRate))
+	if durationErr != nil {
+		return 0, durationErr
+	}
+	return seconds, err
 }
 
 // returns the byte range [start, end) of which contains the MPEG frames.
@@ -351,6 +361,11 @@ func countMP3FrameSamples(
 		}
 		frameEnd := position + int64(header.FrameSize)
 		if frameEnd > end {
+			// Only tolerate a compatible final header after complete frames;
+			// malformed headers and read failures still fail the scan.
+			if frameCount > 0 {
+				return totalSamples, firstHeader.SampleRate, fmt.Errorf("%w at byte %d: need %d bytes, have %d", ErrIncompleteFinalMP3Frame, position, header.FrameSize, end-position)
+			}
 			return 0, 0, fmt.Errorf("MPEG audio frame at byte %d exceeds audio payload", position)
 		}
 		if _, err := io.CopyN(io.Discard, reader, int64(header.FrameSize-4)); err != nil {

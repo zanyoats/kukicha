@@ -58,13 +58,17 @@ func IsRecognizable(name string, recognizedSidecarArtwork map[string]bool) (file
 	return
 }
 
+// ApplyTrackMetadata populates metadata and filters embedded artwork.
+// ErrIncompleteFinalMP3Frame from duration is a warning: metadata and the
+// duration of complete frames remain usable, and artwork is still filtered.
 func ApplyTrackMetadata(
 	path string,
 	conf *app.AppConfig,
 	scannedFile *app.ScannedFile,
 ) error {
-	if err := scanTrackMetadata(path, scannedFile); err != nil {
-		return fmt.Errorf("scan file: %w", err)
+	metadataErr := scanTrackMetadata(path, scannedFile)
+	if metadataErr != nil && !errors.Is(metadataErr, duration.ErrIncompleteFinalMP3Frame) {
+		return fmt.Errorf("scan file: %w", metadataErr)
 	}
 	if err := filterEmbeddedArtwork(
 		scannedFile, conf.Settings.Scan.LocalArtworkMaxBytes,
@@ -72,6 +76,9 @@ func ApplyTrackMetadata(
 		return fmt.Errorf("embedded artwork: %w", err)
 	}
 
+	if metadataErr != nil {
+		return fmt.Errorf("scan file: %w", metadataErr)
+	}
 	return nil
 }
 
@@ -142,10 +149,13 @@ func scanTrackMetadata(
 		}
 
 		durationSeconds, err := duration.ReadMP3(f)
-		if err != nil {
+		if err != nil && !errors.Is(err, duration.ErrIncompleteFinalMP3Frame) {
 			return fmt.Errorf("read MP3 duration: %w", err)
 		}
 		scannedFile.DurationSeconds = durationSeconds
+		if err != nil {
+			return fmt.Errorf("read MP3 duration: %w", err)
+		}
 
 	default:
 		panic(fmt.Sprintf(
