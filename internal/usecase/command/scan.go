@@ -183,7 +183,7 @@ func BuildLibraryFromScan(
 		return result, err
 	}
 
-	if err = buildLibraryAlbumGenresAndStyles(ctx, tx); err != nil {
+	if err = buildLibraryAlbumGenresAndStyles(ctx, tx, unknownItem); err != nil {
 		return result, err
 	}
 
@@ -575,10 +575,12 @@ func buildLibraryTrackGenresAndStyles(
 func buildLibraryAlbumGenresAndStyles(
 	ctx context.Context,
 	tx *sql.Tx,
+	unknownItem string,
 ) error {
 	if _, err := tx.ExecContext(
 		ctx,
 		buildLibraryAlbumGenresAndStylesSQL,
+		sql.Named("unknown_item", unknownItem),
 	); err != nil {
 		return fmt.Errorf(
 			"build library album genres and styles: %w",
