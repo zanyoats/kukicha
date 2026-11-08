@@ -41,17 +41,14 @@ WITH summaries AS (
 INSERT INTO library_job_logs (job_id, level, message, data)
 SELECT
     :job_id,
-    CASE
-        WHEN input_count > 0 AND resolved_count = 0 THEN 'error'
-        ELSE 'warn'
-    END,
+    'warn',
     CASE
         WHEN input_count = 0
-            THEN 'set to unknown since audio file genres was empty'
+            THEN 'Track imported. No genre tags were present in the audio metadata; the library genre was set to unknown.'
         WHEN resolved_count = 0
-            THEN 'set to unknown since the following audio file genres could not resolve to either a canonical style or genre: ' || unresolved_display
+            THEN 'Track imported. None of the audio genre tags could be recognized as a genre or style; the library genre was set to unknown. Unrecognized tags: ' || unresolved_display
         WHEN unresolved_count > 0
-            THEN 'the following audio file genres could not resolve to either a canonical style or genre: ' || unresolved_display
+            THEN 'Track imported. Recognized genres and styles were kept, but some audio genre tags could not be recognized. Unrecognized tags: ' || unresolved_display
     END,
     json_object('root', roots.config_id, 'path', summaries.path)
 FROM summaries
@@ -60,8 +57,5 @@ JOIN library_roots AS roots ON roots.id = tracks.root_id
 WHERE (input_count = 0
     OR resolved_count = 0
     OR unresolved_count > 0)
-    AND CASE
-        WHEN input_count > 0 AND resolved_count = 0 THEN :error_enabled
-        ELSE :warn_enabled
-    END
+    AND :warn_enabled
 ORDER BY summaries.track_id;

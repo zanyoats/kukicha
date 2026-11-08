@@ -564,7 +564,6 @@ func buildLibraryTrackGenresAndStyles(
 	logger := app.JobLogger(ctx)
 	if _, err := tx.ExecContext(ctx, genreResolutionResultsSQL,
 		sql.Named("job_id", jobID),
-		sql.Named("error_enabled", logger.Enabled(ctx, slog.LevelError)),
 		sql.Named("warn_enabled", logger.Enabled(ctx, slog.LevelWarn)),
 	); err != nil {
 		return fmt.Errorf("record genre resolution issues: %w", err)
