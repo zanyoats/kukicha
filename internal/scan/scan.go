@@ -31,7 +31,10 @@ func IsRecognizable(name string, recognizedSidecarArtwork map[string]bool) (file
 
 	for ext_ := range RecognizedSidecarExtensions {
 		if strings.EqualFold(ext, ext_) {
-			if ext_ == ".pdf" {
+			switch ext_ {
+			case ".jpg", ".jpeg", ".png", ".webp", ".gif":
+				// Only images are eligible for cover-name matching.
+			default:
 				ok = true
 				filetype = app.FileTypeSidecarOther
 				return
@@ -103,7 +106,7 @@ func scanTrackMetadata(
 	defer f.Close()
 
 	switch strings.ToLower(filepath.Ext(path)) {
-	case ".m4a", ".m4p", ".m4v":
+	case ".m4a", ".m4p":
 		items, err := readMP4ItemList(f)
 		if err != nil {
 			return fmt.Errorf("read MP4 item list: %w", err)

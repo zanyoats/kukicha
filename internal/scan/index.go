@@ -20,7 +20,6 @@ var RecognizedAudioExtensions = map[string]bool{
 	/* MP4 */
 	".m4a": true,
 	".m4p": true,
-	".m4v": true,
 	/* VORBIS */
 	".flac": true,
 	".oga":  true,
@@ -31,12 +30,23 @@ var RecognizedAudioExtensions = map[string]bool{
 }
 
 var RecognizedSidecarExtensions = map[string]bool{
+	// Images may be classified as covers by their basename.
 	".jpg":  true,
 	".jpeg": true,
 	".png":  true,
 	".webp": true,
 	".gif":  true,
+	// Documents and videos are always other sidecars.
 	".pdf":  true,
+	".m4v":  true,
+	".mp4":  true,
+	".mov":  true,
+	".mkv":  true,
+	".webm": true,
+	".avi":  true,
+	".wmv":  true,
+	".mpg":  true,
+	".mpeg": true,
 }
 
 type artworkPictureType int
