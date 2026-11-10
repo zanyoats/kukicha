@@ -16,6 +16,8 @@ type URLs struct {
 	Home                    string
 	Library                 string
 	AlbumArtwork            string
+	AlbumSidecars           string
+	SidecarFile             string
 	TrackAudio              string
 	Search                  string
 	ArtistRules             string
@@ -63,6 +65,8 @@ func NewURLs(basePath string) URLs {
 		Home:                    app + "/",
 		Library:                 app + "/library/",
 		AlbumArtwork:            app + "/library/album/artwork/",
+		AlbumSidecars:           app + "/library/album/sidecars/",
+		SidecarFile:             app + "/library/album/sidecars/file/",
 		TrackAudio:              app + "/library/album/tracks/audio/",
 		Search:                  app + "/search/",
 		ArtistRules:             app + "/artistRules/",
@@ -167,4 +171,11 @@ func (u URLs) JobsURL(before int64) string {
 // JobEntryURL keeps polling stable even as newer jobs change pagination.
 func (u URLs) JobEntryURL(id int64) string {
 	return u.Jobs + "?" + url.Values{"job_id": {strconv.FormatInt(id, 10)}}.Encode()
+}
+
+func (u URLs) AlbumSidecarsURL(id int64) string {
+	return u.AlbumSidecars + "?album_id=" + strconv.FormatInt(id, 10)
+}
+func (u URLs) SidecarFileURL(id int64) string {
+	return u.SidecarFile + "?sidecar_id=" + strconv.FormatInt(id, 10)
 }

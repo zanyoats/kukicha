@@ -2469,3 +2469,47 @@ up-modal.config-modal:has(.add-page) up-modal-box {
 .help-config-table tbody th {
     font-weight: normal;
 }
+
+.sidecar-list {
+    list-style: none;
+    padding: 0;
+    display: grid;
+    gap: 1.5rem;
+}
+.sidecar-list a {
+    overflow-wrap: anywhere;
+}
+.sidecar-file-card {
+    display: inline-flex;
+    align-items: center;
+    gap: 1rem;
+    max-width: 100%;
+}
+.sidecar-file-details {
+    display: grid;
+    gap: 0.25rem;
+    min-width: 0;
+    text-decoration: none;
+}
+.sidecar-file-name {
+    text-decoration: underline;
+}
+.sidecar-file-details > span:last-child {
+    font-size: 0.875rem;
+}
+.sidecar-list img,
+.sidecar-list video {
+    display: block;
+    max-width: 100%;
+    max-height: 65vh;
+    margin-top: 0.5rem;
+    object-fit: contain;
+}
+
+.sidecar-list video {
+    /* Reserve the same frame before and after video metadata loads. */
+    width: min(100%, calc(65vh * 16 / 9));
+    height: auto;
+    aspect-ratio: 16 / 9;
+    background: #000;
+}

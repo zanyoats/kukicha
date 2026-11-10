@@ -91,6 +91,7 @@ type artworkViewModel struct {
 }
 
 type albumViewModel struct {
+	HasSidecars   bool
 	EyeBrow       string
 	Heading       string
 	URLs          URLs
@@ -164,7 +165,13 @@ func (c *webRouter) showLibrary(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		hasSidecars, err := query.AlbumHasSidecars(r.Context(), c.db, album.ID)
+		if err != nil {
+			internalServerError(w, "unable to check album sidecars", "error", err)
+			return
+		}
 		renderPage(w, c.renderer, "album.gohtml", albumViewModel{
+			HasSidecars:   hasSidecars,
 			EyeBrow:       "Collection",
 			Heading:       album.Title,
 			URLs:          c.urls,

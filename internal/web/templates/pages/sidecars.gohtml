@@ -1,0 +1,37 @@
+{{define "title"}}Sidecars — {{.EyeBrow}}{{end}}
+{{define "body"}}
+<body class="config-document">
+    <main class="config-standalone" up-main>
+        <nav aria-label="Album navigation"><a href="{{.URLs.AlbumURL .AlbumID}}">Back to album</a></nav>
+        {{template "page-content" .}}
+    </main>
+</body>
+{{end}}
+{{define "page-content"}}
+<article class="config-page sidecars-page">
+    {{template "page-header" .}}
+    <ul class="sidecar-list">
+        {{range .Sidecars}}
+        <li>
+            {{if or .Image .Video}}
+            <a href="{{.URL}}" target="_blank" rel="noopener">{{.Name}}</a>
+            {{if .Image}}
+            <img src="{{.URL}}" alt="{{.Name}}" loading="lazy">
+            {{else if .Video}}
+            <video src="{{.URL}}" controls preload="none" aria-label="{{.Name}}"></video>
+            {{end}}
+            {{else}}
+            <div class="sidecar-file-card">
+                <a class="sidecar-file-details" href="{{.URL}}" target="_blank" rel="noopener">
+                    <span class="sidecar-file-name">{{.Name}}</span>
+                    <span>Open in new tab ↗</span>
+                </a>
+            </div>
+            {{end}}
+        </li>
+        {{else}}
+        <li>This album has no sidecars.</li>
+        {{end}}
+    </ul>
+</article>
+{{end}}

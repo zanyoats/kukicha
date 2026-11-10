@@ -25,6 +25,10 @@
         </div>
 
         <dl class="facts">
+            <div>
+                <dt>Sidecars</dt>
+                <dd>{{if .HasSidecars}}<a href="{{.URLs.AlbumSidecarsURL .Album.ID}}" up-follow up-layer="new modal" up-target=".sidecars-page" up-class="config-modal" up-history="false">view</a>{{else}}no{{end}}</dd>
+            </div>
             {{with .Album.Artists}}
             <div>
                 <dt>Album artists</dt>

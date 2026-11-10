@@ -47,19 +47,24 @@ func (c *webRouter) streamTrackAudio(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	c.serveLibraryFile(w, r, audio)
+}
+
+// serveLibraryFile serves a database-resolved path using the configured storage root.
+func (c *webRouter) serveLibraryFile(w http.ResponseWriter, r *http.Request, audio query.TrackAudio) {
 	root := c.rootsByConfigID[audio.ConfigID]
 	if root == nil {
-		http.Error(w, "Track root is no longer configured", http.StatusNotFound)
+		http.Error(w, "File root is no longer configured", http.StatusNotFound)
 		return
 	}
 
 	if remoteRoot, ok := root.(*app.RemoteRoot); ok {
-		c.redirectRemoteAudio(w, r, remoteRoot, audio.RelativePath, audio.Extension)
+		c.redirectRemoteFile(w, r, remoteRoot, audio.RelativePath, audio.Extension)
 		return
 	}
 	localRoot, ok := root.(*app.LocalRoot)
 	if !ok {
-		http.Error(w, "Unsupported track root", http.StatusInternalServerError)
+		http.Error(w, "Unsupported file root", http.StatusInternalServerError)
 		return
 	}
 	audioPath, err := resolveTrackAudioPath(
@@ -68,14 +73,14 @@ func (c *webRouter) streamTrackAudio(w http.ResponseWriter, r *http.Request) {
 	)
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
-		http.Error(w, "Track not found", http.StatusNotFound)
+		http.Error(w, "File not found", http.StatusNotFound)
 		return
 
 	case err != nil:
 		internalServerError(
 			w,
-			"unable to resolve track audio path",
-			"track_id", trackID,
+			"unable to resolve library file path",
+			"path", audio.RelativePath,
 			"error", err,
 		)
 		return
@@ -84,14 +89,14 @@ func (c *webRouter) streamTrackAudio(w http.ResponseWriter, r *http.Request) {
 	file, err := os.Open(audioPath)
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
-		http.Error(w, "Track not found", http.StatusNotFound)
+		http.Error(w, "File not found", http.StatusNotFound)
 		return
 
 	case err != nil:
 		internalServerError(
 			w,
-			"unable to open track audio",
-			"track_id", trackID,
+			"unable to open library file",
+			"path", audio.RelativePath,
 			"error", err,
 		)
 		return
@@ -102,8 +107,8 @@ func (c *webRouter) streamTrackAudio(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		internalServerError(
 			w,
-			"unable to inspect track audio",
-			"track_id", trackID,
+			"unable to inspect library file",
+			"path", audio.RelativePath,
 			"error", err,
 		)
 		return
@@ -112,11 +117,11 @@ func (c *webRouter) streamTrackAudio(w http.ResponseWriter, r *http.Request) {
 	if !info.Mode().IsRegular() {
 		slog.WarnContext(
 			r.Context(),
-			"refusing non-regular track audio file",
-			"track_id", trackID,
+			"refusing non-regular library file file",
+			"path", audio.RelativePath,
 			"path", audioPath,
 		)
-		http.Error(w, "Track not found", http.StatusNotFound)
+		http.Error(w, "File not found", http.StatusNotFound)
 		return
 	}
 
@@ -135,7 +140,7 @@ func (c *webRouter) streamTrackAudio(w http.ResponseWriter, r *http.Request) {
 	)
 }
 
-func (c *webRouter) redirectRemoteAudio(
+func (c *webRouter) redirectRemoteFile(
 	w http.ResponseWriter,
 	r *http.Request,
 	root *app.RemoteRoot,

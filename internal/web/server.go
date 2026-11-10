@@ -136,6 +136,8 @@ func NewWebRouter(
 		exactPattern(http.MethodGet, urls.AlbumArtwork),
 		router.getAlbumArtwork,
 	)
+	mux.HandleFunc(exactPattern(http.MethodGet, urls.AlbumSidecars), router.showAlbumSidecars)
+	mux.HandleFunc(exactPattern(http.MethodGet, urls.SidecarFile), router.serveSidecarFile)
 	mux.HandleFunc(
 		exactPattern(http.MethodGet, urls.TrackAudio),
 		router.streamTrackAudio,
