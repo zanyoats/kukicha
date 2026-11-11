@@ -24,10 +24,10 @@ export default function registerRoots(up) {
                 await requestJSON(up, button.dataset.dropRoot, {
                     method: "POST",
                     body: { config_id: button.dataset.rootId },
-                    errorMessage: "Unable to remove the root.",
+                    errorMessage: "Unable to remove the storage location.",
                 });
                 if (destroyed) return;
-                showToast("Root marked for removal. Rebuild to remove its library data. Files in storage are left untouched.", { trigger: button });
+                showToast("Storage location marked for removal. Rebuild to remove its library data. Files in storage are left untouched.", { trigger: button });
                 await refresh(button);
             } catch (failure) {
                 if (!destroyed) showToast(failure.message, { role: "alert", trigger: button });
@@ -69,10 +69,10 @@ export default function registerRoots(up) {
                 await requestJSON(up, form.action, {
                     method: form.dataset.method,
                     body: Object.fromEntries(new FormData(form)),
-                    errorMessage: "Unable to save the root.",
+                    errorMessage: "Unable to save the storage location.",
                 });
                 if (destroyed) return;
-                showToast(form.dataset.method === "PUT" ? "Root saved." : "Root added. You can now import music.", { trigger: button });
+                showToast(form.dataset.method === "PUT" ? "Storage location saved." : "Storage location added. You can now import music.", { trigger: button });
                 await refresh(form);
             } catch (failure) {
                 if (!destroyed) {

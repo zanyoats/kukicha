@@ -12,12 +12,12 @@
     {{template "page-header" .}}
     <form class="add-form" action="{{.URLs.Add}}" method="post" data-add-form data-max-request-bytes="{{.MaxRequestBytes}}" up-submit="false">
         <div class="add-destination">
-            <label for="add-root">Destination root (required)</label>
+            <label for="add-root">Store music in (required)</label>
             <select id="add-root" name="root_config_id" required>
-                <option value="">Choose a root</option>
+                <option value="">Choose a storage location</option>
                 {{range .Roots}}<option value="{{.RootKey}}">{{.RootKey}}</option>{{end}}
             </select>
-            {{if not .Roots}}<p class="text-secondary">No available roots. <a href="{{.URLs.Roots}}?section=add" up-target=".config-page" up-history="false">Add a root</a> first.</p>{{end}}
+            {{if not .Roots}}<p class="text-secondary">No available storage locations. <a href="{{.URLs.Roots}}?section=add" up-target=".config-page" up-history="false">Add a storage location</a> first.</p>{{end}}
         </div>
         <div class="add-destination">
             <label for="add-mode">Add from (required)</label>
@@ -102,7 +102,7 @@
                 </div>
                 <p class="text-secondary">Used only to read this source. Kukicha won’t use the server’s credentials for it. Choose credentials that will remain valid while the job waits and runs.</p>
             </div>
-            <p class="text-secondary">The build job scans and copies music into the destination root. Source files remain unchanged.</p>
+            <p class="text-secondary">The build job scans and copies music into the selected storage location. Source files remain unchanged.</p>
         </div>
         <p class="text-secondary" data-add-notice role="status" hidden></p>
         <div class="add-actions">

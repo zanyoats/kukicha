@@ -586,7 +586,7 @@ func NormalizeRoot(baseDir string, entry RootConfig) (Root, error) {
 	}
 	entry.ID = strings.TrimSpace(entry.ID)
 	invalid := func(message string) error {
-		return fmt.Errorf("root %q: %s", entry.ID, message)
+		return fmt.Errorf("storage location %q: %s", entry.ID, message)
 	}
 	if entry.ID == "" {
 		return nil, invalid("id must be non-empty")
@@ -637,7 +637,7 @@ func normalizeRemoteRoot(r *RemoteRoot) error {
 		Region: r.Region, AddressingStyle: r.AddressingStyle,
 	})
 	if err != nil {
-		return fmt.Errorf("remote root %q: %w", r.ID, err)
+		return fmt.Errorf("remote storage location %q: %w", r.ID, err)
 	}
 	r.EndpointURL, r.Bucket, r.Region, r.AddressingStyle = location.EndpointURL, location.Bucket, location.Region, location.AddressingStyle
 	r.Profile = strings.TrimSpace(r.Profile)
@@ -671,7 +671,7 @@ func normalizeRootPath(baseDir, name string) (string, error) {
 				return "", err
 			}
 			if !info.IsDir() {
-				return "", fmt.Errorf("root ancestor %q is not a directory", ancestor)
+				return "", fmt.Errorf("storage location ancestor %q is not a directory", ancestor)
 			}
 			for i := len(missing) - 1; i >= 0; i-- {
 				resolved = filepath.Join(resolved, missing[i])

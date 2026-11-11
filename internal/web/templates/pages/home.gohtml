@@ -18,7 +18,7 @@
             {{else}}
             <aside class="alert alert-info" aria-label="Empty library">
                 <strong>No tracks are currently available in your library.</strong>
-                <p>You may not have added music yet, or your uploads may not have contained supported audio files. Previously added music may also be hidden if its root is pending removal — <a href="{{.URLs.Roots}}" up-layer="new modal" up-target=".config-page" up-class="config-modal" up-history="false">check your roots</a> for details.</p>
+                <p>You may not have added music yet, or your uploads may not have contained supported audio files. Previously added music may also be hidden if its storage location is pending removal — <a href="{{.URLs.Roots}}" up-layer="new modal" up-target=".config-page" up-class="config-modal" up-history="false">check your storage</a> for details.</p>
                 <p>
                     The recognized audio file extensions are:
                     {{range $index, $extension := .RecognizedAudioExtensions}}{{if $index}}, {{end}}<code>{{$extension}}</code>{{end}}.
@@ -48,10 +48,10 @@
         </aside>
         {{end}}
     {{else}}
-        <aside class="alert alert-info" aria-label="Add a root">
-            <strong>Add a root to get started.</strong>
-            <p>A root is a local folder or S3-compatible storage location where Kukicha stores your music.</p>
-            <p><a href="{{.URLs.Roots}}?section=add" up-layer="new modal" up-target=".config-page" up-class="config-modal" up-history="false">Add a root</a>, then import music with Add to Kukicha. No restart is needed.</p>
+        <aside class="alert alert-info" aria-label="Add a storage location">
+            <strong>Add a storage location to get started.</strong>
+            <p>Choose a local folder or S3-compatible storage location where Kukicha will store your music.</p>
+            <p><a href="{{.URLs.Roots}}?section=add" up-layer="new modal" up-target=".config-page" up-class="config-modal" up-history="false">Add a storage location</a>, then import music with Add to Kukicha. No restart is needed.</p>
         </aside>
     {{end}}
 </article>

@@ -97,7 +97,7 @@ func (c *webRouter) showRoots(w http.ResponseWriter, r *http.Request) {
 	model := rootsViewModel{
 		Section: section, Editing: editing, Form: form,
 		EyeBrow:       "Settings",
-		Heading:       "Roots",
+		Heading:       "Storage",
 		URLs:          c.urls,
 		Roots:         rootViews(stored),
 		RootsByKey:    rootsByKey,
@@ -117,7 +117,7 @@ func (c *webRouter) dropRoot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if strings.TrimSpace(input.ConfigID) == "" {
-		apiError(w, http.StatusBadRequest, "A root ID is required.")
+		apiError(w, http.StatusBadRequest, "A storage location ID is required.")
 		return
 	}
 	if err := command.MarkRootForRemoval(r.Context(), c.db, input.ConfigID); err != nil {
@@ -127,7 +127,7 @@ func (c *webRouter) dropRoot(w http.ResponseWriter, r *http.Request) {
 			apiError(w, http.StatusConflict, err.Error())
 		} else {
 			slog.ErrorContext(r.Context(), "unable to mark root for removal", "root", input.ConfigID, "error", err)
-			apiError(w, http.StatusInternalServerError, "Unable to drop the root. Please try again.")
+			apiError(w, http.StatusInternalServerError, "Unable to remove the storage location. Please try again.")
 		}
 		return
 	}
@@ -149,7 +149,7 @@ func (c *webRouter) createRoot(w http.ResponseWriter, r *http.Request) {
 func (c *webRouter) updateRoot(w http.ResponseWriter, r *http.Request) {
 	id := r.URL.Query().Get("id")
 	if strings.TrimSpace(id) == "" {
-		apiError(w, http.StatusBadRequest, "A root ID is required.")
+		apiError(w, http.StatusBadRequest, "A storage location ID is required.")
 		return
 	}
 	var input app.RootStorageConfig

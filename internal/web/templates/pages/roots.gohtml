@@ -1,4 +1,4 @@
-{{define "title"}}Roots{{end}}
+{{define "title"}}Storage{{end}}
 
 {{define "body"}}
 <body class="config-document">
@@ -15,9 +15,9 @@
 <article class="config-page roots-page" data-roots-url="{{.URLs.Roots}}">
     {{template "page-header" .}}
     <div class="top-nav roots-nav">
-        <nav aria-label="Roots sections" up-nav="false">
-            <a href="{{.URLs.Roots}}" up-target=".config-page" up-history="false" {{if and (ne .Section "add") (not .Editing)}}class="up-current" aria-current="page"{{end}}>Show roots</a>
-            <a href="{{.URLs.Roots}}?section=add" up-target=".config-page" up-history="false" {{if eq .Section "add"}}class="up-current" aria-current="page"{{end}}>Add root</a>
+        <nav aria-label="Storage sections" up-nav="false">
+            <a href="{{.URLs.Roots}}" up-target=".config-page" up-history="false" {{if and (ne .Section "add") (not .Editing)}}class="up-current" aria-current="page"{{end}}>Show storage</a>
+            <a href="{{.URLs.Roots}}?section=add" up-target=".config-page" up-history="false" {{if eq .Section "add"}}class="up-current" aria-current="page"{{end}}>Add storage location</a>
             {{if .Editing}}
             <a href="{{.URLs.Roots}}?edit={{.Form.ID}}" up-target=".config-page" up-history="false" class="up-current" aria-current="page">Edit {{.Form.ID}}</a>
             {{end}}
@@ -31,7 +31,7 @@
         <strong>Info</strong>
         <p>
             Run <span class="action-with-info"><button type="button" class="inline-action" data-library-job-submit="{{.URLs.SubmitJob}}">Rebuild</button>{{template "job-help-trigger" "rebuild"}}</span> to apply your latest organization rules to saved metadata.
-            Removing a root hides its music immediately and marks its library data for removal during the next build. Files in storage are left untouched. Rebuild afterward to refresh radio membership and enable radios again.
+            Removing a storage location hides its music immediately and marks its library data for removal during the next build. Files in storage are left untouched. Rebuild afterward to refresh radio membership and enable radios again.
         </p>
         <p>
             Use <a href="{{.URLs.Add}}" up-layer="new modal" up-target=".config-page" up-class="config-modal" up-history="false">Add to Kukicha</a> to import music.
@@ -100,16 +100,16 @@
             {{end}}
         </dl>
         {{if not (index $.RootsByKey .RootKey)}}
-        <p class="text-secondary">No data found for this root.</p>
+        <p class="text-secondary">No data found for this storage location.</p>
         {{end}}
         {{with index $.RootsByKey .RootKey}}
         {{if eq .State "pending_removal"}}
-        <p class="text-secondary">Pending removal. Rebuild to remove this root’s library data. Files in storage are left untouched.</p>
+        <p class="text-secondary">Pending removal. Rebuild to remove this storage location’s library data. Files in storage are left untouched.</p>
         {{end}}
         {{end}}
     </section>
     {{else}}
-    <p>No music roots yet. Choose Add root to get started.</p>
+    <p>No storage locations yet. Choose Add storage location to get started.</p>
     {{end}}
 
     {{if .LatestBuildID}}
@@ -133,10 +133,10 @@
         <a href="{{.URLs.Roots}}" up-target=".config-page" up-history="false">Cancel</a>
     </div>
     {{else}}
-    <h2>Add root</h2>
+    <h2>Add storage location</h2>
     {{end}}
     {{if .Editing}}
-    <p class="text-secondary">The logical ID stays unchanged. Before changing storage locations, move the root’s contents and preserve the directory structure. Editing does not move files or require the destination to be empty.</p>
+    <p class="text-secondary">The logical ID stays unchanged. Before changing storage locations, move the storage location’s contents and preserve the directory structure. Editing does not move files or require the destination to be empty.</p>
     {{else}}
     <p class="text-secondary">Choose a new or empty destination for Kukicha to manage. Local files matching the scan ignore settings are allowed. Import your music afterward using Add to Kukicha.</p>
     {{end}}
@@ -144,7 +144,7 @@
     <div class="add-destination">
         <label for="root-id">Logical ID (required)</label>
         <input id="root-id" name="id" value="{{.Form.ID}}" required>
-        <p class="text-secondary">A unique, case-sensitive name for this root.</p>
+        <p class="text-secondary">A unique, case-sensitive name for this storage location.</p>
     </div>
     {{end}}
     <div class="add-destination">
@@ -164,7 +164,7 @@
         <div class="add-destination">
             <label for="root-path">Server folder path (required)</label>
             <input id="root-path" name="path" value="{{with .Form.Path}}{{.}}{{end}}" required>
-            <p class="text-secondary">Use an absolute path, ~/ for the server account’s home, or a path relative to the configuration directory. New folders are created automatically when adding a root.</p>
+            <p class="text-secondary">Use an absolute path, ~/ for the server account’s home, or a path relative to the configuration directory. New folders are created automatically when adding a storage location.</p>
         </div>
     </div>
     <div class="add-source-fields" data-root-panel="remote">
@@ -206,14 +206,14 @@
     </div>
     <p class="alert alert-error" data-root-error role="alert" hidden></p>
     <div class="add-actions">
-        <button type="submit" class="action-button">{{if .Editing}}Save root{{else}}Add root{{end}}</button>
+        <button type="submit" class="action-button">{{if .Editing}}Save storage location{{else}}Add storage location{{end}}</button>
     </div>
 </form>
 <template id="root-storage-help">
     <section class="job-help" aria-labelledby="root-storage-help-title">
         <h2 id="root-storage-help-title">Choose where your music is stored</h2>
-        <p><strong>Local folder:</strong> a folder on the server running Kukicha, not necessarily the computer you’re browsing from. The server account needs permission to read and write there. New local roots must be empty except for entries matching your scan ignore settings.</p>
-        <p><strong>Remote storage:</strong> an existing S3-compatible bucket, such as Wasabi or AWS S3. Choose a prefix to keep Kukicha’s files in their own part of the bucket. New remote roots must contain no objects under the chosen prefix; ignore settings do not apply to this check.</p>
+        <p><strong>Local folder:</strong> a folder on the server running Kukicha, not necessarily the computer you’re browsing from. The server account needs permission to read and write there. New local storage locations must be empty except for entries matching your scan ignore settings.</p>
+        <p><strong>Remote storage:</strong> an existing S3-compatible bucket, such as Wasabi or AWS S3. Choose a prefix to keep Kukicha’s files in their own part of the bucket. New remote storage locations must contain no objects under the chosen prefix; ignore settings do not apply to this check.</p>
         <h2>Connecting to remote storage</h2>
         <p>Set up credentials on the server. Kukicha reads them there; you don’t enter access keys in this form. Common options are:</p>
         <h2>1. Environment variables</h2>

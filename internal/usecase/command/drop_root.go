@@ -8,8 +8,8 @@ import (
 	"github.com/zanyoats/kukicha/internal/app"
 )
 
-var ErrRootDropBuildRunning = errors.New("Cannot drop a root while a build is in progress. Try again after it finishes.")
-var ErrRootNotAvailable = errors.New("This root is pending removal and cannot be changed.")
+var ErrRootDropBuildRunning = errors.New("Cannot remove a storage location while a build is in progress. Try again after it finishes.")
+var ErrRootNotAvailable = errors.New("This storage location is pending removal and cannot be changed.")
 
 // MarkRootForRemoval never queues a build. Its first statement is a write,
 // serializing the state change with ClaimJob before either operation proceeds.

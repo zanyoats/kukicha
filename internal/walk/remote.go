@@ -55,7 +55,7 @@ func NewS3Client(ctx context.Context, root *app.RemoteRoot) (*s3.Client, error) 
 		return nil, err
 	}
 	if cfg.Region == "" {
-		return nil, errors.New("no region configured: set region for this remote root or in AWS configuration")
+		return nil, errors.New("no region configured: set region for this remote storage location or in AWS configuration")
 	}
 	return s3.NewFromConfig(cfg, func(o *s3.Options) {
 		o.BaseEndpoint = aws.String(root.EndpointURL)

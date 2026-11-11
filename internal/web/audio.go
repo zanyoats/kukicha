@@ -65,7 +65,7 @@ func (c *webRouter) serveLibraryFile(w http.ResponseWriter, r *http.Request, aud
 		}
 	}
 	if root == nil {
-		http.Error(w, "File root is unavailable", http.StatusNotFound)
+		http.Error(w, "File storage location is unavailable", http.StatusNotFound)
 		return
 	}
 
@@ -75,7 +75,7 @@ func (c *webRouter) serveLibraryFile(w http.ResponseWriter, r *http.Request, aud
 	}
 	localRoot, ok := root.(*app.LocalRoot)
 	if !ok {
-		http.Error(w, "Unsupported file root", http.StatusInternalServerError)
+		http.Error(w, "Unsupported file storage location", http.StatusInternalServerError)
 		return
 	}
 	audioPath, err := resolveTrackAudioPath(

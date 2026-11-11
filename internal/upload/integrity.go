@@ -22,7 +22,7 @@ func ValidateNew(ctx context.Context, root app.Root, ignorePrefixes, ignoreFiles
 	switch r := root.(type) {
 	case *app.LocalRoot:
 		if !filepath.IsAbs(r.Path) {
-			return errors.New("root path must be absolute")
+			return errors.New("storage location path must be absolute")
 		}
 		created := false
 		info, err := os.Lstat(r.Path)
@@ -37,7 +37,7 @@ func ValidateNew(ctx context.Context, root app.Root, ignorePrefixes, ignoreFiles
 		} else if err != nil {
 			return err
 		} else if !info.IsDir() {
-			return errors.New("root must be a real directory")
+			return errors.New("storage location must be a real directory")
 		}
 		dir, err := os.OpenRoot(r.Path)
 		if err != nil {
@@ -58,7 +58,7 @@ func ValidateNew(ctx context.Context, root app.Root, ignorePrefixes, ignoreFiles
 					return err
 				}
 				if !app.IsIgnoredScanPath(entry.Name(), ignorePrefixes, ignoreFiles) {
-					return fmt.Errorf("cannot initialize root %q: directory contains data (%q)", r.ConfigID(), entry.Name())
+					return fmt.Errorf("cannot initialize storage location %q: directory contains data (%q)", r.ConfigID(), entry.Name())
 				}
 			}
 		}
@@ -86,12 +86,12 @@ func ValidateNew(ctx context.Context, root app.Root, ignorePrefixes, ignoreFiles
 				return err
 			}
 			if len(page.Contents) > 0 {
-				return fmt.Errorf("cannot initialize root %q: prefix contains data (%q)", r.ConfigID(), aws.ToString(page.Contents[0].Key))
+				return fmt.Errorf("cannot initialize storage location %q: prefix contains data (%q)", r.ConfigID(), aws.ToString(page.Contents[0].Key))
 			}
 		}
 		return nil
 	default:
-		return fmt.Errorf("unsupported root %T", root)
+		return fmt.Errorf("unsupported storage location %T", root)
 	}
 }
 
@@ -113,10 +113,10 @@ func CheckRootStorage(ctx context.Context, root app.Root) error {
 	case *app.LocalRoot:
 		info, err := os.Lstat(r.Path)
 		if err != nil {
-			return fmt.Errorf("root unavailable: %w", err)
+			return fmt.Errorf("storage location unavailable: %w", err)
 		}
 		if !info.IsDir() {
-			return errors.New("root must be a real directory")
+			return errors.New("storage location must be a real directory")
 		}
 		return nil
 	case *app.RemoteRoot:
@@ -126,10 +126,10 @@ func CheckRootStorage(ctx context.Context, root app.Root) error {
 		}
 		_, err = client.ListObjectsV2(ctx, &s3.ListObjectsV2Input{Bucket: aws.String(r.Bucket), Prefix: aws.String(r.Prefix), MaxKeys: aws.Int32(1)})
 		if err != nil {
-			return fmt.Errorf("root storage unavailable: %w", err)
+			return fmt.Errorf("storage location unavailable: %w", err)
 		}
 		return nil
 	default:
-		return fmt.Errorf("unsupported root %T", root)
+		return fmt.Errorf("unsupported storage location %T", root)
 	}
 }

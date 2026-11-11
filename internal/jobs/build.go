@@ -209,7 +209,7 @@ func validateBuildSource(p app.BuildJobPayload, roots []app.Root) error {
 		}
 		for _, root := range roots {
 			if target, ok := root.(*app.RemoteRoot); ok && r.EndpointURL == target.EndpointURL && r.Bucket == target.Bucket && (strings.HasPrefix(r.Prefix, target.Prefix) || strings.HasPrefix(target.Prefix, r.Prefix)) {
-				return errors.New("sync source overlaps a managed root")
+				return errors.New("sync source overlaps a managed storage location")
 			}
 		}
 		return nil
@@ -234,7 +234,7 @@ func validateBuildSource(p app.BuildJobPayload, roots []app.Root) error {
 				return err
 			}
 			if overlaps(source, target) || overlaps(target, source) {
-				return errors.New("sync source overlaps a managed root")
+				return errors.New("sync source overlaps a managed storage location")
 			}
 		}
 	}

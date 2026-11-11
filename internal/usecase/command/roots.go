@@ -13,9 +13,9 @@ import (
 	"github.com/zanyoats/kukicha/internal/usecase/query"
 )
 
-var ErrRootNotFound = errors.New("Root not found.")
+var ErrRootNotFound = errors.New("Storage location not found.")
 
-var ErrRootChangeBuildRunning = errors.New("Cannot change roots while a build is in progress. Try again after it finishes.")
+var ErrRootChangeBuildRunning = errors.New("Cannot change storage locations while a build is in progress. Try again after it finishes.")
 
 // CreateRoot validates empty storage before persisting a new logical root.
 func CreateRoot(ctx context.Context, db *sql.DB, baseDir string, input app.RootConfig, validateNew func(context.Context, app.Root) error) error {
@@ -81,12 +81,12 @@ func saveRoot(ctx context.Context, db *sql.DB, root app.Root, create bool) error
 	for _, other := range stored {
 		if other.ConfigID() == root.ConfigID() {
 			if create {
-				return errors.New("a root with this ID already exists")
+				return errors.New("a storage location with this ID already exists")
 			}
 			continue
 		}
 		if rootsOverlap(root, other) {
-			return fmt.Errorf("storage overlaps root %q", other.ConfigID())
+			return fmt.Errorf("storage overlaps storage location %q", other.ConfigID())
 		}
 	}
 	data, err := json.Marshal(query.RootSettings(root))

@@ -77,7 +77,7 @@ func (s *Service) destination(ctx context.Context, rootID string) (app.Root, err
 			return root, nil
 		}
 	}
-	return nil, errors.New("unknown destination root")
+	return nil, errors.New("unknown destination storage location")
 }
 
 func (s *Service) enqueue(ctx context.Context, root app.Root, tempDir, mode string, source *app.BuildSource) (int64, error) {
@@ -141,7 +141,7 @@ func (s *Service) normalizeSource(ctx context.Context, request SyncRequest) (*ap
 		for _, root := range roots {
 			if target, ok := root.(*app.RemoteRoot); ok && target.EndpointURL == remote.EndpointURL && target.Bucket == remote.Bucket &&
 				(strings.HasPrefix(target.Prefix, remote.Prefix) || strings.HasPrefix(remote.Prefix, target.Prefix)) {
-				return nil, errors.New("remote source overlaps a managed root")
+				return nil, errors.New("remote source overlaps a managed storage location")
 			}
 		}
 		spec.Remote = remote
@@ -167,7 +167,7 @@ func (s *Service) normalizeSource(ctx context.Context, request SyncRequest) (*ap
 					return nil, err
 				}
 				if inside(target, resolved) || inside(resolved, target) {
-					return nil, errors.New("source folder overlaps a managed root")
+					return nil, errors.New("source folder overlaps a managed storage location")
 				}
 			}
 		}
