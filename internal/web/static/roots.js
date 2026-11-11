@@ -2,37 +2,83 @@ import { requestJSON } from "./json-api.js";
 import { showToast } from "./notifications.js";
 
 export default function registerRoots(up) {
-    up.compiler("[data-lost-root]", (row) => {
-        const button = row.querySelector("[data-drop-root]");
-        let submitting = false;
+    const refresh = (element) => {
+        const page = element.closest(".roots-page");
+        const layer = up.layer.get(element);
+        return up.render({
+            url: page ? page.dataset.rootsUrl : element.dataset.rootsUrl,
+            target: ".config-page",
+            layer: page ? layer : layer.parent,
+            history: false,
+            cache: false,
+        });
+    };
+
+    up.compiler("[data-drop-root]", (button) => {
         let destroyed = false;
-        const unbind = up.on(button, "click", async (event) => {
-            event.preventDefault();
-            if (submitting) return;
-            submitting = true;
+        const unbind = up.on(button, "click", async () => {
+            if (button.disabled) return;
             button.disabled = true;
             button.setAttribute("aria-busy", "true");
             try {
                 await requestJSON(up, button.dataset.dropRoot, {
                     method: "POST",
                     body: { config_id: button.dataset.rootId },
-                    errorMessage: "Unable to drop the root. Please try again.",
+                    errorMessage: "Unable to remove the root.",
                 });
                 if (destroyed) return;
-                const section = row.closest(".lost-roots");
-                const heading = section.closest("article").querySelector("h1");
-                unbind();
-                row.remove();
-                const next = section.querySelector("[data-drop-root]");
-                if (!next) section.hidden = true;
-                const focusTarget = next || heading;
-                if (focusTarget) {
-                    if (!next) focusTarget.setAttribute("tabindex", "-1");
-                    focusTarget.focus();
-                }
-                showToast(`Root “${button.dataset.rootId}” marked for removal. Its saved library data will be removed during the next build.`, { trigger: focusTarget });
+                showToast("Root marked for removal. Rebuild to remove its library data. Files in storage are left untouched.", { trigger: button });
+                await refresh(button);
             } catch (failure) {
                 if (!destroyed) showToast(failure.message, { role: "alert", trigger: button });
+            } finally {
+                if (!destroyed) {
+                    button.disabled = false;
+                    button.removeAttribute("aria-busy");
+                }
+            }
+        });
+        return [() => { destroyed = true; }, unbind];
+    });
+
+    up.compiler("[data-root-form]", (form) => {
+        const type = form.elements.type;
+        const button = form.querySelector('[type="submit"]');
+        const error = form.querySelector("[data-root-error]");
+        let destroyed = false;
+        let submitting = false;
+        const markInvalid = () => form.classList.add("validation-attempted");
+        form.addEventListener("invalid", markInvalid, true);
+        const update = () => {
+            for (const panel of form.querySelectorAll("[data-root-panel]")) {
+                const active = panel.dataset.rootPanel === type.value;
+                panel.hidden = !active;
+                for (const field of panel.querySelectorAll("input, select")) field.disabled = !active;
+            }
+        };
+        update();
+        const change = up.on(type, "change", update);
+        const submit = up.on(form, "submit", async (event) => {
+            event.preventDefault();
+            if (submitting || !form.reportValidity()) return;
+            submitting = true;
+            button.disabled = true;
+            button.setAttribute("aria-busy", "true");
+            error.hidden = true;
+            try {
+                await requestJSON(up, form.action, {
+                    method: form.dataset.method,
+                    body: Object.fromEntries(new FormData(form)),
+                    errorMessage: "Unable to save the root.",
+                });
+                if (destroyed) return;
+                showToast(form.dataset.method === "PUT" ? "Root saved." : "Root added. You can now import music.", { trigger: button });
+                await refresh(form);
+            } catch (failure) {
+                if (!destroyed) {
+                    error.textContent = failure.message;
+                    error.hidden = false;
+                }
             } finally {
                 submitting = false;
                 if (!destroyed) {
@@ -41,6 +87,11 @@ export default function registerRoots(up) {
                 }
             }
         });
-        return [() => { destroyed = true; }, unbind];
+        return [
+            () => { destroyed = true; },
+            () => form.removeEventListener("invalid", markInvalid, true),
+            change,
+            submit,
+        ];
     });
 }

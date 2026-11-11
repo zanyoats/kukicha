@@ -1,19 +1,7 @@
--- Include stored roots even when they are no longer configured. Rebuilds must
--- preserve their saved resources so restoring availability does not require imports.
--- Explicitly dropped roots and all their resources are excluded from staging.
+-- Roots pending removal and their resources are excluded.
 INSERT INTO scan_roots (root_pos, config_id)
 SELECT ROW_NUMBER() OVER (ORDER BY config_id COLLATE BINARY) - 1, config_id
-FROM (
-    SELECT value AS config_id FROM json_each(:root_config_ids)
-    UNION
-    SELECT config_id FROM library_roots
-    UNION
-    SELECT config_id FROM unrecognized_tracks
-) AS candidates
-WHERE NOT EXISTS (
-    SELECT 1 FROM library_roots AS removed
-    WHERE removed.config_id = candidates.config_id AND removed.state = 'pending_removal'
-);
+FROM library_roots WHERE state = 'available';
 
 INSERT INTO scan_tracks (
     root_pos, config_id, album_key, path_dir, stem, ext, path,

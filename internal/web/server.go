@@ -41,9 +41,7 @@ type webRouter struct {
 	radioMinTracks            int64
 	perPage                   int
 	defaultAlbumSort          app.AlbumSort
-	configuredRoots           []app.Root
-	rootsByConfigID           map[string]app.Root
-	remoteAudioClients        sync.Map // root config ID -> *s3.PresignClient
+	remoteAudioClients        sync.Map // complete remote root value -> *s3.PresignClient
 	configFilePath            string
 	recognizedAudioExtensions []string
 }
@@ -58,17 +56,12 @@ func NewWebRouter(
 	defaultAlbumSort app.AlbumSort,
 	jobProcessor JobProcessor,
 	notifications NotificationSubscriber,
-	configuredRoots []app.Root,
 	configFilePath string,
 	recognizedAudioExtensions map[string]bool,
 	credentials *auth.Auth,
 	uploads *upload.Service,
 	maxUploadRequestBytes int64,
 ) http.Handler {
-	rootsByConfigID := make(map[string]app.Root, len(configuredRoots))
-	for _, root := range configuredRoots {
-		rootsByConfigID[root.ConfigID()] = root
-	}
 	urls := NewURLs(basePath)
 	if credentials == nil {
 		panic("authentication is required")
@@ -86,12 +79,12 @@ func NewWebRouter(
 		perPage:                   perPage,
 		radioMinTracks:            radioMinTracks,
 		defaultAlbumSort:          defaultAlbumSort,
-		configuredRoots:           configuredRoots,
-		rootsByConfigID:           rootsByConfigID,
 		configFilePath:            configFilePath,
 		recognizedAudioExtensions: slices.Sorted(maps.Keys(recognizedAudioExtensions)),
 	}
 	mux := http.NewServeMux()
+	mux.HandleFunc(exactPattern(http.MethodPost, urls.CreateRoot), router.createRoot)
+	mux.HandleFunc(exactPattern(http.MethodPut, urls.UpdateRoot), router.updateRoot)
 	mux.HandleFunc(exactPattern(http.MethodPost, urls.Scrobble), router.scrobble)
 	mux.HandleFunc(
 		exactPattern(http.MethodGet, urls.Login),

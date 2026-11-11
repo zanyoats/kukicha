@@ -27,6 +27,7 @@ export default function registerAdd(up) {
     up.compiler("[data-add-form]", (form) => {
         const maxRequestBytes = BigInt(form.dataset.maxRequestBytes);
         const sizeError = form.querySelector("[data-add-size-error]");
+        const filesError = form.querySelector("[data-add-files-error]");
         const limitLabel = `${formatSize(Number(maxRequestBytes))} (${maxRequestBytes} bytes)`;
         const sizeErrorMessage = `Selected files leave no room within the ${limitLabel} upload request limit for multipart headers. Remove files or upload them in smaller batches.`;
         const filesInput = form.querySelector("[data-add-files]");
@@ -44,10 +45,15 @@ export default function registerAdd(up) {
         const field = (name) => form.elements.namedItem(name).value;
         let uploading = false;
         let reading = false;
+        let validationAttempted = false;
         const selected = new Map();
         const controller = new AbortController();
         let dragDepth = 0;
         const on = (element, event, callback) => element.addEventListener(event, callback, { signal: controller.signal });
+        // Native validation may stop submission before the submit event fires.
+        form.addEventListener("invalid", () => {
+            form.classList.add("validation-attempted");
+        }, { capture: true, signal: controller.signal });
         on(document, "up:layer:dismiss", (event) => {
             if (uploading && event.layer.element.contains(form)) {
                 event.preventDefault();
@@ -103,9 +109,13 @@ export default function registerAdd(up) {
             const oversized = isFiles && selected.size > 0 && selectedBytes() >= maxRequestBytes;
             sizeError.hidden = !oversized;
             sizeError.textContent = oversized ? sizeErrorMessage : "";
-            upload.disabled = busy || (isFiles && selected.size === 0) || oversized || !root.value;
+            const missingFiles = validationAttempted && isFiles && selected.size === 0;
+            filesError.hidden = !missingFiles;
+            zone.classList.toggle("is-invalid", missingFiles);
+            pick.setAttribute("aria-invalid", String(missingFiles));
+            upload.disabled = busy;
             upload.textContent = isFiles ? (uploading ? "Uploading…" : "Upload") : (uploading ? "Queueing…" : "Add music");
-            root.disabled = busy || root.options.length <= 1;
+            root.disabled = busy;
             status.textContent = reading ? "Reading folders…" : selected.size
                 ? `${selected.size} ${selected.size === 1 ? "file" : "files"} selected · ${formatSize(bytes)}`
                 : "No files selected.";
@@ -129,7 +139,15 @@ export default function registerAdd(up) {
         on(form, "submit", async (event) => {
             event.preventDefault();
             const isFiles = mode.value === "files";
-            if (uploading || reading || (isFiles && !selected.size) || !root.value || !form.reportValidity()) return;
+            if (uploading || reading) return;
+            validationAttempted = true;
+            form.classList.add("validation-attempted");
+            render();
+            if (!form.reportValidity()) return;
+            if (isFiles && !selected.size) {
+                pick.focus();
+                return;
+            }
             if (isFiles && selectedBytes() >= maxRequestBytes) {
                 render();
                 return;
@@ -183,6 +201,8 @@ export default function registerAdd(up) {
                     throw new Error(message);
                 }
                 const result = await response.json();
+                validationAttempted = false;
+                form.classList.remove("validation-attempted");
                 if (isFiles) selected.clear();
                 else if (sourceType.value === "remote") {
                     for (const name of ["access_key_id", "secret_access_key", "session_token"]) {

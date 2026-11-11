@@ -24,7 +24,7 @@ type buildTarget struct {
 }
 
 func newBuildTarget(ctx context.Context, root app.Root) (*buildTarget, error) {
-	if err := upload.CheckRootMarker(ctx, root); err != nil {
+	if err := upload.CheckRootStorage(ctx, root); err != nil {
 		return nil, err
 	}
 	target := &buildTarget{}

@@ -31,88 +31,11 @@ type RemoteWalkedFile struct {
 // large object download.
 const remoteResponseHeaderTimeoutSec = 30
 
-// TODO Explicit Go STS integration with additional config keys
-//   role_arn = "arn:aws:iam::ACCOUNT_ID:role/MusicReader"
-//   sts_endpoint_url = "https://sts.example.com"
-
-// NewS3Client creates an S3 client using AWS SDK credential configuration.
-//
-// Shared files and external helpers must be accessible to the OS user running
-// the server; environment variables must be set in the server's environment.
-//
-// A region must be either set in the remote root configuration or in the profile
-// used by the remote root at ~/.aws/config.
-//
-// Below are the 3 methods of providing authentication.
-//
-// # (1) Shared credentials profile
-//
-// A named profile in ~/.aws/credentials supplies the credentials:
-//
-//	[myprofile]
-//	aws_access_key_id = YOUR_ACCESS_KEY
-//	aws_secret_access_key = YOUR_SECRET_KEY
-//
-// The matching profile in ~/.aws/config can supply the region:
-//
-//	[profile myprofile]
-//	region = us-east-1
-//
-// Select the profile in the app's configuration:
-//
-//	[[scan.roots]]
-//	id = "myname"
-//	type = "remote"
-//	endpoint_url = "https://s3.example.com"
-//	bucket = "com.example.music"
-//	prefix = "tracks/"
-//	profile = "myprofile"
-//
-// # (2) Environment variables
-//
-// Set these in the environment that starts the server:
-//
-//	export AWS_ACCESS_KEY_ID='YOUR_ACCESS_KEY'
-//	export AWS_SECRET_ACCESS_KEY='YOUR_SECRET_KEY'
-//	export AWS_REGION='us-east-1'
-//
-// Leave profile unset in the app's configuration to use environment credentials:
-//
-//	[[scan.roots]]
-//	id = "myname"
-//	type = "remote"
-//	endpoint_url = "https://s3.example.com"
-//	bucket = "com.example.music"
-//	prefix = "tracks/"
-//
-// # (3) External credential process
-//
-// Configure an executable credential helper in ~/.aws/config:
-//
-//	[profile myprofile]
-//	credential_process = /absolute/path/to/credential-helper
-//	region = us-east-1
-//
-// The helper must exit successfully and write only credential JSON to stdout:
-//
-//	{
-//	  "Version": 1,
-//	  "AccessKeyId": "YOUR_ACCESS_KEY",
-//	  "SecretAccessKey": "YOUR_SECRET_KEY"
-//	}
-//
-// Select the helper's profile in the app's configuration:
-//
-//	[[scan.roots]]
-//	id = "myname"
-//	type = "remote"
-//	endpoint_url = "https://s3.example.com"
-//	bucket = "com.example.music"
-//	prefix = "tracks/"
-//	profile = "myprofile"
-//
-// There is support for temporary credentials but it must be handled by the
-// eternal credential process for now.
+// NewS3Client creates an S3 client using the server's AWS credential chain.
+// Select a named profile when adding or editing a remote root in the app.
+// Shared configuration and credential helpers must be accessible to the server
+// account; environment credentials must be set in the server process.
+// Region must be supplied by the root or the server's AWS configuration.
 func NewS3Client(ctx context.Context, root *app.RemoteRoot) (*s3.Client, error) {
 	type loadOption = func(*config.LoadOptions) error
 	var options []loadOption

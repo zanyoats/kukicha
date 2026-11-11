@@ -13,6 +13,7 @@ import (
 
 	"github.com/zanyoats/kukicha/internal/app"
 	"github.com/zanyoats/kukicha/internal/usecase/command"
+	"github.com/zanyoats/kukicha/internal/usecase/query"
 )
 
 const (
@@ -30,8 +31,7 @@ type SyncRequest struct {
 var ErrEnqueue = errors.New("unable to create build job")
 
 type Service struct {
-	DB    *sql.DB
-	Roots []app.Root
+	DB *sql.DB
 }
 
 // AcceptFiles streams files and extracts archives into an OS temp directory, then
@@ -39,7 +39,7 @@ type Service struct {
 // The executor removes the directory after success. Failures leave it behind
 // for system/manual cleanup; OS temp storage is not a recovery guarantee.
 func (s *Service) AcceptFiles(ctx context.Context, rootID string, parts *multipart.Reader) (int64, error) {
-	root, err := s.destination(rootID)
+	root, err := s.destination(ctx, rootID)
 	if err != nil {
 		return 0, err
 	}
@@ -56,19 +56,23 @@ func (s *Service) AcceptFiles(ctx context.Context, rootID string, parts *multipa
 // AcceptSync queues a source for direct scanning and later transfer. Each request
 // creates a new job; source files are never changed by request handling.
 func (s *Service) AcceptSync(ctx context.Context, rootID string, request SyncRequest) (int64, error) {
-	root, err := s.destination(rootID)
+	root, err := s.destination(ctx, rootID)
 	if err != nil {
 		return 0, err
 	}
-	source, err := s.normalizeSource(request)
+	source, err := s.normalizeSource(ctx, request)
 	if err != nil {
 		return 0, err
 	}
 	return s.enqueue(ctx, root, "", ModeSync, source)
 }
 
-func (s *Service) destination(rootID string) (app.Root, error) {
-	for _, root := range s.Roots {
+func (s *Service) destination(ctx context.Context, rootID string) (app.Root, error) {
+	roots, err := query.StoredRoots(ctx, s.DB, false)
+	if err != nil {
+		return nil, err
+	}
+	for _, root := range roots {
 		if root.ConfigID() == rootID {
 			return root, nil
 		}
@@ -117,7 +121,11 @@ func resolveMissingPath(name string) (string, error) {
 	return filepath.Join(resolved, filepath.Base(name)), nil
 }
 
-func (s *Service) normalizeSource(request SyncRequest) (*app.BuildSource, error) {
+func (s *Service) normalizeSource(ctx context.Context, request SyncRequest) (*app.BuildSource, error) {
+	roots, err := query.StoredRoots(ctx, s.DB, true)
+	if err != nil {
+		return nil, err
+	}
 	if request.Mode != ModeSync {
 		return nil, errors.New("JSON add requests require mode sync")
 	}
@@ -130,7 +138,7 @@ func (s *Service) normalizeSource(request SyncRequest) (*app.BuildSource, error)
 		if err := remote.Normalize(); err != nil {
 			return nil, err
 		}
-		for _, root := range s.Roots {
+		for _, root := range roots {
 			if target, ok := root.(*app.RemoteRoot); ok && target.EndpointURL == remote.EndpointURL && target.Bucket == remote.Bucket &&
 				(strings.HasPrefix(target.Prefix, remote.Prefix) || strings.HasPrefix(remote.Prefix, target.Prefix)) {
 				return nil, errors.New("remote source overlaps a managed root")
@@ -152,7 +160,7 @@ func (s *Service) normalizeSource(request SyncRequest) (*app.BuildSource, error)
 		if !info.IsDir() {
 			return nil, fmt.Errorf("source %q must be a directory", request.Folder)
 		}
-		for _, root := range s.Roots {
+		for _, root := range roots {
 			if local, ok := root.(*app.LocalRoot); ok {
 				target, err := resolveMissingPath(local.Path)
 				if err != nil {

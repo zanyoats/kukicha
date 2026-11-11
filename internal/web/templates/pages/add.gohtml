@@ -12,16 +12,16 @@
     {{template "page-header" .}}
     <form class="add-form" action="{{.URLs.Add}}" method="post" data-add-form data-max-request-bytes="{{.MaxRequestBytes}}" up-submit="false">
         <div class="add-destination">
-            <label for="add-root">Destination root</label>
-            <select id="add-root" name="root_config_id" required {{if not .ConfiguredRoots}}disabled{{end}}>
+            <label for="add-root">Destination root (required)</label>
+            <select id="add-root" name="root_config_id" required>
                 <option value="">Choose a root</option>
-                {{range .ConfiguredRoots}}<option value="{{.RootKey}}">{{.RootKey}}</option>{{end}}
+                {{range .Roots}}<option value="{{.RootKey}}">{{.RootKey}}</option>{{end}}
             </select>
-            {{if not .ConfiguredRoots}}<p class="text-secondary">No roots configured. Add a root to your config first.</p>{{end}}
+            {{if not .Roots}}<p class="text-secondary">No available roots. <a href="{{.URLs.Roots}}?section=add" up-target=".config-page" up-history="false">Add a root</a> first.</p>{{end}}
         </div>
         <div class="add-destination">
-            <label for="add-mode">Add from</label>
-            <select id="add-mode" name="mode">
+            <label for="add-mode">Add from (required)</label>
+            <select id="add-mode" name="mode" required>
                 {{range .Modes}}<option value="{{.Value}}">{{.Label}}</option>{{end}}
             </select>
         </div>
@@ -29,9 +29,10 @@
             <p class="text-secondary" id="add-upload-limit">Upload limit: {{.UploadLimit}} per request, including multipart headers. Leave some room below the limit, or upload in smaller batches.</p>
             <p class="alert alert-error" data-add-size-error role="alert" hidden></p>
             <div class="add-dropzone" data-add-dropzone>
-                <p>Drop files or folders here</p>
+                <p>Files (required) — drop files or folders here</p>
+                <p class="alert alert-error" id="add-files-error" data-add-files-error role="alert" hidden>Choose at least one file or a folder containing files.</p>
                 <div class="add-actions">
-                    <button type="button" class="action-button" data-add-pick-files>Choose files</button>
+                    <button type="button" class="action-button" data-add-pick-files aria-describedby="add-files-error">Choose files</button>
                     <button type="button" class="action-button" data-add-pick-folder>Choose folder</button>
                 </div>
                 <p class="text-secondary">All file types are accepted. Folders include files from all subfolders. ZIP, TAR, gzip-compressed TAR, and bzip2-compressed TAR archives are extracted.</p>
@@ -43,26 +44,26 @@
         </div>
         <div class="add-source-fields" data-add-panel="sync" hidden>
             <div class="add-destination">
-                <label for="add-source-type">Source</label>
-                <select id="add-source-type" name="source_type" disabled>
+                <label for="add-source-type">Source (required)</label>
+                <select id="add-source-type" name="source_type" required disabled>
                     <option value="folder">Server folder</option>
                     <option value="remote">S3-compatible bucket</option>
                 </select>
             </div>
             <div class="add-source-fields" data-add-source="folder">
                 <div class="add-destination">
-                    <label for="add-folder">Server folder path</label>
+                    <label for="add-folder">Server folder path (required)</label>
                     <input id="add-folder" name="folder" type="text" placeholder="/path/to/music" required disabled>
+                    <p class="text-secondary">An absolute folder path on the server running Kukicha.</p>
                 </div>
-                <p class="text-secondary">An absolute folder path on the server running Kukicha.</p>
             </div>
             <div class="add-source-fields" data-add-source="remote" hidden>
                 <div class="add-destination">
-                    <label for="add-endpoint">Bucket endpoint</label>
+                    <label for="add-endpoint">Bucket endpoint (required)</label>
                     <input id="add-endpoint" name="endpoint_url" type="url" placeholder="https://s3.example.com" required disabled>
                 </div>
                 <div class="add-destination">
-                    <label for="add-bucket">Bucket</label>
+                    <label for="add-bucket">Bucket (required)</label>
                     <input id="add-bucket" name="bucket" type="text" required disabled>
                 </div>
                 <div class="add-destination">
@@ -71,11 +72,11 @@
                     <p class="text-secondary">Use a trailing slash for a folder tree. Leave empty to scan the whole bucket.</p>
                 </div>
                 <div class="add-destination">
-                    <label for="add-region">Region</label>
+                    <label for="add-region">Region (required)</label>
                     <input id="add-region" name="region" type="text" placeholder="us-east-1" required disabled>
                 </div>
                 <div class="add-destination">
-                    <label for="add-addressing">Addressing style</label>
+                    <label for="add-addressing">Addressing style (optional)</label>
                     <select id="add-addressing" name="addressing_style" disabled>
                         <option value="auto">Auto</option>
                         <option value="path">Path</option>
@@ -88,15 +89,15 @@
                     up-position="bottom" up-align="left" up-history="false" up-dismissible="key outside"
                     disabled><span aria-hidden="true">[?]</span></button></p>
                 <div class="add-destination">
-                    <label for="add-access-key">AccessKeyId</label>
+                    <label for="add-access-key">AccessKeyId (required)</label>
                     <input id="add-access-key" name="access_key_id" type="password" autocomplete="off" spellcheck="false" required disabled>
                 </div>
                 <div class="add-destination">
-                    <label for="add-secret-key">SecretAccessKey</label>
+                    <label for="add-secret-key">SecretAccessKey (required)</label>
                     <input id="add-secret-key" name="secret_access_key" type="password" autocomplete="off" spellcheck="false" required disabled>
                 </div>
                 <div class="add-destination">
-                    <label for="add-session-token">SessionToken</label>
+                    <label for="add-session-token">SessionToken (required)</label>
                     <input id="add-session-token" name="session_token" type="password" autocomplete="off" spellcheck="false" required disabled>
                 </div>
                 <p class="text-secondary">Used only to read this source. Kukicha won’t use the server’s credentials for it. Choose credentials that will remain valid while the job waits and runs.</p>
@@ -106,7 +107,7 @@
         <p class="text-secondary" data-add-notice role="status" hidden></p>
         <div class="add-actions">
             <button type="button" class="action-button" data-add-clear disabled>Clear files</button>
-            <button type="submit" class="action-button" data-add-upload disabled>Upload</button>
+            <button type="submit" class="action-button" data-add-upload>Upload</button>
         </div>
     </form>
     <template id="source-credentials-help">

@@ -12,19 +12,34 @@
 {{end}}
 
 {{define "page-content"}}
-<article class="config-page">
+<article class="config-page roots-page" data-roots-url="{{.URLs.Roots}}">
     {{template "page-header" .}}
-    {{if .ConfiguredRoots}}
+    <div class="top-nav roots-nav">
+        <nav aria-label="Roots sections" up-nav="false">
+            <a href="{{.URLs.Roots}}" up-target=".config-page" up-history="false" {{if and (ne .Section "add") (not .Editing)}}class="up-current" aria-current="page"{{end}}>Show roots</a>
+            <a href="{{.URLs.Roots}}?section=add" up-target=".config-page" up-history="false" {{if eq .Section "add"}}class="up-current" aria-current="page"{{end}}>Add root</a>
+            {{if .Editing}}
+            <a href="{{.URLs.Roots}}?edit={{.Form.ID}}" up-target=".config-page" up-history="false" class="up-current" aria-current="page">Edit {{.Form.ID}}</a>
+            {{end}}
+        </nav>
+    </div>
+    {{if or (eq .Section "add") .Editing}}
+    {{template "root-form" .}}
+    {{else}}
+    {{if .Roots}}
     <aside class="alert alert-info" aria-label="Info">
         <strong>Info</strong>
         <p>
             Run <span class="action-with-info"><button type="button" class="inline-action" data-library-job-submit="{{.URLs.SubmitJob}}">Rebuild</button>{{template "job-help-trigger" "rebuild"}}</span> to apply your latest organization rules to saved metadata.
+            Removing a root hides its music immediately and marks its library data for removal during the next build. Files in storage are left untouched. Rebuild afterward to refresh radio membership and enable radios again.
+        </p>
+        <p>
             Use <a href="{{.URLs.Add}}" up-layer="new modal" up-target=".config-page" up-class="config-modal" up-history="false">Add to Kukicha</a> to import music.
         </p>
     </aside>
     {{template "rebuild-job-help" .}}
     {{end}}
-    {{range $index, $root := .ConfiguredRoots}}
+    {{range $index, $root := .Roots}}
     <section class="root-summary" aria-labelledby="root-path-{{$index}}">
         <h2 id="root-path-{{$index}}">
             {{.RootKey -}}
@@ -46,6 +61,7 @@
             </button>
         </h2>
         <template id="root-info-{{$index}}">
+            <section class="root-info" aria-label="Details for {{.RootKey}}">
             <dl class="root-details">
                 <dt>Location</dt>
                 <dd>{{.Location}}</dd>
@@ -56,6 +72,16 @@
                 <dd>{{.State}}</dd>
                 {{end}}
             </dl>
+            {{with index $.RootsByKey .RootKey}}
+            {{if eq .State "available"}}
+            <div class="root-info-actions">
+                <a href="{{$.URLs.Roots}}?edit={{.ConfigID}}" up-target=".config-page" up-layer="parent" up-history="false">Edit</a>
+                <button type="button" class="inline-action" data-drop-root="{{$.URLs.DropRoot}}"
+                    data-root-id="{{.ConfigID}}" data-roots-url="{{$.URLs.Roots}}">Remove</button>
+            </div>
+            {{end}}
+            {{end}}
+            </section>
         </template>
         <dl class="facts facts-grid">
             {{with index $.RootsByKey .RootKey}}
@@ -76,40 +102,14 @@
         {{if not (index $.RootsByKey .RootKey)}}
         <p class="text-secondary">No data found for this root.</p>
         {{end}}
+        {{with index $.RootsByKey .RootKey}}
+        {{if eq .State "pending_removal"}}
+        <p class="text-secondary">Pending removal. Rebuild to remove this root’s library data. Files in storage are left untouched.</p>
+        {{end}}
+        {{end}}
     </section>
     {{else}}
-    <p>No music roots are configured. Add roots to your config.</p>
-    {{end}}
-
-    {{if .LostRoots}}
-    <aside class="alert alert-warning lost-roots" aria-labelledby="lost-roots-heading">
-        <strong id="lost-roots-heading">Lost roots — no longer configured</strong>
-        <p>These roots are missing from your current configuration. Their saved music is retained but hidden from the library.</p>
-        <p>Drop a root to remove its saved library data during the next build. Files in storage are left untouched.</p>
-        <ul class="lost-root-list">
-            {{range .LostRoots}}
-            <li data-lost-root>
-                <code class="text-truncate" title="{{.ConfigID}}">{{.ConfigID}}</code>
-                <span class="action-with-info">
-                    <button type="button" class="inline-action" data-drop-root="{{$.URLs.DropRoot}}"
-                        data-root-id="{{.ConfigID}}" aria-label="Drop root {{.ConfigID}}">Drop</button>
-                    <button type="button" class="info-trigger" aria-label="What happens when you drop a root"
-                        aria-haspopup="dialog" up-follow up-layer="new popup" up-content="#drop-root-help"
-                        up-class="info-popup" up-position="bottom" up-align="left"
-                        up-history="false" up-dismissible="key outside"><span aria-hidden="true">[?]</span></button>
-                </span>
-            </li>
-            {{end}}
-        </ul>
-        <template id="drop-root-help">
-            <section class="job-help" aria-labelledby="drop-root-help-title">
-                <h2 id="drop-root-help-title">What does Drop do?</h2>
-                <p>Drop removes this root from the list now. Its saved library information is deleted during the next build.</p>
-                <p><strong>Your files are never deleted</strong>, and Drop won’t start a build.</p>
-                <p class="job-help-note">If a build is already running, wait for it to finish before dropping a root.</p>
-            </section>
-        </template>
-    </aside>
+    <p>No music roots yet. Choose Add root to get started.</p>
     {{end}}
 
     {{if .LatestBuildID}}
@@ -121,5 +121,138 @@
     {{else}}
     <p>No completed library build available.</p>
     {{end}}
+    {{end}}
 </article>
+{{end}}
+
+{{define "root-form"}}
+<form class="add-form" action="{{if .Editing}}{{.URLs.UpdateRootURL .Form.ID}}{{else}}{{.URLs.CreateRoot}}{{end}}" method="post" data-root-form data-method="{{if .Editing}}PUT{{else}}POST{{end}}" up-submit="false">
+    {{if .Editing}}
+    <div class="root-form-heading">
+        <h2>Edit {{.Form.ID}}</h2>
+        <a href="{{.URLs.Roots}}" up-target=".config-page" up-history="false">Cancel</a>
+    </div>
+    {{else}}
+    <h2>Add root</h2>
+    {{end}}
+    {{if .Editing}}
+    <p class="text-secondary">The logical ID stays unchanged. Before changing storage locations, move the root’s contents and preserve the directory structure. Editing does not move files or require the destination to be empty.</p>
+    {{else}}
+    <p class="text-secondary">Choose a new or empty destination for Kukicha to manage. Local files matching the scan ignore settings are allowed. Import your music afterward using Add to Kukicha.</p>
+    {{end}}
+    {{if not .Editing}}
+    <div class="add-destination">
+        <label for="root-id">Logical ID (required)</label>
+        <input id="root-id" name="id" value="{{.Form.ID}}" required>
+        <p class="text-secondary">A unique, case-sensitive name for this root.</p>
+    </div>
+    {{end}}
+    <div class="add-destination">
+        <div class="action-with-info">
+            <label for="root-type">Storage type (required)</label>
+            <button type="button" class="info-trigger" aria-label="Storage types and remote credentials"
+                aria-haspopup="dialog" up-follow up-layer="new popup" up-content="#root-storage-help"
+                up-class="info-popup" up-position="bottom" up-align="left"
+                up-history="false" up-dismissible="key outside"><span aria-hidden="true">[?]</span></button>
+        </div>
+        <select id="root-type" name="type" required>
+            <option value="local" {{if eq .Form.Type "local"}}selected{{end}}>Local folder</option>
+            <option value="remote" {{if eq .Form.Type "remote"}}selected{{end}}>Remote S3-compatible storage</option>
+        </select>
+    </div>
+    <div class="add-source-fields" data-root-panel="local">
+        <div class="add-destination">
+            <label for="root-path">Server folder path (required)</label>
+            <input id="root-path" name="path" value="{{with .Form.Path}}{{.}}{{end}}" required>
+            <p class="text-secondary">Use an absolute path, ~/ for the server account’s home, or a path relative to the configuration directory. New folders are created automatically when adding a root.</p>
+        </div>
+    </div>
+    <div class="add-source-fields" data-root-panel="remote">
+        <div class="add-destination">
+            <div class="action-with-info">
+                <label for="root-endpoint_url">Bucket endpoint (required)</label>
+                <button type="button" class="info-trigger" aria-label="Bucket endpoint examples"
+                    aria-haspopup="dialog" up-follow up-layer="new popup" up-content="#root-endpoint-help"
+                    up-class="info-popup" up-position="bottom" up-align="left"
+                    up-history="false" up-dismissible="key outside"><span aria-hidden="true">[?]</span></button>
+            </div>
+            <input id="root-endpoint_url" name="endpoint_url" value="{{with .Form.EndpointURL}}{{.}}{{end}}" required>
+        </div>
+        <div class="add-destination">
+            <label for="root-bucket">Bucket (required)</label>
+            <input id="root-bucket" name="bucket" value="{{with .Form.Bucket}}{{.}}{{end}}" required>
+        </div>
+        <div class="add-destination">
+            <label for="root-prefix">Prefix (optional)</label>
+            <input id="root-prefix" name="prefix" value="{{with .Form.Prefix}}{{.}}{{end}}" >
+        </div>
+        <div class="add-destination">
+            <label for="root-region">Region (optional)</label>
+            <input id="root-region" name="region" value="{{with .Form.Region}}{{.}}{{end}}" >
+        </div>
+        <div class="add-destination">
+            <label for="root-profile">AWS profile on the server (optional)</label>
+            <input id="root-profile" name="profile" value="{{with .Form.Profile}}{{.}}{{end}}" >
+        </div>
+        <div class="add-destination">
+            <label for="root-addressing">Addressing style (optional)</label>
+            <select id="root-addressing" name="addressing_style">
+                <option value="auto">Auto</option>
+                <option value="path" {{if eq .AddressingStyle "path"}}selected{{end}}>Path</option>
+                <option value="virtual" {{if eq .AddressingStyle "virtual"}}selected{{end}}>Virtual host</option>
+            </select>
+        </div>
+        <p class="text-secondary">Use an existing bucket. Prefix must end with /; leave it empty to use the whole bucket. Region may be omitted when supplied by the server’s AWS configuration. Credentials come from the selected server profile or the default AWS credential lookup.</p>
+    </div>
+    <p class="alert alert-error" data-root-error role="alert" hidden></p>
+    <div class="add-actions">
+        <button type="submit" class="action-button">{{if .Editing}}Save root{{else}}Add root{{end}}</button>
+    </div>
+</form>
+<template id="root-storage-help">
+    <section class="job-help" aria-labelledby="root-storage-help-title">
+        <h2 id="root-storage-help-title">Choose where your music is stored</h2>
+        <p><strong>Local folder:</strong> a folder on the server running Kukicha, not necessarily the computer you’re browsing from. The server account needs permission to read and write there. New local roots must be empty except for entries matching your scan ignore settings.</p>
+        <p><strong>Remote storage:</strong> an existing S3-compatible bucket, such as Wasabi or AWS S3. Choose a prefix to keep Kukicha’s files in their own part of the bucket. New remote roots must contain no objects under the chosen prefix; ignore settings do not apply to this check.</p>
+        <h2>Connecting to remote storage</h2>
+        <p>Set up credentials on the server. Kukicha reads them there; you don’t enter access keys in this form. Common options are:</p>
+        <h2>1. Environment variables</h2>
+        <p>Leave the profile field empty and set these for the process that starts Kukicha:</p>
+        <pre><code>AWS_ACCESS_KEY_ID=YOUR_ACCESS_KEY
+AWS_SECRET_ACCESS_KEY=YOUR_SECRET_KEY
+AWS_REGION=us-east-1</code></pre>
+        <p>For temporary credentials, also set <code>AWS_SESSION_TOKEN</code>. If Kukicha runs as a service or in a container, configure the variables there. Changing them in another terminal won’t update the running server’s environment.</p>
+        <h2>2. A named AWS profile</h2>
+        <p>For the account running Kukicha, put your credentials in <code>~/.aws/credentials</code>:</p>
+        <pre><code>[music]
+aws_access_key_id = YOUR_ACCESS_KEY
+aws_secret_access_key = YOUR_SECRET_KEY</code></pre>
+        <p>Set the region in <code>~/.aws/config</code>:</p>
+        <pre><code>[profile music]
+region = us-east-1</code></pre>
+        <p>Enter <code>music</code> in the <strong>AWS profile on the server</strong> field. For temporary credentials, also include <code>aws_session_token</code> in the credentials file.</p>
+        <h2>3. A credential helper</h2>
+        <p>If you already use a tool that supplies credentials, configure its command in <code>~/.aws/config</code>:</p>
+        <pre><code>[profile music]
+credential_process = /absolute/path/to/credential-helper
+region = us-east-1</code></pre>
+        <p>Select <code>music</code> in the profile field. The helper must be runnable by the server account and return AWS credential-process JSON. A helper that supplies expiring credentials can let Kukicha refresh them automatically.</p>
+        <p class="job-help-note">Use your bucket’s region in place of <code>us-east-1</code>. The form’s Region field overrides the server’s AWS configuration; leave it empty only when the region is configured there. Leave the profile field empty to use credentials from the server’s environment variables or default AWS configuration.</p>
+    </section>
+</template>
+<template id="root-endpoint-help">
+    <section class="job-help" aria-labelledby="root-endpoint-help-title">
+        <h2 id="root-endpoint-help-title">Bucket endpoint</h2>
+        <p>Enter your provider’s S3 storage endpoint for the bucket’s region. For example, in <code>us-east-1</code>:</p>
+        <ul>
+            <li>Wasabi: <code>https://s3.wasabisys.com</code></li>
+            <li>AWS S3: <code>https://s3.us-east-1.amazonaws.com</code></li>
+        </ul>
+        <p>For other regions, use the matching endpoint from the
+            <a href="https://docs.wasabi.com/docs/service-urls-for-wasabis-storage-regions" target="_blank" rel="noopener noreferrer">Wasabi endpoint list</a>
+            or <a href="https://docs.aws.amazon.com/general/latest/gr/s3.html" target="_blank" rel="noopener noreferrer">AWS endpoint list</a>.
+            Set the Region field to match, or supply it through the server’s AWS configuration.</p>
+        <p class="job-help-note">Enter the bucket name and prefix in their separate fields. Use the S3 API endpoint, not a console, website, or STS endpoint.</p>
+    </section>
+</template>
 {{end}}

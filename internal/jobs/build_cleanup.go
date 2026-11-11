@@ -37,7 +37,7 @@ func CleanupBuild(ctx context.Context, db *sql.DB, conf *app.AppConfig, id int64
 	if job.CleanedAt.Valid {
 		return nil
 	}
-	if err := cleanupBuildFiles(ctx, conf, job); err != nil {
+	if err := cleanupBuildFiles(ctx, db, job); err != nil {
 		return err
 	}
 	// If this write fails or the request disconnects, retrying deletion is safe.
@@ -49,13 +49,17 @@ func CleanupBuild(ctx context.Context, db *sql.DB, conf *app.AppConfig, id int64
 }
 
 // Missing output is success, including when requests overlap or retry a partial deletion.
-func cleanupBuildFiles(ctx context.Context, conf *app.AppConfig, job query.Job) error {
+func cleanupBuildFiles(ctx context.Context, db *sql.DB, job query.Job) error {
 	var p app.BuildJobPayload
 	if err := json.Unmarshal(job.Payload, &p); err != nil {
 		return err
 	}
+	roots, err := query.StoredRoots(ctx, db, true)
+	if err != nil {
+		return err
+	}
 	var destination app.Root
-	for _, root := range conf.Roots {
+	for _, root := range roots {
 		if root.ConfigID() == p.RootID {
 			destination = root
 			break

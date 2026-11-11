@@ -77,10 +77,15 @@ func (j *Build) Run(ctx context.Context) error {
 	if err := json.Unmarshal([]byte(raw), &p); err != nil {
 		return err
 	}
+	roots, err := query.StoredRoots(ctx, conn, false)
+	if err != nil {
+		return err
+	}
 	logger := app.JobLogger(ctx)
 	var destination app.Root
+	var target *buildTarget
 	if p.Mode == app.BuildAdd {
-		for _, root := range j.Conf.Roots {
+		for _, root := range roots {
 			if root.ConfigID() == p.RootID {
 				destination = root
 				break
@@ -89,9 +94,11 @@ func (j *Build) Run(ctx context.Context) error {
 		if destination == nil || upload.Location(destination) != p.RootLocation {
 			return errors.New("build destination configuration changed; resubmit the addition")
 		}
-		if err := upload.CheckRootMarker(ctx, destination); err != nil {
+		target, err = newBuildTarget(ctx, destination)
+		if err != nil {
 			return err
 		}
+		defer target.Close()
 		if p.SourceType == app.BuildSourceFiles {
 			info, err := os.Lstat(p.TempPath)
 			if err != nil {
@@ -101,7 +108,7 @@ func (j *Build) Run(ctx context.Context) error {
 				return errors.New("build temporary path must be a real directory")
 			}
 		}
-		if err := validateBuildSource(p, j.Conf.Roots); err != nil {
+		if err := validateBuildSource(p, roots); err != nil {
 			return err
 		}
 	}
@@ -140,11 +147,6 @@ func (j *Build) Run(ctx context.Context) error {
 		} else {
 			source = &localSource{path: p.TempPath}
 		}
-		target, err := newBuildTarget(ctx, destination)
-		if err != nil {
-			return err
-		}
-		defer target.Close()
 		if err := scanner.fileScanWithWorkers(ctx, conn, []scanSource{source}, destination, rootPos, destinationPath, target.Copy); err != nil {
 			return err
 		}

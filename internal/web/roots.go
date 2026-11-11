@@ -1,6 +1,7 @@
 package web
 
 import (
+	"context"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -8,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/zanyoats/kukicha/internal/app"
+	"github.com/zanyoats/kukicha/internal/upload"
 	"github.com/zanyoats/kukicha/internal/usecase/command"
 	"github.com/zanyoats/kukicha/internal/usecase/query"
 )
@@ -16,14 +18,17 @@ type rootsViewModel struct {
 	EyeBrow         string
 	Heading         string
 	URLs            URLs
-	ConfiguredRoots []configuredRootView
+	Roots           []rootView
 	RootsByKey      map[string]*query.Root
 	LatestBuildID   int64
-	LostRoots       []query.Root
+	Section         string
+	Editing         bool
+	AddressingStyle string
+	Form            app.RootConfig
 }
 
-// configuredRootView keeps source-specific fields out of templates.
-type configuredRootView struct {
+// rootView keeps source-specific fields out of templates.
+type rootView struct {
 	Label    string
 	RootKey  string
 	Location string
@@ -31,14 +36,14 @@ type configuredRootView struct {
 	Remote   bool
 }
 
-func configuredRootViews(roots []app.Root) []configuredRootView {
-	views := make([]configuredRootView, 0, len(roots))
+func rootViews(roots []app.Root) []rootView {
+	views := make([]rootView, 0, len(roots))
 	for _, root := range roots {
 		switch root := root.(type) {
 		case *app.LocalRoot:
-			views = append(views, configuredRootView{Label: root.Path, RootKey: root.ConfigID(), Location: root.Location(), Type: "local"})
+			views = append(views, rootView{Label: root.Path, RootKey: root.ConfigID(), Location: root.Location(), Type: "local"})
 		case *app.RemoteRoot:
-			views = append(views, configuredRootView{Label: root.ID, RootKey: root.ConfigID(), Location: root.Location(), Type: "remote", Remote: true})
+			views = append(views, rootView{Label: root.ID, RootKey: root.ConfigID(), Location: root.Location(), Type: "remote", Remote: true})
 		}
 	}
 	return views
@@ -64,21 +69,42 @@ func (c *webRouter) showRoots(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	rootsByKey := make(map[string]*query.Root, len(roots))
-	var lostRoots []query.Root
 	for i := range roots {
 		rootsByKey[roots[i].ConfigID] = &roots[i]
-		if roots[i].State == "lost" {
-			lostRoots = append(lostRoots, roots[i])
+	}
+	stored, err := query.StoredRoots(r.Context(), c.db, true)
+	if err != nil {
+		internalServerError(w, "unable to load root settings", "error", err)
+		return
+	}
+	section := r.URL.Query().Get("section")
+	form := app.RootConfig{RootStorageConfig: app.RootStorageConfig{Type: "local"}}
+	editing := false
+	if id := r.URL.Query().Get("edit"); id != "" {
+		for _, root := range stored {
+			if root.ConfigID() == id && rootsByKey[id] != nil && rootsByKey[id].State == "available" {
+				form = query.RootSettings(root)
+				editing = true
+				break
+			}
 		}
+		if !editing {
+			http.NotFound(w, r)
+			return
+		}
+		section = "edit"
 	}
 	model := rootsViewModel{
-		LostRoots:       lostRoots,
-		EyeBrow:         "Settings",
-		Heading:         "Roots",
-		URLs:            c.urls,
-		ConfiguredRoots: configuredRootViews(c.configuredRoots),
-		RootsByKey:      rootsByKey,
-		LatestBuildID:   latestBuildID,
+		Section: section, Editing: editing, Form: form,
+		EyeBrow:       "Settings",
+		Heading:       "Roots",
+		URLs:          c.urls,
+		Roots:         rootViews(stored),
+		RootsByKey:    rootsByKey,
+		LatestBuildID: latestBuildID,
+	}
+	if form.AddressingStyle != nil {
+		model.AddressingStyle = *form.AddressingStyle
 	}
 	renderPage(w, c.renderer, "roots.gohtml", model)
 }
@@ -94,8 +120,10 @@ func (c *webRouter) dropRoot(w http.ResponseWriter, r *http.Request) {
 		apiError(w, http.StatusBadRequest, "A root ID is required.")
 		return
 	}
-	if err := command.MarkLostRootForRemoval(r.Context(), c.db, input.ConfigID); err != nil {
-		if errors.Is(err, command.ErrRootDropBuildRunning) || errors.Is(err, command.ErrRootNotLost) {
+	if err := command.MarkRootForRemoval(r.Context(), c.db, input.ConfigID); err != nil {
+		if errors.Is(err, command.ErrRootNotFound) {
+			apiError(w, http.StatusNotFound, err.Error())
+		} else if errors.Is(err, command.ErrRootDropBuildRunning) || errors.Is(err, command.ErrRootNotAvailable) {
 			apiError(w, http.StatusConflict, err.Error())
 		} else {
 			slog.ErrorContext(r.Context(), "unable to mark root for removal", "root", input.ConfigID, "error", err)
@@ -104,5 +132,43 @@ func (c *webRouter) dropRoot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	slog.InfoContext(r.Context(), "root marked for removal", "root", input.ConfigID)
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (c *webRouter) createRoot(w http.ResponseWriter, r *http.Request) {
+	var input app.RootConfig
+	if !decodeJSONRequest(w, r, &input) {
+		return
+	}
+	validate := func(ctx context.Context, root app.Root) error {
+		return upload.ValidateNew(ctx, root, c.conf.Settings.Scan.IgnorePrefixes, c.conf.Settings.Scan.IgnoreFiles)
+	}
+	writeRootResult(w, command.CreateRoot(r.Context(), c.db, c.conf.AppDir, input, validate))
+}
+
+func (c *webRouter) updateRoot(w http.ResponseWriter, r *http.Request) {
+	id := r.URL.Query().Get("id")
+	if strings.TrimSpace(id) == "" {
+		apiError(w, http.StatusBadRequest, "A root ID is required.")
+		return
+	}
+	var input app.RootStorageConfig
+	if !decodeJSONRequest(w, r, &input) {
+		return
+	}
+	writeRootResult(w, command.UpdateRoot(r.Context(), c.db, c.conf.AppDir, id, input))
+}
+
+func writeRootResult(w http.ResponseWriter, err error) {
+	if err != nil {
+		status := http.StatusBadRequest
+		if errors.Is(err, command.ErrRootNotFound) {
+			status = http.StatusNotFound
+		} else if errors.Is(err, command.ErrRootChangeBuildRunning) || errors.Is(err, command.ErrRootNotAvailable) {
+			status = http.StatusConflict
+		}
+		apiError(w, status, err.Error())
+		return
+	}
 	w.WriteHeader(http.StatusNoContent)
 }

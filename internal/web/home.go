@@ -11,10 +11,8 @@ type homeViewModel struct {
 	UnrecognizedTrackCount    int
 	LibraryGenerated          bool
 	LibraryHasTracks          bool
-	HasConfiguredRoots        bool
+	HasRoots                  bool
 	InitialBuildState         string
-	ConfiguredRoots           []configuredRootView
-	ConfigFilePath            string
 	RecognizedAudioExtensions []string
 	EyeBrow                   string
 	Heading                   string
@@ -33,6 +31,11 @@ type homeLink struct {
 }
 
 func (c *webRouter) showHome(w http.ResponseWriter, r *http.Request) {
+	roots, err := query.StoredRoots(r.Context(), c.db, false)
+	if err != nil {
+		internalServerError(w, "unable to load roots", "error", err)
+		return
+	}
 	home, err := query.Home(r.Context(), c.db)
 	if err != nil {
 		internalServerError(w, "unable to load home page library data", "error", err)
@@ -48,10 +51,8 @@ func (c *webRouter) showHome(w http.ResponseWriter, r *http.Request) {
 		UnrecognizedTrackCount:    count,
 		LibraryGenerated:          home.LibraryGenerated,
 		LibraryHasTracks:          home.LibraryHasTracks,
-		HasConfiguredRoots:        len(c.configuredRoots) > 0,
+		HasRoots:                  len(roots) > 0,
 		InitialBuildState:         home.InitialBuildState,
-		ConfiguredRoots:           configuredRootViews(c.configuredRoots),
-		ConfigFilePath:            c.configFilePath,
 		RecognizedAudioExtensions: c.recognizedAudioExtensions,
 		EyeBrow:                   "Kukicha",
 		Heading:                   "Browse",

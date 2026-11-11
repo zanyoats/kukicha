@@ -165,14 +165,7 @@ func run() error {
 		)
 	}
 
-	validateNewRoot := func(ctx context.Context, root app.Root) error {
-		return upload.ValidateNew(ctx, root, conf.Settings.Scan.IgnorePrefixes, conf.Settings.Scan.IgnoreFiles)
-	}
-	if err := command.ReconcileRoots(ctx, db, conf.Roots, validateNewRoot, upload.CheckRootMarker); err != nil {
-		return fmt.Errorf("reconcile configured roots: %w", err)
-	}
-
-	uploads := &upload.Service{DB: db, Roots: conf.Roots}
+	uploads := &upload.Service{DB: db}
 	notifications := new(app.JobNotifications)
 	processor, err := proc.New(
 		db,
@@ -206,7 +199,6 @@ func run() error {
 			conf.Settings.UI.DefaultAlbumSort,
 			processor,
 			notifications,
-			conf.Roots,
 			conf.ConfigFilePath,
 			scan.RecognizedAudioExtensions,
 			credentials,

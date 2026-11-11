@@ -28,7 +28,7 @@ func PrepareScanResultsFromLibrary(ctx context.Context, conn *sql.Conn, conf *ap
 	if err := prepareScanResults(ctx, conn, conf.Settings.Server.Database.CacheSizeKiB); err != nil {
 		return err
 	}
-	if err := copyLibraryToScan(ctx, conn, conf); err != nil {
+	if err := copyLibraryToScan(ctx, conn); err != nil {
 		return err
 	}
 	if _, err := conn.ExecContext(ctx, stageUnrecognizedScanTracksSQL); err != nil {
@@ -83,20 +83,9 @@ func prepareScanResults(
 	return err
 }
 
-// copyLibraryToScan copies saved resources, including unavailable roots, into scan tables.
-// Roots pending removal and their resources are excluded.
-func copyLibraryToScan(ctx context.Context, conn *sql.Conn, conf *app.AppConfig) error {
-	rootIDs := make([]string, 0, len(conf.Roots))
-	for _, root := range conf.Roots {
-		rootIDs = append(rootIDs, root.ConfigID())
-	}
-	encodedRoots, err := json.Marshal(rootIDs)
-	if err != nil {
-		return err
-	}
-	if _, err := conn.ExecContext(ctx, prepareScanResultsFromLibrarySQL,
-		sql.Named("root_config_ids", string(encodedRoots)),
-	); err != nil {
+// copyLibraryToScan stages available roots and their saved resources.
+func copyLibraryToScan(ctx context.Context, conn *sql.Conn) error {
+	if _, err := conn.ExecContext(ctx, prepareScanResultsFromLibrarySQL); err != nil {
 		return fmt.Errorf("stage current library: %w", err)
 	}
 	return nil

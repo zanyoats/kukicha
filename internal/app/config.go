@@ -142,7 +142,12 @@ func (w *WorkerCount) Resolve() int {
 }
 
 type RootConfig struct {
-	ID              string  `toml:"id" json:"id"`
+	ID string `json:"id"`
+	RootStorageConfig
+}
+
+// RootStorageConfig contains the editable fields, without the logical root ID.
+type RootStorageConfig struct {
 	Type            string  `toml:"type" json:"type"`
 	Path            *string `toml:"path" json:"path"`
 	EndpointURL     *string `toml:"endpoint_url" json:"endpoint_url"`
@@ -164,14 +169,12 @@ type ProviderLookupConfig struct {
 type AppConfig struct {
 	AppDir         string
 	ConfigFilePath string
-	Roots          []Root
 	DataSourceName string
 	Settings       struct {
 		Logging struct {
 			Level LogLevel `toml:"level"`
 		} `toml:"logging"`
 		Scan struct {
-			Roots                     []RootConfig         `toml:"roots"`
 			IgnorePrefixes            []string             `toml:"ignore_prefixes"`
 			IgnoreFiles               []string             `toml:"ignore_files"`
 			ProgressLogInterval       Duration             `toml:"progress_log_interval"`
@@ -256,9 +259,6 @@ func LoadAppConfig(catalog *Catalog) (*AppConfig, error) {
 	}
 
 	// Validations...
-	if result.Roots, err = normalizeRoots(result.AppDir, result.Settings.Scan.Roots); err != nil {
-		return nil, err
-	}
 	if result.Settings.Scan.ProgressLogInterval.Duration < 0 {
 		return nil, errors.New(
 			`"scan.progress_log_interval" setting cannot be negative`,
@@ -575,77 +575,60 @@ func validateAppBasePath(basePath string) error {
 	return nil
 }
 
-// normalizeRoots validates and resolves each entry in configuration order.
-// IDs are case-sensitive and remain independent of type and storage location.
-func normalizeRoots(baseDir string, configured []RootConfig) ([]Root, error) {
-	roots := make([]Root, 0, len(configured))
-	seen := make(map[string]int, len(configured))
+// NormalizeRoot validates one root and resolves its storage settings.
+// Duplicate IDs and overlapping storage are checked against persisted roots by the caller.
+func NormalizeRoot(baseDir string, entry RootConfig) (Root, error) {
 	value := func(field *string) string {
 		if field == nil {
 			return ""
 		}
 		return *field
 	}
-	for i := range configured {
-		entry := &configured[i]
-		entry.ID = strings.TrimSpace(entry.ID)
-		invalid := func(message string) error {
-			return fmt.Errorf("scan.roots[%d] (id %q): %s", i, entry.ID, message)
-		}
-		if entry.ID == "" {
-			return nil, invalid("id must be non-empty")
-		}
-		if previous, exists := seen[entry.ID]; exists {
-			return nil, invalid(fmt.Sprintf("duplicate id (already used by scan.roots[%d])", previous))
-		}
-		seen[entry.ID] = i
-		switch entry.Type {
-		case "local":
-			for _, field := range []struct {
-				name  string
-				value *string
-			}{
-				{"endpoint_url", entry.EndpointURL}, {"bucket", entry.Bucket},
-				{"prefix", entry.Prefix}, {"profile", entry.Profile},
-				{"region", entry.Region}, {"addressing_style", entry.AddressingStyle},
-			} {
-				if field.value != nil {
-					return nil, invalid(fmt.Sprintf("%s is only allowed for type remote", field.name))
-				}
-			}
-			if entry.Path == nil || *entry.Path == "" {
-				return nil, invalid("path is required for type local")
-			}
-			path, err := normalizeRootPath(baseDir, *entry.Path)
-			if err != nil {
-				return nil, invalid(err.Error())
-			}
-			roots = append(roots, &LocalRoot{ID: entry.ID, Path: path})
-		case "remote":
-			if entry.Path != nil {
-				return nil, invalid("path is only allowed for type local")
-			}
-			root := &RemoteRoot{
-				ID: entry.ID, EndpointURL: value(entry.EndpointURL), Bucket: value(entry.Bucket),
-				Prefix: value(entry.Prefix), Profile: value(entry.Profile),
-				Region: value(entry.Region), AddressingStyle: value(entry.AddressingStyle),
-			}
-			if err := normalizeRemoteRoot(root); err != nil {
-				return nil, invalid(err.Error())
-			}
-			for _, previous := range roots {
-				remote, ok := previous.(*RemoteRoot)
-				if ok && root.EndpointURL == remote.EndpointURL && root.Bucket == remote.Bucket &&
-					(strings.HasPrefix(root.Prefix, remote.Prefix) || strings.HasPrefix(remote.Prefix, root.Prefix)) {
-					return nil, invalid(fmt.Sprintf("prefix overlaps remote root %q", remote.ID))
-				}
-			}
-			roots = append(roots, root)
-		default:
-			return nil, invalid("type must be local or remote")
-		}
+	entry.ID = strings.TrimSpace(entry.ID)
+	invalid := func(message string) error {
+		return fmt.Errorf("root %q: %s", entry.ID, message)
 	}
-	return roots, nil
+	if entry.ID == "" {
+		return nil, invalid("id must be non-empty")
+	}
+	switch entry.Type {
+	case "local":
+		for _, field := range []struct {
+			name  string
+			value *string
+		}{
+			{"endpoint_url", entry.EndpointURL}, {"bucket", entry.Bucket},
+			{"prefix", entry.Prefix}, {"profile", entry.Profile},
+			{"region", entry.Region}, {"addressing_style", entry.AddressingStyle},
+		} {
+			if field.value != nil {
+				return nil, invalid(fmt.Sprintf("%s is only allowed for type remote", field.name))
+			}
+		}
+		if entry.Path == nil || *entry.Path == "" {
+			return nil, invalid("path is required for type local")
+		}
+		path, err := normalizeRootPath(baseDir, *entry.Path)
+		if err != nil {
+			return nil, invalid(err.Error())
+		}
+		return &LocalRoot{ID: entry.ID, Path: path}, nil
+	case "remote":
+		if entry.Path != nil {
+			return nil, invalid("path is only allowed for type local")
+		}
+		root := &RemoteRoot{
+			ID: entry.ID, EndpointURL: value(entry.EndpointURL), Bucket: value(entry.Bucket),
+			Prefix: value(entry.Prefix), Profile: value(entry.Profile),
+			Region: value(entry.Region), AddressingStyle: value(entry.AddressingStyle),
+		}
+		if err := normalizeRemoteRoot(root); err != nil {
+			return nil, invalid(err.Error())
+		}
+		return root, nil
+	default:
+		return nil, invalid("type must be local or remote")
+	}
 }
 
 func normalizeRemoteRoot(r *RemoteRoot) error {

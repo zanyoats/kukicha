@@ -50,9 +50,6 @@ var resetLibrarySQL string
 //go:embed sql/allocate_library_ids.sql
 var allocateLibraryIDsSQL string
 
-//go:embed sql/build_library_roots.sql
-var buildLibraryRootsSQL string
-
 //go:embed sql/build_library_albums.sql
 var buildLibraryAlbumsSQL string
 
@@ -156,9 +153,6 @@ func BuildLibraryFromScan(
 	}
 
 	if err = resetLibrary(ctx, tx); err != nil {
-		return result, err
-	}
-	if err = buildLibraryRoots(ctx, tx); err != nil {
 		return result, err
 	}
 
@@ -490,14 +484,6 @@ func resetLibrary(ctx context.Context, tx *sql.Tx) error {
 func allocateLibraryIDs(ctx context.Context, tx *sql.Tx) error {
 	if _, err := tx.ExecContext(ctx, allocateLibraryIDsSQL); err != nil {
 		return fmt.Errorf("allocate persistent library IDs: %w", err)
-	}
-
-	return nil
-}
-
-func buildLibraryRoots(ctx context.Context, tx *sql.Tx) error {
-	if _, err := tx.ExecContext(ctx, buildLibraryRootsSQL); err != nil {
-		return fmt.Errorf("build library roots: %w", err)
 	}
 
 	return nil

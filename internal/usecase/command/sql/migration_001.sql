@@ -95,7 +95,8 @@ CREATE TABLE library_roots (
     id        INTEGER PRIMARY KEY,
     config_id TEXT    NOT NULL   ,
 
-    state TEXT NOT NULL DEFAULT 'available' CHECK (state IN ('available', 'lost', 'disowned', 'pending_removal')),
+    settings TEXT NOT NULL CHECK (json_valid(settings)),
+    state TEXT NOT NULL DEFAULT 'available' CHECK (state IN ('available', 'pending_removal')),
 
     UNIQUE (config_id)           ,
     CHECK (length(trim(config_id)) > 0)

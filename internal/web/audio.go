@@ -52,9 +52,20 @@ func (c *webRouter) streamTrackAudio(w http.ResponseWriter, r *http.Request) {
 
 // serveLibraryFile serves a database-resolved path using the configured storage root.
 func (c *webRouter) serveLibraryFile(w http.ResponseWriter, r *http.Request, audio query.TrackAudio) {
-	root := c.rootsByConfigID[audio.ConfigID]
+	roots, err := query.StoredRoots(r.Context(), c.db, false)
+	if err != nil {
+		internalServerError(w, "unable to load root", "error", err)
+		return
+	}
+	var root app.Root
+	for _, candidate := range roots {
+		if candidate.ConfigID() == audio.ConfigID {
+			root = candidate
+			break
+		}
+	}
 	if root == nil {
-		http.Error(w, "File root is no longer configured", http.StatusNotFound)
+		http.Error(w, "File root is unavailable", http.StatusNotFound)
 		return
 	}
 
@@ -146,14 +157,14 @@ func (c *webRouter) redirectRemoteFile(
 	root *app.RemoteRoot,
 	relativePath, extension string,
 ) {
-	cached, ok := c.remoteAudioClients.Load(root.ConfigID())
+	cached, ok := c.remoteAudioClients.Load(*root)
 	if !ok {
 		client, err := walk.NewS3Client(r.Context(), root)
 		if err != nil {
 			internalServerError(w, "unable to initialize remote playback", "root", root.ConfigID(), "error", err)
 			return
 		}
-		cached, _ = c.remoteAudioClients.LoadOrStore(root.ConfigID(), s3.NewPresignClient(client))
+		cached, _ = c.remoteAudioClients.LoadOrStore(*root, s3.NewPresignClient(client))
 	}
 	client := cached.(*s3.PresignClient)
 	// Preserve exact S3 key bytes, including repeated slashes and dot segments.

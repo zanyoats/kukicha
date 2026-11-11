@@ -25,6 +25,8 @@ type URLs struct {
 	UpdateUnrecognizedTrack string
 	Add                     string
 	Roots                   string
+	CreateRoot              string
+	UpdateRoot              string
 	DropRoot                string
 	MetadataOverrides       string
 	ListeningData           string
@@ -74,6 +76,8 @@ func NewURLs(basePath string) URLs {
 		UpdateUnrecognizedTrack: api + "/unrecognizedTracks/",
 		Add:                     app + "/add/",
 		Roots:                   app + "/roots/",
+		CreateRoot:              api + "/roots/",
+		UpdateRoot:              api + "/roots/update/",
 		DropRoot:                api + "/roots/drop/",
 		MetadataOverrides:       app + "/metadataOverrides/",
 		ListeningData:           app + "/listeningData/",
@@ -178,4 +182,9 @@ func (u URLs) AlbumSidecarsURL(id int64) string {
 }
 func (u URLs) SidecarFileURL(id int64) string {
 	return u.SidecarFile + "?sidecar_id=" + strconv.FormatInt(id, 10)
+}
+
+// UpdateRootURL keeps arbitrary logical IDs in the query, including slashes and dots.
+func (u URLs) UpdateRootURL(id string) string {
+	return u.UpdateRoot + "?" + url.Values{"id": {id}}.Encode()
 }

@@ -11,6 +11,7 @@ import (
 
 	"github.com/zanyoats/kukicha/internal/app"
 	"github.com/zanyoats/kukicha/internal/upload"
+	"github.com/zanyoats/kukicha/internal/usecase/query"
 )
 
 type addModeView struct {
@@ -18,10 +19,15 @@ type addModeView struct {
 }
 
 func (c *webRouter) showAdd(w http.ResponseWriter, r *http.Request) {
+	roots, err := query.StoredRoots(r.Context(), c.db, false)
+	if err != nil {
+		internalServerError(w, "unable to load roots", "error", err)
+		return
+	}
 	renderPage(w, c.renderer, "add.gohtml", struct {
 		URLs             URLs
 		EyeBrow, Heading string
-		ConfiguredRoots  []configuredRootView
+		Roots            []rootView
 		MaxRequestBytes  int64
 		UploadLimit      string
 		Modes            []addModeView
@@ -31,7 +37,7 @@ func (c *webRouter) showAdd(w http.ResponseWriter, r *http.Request) {
 			{Value: upload.ModeFiles, Label: "Upload files"},
 			{Value: upload.ModeSync, Label: "Server folder or bucket"},
 		},
-		ConfiguredRoots: configuredRootViews(c.configuredRoots),
+		Roots:           rootViews(roots),
 		MaxRequestBytes: c.maxUploadRequestBytes,
 		UploadLimit:     uploadLimitLabel(c.maxUploadRequestBytes),
 	})
