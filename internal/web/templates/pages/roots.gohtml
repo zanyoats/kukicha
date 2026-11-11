@@ -16,14 +16,19 @@
     {{template "page-header" .}}
     <div class="top-nav roots-nav">
         <nav aria-label="Storage sections" up-nav="false">
-            <a href="{{.URLs.Roots}}" up-target=".config-page" up-history="false" {{if and (ne .Section "add") (not .Editing)}}class="up-current" aria-current="page"{{end}}>Show storage</a>
+            <a href="{{.URLs.Roots}}" up-target=".config-page" up-history="false" {{if eq .Section "show"}}class="up-current" aria-current="page"{{end}}>Show storage</a>
             <a href="{{.URLs.Roots}}?section=add" up-target=".config-page" up-history="false" {{if eq .Section "add"}}class="up-current" aria-current="page"{{end}}>Add storage location</a>
             {{if .Editing}}
             <a href="{{.URLs.Roots}}?edit={{.Form.ID}}" up-target=".config-page" up-history="false" class="up-current" aria-current="page">Edit {{.Form.ID}}</a>
             {{end}}
+            {{if eq .Section "import"}}
+            <a href="{{.URLs.ImportRootURL .ImportID}}" up-target=".config-page" up-history="false" class="up-current" aria-current="page">Import {{.ImportID}}</a>
+            {{end}}
         </nav>
     </div>
-    {{if or (eq .Section "add") .Editing}}
+    {{if eq .Section "import"}}
+    {{template "import-form" .}}
+    {{else if or (eq .Section "add") .Editing}}
     {{template "root-form" .}}
     {{else}}
     {{if .Roots}}
@@ -33,33 +38,33 @@
             Run <span class="action-with-info"><button type="button" class="inline-action" data-library-job-submit="{{.URLs.SubmitJob}}">Rebuild</button>{{template "job-help-trigger" "rebuild"}}</span> to apply your latest organization rules to saved metadata.
             Removing a storage location hides its music immediately and marks its library data for removal during the next build. Files in storage are left untouched. Rebuild afterward to refresh radio membership and enable radios again.
         </p>
-        <p>
-            Use <a href="{{.URLs.Add}}" up-layer="new modal" up-target=".config-page" up-class="config-modal" up-history="false">Add to Kukicha</a> to import music.
-        </p>
     </aside>
     {{template "rebuild-job-help" .}}
     {{end}}
     {{range $index, $root := .Roots}}
     <section class="root-summary" aria-labelledby="root-path-{{$index}}">
-        <h2 id="root-path-{{$index}}">
-            {{.RootKey -}}
+        <div class="root-summary-heading">
             <button
+                id="root-path-{{$index}}"
                 type="button"
-                class="info-trigger"
-                aria-label="Details for {{.RootKey}}"
+                class="library-sort-trigger"
+                aria-label="Manage storage location {{.RootKey}}"
                 aria-haspopup="dialog"
                 up-follow
                 up-layer="new popup"
                 up-content="#root-info-{{$index}}"
-                up-class="info-popup"
+                up-class="library-sort-popup"
                 up-position="bottom"
                 up-align="left"
                 up-history="false"
                 up-dismissible="key outside"
             >
-                <span aria-hidden="true">[?]</span>
+                {{.RootKey}}
+                <svg class="sort-chevron" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+                    <path d="m4 6 4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"></path>
+                </svg>
             </button>
-        </h2>
+        </div>
         <template id="root-info-{{$index}}">
             <section class="root-info" aria-label="Details for {{.RootKey}}">
             <dl class="root-details">
@@ -76,6 +81,7 @@
             {{if eq .State "available"}}
             <div class="root-info-actions">
                 <a href="{{$.URLs.Roots}}?edit={{.ConfigID}}" up-target=".config-page" up-layer="parent" up-history="false">Edit</a>
+                <a href="{{$.URLs.ImportRootURL .ConfigID}}" up-target=".config-page" up-layer="parent" up-history="false">Import</a>
                 <button type="button" class="inline-action" data-drop-root="{{$.URLs.DropRoot}}"
                     data-root-id="{{.ConfigID}}" data-roots-url="{{$.URLs.Roots}}">Remove</button>
             </div>
@@ -138,7 +144,7 @@
     {{if .Editing}}
     <p class="text-secondary">The logical ID stays unchanged. Before changing storage locations, move the storage location’s contents and preserve the directory structure. Editing does not move files or require the destination to be empty.</p>
     {{else}}
-    <p class="text-secondary">Choose a new or empty destination for Kukicha to manage. Local files matching the scan ignore settings are allowed. Import your music afterward using Add to Kukicha.</p>
+    <p class="text-secondary">Choose a new or empty destination for Kukicha to manage. Local files matching the scan ignore settings are allowed. After adding the storage location, choose Import in its details popup to add music.</p>
     {{end}}
     {{if not .Editing}}
     <div class="add-destination">

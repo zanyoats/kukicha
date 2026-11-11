@@ -401,10 +401,6 @@ article h2 {
             font-size: inherit;
         }
     }
-
-    .avatar-add-heading {
-        font-weight: 800;
-    }
 }
 
 .avatar-actions {
@@ -2522,4 +2518,15 @@ svg.player-queue-play-icon {
 .add-dropzone.is-invalid {
     outline: 0.125rem solid var(--accent);
     outline-offset: 0.125rem;
+}
+
+.root-summary-heading {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+
+    .library-sort-trigger {
+        margin-inline-start: 0;
+        font-size: 1.1rem;
+    }
 }

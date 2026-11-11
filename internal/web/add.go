@@ -11,36 +11,19 @@ import (
 
 	"github.com/zanyoats/kukicha/internal/app"
 	"github.com/zanyoats/kukicha/internal/upload"
-	"github.com/zanyoats/kukicha/internal/usecase/query"
 )
 
 type addModeView struct {
 	Value, Label string
 }
 
+// Keep old bookmarks usable; imports now start from a storage location.
 func (c *webRouter) showAdd(w http.ResponseWriter, r *http.Request) {
-	roots, err := query.StoredRoots(r.Context(), c.db, false)
-	if err != nil {
-		internalServerError(w, "unable to load roots", "error", err)
-		return
+	destination := c.urls.Roots
+	if id := r.URL.Query().Get("root_id"); id != "" {
+		destination = c.urls.ImportRootURL(id)
 	}
-	renderPage(w, c.renderer, "add.gohtml", struct {
-		URLs             URLs
-		EyeBrow, Heading string
-		Roots            []rootView
-		MaxRequestBytes  int64
-		UploadLimit      string
-		Modes            []addModeView
-	}{
-		URLs: c.urls, EyeBrow: "Library", Heading: "Add to Kukicha",
-		Modes: []addModeView{
-			{Value: upload.ModeFiles, Label: "Upload files"},
-			{Value: upload.ModeSync, Label: "Server folder or bucket"},
-		},
-		Roots:           rootViews(roots),
-		MaxRequestBytes: c.maxUploadRequestBytes,
-		UploadLimit:     uploadLimitLabel(c.maxUploadRequestBytes),
-	})
+	http.Redirect(w, r, destination, http.StatusSeeOther)
 }
 
 func (c *webRouter) uploadFiles(w http.ResponseWriter, r *http.Request) {

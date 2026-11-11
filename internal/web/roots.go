@@ -24,6 +24,10 @@ type rootsViewModel struct {
 	Section         string
 	Editing         bool
 	AddressingStyle string
+	ImportID        string
+	MaxRequestBytes int64
+	UploadLimit     string
+	Modes           []addModeView
 	Form            app.RootConfig
 }
 
@@ -77,7 +81,23 @@ func (c *webRouter) showRoots(w http.ResponseWriter, r *http.Request) {
 		internalServerError(w, "unable to load root settings", "error", err)
 		return
 	}
-	section := r.URL.Query().Get("section")
+	section := "show"
+	if r.URL.Query().Get("section") == "add" {
+		section = "add"
+	}
+	importID := r.URL.Query().Get("import")
+	if importID != "" && r.URL.Query().Get("edit") != "" {
+		http.Error(w, "Choose either edit or import.", http.StatusBadRequest)
+		return
+	}
+	if importID != "" {
+		root := rootsByKey[importID]
+		if root == nil || root.State != "available" {
+			http.NotFound(w, r)
+			return
+		}
+		section = "import"
+	}
 	form := app.RootConfig{RootStorageConfig: app.RootStorageConfig{Type: "local"}}
 	editing := false
 	if id := r.URL.Query().Get("edit"); id != "" {
@@ -96,6 +116,13 @@ func (c *webRouter) showRoots(w http.ResponseWriter, r *http.Request) {
 	}
 	model := rootsViewModel{
 		Section: section, Editing: editing, Form: form,
+		ImportID:        importID,
+		MaxRequestBytes: c.maxUploadRequestBytes,
+		UploadLimit:     uploadLimitLabel(c.maxUploadRequestBytes),
+		Modes: []addModeView{
+			{Value: upload.ModeFiles, Label: "Upload files"},
+			{Value: upload.ModeSync, Label: "Server folder or bucket"},
+		},
 		EyeBrow:       "Settings",
 		Heading:       "Storage",
 		URLs:          c.urls,

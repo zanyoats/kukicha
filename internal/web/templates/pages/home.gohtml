@@ -23,7 +23,7 @@
                     The recognized audio file extensions are:
                     {{range $index, $extension := .RecognizedAudioExtensions}}{{if $index}}, {{end}}<code>{{$extension}}</code>{{end}}.
                 </p>
-                <p>Use <a href="{{.URLs.Add}}" up-layer="new modal" up-target=".config-page" up-class="config-modal" up-history="false">Add to Kukicha</a> to import audio files.</p>
+                {{template "home-import-links" .}}
             </aside>
             {{end}}
         {{else}}
@@ -42,8 +42,9 @@
             <p>Your library hasn’t been generated yet.</p>
             {{else}}
             <strong>Your library hasn’t been prepared yet.</strong>
-            <p>Use <a href="{{.URLs.Add}}" up-layer="new modal" up-target=".config-page" up-class="config-modal" up-history="false">Add to Kukicha</a> to import your music.</p>
+
             {{end}}
+            {{template "home-import-links" .}}
             <p><a href="{{.URLs.Jobs}}" up-layer="new modal" up-target=".config-page" up-class="config-modal" up-history="false">View jobs</a></p>
         </aside>
         {{end}}
@@ -51,7 +52,7 @@
         <aside class="alert alert-info" aria-label="Add a storage location">
             <strong>Add a storage location to get started.</strong>
             <p>Choose a local folder or S3-compatible storage location where Kukicha will store your music.</p>
-            <p><a href="{{.URLs.Roots}}?section=add" up-layer="new modal" up-target=".config-page" up-class="config-modal" up-history="false">Add a storage location</a>, then import music with Add to Kukicha. No restart is needed.</p>
+            <p><a href="{{.URLs.Roots}}?section=add" up-layer="new modal" up-target=".config-page" up-class="config-modal" up-history="false">Add a storage location</a>, then choose Import from its details popup. No restart is needed.</p>
         </aside>
     {{end}}
 </article>
@@ -123,4 +124,15 @@
         {{end}}
     </ul>
 </section>
+{{end}}
+
+
+{{define "home-import-links"}}
+<p>Import music into a storage location:</p>
+<ul>
+    {{range .Roots}}
+    <li><a href="{{$.URLs.ImportRootURL .RootKey}}" up-layer="new modal" up-target=".config-page"
+        up-class="config-modal" up-history="false" up-cache="false">Import {{.RootKey}}</a></li>
+    {{end}}
+</ul>
 {{end}}

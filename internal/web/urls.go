@@ -188,3 +188,7 @@ func (u URLs) SidecarFileURL(id int64) string {
 func (u URLs) UpdateRootURL(id string) string {
 	return u.UpdateRoot + "?" + url.Values{"id": {id}}.Encode()
 }
+
+func (u URLs) ImportRootURL(id string) string {
+	return u.Roots + "?" + url.Values{"import": {id}}.Encode()
+}

@@ -11,6 +11,7 @@ type homeViewModel struct {
 	UnrecognizedTrackCount    int
 	LibraryGenerated          bool
 	LibraryHasTracks          bool
+	Roots                     []rootView
 	HasRoots                  bool
 	InitialBuildState         string
 	RecognizedAudioExtensions []string
@@ -52,6 +53,7 @@ func (c *webRouter) showHome(w http.ResponseWriter, r *http.Request) {
 		LibraryGenerated:          home.LibraryGenerated,
 		LibraryHasTracks:          home.LibraryHasTracks,
 		HasRoots:                  len(roots) > 0,
+		Roots:                     rootViews(roots),
 		InitialBuildState:         home.InitialBuildState,
 		RecognizedAudioExtensions: c.recognizedAudioExtensions,
 		EyeBrow:                   "Kukicha",
