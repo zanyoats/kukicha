@@ -14,20 +14,21 @@ export default function registerRoots(up) {
         });
     };
 
-    up.compiler("[data-drop-root]", (button) => {
+    up.compiler("[data-drop-root], [data-restore-root]", (button) => {
+        const restoring = Boolean(button.dataset.restoreRoot);
         let destroyed = false;
         const unbind = up.on(button, "click", async () => {
             if (button.disabled) return;
             button.disabled = true;
             button.setAttribute("aria-busy", "true");
             try {
-                await requestJSON(up, button.dataset.dropRoot, {
+                await requestJSON(up, button.dataset.restoreRoot || button.dataset.dropRoot, {
                     method: "POST",
                     body: { config_id: button.dataset.rootId },
-                    errorMessage: "Unable to remove the storage location.",
+                    errorMessage: restoring ? "Unable to undo removal." : "Unable to remove the storage location.",
                 });
                 if (destroyed) return;
-                showToast("Storage location marked for removal. Rebuild to remove its library data. Files in storage are left untouched.", { trigger: button });
+                showToast(restoring ? "Removal undone. Storage location is available again." : "Storage location marked for removal. Rebuild to remove its library data. Files in storage are left untouched.", { trigger: button });
                 await refresh(button);
             } catch (failure) {
                 if (!destroyed) showToast(failure.message, { role: "alert", trigger: button });

@@ -162,6 +162,32 @@ func (c *webRouter) dropRoot(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func (c *webRouter) restoreRoot(w http.ResponseWriter, r *http.Request) {
+	var input struct {
+		ConfigID string `json:"config_id"`
+	}
+	if !decodeJSONRequest(w, r, &input) {
+		return
+	}
+	if strings.TrimSpace(input.ConfigID) == "" {
+		apiError(w, http.StatusBadRequest, "A storage location ID is required.")
+		return
+	}
+	if err := command.RestoreRoot(r.Context(), c.db, input.ConfigID); err != nil {
+		if errors.Is(err, command.ErrRootNotFound) {
+			apiError(w, http.StatusNotFound, err.Error())
+		} else if errors.Is(err, command.ErrRootRestoreBuildRunning) || errors.Is(err, command.ErrRootNotPendingRemoval) {
+			apiError(w, http.StatusConflict, err.Error())
+		} else {
+			slog.ErrorContext(r.Context(), "unable to restore root", "root", input.ConfigID, "error", err)
+			apiError(w, http.StatusInternalServerError, "Unable to undo removal. Please try again.")
+		}
+		return
+	}
+	slog.InfoContext(r.Context(), "root restored", "root", input.ConfigID)
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (c *webRouter) createRoot(w http.ResponseWriter, r *http.Request) {
 	var input app.RootConfig
 	if !decodeJSONRequest(w, r, &input) {

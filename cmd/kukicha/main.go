@@ -73,6 +73,26 @@ Set both variables in the environment that starts Kukicha. For example, in a she
 		}
 		fmt.Printf("Database location: %s\n", dbPath)
 	}
+	fmt.Print(`
+Remote storage (optional)
+  To store music in an S3-compatible bucket, set up credentials for Kukicha.
+  Three options are:
+
+  1. Environment variables: set AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY
+     before starting Kukicha. For temporary credentials, also set AWS_SESSION_TOKEN.
+  2. AWS profile: add a named profile to ~/.aws/credentials and ~/.aws/config.
+  3. Credential helper: set credential_process in a profile in ~/.aws/config.
+     The helper must be runnable by the server account and return AWS
+     credential-process JSON.
+
+  After starting Kukicha, it will alert you to create storage.
+  Choose remote storage and enter your bucket endpoint, bucket, and prefix.
+  Setting up credentials alone does not create a storage location.
+  If using options 2 or 3 you will also set a profile used (not needed for option 1).
+  Set the bucket's region using AWS_REGION, your profile, or the app's Region field.
+  For a service or container, configure environment variables there before startup.
+  Changing environment variables requires restarting Kukicha to pick them up.
+`)
 }
 
 func run() error {

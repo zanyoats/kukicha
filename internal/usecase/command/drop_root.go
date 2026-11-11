@@ -9,20 +9,31 @@ import (
 )
 
 var ErrRootDropBuildRunning = errors.New("Cannot remove a storage location while a build is in progress. Try again after it finishes.")
+var ErrRootRestoreBuildRunning = errors.New("Cannot undo removal while a build is in progress. Try again after it finishes.")
+var ErrRootNotPendingRemoval = errors.New("This storage location is not pending removal.")
 var ErrRootNotAvailable = errors.New("This storage location is pending removal and cannot be changed.")
 
 // MarkRootForRemoval never queues a build. Its first statement is a write,
 // serializing the state change with ClaimJob before either operation proceeds.
 func MarkRootForRemoval(ctx context.Context, db *sql.DB, configID string) error {
+	return changeRootState(ctx, db, configID, "available", "pending_removal", ErrRootDropBuildRunning, ErrRootNotAvailable)
+}
+
+// RestoreRoot cancels removal before a build deletes the storage location.
+func RestoreRoot(ctx context.Context, db *sql.DB, configID string) error {
+	return changeRootState(ctx, db, configID, "pending_removal", "available", ErrRootRestoreBuildRunning, ErrRootNotPendingRemoval)
+}
+
+func changeRootState(ctx context.Context, db *sql.DB, configID, from, to string, runningError, stateError error) error {
 	tx, err := db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback()
 	result, err := tx.ExecContext(ctx, `
-		UPDATE library_roots SET state = 'pending_removal'
-		WHERE config_id = ? AND state = 'available'
-		AND NOT EXISTS (SELECT 1 FROM jobs WHERE type = 'build' AND state = 'running')`, configID)
+		UPDATE library_roots SET state = ?
+		WHERE config_id = ? AND state = ?
+		AND NOT EXISTS (SELECT 1 FROM jobs WHERE type = 'build' AND state = 'running')`, to, configID, from)
 	if err != nil {
 		return err
 	}
@@ -43,9 +54,9 @@ func MarkRootForRemoval(ctx context.Context, db *sql.DB, configID string) error 
 			return err
 		}
 		if running {
-			return ErrRootDropBuildRunning
+			return runningError
 		}
-		return ErrRootNotAvailable
+		return stateError
 	}
 	// Radio positions were built from the previous available-track set.
 	// Invalidate their cursors until the next rebuild publishes new membership.

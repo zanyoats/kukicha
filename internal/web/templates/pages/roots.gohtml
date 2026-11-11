@@ -22,7 +22,7 @@
             <a href="{{.URLs.Roots}}?edit={{.Form.ID}}" up-target=".config-page" up-history="false" class="up-current" aria-current="page">Edit {{.Form.ID}}</a>
             {{end}}
             {{if eq .Section "import"}}
-            <a href="{{.URLs.ImportRootURL .ImportID}}" up-target=".config-page" up-history="false" class="up-current" aria-current="page">Import {{.ImportID}}</a>
+            <a href="{{.URLs.ImportRootURL .ImportID}}" up-target=".config-page" up-history="false" class="up-current" aria-current="page">Import into {{.ImportID}}</a>
             {{end}}
         </nav>
     </div>
@@ -110,12 +110,18 @@
         {{end}}
         {{with index $.RootsByKey .RootKey}}
         {{if eq .State "pending_removal"}}
-        <p class="text-secondary">Pending removal. Rebuild to remove this storage location’s library data. Files in storage are left untouched.</p>
+        <p class="text-secondary">Pending removal. Rebuild to remove this storage location’s library data. Files in storage are left untouched.
+            <button type="button" class="inline-action" data-restore-root="{{$.URLs.RestoreRoot}}" data-root-id="{{.ConfigID}}">Undo</button>
+        </p>
         {{end}}
         {{end}}
     </section>
     {{else}}
-    <p>No storage locations yet. Choose Add storage location to get started.</p>
+    <section class="roots-empty" aria-labelledby="roots-empty-title">
+        <h2 id="roots-empty-title">No storage locations yet</h2>
+        <p class="text-secondary">Choose a local folder or S3-compatible bucket where Kukicha will store your music.</p>
+        <a href="{{.URLs.Roots}}?section=add" up-target=".config-page" up-history="false">Add storage location</a>
+    </section>
     {{end}}
 
     {{if .LatestBuildID}}

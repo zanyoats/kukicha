@@ -1,7 +1,7 @@
 {{define "import-form"}}
     <form class="add-form" action="{{.URLs.Add}}" method="post" data-add-form data-max-request-bytes="{{.MaxRequestBytes}}" up-submit="false">
         <div class="root-form-heading">
-            <h2>Import {{.ImportID}}</h2>
+            <h2>Import into {{.ImportID}}</h2>
             <a href="{{.URLs.Roots}}" up-target=".config-page" up-history="false">Cancel</a>
         </div>
         <input type="hidden" name="root_config_id" value="{{.ImportID}}">

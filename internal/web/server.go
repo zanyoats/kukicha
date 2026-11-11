@@ -194,6 +194,7 @@ func NewWebRouter(
 		exactPattern(http.MethodPost, urls.DropRoot),
 		router.dropRoot,
 	)
+	mux.HandleFunc(exactPattern(http.MethodPost, urls.RestoreRoot), router.restoreRoot)
 	mux.HandleFunc(
 		exactPattern(http.MethodGet, urls.Jobs),
 		router.showJobs,

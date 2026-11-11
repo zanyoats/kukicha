@@ -28,6 +28,7 @@ type URLs struct {
 	CreateRoot              string
 	UpdateRoot              string
 	DropRoot                string
+	RestoreRoot             string
 	MetadataOverrides       string
 	ListeningData           string
 	ListeningSummary        string
@@ -79,6 +80,7 @@ func NewURLs(basePath string) URLs {
 		CreateRoot:              api + "/roots/",
 		UpdateRoot:              api + "/roots/update/",
 		DropRoot:                api + "/roots/drop/",
+		RestoreRoot:             api + "/roots/restore/",
 		MetadataOverrides:       app + "/metadataOverrides/",
 		ListeningData:           app + "/listeningData/",
 		ListeningSummary:        app + "/listeningData/summary/",
