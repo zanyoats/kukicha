@@ -8,13 +8,14 @@
 </body>
 {{end}}
 {{define "page-content"}}
-<article class="config-page listening-page">
+<article class="config-page listening-page" data-listening-url="{{.PageURL}}">
     {{template "page-header" .}}
     <form class="listening-period help-session-note" action="{{.URLs.ListeningData}}" method="get" up-submit up-autosubmit up-watch-event="change" up-watch-delay="0" up-target=".listening-page" up-history="true">
+        {{if .TimezoneParam}}<input type="hidden" name="tz" value="{{.TimezoneParam}}">{{end}}
         <select name="year" aria-label="Listening year">
             {{range .Years}}<option value="{{.}}" {{if eq . $.Year}}selected{{end}}>{{.}}</option>{{end}}
         </select>
-        <span>{{if .YearToDate}}year to date · compared with the same period in{{else}}full year · compared with{{end}} {{.PreviousYear}} · Server timezone: {{.Timezone}}</span>
+        <span>{{if .YearToDate}}year to date · compared with the same period in{{else}}full year · compared with{{end}} {{.PreviousYear}} · {{if .TimezoneParam}}Timezone{{else}}Server timezone{{end}}: {{.Timezone}}</span>
     </form>
     <div class="listening-columns">
         <section id="listening-summary" up-defer up-href="{{.SummaryURL}}" aria-label="Listening statistics">

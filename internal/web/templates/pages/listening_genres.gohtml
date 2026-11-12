@@ -11,7 +11,7 @@
     {{else}}
     <div class="listening-canvas listening-genres-canvas" data-listening-genres up-data="{{.ChartData}}" aria-busy="true">
         <p class="listening-chart-loading" role="status">Loading chart…</p>
-        <canvas role="img" aria-label="Monthly plays by genre in {{.Year}}, using the server timezone. Each colored band represents one genre."></canvas>
+        <canvas role="img" aria-label="Monthly plays by genre in {{.Year}}, using {{.Timezone}}. Each colored band represents one genre."></canvas>
     </div>
     <div class="listening-table visually-hidden">
         <table>

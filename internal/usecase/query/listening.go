@@ -19,11 +19,10 @@ type ListeningSummary struct {
 	Days, PreviousDays                             int
 }
 
-// ListeningSummaryAt compares a selected server-local year with the prior year.
+// ListeningSummaryAt compares a selected year in at’s location with the prior year.
 // at is the exclusive cutoff, no later than January 1 of the following year.
 // Partial years include today in daily averages; February 29 maps to February 28.
 func ListeningSummaryAt(ctx context.Context, db *sql.DB, year int, at time.Time) (ListeningSummary, error) {
-	at = at.In(time.Local)
 	var previous time.Time
 	var days, previousDays int
 	if at.Year() > year {
@@ -56,12 +55,11 @@ type ListeningMonths struct {
 }
 
 func ListeningMonthsAt(ctx context.Context, db *sql.DB, year int, at time.Time) (ListeningMonths, error) {
-	at = at.In(time.Local)
 	result := ListeningMonths{Year: year}
 	for i := 0; i < listeningMonthCount(year, at); i++ {
 		result.Current[i] = new(int64)
 	}
-	// Compute calendar boundaries in Go so SQL uses the same server timezone,
+	// Compute calendar boundaries in Go so SQL uses the same timezone from at.Location(),
 	// including historical daylight-saving offsets, as the summary.
 	type period struct {
 		Year  int   `json:"year"`
@@ -110,11 +108,10 @@ func ListeningMonthsAt(ctx context.Context, db *sql.DB, year int, at time.Time) 
 //go:embed sql/listening_hours.sql
 var listeningHoursSQL string
 
-// ListeningHoursAt counts starts by server-local hour. Convert each instant in
+// ListeningHoursAt counts starts by hour in at’s location. Convert each instant in
 // Go so repeated DST hours combine and skipped hours require no special case.
 func ListeningHoursAt(ctx context.Context, db *sql.DB, year int, at time.Time) ([24]int64, error) {
 	var counts [24]int64
-	at = at.In(time.Local)
 	start := time.Date(year, 1, 1, 0, 0, 0, 0, at.Location())
 	rows, err := db.QueryContext(ctx, listeningHoursSQL, start.UnixMilli(), at.UnixMilli())
 	if err != nil {

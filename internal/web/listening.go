@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"math"
 	"net/http"
+	"net/url"
 	"slices"
 	"strconv"
 	"time"
@@ -24,6 +25,7 @@ type listeningView struct {
 	HoursURL                                                 string
 	Hours                                                    []listeningHour
 	Timezone                                                 string
+	TimezoneParam, PageURL                                   string
 	URLs                                                     URLs
 	EyeBrow, Heading, SummaryURL, ChartURL, ChartData, Error string
 	Year, PreviousYear                                       int
@@ -53,8 +55,30 @@ func listeningChange(current, previous float64) (string, string) {
 	return fmt.Sprintf("%.1f%%", change), "decrease"
 }
 
+// An omitted timezone retains the server default; explicit overrides must be valid.
+func listeningLocation(r *http.Request) (*time.Location, error) {
+	name := r.URL.Query().Get("tz")
+	if name == "" {
+		return time.Local, nil
+	}
+	location, err := time.LoadLocation(name)
+	if err != nil {
+		return nil, fmt.Errorf("invalid listening timezone")
+	}
+	return location, nil
+}
+
+func listeningTimezone(at time.Time) string {
+	return at.Location().String() + " · " + at.Format("MST (UTC-07:00)")
+}
+
 func (c *webRouter) showListeningData(w http.ResponseWriter, r *http.Request) {
-	at := time.Now()
+	location, err := listeningLocation(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	at := time.Now().In(location)
 	w.Header().Set("Cache-Control", "no-store")
 	years, err := query.ListeningYears(r.Context(), c.db, at)
 	if err != nil {
@@ -73,11 +97,18 @@ func (c *webRouter) showListeningData(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	suffix := "?at=" + strconv.FormatInt(at.UnixMilli(), 10) + "&year=" + strconv.Itoa(year)
+	params := url.Values{
+		"at":   {strconv.FormatInt(at.UnixMilli(), 10)},
+		"year": {strconv.Itoa(year)},
+	}
+	if name := r.URL.Query().Get("tz"); name != "" {
+		params.Set("tz", name)
+	}
+	suffix := "?" + params.Encode()
 	renderPage(w, c.renderer, "listening.gohtml", listeningView{
 		URLs: c.urls, EyeBrow: "Your library", Heading: "Listening Data",
 		Year: year, PreviousYear: year - 1, Years: years, YearToDate: year == at.Year(),
-		Timezone:   at.Format("MST (UTC-07:00)"),
+		Timezone: listeningTimezone(at), TimezoneParam: r.URL.Query().Get("tz"), PageURL: r.URL.RequestURI(),
 		SummaryURL: c.urls.ListeningSummary + suffix, ChartURL: c.urls.ListeningChart + suffix,
 		HoursURL:  c.urls.ListeningHours + suffix,
 		GenresURL: c.urls.ListeningGenres + suffix,
@@ -87,17 +118,21 @@ func (c *webRouter) showListeningData(w http.ResponseWriter, r *http.Request) {
 // All fragments share the page's selected year and cutoff. Completed years end
 // exactly at the next January 1, so the final millisecond is included.
 func listeningCutoff(r *http.Request) (int, time.Time, error) {
+	location, err := listeningLocation(r)
+	if err != nil {
+		return 0, time.Time{}, err
+	}
 	ms, err := strconv.ParseInt(r.URL.Query().Get("at"), 10, 64)
 	if err != nil || ms <= 0 {
 		return 0, time.Time{}, fmt.Errorf("invalid listening cutoff")
 	}
-	at := time.UnixMilli(ms).In(time.Local)
+	at := time.UnixMilli(ms).In(location)
 	year, err := strconv.Atoi(r.URL.Query().Get("year"))
-	if err != nil || year < 1 || year > at.Year() || year > time.Now().Year() {
+	if err != nil || year < 1 || year > at.Year() || year > time.Now().In(location).Year() {
 		return 0, time.Time{}, fmt.Errorf("invalid listening year")
 	}
 	if year < at.Year() {
-		at = time.Date(year+1, 1, 1, 0, 0, 0, 0, time.Local)
+		at = time.Date(year+1, 1, 1, 0, 0, 0, 0, location)
 	}
 	return year, at, nil
 }
@@ -139,7 +174,7 @@ func (c *webRouter) showListeningChart(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	view := listeningView{Year: year, YearToDate: at.Year() == year, PreviousYear: year - 1, ChartURL: r.URL.RequestURI()}
+	view := listeningView{Timezone: listeningTimezone(at), Year: year, YearToDate: at.Year() == year, PreviousYear: year - 1, ChartURL: r.URL.RequestURI()}
 	data, err := query.ListeningMonthsAt(r.Context(), c.db, year, at)
 	if err != nil {
 		slog.ErrorContext(r.Context(), "query listening months", "error", err)
@@ -170,7 +205,7 @@ func (c *webRouter) showListeningHours(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	view := listeningView{Year: year, YearToDate: at.Year() == year, HoursURL: r.URL.RequestURI()}
+	view := listeningView{Timezone: listeningTimezone(at), Year: year, YearToDate: at.Year() == year, HoursURL: r.URL.RequestURI()}
 	counts, err := query.ListeningHoursAt(r.Context(), c.db, year, at)
 	if err != nil {
 		slog.ErrorContext(r.Context(), "query listening hours", "error", err)
@@ -192,7 +227,7 @@ func (c *webRouter) showListeningGenres(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	view := listeningView{Year: year, YearToDate: at.Year() == year, GenresURL: r.URL.RequestURI()}
+	view := listeningView{Timezone: listeningTimezone(at), Year: year, YearToDate: at.Year() == year, GenresURL: r.URL.RequestURI()}
 	genres, err := query.ListeningGenresAt(r.Context(), c.db, year, at)
 	if err != nil {
 		slog.ErrorContext(r.Context(), "query listening genres", "error", err)

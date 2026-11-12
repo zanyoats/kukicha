@@ -18,9 +18,8 @@ type ListeningGenre struct {
 
 // ListeningGenresAt counts each play once per stored track genre, including
 // unknown fallback. Plays without a remaining genre assignment are excluded.
-// Month boundaries use the same server timezone as the other listening charts.
+// Month boundaries use the same timezone from at.Location() as the other listening charts.
 func ListeningGenresAt(ctx context.Context, db *sql.DB, year int, at time.Time) ([]ListeningGenre, error) {
-	at = at.In(time.Local)
 	start := time.Date(year, 1, 1, 0, 0, 0, 0, at.Location())
 	rows, err := db.QueryContext(ctx, listeningGenresSQL, start.UnixMilli(), at.UnixMilli())
 	if err != nil {

@@ -9,11 +9,11 @@
     {{else}}
     <div class="listening-canvas" data-listening-hours up-data="{{.ChartData}}" aria-busy="true">
         <p class="listening-chart-loading" role="status">Loading chart…</p>
-        <canvas role="img" aria-label="{{.Year}} scrobbles by start hour in the server timezone. Midnight is at the top, noon at the bottom."></canvas>
+        <canvas role="img" aria-label="{{.Year}} scrobbles by start hour in {{.Timezone}}. Midnight is at the top, noon at the bottom."></canvas>
     </div>
     <div class="listening-table visually-hidden">
         <table>
-            <caption>{{.Year}} scrobbles by start hour (server timezone)</caption>
+            <caption>{{.Year}} scrobbles by start hour ({{.Timezone}})</caption>
             <thead><tr><th scope="col">Hour</th><th scope="col">Scrobbles</th></tr></thead>
             <tbody>{{range .Hours}}<tr><th scope="row">{{.Label}}</th><td>{{formatNumber .Count}}</td></tr>{{end}}</tbody>
         </table>

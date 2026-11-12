@@ -1,4 +1,30 @@
 export default function registerListening(up) {
+    const browserTimezone = () => {
+        try {
+            return Intl.DateTimeFormat().resolvedOptions().timeZone;
+        } catch {
+            return undefined;
+        }
+    };
+    const withBrowserTimezone = (href) => {
+        const url = new URL(href, window.location.href);
+        if (url.searchParams.get("tz")) return null;
+        const timezone = browserTimezone();
+        if (!timezone) return null;
+        url.searchParams.set("tz", timezone);
+        return url.href;
+    };
+    up.compiler("[data-listening-link]", (link) => {
+        const url = withBrowserTimezone(link.href);
+        if (url) link.href = url;
+    });
+    // Direct visits have no browser timezone until JavaScript runs. Reload the
+    // whole page so the year selector, cutoff and every fragment agree.
+    up.compiler("[data-listening-url]", (page) => {
+        const url = withBrowserTimezone(page.dataset.listeningUrl);
+        if (url) window.location.replace(url);
+    });
+
     up.compiler("[data-listening-chart]", (element, data) => {
         let disposed = false;
         let chart;

@@ -11,11 +11,10 @@ import (
 //go:embed sql/listening_years.sql
 var listeningYearsSQL string
 
-// ListeningYears finds occupied calendar years in the server timezone. Each
+// ListeningYears finds occupied calendar years in the timezone from at.Location(). Each
 // indexed seek skips directly to the next occupied year rather than reading
 // every scrobble or interpreting local timestamps in SQLite.
 func ListeningYears(ctx context.Context, db *sql.DB, at time.Time) ([]int, error) {
-	at = at.In(time.Local)
 	start := time.Date(1, 1, 1, 0, 0, 0, 0, at.Location())
 	years := []int{}
 	for {
