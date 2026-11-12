@@ -74,7 +74,32 @@ function playerEngineCompiler(up, audio) {
     const hasNext = () => hasTrack() && !radio?.pending &&
         (radio?.current ? true : currentIndex < queue.length - 1);
 
+    // Unpoly updates and restores this metadata with the current page or layer.
+    const pageTitlePrefix = () => {
+        const title = document.querySelector('meta[name="kukicha-page-title"]')?.content;
+        return title ? `${title} - ` : "";
+    };
+    const updateDocumentTitle = () => {
+        const track = currentTrack();
+        const suffix = track && !audio.paused && !audio.ended
+            ? `Now playing "${track.title}"`
+            : "Kukicha";
+        const title = pageTitlePrefix() + suffix;
+        if (document.title !== title) document.title = title;
+    };
+    // Unpoly can restore page or overlay titles independently of playback.
+    const titleObserver = new MutationObserver(updateDocumentTitle);
+    titleObserver.observe(document.head, {
+        childList: true,
+        characterData: true,
+        attributes: true,
+        attributeFilter: ["content"],
+        subtree: true,
+    });
+    updateDocumentTitle();
+
     const emitTrack = () => {
+        updateDocumentTitle();
         up.emit(PLAYER_TRACK_CHANGED, {
             track: currentTrack(),
             trackId: currentTrackID,
@@ -90,6 +115,7 @@ function playerEngineCompiler(up, audio) {
         });
     };
     const emitPlayback = () => {
+        updateDocumentTitle();
         up.emit(PLAYER_PLAYBACK_CHANGED, {
             trackId: currentTrackID,
             currentIndex,
@@ -383,6 +409,10 @@ function playerEngineCompiler(up, audio) {
     };
 
     const unbind = [
+        () => {
+            titleObserver.disconnect();
+            document.title = pageTitlePrefix() + "Kukicha";
+        },
         () => { ++playRevision; },
         up.on(document, "click", radioClick),
         () => radio.dispose(),
