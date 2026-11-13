@@ -1,8 +1,19 @@
+const activeAlerts = new WeakMap();
+
 // Shared by page actions and server-driven job status; survives main-content swaps.
 export function showToast(message, { role = "status", trigger } = {}) {
+    trigger = trigger ? new WeakRef(trigger) : undefined;
     // Keep action errors visible and dismissible inside the active modal as well.
     const front = window.up.layer.front;
     const host = front.isRoot() ? document.body : front.element;
+    let alerts;
+    if (role === "alert") {
+        alerts = activeAlerts.get(host);
+        if (!alerts) activeAlerts.set(host, alerts = new Map());
+        const existing = alerts.get(message);
+        if (existing?.toast.isConnected) return existing.dismiss;
+        existing?.remove();
+    }
     let layer = host.querySelector(":scope > [data-notifications]");
     if (!layer) {
         const template = document.querySelector("#notification-layer-template");
@@ -23,12 +34,16 @@ export function showToast(message, { role = "status", trigger } = {}) {
             : 3000;
     let remaining = Math.max(minimum, message.length * 60);
     let timer;
+    let frame;
     let startedAt;
     let hovered = false;
     let focused = false;
     let removed = false;
     const remove = () => {
+        if (removed) return;
         removed = true;
+        cancelAnimationFrame(frame);
+        alerts?.delete(message);
         clearTimeout(timer);
         document.removeEventListener("visibilitychange", updateTimer);
         toast.remove();
@@ -71,14 +86,19 @@ export function showToast(message, { role = "status", trigger } = {}) {
                 toast.nextElementSibling?.querySelector("button, a") ??
                 toast.previousElementSibling?.querySelector("button, a");
             if (next) next.focus();
-            else if (trigger?.isConnected) trigger.focus();
+            else {
+                const target = trigger?.deref();
+                if (target?.isConnected) target.focus();
+            }
         }
         remove();
     };
     dismiss.addEventListener("click", dismissToast);
     layer.append(toast);
+    alerts?.set(message, { toast, dismiss: dismissToast, remove });
+    window.up.destructor(toast, remove);
     // Populate the live region after attaching it so assistive technology announces it.
-    requestAnimationFrame(() => {
+    frame = requestAnimationFrame(() => {
         if (removed) return;
         text.textContent = message;
         updateTimer();
