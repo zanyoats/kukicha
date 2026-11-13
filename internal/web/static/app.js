@@ -21,6 +21,7 @@ import registerRequestErrors from "./request-errors.js";
 
 up.log.config.banner = false;
 up.history.config.restoreTargets = ["[up-main]"];
+up.network.config.autoCache = () => false;
 
 registerAuth(up);
 registerRequestErrors(up);
