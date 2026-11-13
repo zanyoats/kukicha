@@ -62,6 +62,16 @@ function playerEngineCompiler(up, audio) {
     let playRevision = 0;
     let retriedSource = false;
     let recoveryPosition = null;
+    let sourceLoadedAt = null;
+    let progressTimer = null;
+    let dismissRecoveryToast = null;
+    let recovering = false;
+
+    // Remote redirects expire after one hour (audio.go). Refresh conservatively
+    // on resume; the media element does not reliably expose the signed URL.
+    const sourceRefreshAgeMs = 55 * 60 * 1000;
+    const stallTimeoutMs = 5000;
+    const recoveryTimeoutMs = 10000;
     let volumeBeforeMute = preferredVolume > 0 ? preferredVolume : 1;
 
     // Restart after this point; near the start, play the previous queue item.
@@ -125,7 +135,7 @@ function playerEngineCompiler(up, audio) {
             radioName: radio?.current ? `${radio.current.name} radio` : "",
             radioMode: !!radio?.current,
             pending: !!radio?.pending,
-            playing: hasTrack() && !audio.paused && !audio.ended,
+            playing: hasTrack() && playbackRequested,
         });
     };
     const emitTime = () => {
@@ -156,24 +166,66 @@ function playerEngineCompiler(up, audio) {
         emitVolume();
     };
 
+    const clearRecoveryFeedback = () => {
+        dismissRecoveryToast?.();
+        dismissRecoveryToast = null;
+        recovering = false;
+    };
+    const stopProgressWatch = () => {
+        clearInterval(progressTimer);
+        progressTimer = null;
+    };
+    const pausePlayback = () => {
+        playbackRequested = false;
+        ++playRevision;
+        stopProgressWatch();
+        clearRecoveryFeedback();
+        audio.pause();
+        emitPlayback();
+    };
+    const loadSource = () => {
+        sourceLoadedAt = Date.now();
+        audio.load();
+    };
     const reportPlaybackFailure = (reason) => {
         if (!playbackRequested || !hasTrack()) return;
-        playbackRequested = false;
-        recoveryPosition = null;
+        pausePlayback();
         const title = currentTrack().title;
         showToast(`Couldn’t play ${title ? `“${title}”` : "this track"}. ${reason}`, { role: "alert" });
     };
 
+    const watchProgress = () => {
+        stopProgressWatch();
+        let position = audio.currentTime;
+        let lastProgressAt = Date.now();
+        progressTimer = setInterval(() => {
+            if (!playbackRequested || !hasTrack()) {
+                stopProgressWatch();
+                return;
+            }
+            const now = Date.now();
+            // A playing event alone is not proof that audio is advancing.
+            if (!audio.paused && !audio.seeking && audio.readyState >= 3 &&
+                audio.currentTime > position) {
+                lastProgressAt = now;
+                if (recovering) {
+                    clearRecoveryFeedback();
+                    showToast("Playback resumed.");
+                }
+            }
+            position = audio.currentTime;
+            if (now - lastProgressAt < (retriedSource ? recoveryTimeoutMs : stallTimeoutMs)) return;
+            if (retriedSource) {
+                reportPlaybackFailure("The audio is taking too long to load. Press Play to try again.");
+            } else {
+                reloadForPlayback("Playback stalled. Reconnecting…");
+            }
+        }, 1000);
+    };
+
     const unsupportedSource = "The file may be protected, unavailable, or in an unsupported format.";
-    const requestPlayback = async () => {
+    const playSource = async () => {
         const revision = ++playRevision;
-        if (audio.error) {
-            // An explicit Play after a failed load needs a fresh media resource.
-            retriedSource = false;
-            recoveryPosition = null;
-            audio.load();
-        }
-        playbackRequested = true;
         try {
             await audio.play();
         } catch (error) {
@@ -192,26 +244,48 @@ function playerEngineCompiler(up, audio) {
         }
     };
 
+    const reloadForPlayback = (message) => {
+        retriedSource = true;
+        ++playRevision;
+        // Keep the original position if another load has not reached metadata yet.
+        recoveryPosition ??= Number.isFinite(audio.currentTime) ? audio.currentTime : 0;
+        clearRecoveryFeedback();
+        recovering = true;
+        dismissRecoveryToast = showToast(message);
+        // src still points to our no-store application endpoint. Calling play
+        // immediately also preserves the user gesture on an explicit resume.
+        loadSource();
+        watchProgress();
+        playSource();
+        emitPlayback();
+    };
+
+    const requestPlayback = () => {
+        playbackRequested = true;
+        retriedSource = false;
+        if (audio.error || (sourceLoadedAt !== null &&
+            Date.now() - sourceLoadedAt >= sourceRefreshAgeMs)) {
+            reloadForPlayback("Refreshing the audio connection. Resuming from your paused position…");
+            return;
+        }
+        watchProgress();
+        playSource();
+        emitPlayback();
+    };
+
     const recoverSource = () => {
-        // Media errors do not expose HTTP status codes or reliably expose the
-        // redirected URL. Reload once to recover expired remote signatures,
-        // without looping on a missing object or an unsupported format.
-        if (!hasTrack() || !audio.error) return;
+        // Media errors expose neither HTTP status nor reliably the redirect URL.
+        // Retry once per Play request, shared with the stall watchdog.
+        if (!hasTrack() || !audio.error || !playbackRequested) return;
         const code = audio.error.code;
         if (retriedSource || ![2, 4].includes(code)) {
             if (code === 2) reportPlaybackFailure("The audio download was interrupted.");
             else if (code === 3) reportPlaybackFailure("The browser couldn’t decode the audio. The file may be damaged or unsupported.");
             else if (code === 4) reportPlaybackFailure(unsupportedSource);
-            else if (code !== 1) reportPlaybackFailure("The browser reported a media error.");
-            emitPlayback();
+            else reportPlaybackFailure("The browser reported a media error.");
             return;
         }
-
-        retriedSource = true;
-        ++playRevision;
-        recoveryPosition = Number.isFinite(audio.currentTime) ? audio.currentTime : 0;
-        // src still points to our application endpoint, not the redirect URL.
-        audio.load();
+        reloadForPlayback("The audio connection was interrupted. Reconnecting…");
     };
 
     const loadedMetadata = () => {
@@ -220,9 +294,6 @@ function playerEngineCompiler(up, audio) {
             recoveryPosition = null;
             audio.currentTime = Number.isFinite(audio.duration)
                 ? Math.min(position, audio.duration) : position;
-            if (playbackRequested) {
-                requestPlayback();
-            }
         }
         emitTime();
     };
@@ -243,12 +314,11 @@ function playerEngineCompiler(up, audio) {
         currentTrackID = track.id;
 
         if (!sameSource) {
-            ++playRevision;
-            playbackRequested = false;
+            pausePlayback();
             retriedSource = false;
             recoveryPosition = null;
             audio.setAttribute("src", track.audioURL);
-            audio.load();
+            loadSource();
         } else if (differentEntry) {
             recoveryPosition = null;
             audio.currentTime = 0;
@@ -267,12 +337,10 @@ function playerEngineCompiler(up, audio) {
             return;
         }
 
-        if (audio.paused || audio.ended) {
-            requestPlayback();
-        } else {
-            playbackRequested = false;
-            audio.pause();
-        }
+        // load() temporarily pauses the element during recovery; user intent
+        // keeps the button acting as Pause until playback is cancelled.
+        if (playbackRequested) pausePlayback();
+        else requestPlayback();
     };
 
     const selectTrackInQueue = (event) => {
@@ -388,8 +456,8 @@ function playerEngineCompiler(up, audio) {
         },
         onError: (error, unavailable) => {
             if (unavailable) {
-                playbackRequested = false;
-                audio.pause();
+                pausePlayback();
+                recoveryPosition = null;
                 audio.removeAttribute("src");
                 audio.load();
                 queue = [];
@@ -413,7 +481,12 @@ function playerEngineCompiler(up, audio) {
             titleObserver.disconnect();
             document.title = pageTitlePrefix() + "Kukicha";
         },
-        () => { ++playRevision; },
+        () => {
+            playbackRequested = false;
+            ++playRevision;
+            stopProgressWatch();
+            clearRecoveryFeedback();
+        },
         up.on(document, "click", radioClick),
         () => radio.dispose(),
         () => scrobbler.dispose(),
@@ -423,8 +496,8 @@ function playerEngineCompiler(up, audio) {
             const leavingRadio = !!radio.current || radio.pending;
             radio.leave();
             if (leavingRadio) {
-                playbackRequested = false;
-                audio.pause();
+                pausePlayback();
+                recoveryPosition = null;
                 queue = [];
                 currentIndex = -1;
             }
@@ -452,6 +525,9 @@ function playerEngineCompiler(up, audio) {
         up.on(audio, "pause", emitPlayback),
         up.on(audio, "volumechange", emitVolume),
         up.on(audio, "ended", () => {
+            playbackRequested = false;
+            stopProgressWatch();
+            clearRecoveryFeedback();
             scrobbler.finish();
             if (hasNext()) {
                 playNext();
