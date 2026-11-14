@@ -1881,7 +1881,6 @@ svg.player-queue-play-icon {
 
 .cover-actions button:disabled {
     opacity: 0.5;
-    cursor: wait;
 }
 
 .cover-actions svg {
