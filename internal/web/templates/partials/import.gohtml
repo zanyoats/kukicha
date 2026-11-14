@@ -2,7 +2,7 @@
     <form class="add-form" action="{{.URLs.Add}}" method="post" data-add-form data-max-request-bytes="{{.MaxRequestBytes}}" up-submit="false">
         <div class="root-form-heading">
             <h2>Import into {{.ImportID}}</h2>
-            <a href="{{.URLs.Roots}}" up-target=".config-page" up-history="false">Cancel</a>
+            <a href="{{.URLs.Roots}}" up-target=".config-page" up-history="false" data-add-cancel>Cancel</a>
         </div>
         <input type="hidden" name="root_config_id" value="{{.ImportID}}">
         <div class="add-destination">
@@ -94,6 +94,7 @@
         <div class="add-actions">
             <button type="button" class="action-button" data-add-clear disabled>Clear files</button>
             <button type="submit" class="action-button" data-add-upload>Upload</button>
+            <span class="text-secondary" data-add-progress hidden title="Bytes sent, including multipart headers. The server may still be processing the upload."></span>
         </div>
     </form>
     <template id="source-credentials-help">

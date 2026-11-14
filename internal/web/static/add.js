@@ -5,6 +5,31 @@ function formatSize(bytes) {
     return `${(bytes / 1024 ** unit).toFixed(1)} ${["B", "KiB", "MiB", "GiB", "TiB"][unit]}`;
 }
 
+// Fetch does not expose upload progress; use XHR for multipart uploads.
+function uploadFiles(url, body, signal, onProgress, onUploaded) {
+    return new Promise((resolve, reject) => {
+        signal.throwIfAborted();
+        const request = new XMLHttpRequest();
+        const abort = () => request.abort();
+        request.upload.addEventListener("progress", (event) => onProgress(event.loaded));
+        request.upload.addEventListener("load", onUploaded);
+        request.addEventListener("load", () => {
+            resolve(new Response(request.responseText, { status: request.status }));
+        });
+        request.addEventListener("error", () => reject(new Error("Upload connection failed. Please try again.")));
+        request.addEventListener("abort", () => reject(new DOMException("Upload aborted", "AbortError")));
+        request.addEventListener("loadend", () => signal.removeEventListener("abort", abort));
+        request.open("POST", url);
+        signal.addEventListener("abort", abort, { once: true });
+        try {
+            request.send(body);
+        } catch (error) {
+            signal.removeEventListener("abort", abort);
+            reject(error);
+        }
+    });
+}
+
 // Directory readers return batches; keep reading until an empty batch arrives.
 async function readDroppedEntry(entry, parent, files, signal) {
     signal.throwIfAborted();
@@ -38,6 +63,7 @@ export default function registerAdd(up) {
         const notice = form.querySelector("[data-add-notice]");
         const clear = form.querySelector("[data-add-clear]");
         const upload = form.querySelector("[data-add-upload]");
+        const progress = form.querySelector("[data-add-progress]");
         const root = form.querySelector("[name=root_config_id]");
         const pick = form.querySelector("[data-add-pick-files]");
         const mode = form.querySelector("[name=mode]");
@@ -54,12 +80,15 @@ export default function registerAdd(up) {
         form.addEventListener("invalid", () => {
             form.classList.add("validation-attempted");
         }, { capture: true, signal: controller.signal });
+        const preventLeavingDuringUpload = (event) => {
+            if (!uploading) return;
+            event.preventDefault();
+            notice.textContent = "Keep this dialog open until the build job is queued.";
+            notice.hidden = false;
+        };
+        on(form.querySelector("[data-add-cancel]"), "click", preventLeavingDuringUpload);
         on(document, "up:layer:dismiss", (event) => {
-            if (uploading && event.layer.element.contains(form)) {
-                event.preventDefault();
-                notice.textContent = "Keep this dialog open until the build job is queued.";
-                notice.hidden = false;
-            }
+            if (event.layer.element.contains(form)) preventLeavingDuringUpload(event);
         });
         const selectedBytes = () => {
             let bytes = 0n;
@@ -114,6 +143,7 @@ export default function registerAdd(up) {
             zone.classList.toggle("is-invalid", missingFiles);
             pick.setAttribute("aria-invalid", String(missingFiles));
             upload.disabled = busy;
+            progress.hidden = !uploading || !isFiles;
             upload.textContent = isFiles ? (uploading ? "Uploading…" : "Upload") : (uploading ? "Queueing…" : "Add music");
             root.disabled = busy;
             status.textContent = reading ? "Reading folders…" : selected.size
@@ -180,9 +210,14 @@ export default function registerAdd(up) {
             uploading = true;
             form.setAttribute("aria-busy", "true");
             notice.hidden = true;
+            progress.textContent = "0 B uploaded";
             render();
             try {
-                const response = await fetch(url, {
+                const response = isFiles ? await uploadFiles(url, body, controller.signal, (bytes) => {
+                    progress.textContent = `${formatSize(bytes)} uploaded`;
+                }, () => {
+                    progress.textContent += " · Waiting for server…";
+                }) : await fetch(url, {
                     method: "POST",
                     body,
                     headers,
