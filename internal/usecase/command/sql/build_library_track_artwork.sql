@@ -17,6 +17,10 @@ sidecar_candidates AS (
     JOIN scan_sidecar_covers AS covers
         ON covers.root_pos = scanned_tracks.root_pos
         AND substr(covers.path, 1, length(scanned_tracks.path_dir)) = scanned_tracks.path_dir
+        -- Exclude loose tracks at the storage root or generated import root.
+        AND scanned_tracks.path_dir <> ''
+        AND (scanned_tracks.path_dir NOT GLOB '????-??-??T??????Z/job-[0-9]*/'
+            OR scanned_tracks.path_dir GLOB '????-??-??T??????Z/job-[0-9]*/*/')
     JOIN library_roots AS roots
         ON roots.config_id = scanned_tracks.config_id
     JOIN library_tracks AS tracks

@@ -28,7 +28,13 @@ SELECT a.track_id, a.thumbnail_cache_id, a.source
 FROM library_track_artwork a
 JOIN library_tracks t ON t.id = a.track_id
 JOIN library_roots r ON r.id = t.root_id
-JOIN scan_tracks s ON s.config_id = r.config_id AND s.path = t.path;
+JOIN scan_tracks s ON s.config_id = r.config_id AND s.path = t.path
+-- Do not preserve old sidecar selections for loose top-level tracks.
+WHERE a.source <> 'sidecar' OR (
+    s.path_dir <> ''
+    AND (s.path_dir NOT GLOB '????-??-??T??????Z/job-[0-9]*/'
+        OR s.path_dir GLOB '????-??-??T??????Z/job-[0-9]*/*/')
+);
 
 INSERT OR IGNORE INTO scan_sidecar_covers
 SELECT s.root_pos, c.path_dir, c.stem, c.ext, c.path, c.file_size, c.file_mtime_unix_nano, c.thumbnail_cache_name

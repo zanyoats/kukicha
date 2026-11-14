@@ -52,6 +52,10 @@ FROM sidecars
 JOIN scan_tracks AS audio
     ON audio.root_pos = sidecars.root_pos
     AND substr(sidecars.path, 1, length(audio.path_dir)) = audio.path_dir
+    -- Exclude loose tracks at the storage root or generated import root.
+    AND audio.path_dir <> ''
+    AND (audio.path_dir NOT GLOB '????-??-??T??????Z/job-[0-9]*/'
+        OR audio.path_dir GLOB '????-??-??T??????Z/job-[0-9]*/*/')
 JOIN library_roots AS roots
     ON roots.config_id = audio.config_id
 JOIN library_tracks AS tracks

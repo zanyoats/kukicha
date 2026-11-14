@@ -42,6 +42,9 @@ WHERE EXISTS (
     SELECT 1 FROM unrecognized_tracks AS tracks
     WHERE tracks.config_id = roots.config_id
         AND substr(sidecars.path, 1, length(tracks.path_dir)) = tracks.path_dir
+        AND tracks.path_dir <> ''
+        AND (tracks.path_dir NOT GLOB '????-??-??T??????Z/job-[0-9]*/'
+            OR tracks.path_dir GLOB '????-??-??T??????Z/job-[0-9]*/*/')
 )
 ON CONFLICT (config_id, path) DO UPDATE SET
     kind = excluded.kind,
@@ -52,4 +55,7 @@ WHERE NOT EXISTS (
     SELECT 1 FROM unrecognized_tracks AS tracks
     WHERE tracks.config_id = sidecars.config_id
         AND substr(sidecars.path, 1, length(tracks.path_dir)) = tracks.path_dir
+        AND tracks.path_dir <> ''
+        AND (tracks.path_dir NOT GLOB '????-??-??T??????Z/job-[0-9]*/'
+            OR tracks.path_dir GLOB '????-??-??T??????Z/job-[0-9]*/*/')
 );
