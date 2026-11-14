@@ -125,7 +125,39 @@ func extractParts(ctx context.Context, staging string, parts *multipart.Reader) 
 	return nil
 }
 
-func (e *extractor) part(name string, reader io.Reader) (resultErr error) {
+func (e *extractor) part(name string, reader io.Reader) error {
+	lower := strings.ToLower(name)
+	archive := false
+	for _, suffix := range []string{".zip", ".tar.gz", ".tgz", ".tar.bz2", ".tbz", ".tbz2", ".tar"} {
+		if strings.HasSuffix(lower, suffix) {
+			archive = true
+			break
+		}
+	}
+	if !archive {
+		return e.file(name, reader)
+	}
+
+	// Isolate each archive occurrence, including repeated upload filenames.
+	// Keep internal paths intact whether or not the archive has a top-level folder.
+	directory := "archive-" + newID()
+	if err := e.dir.Mkdir(directory, 0700); err != nil {
+		return fmt.Errorf("archive %q: %w", name, err)
+	}
+	root, err := e.dir.OpenRoot(directory)
+	if err != nil {
+		return fmt.Errorf("archive %q: %w", name, err)
+	}
+	defer root.Close()
+	child := extractor{ctx: e.ctx, dir: root}
+	if err := child.archive(name, reader); err != nil {
+		return fmt.Errorf("archive %q: %w", name, err)
+	}
+	e.hasFiles = e.hasFiles || child.hasFiles
+	return nil
+}
+
+func (e *extractor) archive(name string, reader io.Reader) (resultErr error) {
 	lower := strings.ToLower(name)
 	switch {
 	case strings.HasSuffix(lower, ".zip"):
@@ -156,6 +188,7 @@ func (e *extractor) part(name string, reader io.Reader) (resultErr error) {
 					}
 				}
 				if err != nil {
+					err = fmt.Errorf("entry %q: %w", entry.Name, err)
 					break
 				}
 			}
@@ -173,7 +206,7 @@ func (e *extractor) part(name string, reader io.Reader) (resultErr error) {
 	case strings.HasSuffix(lower, ".tar"):
 		return e.tar(reader)
 	default:
-		return e.file(name, reader)
+		return fmt.Errorf("unsupported archive %q", name)
 	}
 }
 
@@ -199,7 +232,7 @@ func (e *extractor) tar(reader io.Reader) error {
 			err = fmt.Errorf("archive entry %q: links and special entries are not allowed", h.Name)
 		}
 		if err != nil {
-			return err
+			return fmt.Errorf("entry %q: %w", h.Name, err)
 		}
 	}
 }
